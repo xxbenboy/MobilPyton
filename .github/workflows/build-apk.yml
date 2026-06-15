@@ -46,13 +46,13 @@ jobs:
         uses: actions/cache@v4
         with:
           path: ~/.buildozer
-          key: buildozer-global-bt33-${{ hashFiles('buildozer.spec') }}
+          key: buildozer-global-aidl2-${{ hashFiles('buildozer.spec') }}
 
       - name: Cache Buildozer (projet)
         uses: actions/cache@v4
         with:
           path: .buildozer
-          key: buildozer-project-bt33-${{ hashFiles('buildozer.spec') }}
+          key: buildozer-project-aidl2-${{ hashFiles('buildozer.spec') }}
 
       - name: Construire l'APK (debug)
         run: |
@@ -64,17 +64,25 @@ jobs:
 
           SDK="$HOME/.buildozer/android/platform/android-sdk"
           SDKMAN="$(find "$SDK/cmdline-tools" "$SDK/tools" -name sdkmanager -type f 2>/dev/null | head -1)"
-          echo ">>> Installation des build-tools 33.0.2 (qui contiennent aidl)"
-          yes | "$SDKMAN" "build-tools;33.0.2" "platforms;android-33" || true
+          echo ">>> sdkmanager = $SDKMAN"
+          # Les build-tools 33.0.2 contiennent encore le binaire 'aidl'.
+          yes | "$SDKMAN" "build-tools;33.0.2" || true
 
-          # On ne garde que la 33.0.2 pour que python-for-android la choisisse
-          # (il prend sinon la plus recente, sans aidl).
-          if [ -d "$SDK/build-tools/33.0.2" ]; then
-            find "$SDK/build-tools" -maxdepth 1 -mindepth 1 ! -name '33.0.2' -exec rm -rf {} + || true
+          AIDL="$SDK/build-tools/33.0.2/aidl"
+          echo ">>> aidl source :" && ls -l "$AIDL" || echo "!! aidl 33.0.2 introuvable"
+          # On copie 'aidl' dans CHAQUE version de build-tools qui ne l'a pas.
+          # Ainsi il est trouve quelle que soit la version choisie par Buildozer.
+          if [ -f "$AIDL" ]; then
+            for d in "$SDK/build-tools"/*/ ; do
+              if [ ! -f "${d}aidl" ]; then
+                cp "$AIDL" "${d}aidl" && chmod +x "${d}aidl"
+                echo ">>> aidl copie dans ${d}"
+              fi
+            done
           fi
-          echo ">>> build-tools disponibles :" && ls "$SDK/build-tools" || true
+          echo ">>> build-tools presents :" && ls "$SDK/build-tools" || true
 
-          # 2e passe : build complet, aidl est maintenant trouvable.
+          # 2e passe : build complet, aidl est maintenant present partout.
           buildozer android debug
 
       - name: Publier l'APK (artifact telechargeable)
