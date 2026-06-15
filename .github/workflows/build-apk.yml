@@ -41,20 +41,41 @@ jobs:
           pip install buildozer "cython==0.29.36"
 
       # Caches : accelerent fortement les builds suivants (SDK/NDK, etc.).
+      # (suffixe -bt33 : on a change la gestion des build-tools, on repart propre)
       - name: Cache Buildozer (global)
         uses: actions/cache@v4
         with:
           path: ~/.buildozer
-          key: buildozer-global-${{ hashFiles('buildozer.spec') }}
+          key: buildozer-global-bt33-${{ hashFiles('buildozer.spec') }}
 
       - name: Cache Buildozer (projet)
         uses: actions/cache@v4
         with:
           path: .buildozer
-          key: buildozer-project-${{ hashFiles('buildozer.spec') }}
+          key: buildozer-project-bt33-${{ hashFiles('buildozer.spec') }}
 
       - name: Construire l'APK (debug)
-        run: buildozer android debug
+        run: |
+          set -e
+          # 1re passe : Buildozer telecharge le SDK Android. Elle ECHOUE sur
+          # "Aidl not found" (build-tools 34+ ne contiennent plus aidl) :
+          # c'est attendu, on enchaine sur la correction.
+          buildozer android debug || echo ">>> 1re passe terminee (echec aidl attendu)"
+
+          SDK="$HOME/.buildozer/android/platform/android-sdk"
+          SDKMAN="$(find "$SDK/cmdline-tools" "$SDK/tools" -name sdkmanager -type f 2>/dev/null | head -1)"
+          echo ">>> Installation des build-tools 33.0.2 (qui contiennent aidl)"
+          yes | "$SDKMAN" "build-tools;33.0.2" "platforms;android-33" || true
+
+          # On ne garde que la 33.0.2 pour que python-for-android la choisisse
+          # (il prend sinon la plus recente, sans aidl).
+          if [ -d "$SDK/build-tools/33.0.2" ]; then
+            find "$SDK/build-tools" -maxdepth 1 -mindepth 1 ! -name '33.0.2' -exec rm -rf {} + || true
+          fi
+          echo ">>> build-tools disponibles :" && ls "$SDK/build-tools" || true
+
+          # 2e passe : build complet, aidl est maintenant trouvable.
+          buildozer android debug
 
       - name: Publier l'APK (artifact telechargeable)
         uses: actions/upload-artifact@v4
