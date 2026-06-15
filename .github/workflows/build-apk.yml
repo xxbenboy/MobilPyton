@@ -41,7 +41,6 @@ jobs:
           pip install buildozer "cython==0.29.36"
 
       # Caches : accelerent fortement les builds suivants (SDK/NDK, etc.).
-      # (suffixe -bt33 : on a change la gestion des build-tools, on repart propre)
       - name: Cache Buildozer (global)
         uses: actions/cache@v4
         with:
@@ -57,32 +56,35 @@ jobs:
       - name: Construire l'APK (debug)
         run: |
           set -e
-          # 1re passe : Buildozer telecharge le SDK Android. Elle ECHOUE sur
-          # "Aidl not found" (build-tools 34+ ne contiennent plus aidl) :
-          # c'est attendu, on enchaine sur la correction.
+          # 1re passe : Buildozer telecharge le SDK Android. Elle ECHOUE car la
+          # licence des build-tools n'est pas acceptee (donc rien d'installe) et
+          # aidl est introuvable. C'est attendu : on corrige juste apres.
           buildozer android debug || echo ">>> 1re passe terminee (echec aidl attendu)"
 
           SDK="$HOME/.buildozer/android/platform/android-sdk"
-          SDKMAN="$(find "$SDK/cmdline-tools" "$SDK/tools" -name sdkmanager -type f 2>/dev/null | head -1)"
-          echo ">>> sdkmanager = $SDKMAN"
-          # Les build-tools 33.0.2 contiennent encore le binaire 'aidl'.
-          yes | "$SDKMAN" "build-tools;33.0.2" || true
+          # sdkmanager FONCTIONNEL pre-installe sur le serveur (compatible Java 17).
+          # (celui de Buildozer, dans tools/bin, est casse pour un usage direct.)
+          SYSSDK="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          SDKMAN="$(find "$SYSSDK/cmdline-tools" /usr/local/lib/android/sdk/cmdline-tools -name sdkmanager -type f 2>/dev/null | head -1)"
+          echo ">>> sdkmanager (serveur) = $SDKMAN"
 
+          # 1) Accepter TOUTES les licences pour le SDK de Buildozer.
+          yes | "$SDKMAN" --sdk_root="$SDK" --licenses || true
+          # 2) Installer des build-tools STABLES qui contiennent aidl (33.0.2).
+          yes | "$SDKMAN" --sdk_root="$SDK" "platform-tools" "platforms;android-33" "build-tools;33.0.2"
+
+          echo ">>> build-tools presents :" && ls "$SDK/build-tools" || true
+          # 3) Securite : copier aidl dans toute autre version de build-tools.
           AIDL="$SDK/build-tools/33.0.2/aidl"
-          echo ">>> aidl source :" && ls -l "$AIDL" || echo "!! aidl 33.0.2 introuvable"
-          # On copie 'aidl' dans CHAQUE version de build-tools qui ne l'a pas.
-          # Ainsi il est trouve quelle que soit la version choisie par Buildozer.
           if [ -f "$AIDL" ]; then
             for d in "$SDK/build-tools"/*/ ; do
-              if [ ! -f "${d}aidl" ]; then
-                cp "$AIDL" "${d}aidl" && chmod +x "${d}aidl"
-                echo ">>> aidl copie dans ${d}"
-              fi
+              [ -f "${d}aidl" ] || { cp "$AIDL" "${d}aidl"; chmod +x "${d}aidl"; }
             done
+          else
+            echo "!! aidl introuvable dans 33.0.2 -- voir le log ci-dessus"
           fi
-          echo ">>> build-tools presents :" && ls "$SDK/build-tools" || true
 
-          # 2e passe : build complet, aidl est maintenant present partout.
+          # 2e passe : build complet, aidl est maintenant present.
           buildozer android debug
 
       - name: Publier l'APK (artifact telechargeable)
