@@ -1,0 +1,64 @@
+# Build automatique de l'APK Android dans le cloud (GitHub Actions).
+#
+# A chaque push sur main/master (ou lancement manuel depuis l'onglet
+# "Actions"), un serveur Linux construit l'APK et le met a disposition en
+# telechargement (artifact "MobilPyton-APK").
+#
+# Aucun Linux/WSL necessaire de ton cote : tu pousses le code, tu telecharges
+# l'APK depuis la page de l'execution.
+
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main, master ]
+  workflow_dispatch:        # bouton "Run workflow" dans l'onglet Actions
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+
+    steps:
+      - name: Recuperer le code
+        uses: actions/checkout@v4
+
+      - name: Installer Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Dependances systeme (Android / build)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            git zip unzip openjdk-17-jdk python3-pip \
+            autoconf libtool pkg-config zlib1g-dev libncurses-dev \
+            cmake libffi-dev libssl-dev build-essential ccache libltdl-dev
+
+      - name: Installer Buildozer
+        run: |
+          python -m pip install --upgrade pip
+          pip install buildozer "cython==0.29.36"
+
+      # Caches : accelerent fortement les builds suivants (SDK/NDK, etc.).
+      - name: Cache Buildozer (global)
+        uses: actions/cache@v4
+        with:
+          path: ~/.buildozer
+          key: buildozer-global-${{ hashFiles('buildozer.spec') }}
+
+      - name: Cache Buildozer (projet)
+        uses: actions/cache@v4
+        with:
+          path: .buildozer
+          key: buildozer-project-${{ hashFiles('buildozer.spec') }}
+
+      - name: Construire l'APK (debug)
+        run: buildozer android debug
+
+      - name: Publier l'APK (artifact telechargeable)
+        uses: actions/upload-artifact@v4
+        with:
+          name: MobilPyton-APK
+          path: bin/*.apk
+          if-no-files-found: error

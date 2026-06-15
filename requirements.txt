@@ -1,0 +1,3 @@
+# Dependances pour DEVELOPPER et TESTER sur PC.
+# Installation :  py -m pip install -r requirements.txt
+kivy>=2.3.0
