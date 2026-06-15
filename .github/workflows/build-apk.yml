@@ -27,11 +27,20 @@ jobs:
         with:
           python-version: '3.11'
 
+      # Le plugin Android Gradle EXIGE Java 17. Cette action installe Java 17
+      # ET pointe JAVA_HOME dessus pour toutes les etapes suivantes (sinon
+      # Gradle prend le Java 11 par defaut du serveur et echoue).
+      - name: Installer Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
       - name: Dependances systeme (Android / build)
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            git zip unzip openjdk-17-jdk python3-pip \
+            git zip unzip python3-pip \
             autoconf libtool pkg-config zlib1g-dev libncurses-dev \
             cmake libffi-dev libssl-dev build-essential ccache libltdl-dev
 
@@ -56,6 +65,9 @@ jobs:
       - name: Construire l'APK (debug)
         run: |
           set -e
+          echo ">>> JAVA_HOME = $JAVA_HOME"
+          java -version
+
           # 1re passe : Buildozer telecharge le SDK Android. Elle ECHOUE car la
           # licence des build-tools n'est pas acceptee (donc rien d'installe) et
           # aidl est introuvable. C'est attendu : on corrige juste apres.
@@ -84,7 +96,7 @@ jobs:
             echo "!! aidl introuvable dans 33.0.2 -- voir le log ci-dessus"
           fi
 
-          # 2e passe : build complet, aidl est maintenant present.
+          # 2e passe : build complet (aidl present + Gradle en Java 17).
           buildozer android debug
 
       - name: Publier l'APK (artifact telechargeable)
