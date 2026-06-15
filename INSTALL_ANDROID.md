@@ -136,9 +136,37 @@ cp bin/*.apk "/mnt/c/Users/ben/Desktop/"
 
 ---
 
-## Alternative sans WSL : build dans le cloud
+## Alternative sans WSL : build dans le cloud (GitHub Actions)
 
-Si tu prefereres ne rien installer, on peut configurer **GitHub Actions** :
-tu envoies le code sur GitHub, un serveur construit l'APK automatiquement, et
-tu telecharges le fichier. Dis-le moi et je mets en place le fichier de
-configuration.
+Le projet contient deja le fichier de configuration
+[`.github/workflows/build-apk.yml`](.github/workflows/build-apk.yml) : a chaque
+envoi du code sur GitHub, un serveur Linux construit l'APK tout seul et te le
+met a telecharger. **Rien a installer sur ton PC.**
+
+Le depot git local est deja initialise et un premier commit est fait. Il reste
+a l'envoyer sur GitHub :
+
+1. Cree un compte sur https://github.com (si pas deja fait).
+2. Cree un **nouveau depot vide** : bouton **New**, nomme-le par ex.
+   `MobilPyton`, laisse-le **vide** (ne coche ni README ni .gitignore), choisis
+   prive ou public, puis **Create repository**.
+3. GitHub affiche une adresse type `https://github.com/TON_PSEUDO/MobilPyton.git`.
+   Dans **PowerShell**, depuis le dossier du projet :
+   ```powershell
+   cd C:\Users\ben\Documents\MobilPyton
+   git remote add origin https://github.com/TON_PSEUDO/MobilPyton.git
+   git push -u origin main
+   ```
+   > Si on te demande de te connecter : une fenetre GitHub s'ouvre (ou utilise
+   > un *Personal Access Token* comme mot de passe). Git pour Windows gere
+   > generalement la connexion par navigateur automatiquement.
+4. Sur la page GitHub du depot, onglet **Actions** : le build **« Build Android
+   APK »** demarre tout seul. Le 1er prend ~20-40 min (les suivants, quelques
+   minutes grace au cache).
+5. Quand le rond devient **vert**, clique sur l'execution → section
+   **Artifacts** en bas → telecharge **`MobilPyton-APK`** (un `.zip`).
+6. Decompresse le `.zip` : tu obtiens le fichier `.apk`. Installe-le sur le
+   telephone comme explique a l'**Etape 5** ci-dessus.
+
+Pour reconstruire apres une modif : `git add . && git commit -m "..." &&
+git push`. Un nouveau build se lance automatiquement.
