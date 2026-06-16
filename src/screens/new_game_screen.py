@@ -45,9 +45,9 @@ class NewGameScreen(Screen):
                                 size_hint=(1, 0.08)), 0.018))
         self.name_input = TextInput(multiline=False, size_hint=(1, 0.12),
                                     padding=(10, 6))
-        # Nom limite a 16 caracteres + police qui suit la HAUTEUR de la barre
-        # (le texte remplit la barre au lieu d'une taille fixe).
-        self.name_input.bind(text=self._limit_name, height=self._fit_font)
+        # Nom limite a 16 caracteres, verification en direct du nom (unique),
+        # et police qui suit la HAUTEUR de la barre.
+        self.name_input.bind(text=self._on_name_change, height=self._fit_font)
         column.add_widget(self.name_input)
 
         column.add_widget(scale_font(Label(text="Difficulte",
@@ -69,10 +69,10 @@ class NewGameScreen(Screen):
                            color=(1, 0.5, 0.5, 1), size_hint=(1, 0.08)), 0.016)
         column.add_widget(self.error)
 
-        start_btn = scale_font(Button(text="Commencer",
+        self.start_btn = scale_font(Button(text="Commencer",
                            size_hint=(1, 0.18)), 0.024)
-        start_btn.bind(on_release=self.start)
-        column.add_widget(start_btn)
+        self.start_btn.bind(on_release=self.start)
+        column.add_widget(self.start_btn)
 
         back_btn = scale_font(Button(text="Retour", size_hint=(1, 0.12)), 0.018)
         back_btn.bind(on_release=lambda *_: setattr(self.manager, "current",
@@ -86,13 +86,27 @@ class NewGameScreen(Screen):
         # Repart d'un formulaire propre a chaque arrivee.
         self.name_input.text = ""
         self.error.text = ""
+        self.start_btn.disabled = False
         for tb in self.diff_buttons:
             tb.state = "down" if tb.text == "Moyen" else "normal"
 
-    def _limit_name(self, instance, value):
+    def _on_name_change(self, instance, value):
         # Coupe le nom a 16 caracteres maximum.
         if len(value) > MAX_NAME_LENGTH:
             instance.text = value[:MAX_NAME_LENGTH]
+            return  # le texte coupe redeclenche cet evenement
+        self._validate_name()
+
+    def _validate_name(self):
+        # Empeche d'utiliser un nom deja pris : avertit + desactive "Commencer".
+        name = self.name_input.text.strip()
+        if name and App.get_running_app().save_manager.exists(name):
+            self.error.text = "Ce nom existe deja.\nChoisis-en un autre."
+            self.start_btn.disabled = True
+        else:
+            if self.error.text.startswith("Ce nom existe"):
+                self.error.text = ""
+            self.start_btn.disabled = False
 
     def _fit_font(self, instance, height):
         # La police occupe ~55 % de la hauteur de la barre.
@@ -111,9 +125,13 @@ class NewGameScreen(Screen):
             return
 
         app = App.get_running_app()
-        # Limite a MAX_SAVES parties. Reutiliser un nom existant ecrase la
-        # meme partie (ca n'augmente pas le total), donc c'est autorise.
-        if not app.save_manager.exists(name) and app.save_manager.is_full():
+        # Nom deja utilise : interdit (les noms doivent etre uniques).
+        if app.save_manager.exists(name):
+            self.error.text = "Ce nom existe deja.\nChoisis-en un autre."
+            self.start_btn.disabled = True
+            return
+        # Limite a MAX_SAVES parties.
+        if app.save_manager.is_full():
             self.error.text = (f"Maximum {MAX_SAVES} parties.\n"
                                "Supprime-en une dans 'Charger'.")
             return
