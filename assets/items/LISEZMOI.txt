@@ -1,0 +1,42 @@
+IMAGES DES OBJETS
+=================
+
+Depose ici les images des objets du jeu. Le jeu cherche automatiquement
+un fichier nomme d'apres l'objet :
+
+    assets/items/<nom>.png      (ou .jpg / .jpeg)
+
+Tant qu'aucune image n'existe pour un objet, le jeu affiche un "?" avec le
+nom dessous. Des que tu ajoutes le bon fichier (meme nom), il s'affiche.
+
+----------------------------------------------------------------
+NOMS DE FICHIERS ATTENDUS (exactement, en minuscules)
+----------------------------------------------------------------
+Objets trouves :
+    branche.png
+    pierre.png
+    feuille.png
+    champignon.png
+    baie.png
+    herbe.png
+    fleur.png
+    poisson.png
+    roseau.png
+    minerai.png
+
+Objets fabriques (craft) :
+    couteau.png
+    hache.png
+    lance.png
+    feu_de_camp.png        (underscore _ a la place des espaces)
+
+----------------------------------------------------------------
+CONSEILS
+----------------------------------------------------------------
+- Format conseille : PNG carre avec fond transparent (ex. 256x256).
+- Le nom doit correspondre EXACTEMENT (minuscules, sans accents,
+  underscore pour les espaces).
+- Apres avoir ajoute des images : pousse le projet (envoyer-sur-github.bat)
+  pour qu'elles soient incluses dans l'APK.
+
+La liste des objets et des recettes est dans : src/items.py

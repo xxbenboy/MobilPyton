@@ -81,8 +81,17 @@ def _home(cx, cy, s):                                # maison (menu)
     Rectangle(pos=(cx - s * 0.13, cy - s * 0.52), size=(s * 0.26, s * 0.34))
 
 
+def _craft(cx, cy, s):                               # marteau
+    Color(0.62, 0.45, 0.28, 1)                       # manche
+    Line(points=[cx - s * 0.05, cy - s * 0.6, cx + s * 0.2, cy + s * 0.35],
+         width=max(2.0, s * 0.16))
+    Color(0.80, 0.82, 0.86, 1)                       # tete
+    Rectangle(pos=(cx - s * 0.15, cy + s * 0.28), size=(s * 0.7, s * 0.32))
+
+
 ICONS = {"explore": _explore, "wood": _wood, "food": _food, "drink": _drink,
-         "fill": _fill, "rest": _rest, "map": _map, "home": _home}
+         "fill": _fill, "rest": _rest, "map": _map, "home": _home,
+         "craft": _craft}
 
 
 class IconButton(StyledButton):

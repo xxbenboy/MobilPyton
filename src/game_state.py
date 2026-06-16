@@ -39,6 +39,9 @@ HEALTH_RATE = 0.05    # la vie baisse si faim/soif au max ou sommeil/energie a 0
 # On ne peut dormir (Se reposer) que si l'energie est <= a ce seuil.
 SLEEP_ENERGY_MAX = 70
 
+# Le joueur ne peut tenir que 2 objets dans ses mains a la fois.
+HANDS_MAX = 2
+
 
 def _clamp100(v):
     return max(0, min(100, v))
@@ -48,6 +51,7 @@ class GameState:
     def __init__(self, seed, name="Partie", difficulty="Moyen", time_seconds=0,
                  health=100, energy=100, sleep=100, hunger=0, thirst=0,
                  wood=0, food=0, water=0, action_count=0,
+                 hands=None, ground=None,
                  log=None, player_x=None, player_y=None):
         self.seed = seed
         self.name = name
@@ -61,6 +65,9 @@ class GameState:
         self.wood = wood
         self.food = food
         self.water = water          # eau dans la gourde (unites a boire)
+        # Inventaire : 2 objets max dans les mains, le reste au sol (par case).
+        self.hands = list(hands) if hands else []
+        self.ground = ground if ground else {}      # {"x,y": {objet: nombre}}
         self.action_count = action_count
         self.log = log if log is not None else []
 
@@ -150,6 +157,89 @@ class GameState:
                 and world.has_stream(self.seed, self.player_x, self.player_y))
 
     # ------------------------------------------------------------------ #
+    # Inventaire (mains / sol) et craft
+    # ------------------------------------------------------------------ #
+    def _cell_key(self):
+        return f"{self.player_x},{self.player_y}"
+
+    def ground_here(self):
+        """Objets au sol sur la case actuelle : {objet: nombre}."""
+        return self.ground.get(self._cell_key(), {})
+
+    def hands_full(self):
+        return len(self.hands) >= HANDS_MAX
+
+    def add_ground(self, item, n=1):
+        g = self.ground.setdefault(self._cell_key(), {})
+        g[item] = g.get(item, 0) + n
+
+    def take_from_ground(self, item):
+        """Ramasse 1 objet du sol vers les mains (si place)."""
+        g = self.ground.get(self._cell_key(), {})
+        if g.get(item, 0) <= 0 or self.hands_full():
+            return False
+        g[item] -= 1
+        if g[item] <= 0:
+            del g[item]
+        if not g:
+            self.ground.pop(self._cell_key(), None)
+        self.hands.append(item)
+        return True
+
+    def drop_from_hands(self, index):
+        """Depose au sol l'objet tenu a l'indice donne."""
+        if 0 <= index < len(self.hands):
+            self.add_ground(self.hands.pop(index))
+            return True
+        return False
+
+    def take_found(self, item):
+        """Prend un objet trouve : dans les mains si place, sinon au sol."""
+        if not self.hands_full():
+            self.hands.append(item)
+            return True
+        self.add_ground(item)
+        return False
+
+    def craft_pool(self):
+        """Objets disponibles pour le craft = mains + sol de la case."""
+        pool = {}
+        for it in self.hands:
+            pool[it] = pool.get(it, 0) + 1
+        for it, c in self.ground_here().items():
+            pool[it] = pool.get(it, 0) + c
+        return pool
+
+    def can_craft(self, recipe):
+        pool = self.craft_pool()
+        return all(pool.get(k, 0) >= v for k, v in recipe["ingredients"].items())
+
+    def do_craft(self, recipe):
+        """Fabrique : consomme les ingredients (sol d'abord, puis mains)."""
+        if not self.can_craft(recipe):
+            return False
+        for item, qty in recipe["ingredients"].items():
+            need = qty
+            g = self.ground.get(self._cell_key(), {})
+            take = min(need, g.get(item, 0))
+            if take:
+                g[item] -= take
+                if g[item] <= 0:
+                    del g[item]
+                need -= take
+            while need > 0 and item in self.hands:
+                self.hands.remove(item)
+                need -= 1
+            if not g:
+                self.ground.pop(self._cell_key(), None)
+        result = recipe["result"]
+        if not self.hands_full():
+            self.hands.append(result)
+        else:
+            self.add_ground(result)
+        return True
+
+    # ------------------------------------------------------------------ #
     # Journal
     # ------------------------------------------------------------------ #
     def add_log(self, message):
@@ -174,6 +264,8 @@ class GameState:
             "wood": self.wood,
             "food": self.food,
             "water": self.water,
+            "hands": self.hands,
+            "ground": self.ground,
             "action_count": self.action_count,
             "log": self.log,
             "player_x": self.player_x,
@@ -200,6 +292,8 @@ class GameState:
             wood=data.get("wood", 0),
             food=data.get("food", 0),
             water=data.get("water", 0),
+            hands=data.get("hands"),
+            ground=data.get("ground"),
             action_count=data.get("action_count", 0),
             log=data.get("log", []),
             player_x=data.get("player_x"),

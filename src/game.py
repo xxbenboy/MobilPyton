@@ -26,6 +26,7 @@ from src.screens.new_game_screen import NewGameScreen
 from src.screens.load_screen import LoadScreen
 from src.screens.game_screen import GameScreen
 from src.screens.map_screen import MapScreen
+from src.screens.craft_screen import CraftScreen
 
 
 class MobilPytonApp(App):
@@ -43,6 +44,7 @@ class MobilPytonApp(App):
         sm.add_widget(LoadScreen(name="load"))
         sm.add_widget(GameScreen(name="game"))
         sm.add_widget(MapScreen(name="map"))
+        sm.add_widget(CraftScreen(name="craft"))
 
         # Sauvegarde juste avant la fermeture de la fenetre (PC).
         Window.bind(on_request_close=self._on_request_close)

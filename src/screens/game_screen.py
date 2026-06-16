@@ -27,8 +27,13 @@ from kivy.metrics import dp
 from src.game_state import _clamp100
 from src.widgets.animated_background import AnimatedBackground
 from src.widgets.zone_scenery import ZoneScenery
+from kivy.uix.popup import Popup
+
+from src import items
 from src.widgets.player_hands import PlayerHands
 from src.widgets.icon_button import IconButton
+from src.widgets.styled_button import StyledButton
+from src.widgets.item_icon import ItemIcon
 from src.widgets.stat_bar import StatBar
 from src.widgets.responsive import scale_font
 
@@ -40,7 +45,7 @@ FAST_FORWARD_SCALE = 3600     # avance rapide : 1h de jeu / s reelle
 # temps). "requires_sleep" => possible seulement si on est assez fatigue.
 ACTIONS = [
     {"label": "Explorer", "icon": "explore", "name": "Explorer",
-     "minutes": 90, "energy": -10, "food": 1},
+     "minutes": 90, "energy": -10, "type": "explore"},
     {"label": "Couper du bois", "icon": "wood", "name": "Couper\ndu bois",
      "minutes": 120, "energy": -15, "wood": 3},
     {"label": "Chercher a manger", "icon": "food", "name": "Chercher\na manger",
@@ -88,6 +93,7 @@ class GameScreen(Screen):
         self._ff_active = False
         self._ff_remaining = 0.0
         self._ff_label = ""
+        self._found_item = None        # objet decouvert a la fin d'une exploration
         self._scene_key = None
 
         root = FloatLayout()
@@ -152,7 +158,7 @@ class GameScreen(Screen):
         # ---- Boutons d'action : icones CARREES, confinees EN BAS A GAUCHE.
         # La zone est fixe ; ajouter des boutons augmente le nombre de
         # colonnes/lignes et donc REDUIT la taille des boutons (jamais la zone).
-        n_btn = len(ACTIONS) + 2                  # actions + Carte + Menu
+        n_btn = len(ACTIONS) + 3                  # actions + Carte + Craft + Menu
         cols = max(1, int(math.ceil(n_btn ** 0.5)))
         grid = GridLayout(cols=cols, spacing=dp(6),
                           size_hint=(0.42, 0.50),
@@ -196,6 +202,9 @@ class GameScreen(Screen):
         self.map_btn = add_cell("map", "Carte",
                                 lambda *_: setattr(self.manager,
                                                    "current", "map"))
+        self.craft_btn = add_cell("craft", "Craft",
+                                  lambda *_: setattr(self.manager,
+                                                     "current", "craft"))
         self.back_btn = add_cell("home", "Menu", self.back_to_menu)
         root.add_widget(grid)
 
@@ -252,6 +261,9 @@ class GameScreen(Screen):
             state.water += 3
         elif atype == "drink" and not state.has_water_source():
             state.water = max(0, state.water - 1)
+        elif atype == "explore":
+            # On determine la trouvaille ; le popup s'affiche a la fin du trajet.
+            self._found_item = items.random_find(state.current_zone())
 
         state.health = _clamp100(state.health + action.get("health", 0))
         state.energy = _clamp100(state.energy + action.get("energy", 0))
@@ -273,6 +285,43 @@ class GameScreen(Screen):
         self._ff_active = False
         self._ff_label = ""
         App.get_running_app().autosave()
+        if self._found_item:
+            item = self._found_item
+            self._found_item = None
+            self._show_find_popup(item)
+
+    def _show_find_popup(self, item):
+        content = BoxLayout(orientation="vertical", spacing=dp(8),
+                            padding=dp(10))
+        content.add_widget(ItemIcon(item, size_hint=(1, 0.55)))
+        content.add_widget(scale_font(Label(
+            text="Tu trouves : " + items.display_name(item),
+            size_hint=(1, 0.18)), 0.04))
+        row = BoxLayout(orientation="horizontal", spacing=dp(10),
+                        size_hint=(1, 0.27))
+        take = scale_font(StyledButton(text="Prendre"), 0.03)
+        leave = scale_font(StyledButton(text="Laisser"), 0.03)
+        row.add_widget(take)
+        row.add_widget(leave)
+        content.add_widget(row)
+        popup = Popup(title="Exploration", content=content,
+                      size_hint=(0.7, 0.6), auto_dismiss=False)
+
+        def _take(*_):
+            App.get_running_app().game_state.take_found(item)
+            popup.dismiss()
+            App.get_running_app().autosave()
+            self.refresh()
+
+        def _leave(*_):
+            App.get_running_app().game_state.add_ground(item)
+            popup.dismiss()
+            App.get_running_app().autosave()
+            self.refresh()
+
+        take.bind(on_release=_take)
+        leave.bind(on_release=_leave)
+        popup.open()
 
     def back_to_menu(self, *_):
         App.get_running_app().autosave()
@@ -305,6 +354,7 @@ class GameScreen(Screen):
         for btn, action in self._action_buttons:
             btn.disabled = self._ff_active or not _action_available(state, action)
         self.map_btn.disabled = self._ff_active
+        self.craft_btn.disabled = self._ff_active
         self.back_btn.disabled = self._ff_active
 
         self.background.set_seconds(state.time_seconds)
