@@ -12,27 +12,35 @@ HAUTEUR de la fenetre. Exemple : fraction=0.03 => le texte fait toujours
 """
 from kivy.core.window import Window
 
-# Multiplicateur GLOBAL de la taille du texte (1.0 = normal). On l'augmente
-# pour grossir toutes les ecritures du jeu d'un coup.
+# Multiplicateur global pour les calculs bases sur la fenetre (font_for).
 FONT_SCALE = 1.3
+
+# Part de la HAUTEUR DU CONTENEUR occupee par le texte (par ligne). Proche de
+# 1 = le texte remplit au maximum la hauteur de sa boite.
+FILL_RATIO = 0.78
 
 
 def font_for(fraction, minimum=10):
-    """Taille de police (px) correspondant a une fraction de la hauteur."""
+    """Taille de police (px) correspondant a une fraction de la hauteur fenetre.
+
+    Sert encore pour des dimensions de mise en page (hauteur de ligne, etc.).
+    """
     return max(minimum, Window.height * fraction * FONT_SCALE)
 
 
-def scale_font(widget, fraction, minimum=10):
-    """Fait suivre la police du widget a la hauteur de la fenetre.
+def scale_font(widget, fraction=None, minimum=10):
+    """Fait que le texte REMPLIT la hauteur de son conteneur.
 
-    Retourne le widget pour pouvoir l'utiliser directement a la creation :
-        layout.add_widget(scale_font(Label(text="Titre"), 0.035))
+    La police est calculee a partir de la hauteur du widget lui-meme, divisee
+    par le nombre de lignes du texte -> le texte occupe au mieux sa boite,
+    quelle que soit la taille de l'ecran. (`fraction` est ignore, garde pour
+    compatibilite avec les appels existants.)
     """
     def _update(*_):
-        widget.font_size = font_for(fraction, minimum)
+        text = widget.text or ""
+        lines = text.count("\n") + 1
+        widget.font_size = max(minimum, widget.height * FILL_RATIO / lines)
 
     _update()
-    # `on_resize` est l'evenement fiable quand la fenetre change de taille
-    # (binder `height` ne se declenche pas toujours : c'est une AliasProperty).
-    Window.bind(on_resize=_update)
+    widget.bind(height=_update, text=_update)
     return widget
