@@ -18,7 +18,7 @@ from kivy.uix.button import Button
 from kivy.uix.scrollview import ScrollView
 
 from src.save_manager import MAX_SAVES
-from src.widgets.animated_background import AnimatedBackground
+from src.widgets.menu_backdrop import MenuBackdrop
 from src.widgets.responsive import scale_font, font_for
 
 
@@ -27,8 +27,7 @@ class LoadScreen(Screen):
         super().__init__(**kwargs)
 
         root = FloatLayout()
-        root.add_widget(AnimatedBackground(size_hint=(1, 1),
-                                           pos_hint={"x": 0, "y": 0}))
+        root.add_widget(MenuBackdrop())
 
         column = BoxLayout(orientation="vertical", padding=20, spacing=10,
                            size_hint=(0.92, 0.9),

@@ -19,7 +19,7 @@ from kivy.uix.togglebutton import ToggleButton
 
 from src.game_state import GameState, DIFFICULTIES
 from src.save_manager import MAX_SAVES
-from src.widgets.animated_background import AnimatedBackground
+from src.widgets.menu_backdrop import MenuBackdrop
 from src.widgets.responsive import scale_font
 
 # Longueur maximale du nom d'une partie.
@@ -31,8 +31,7 @@ class NewGameScreen(Screen):
         super().__init__(**kwargs)
 
         root = FloatLayout()
-        root.add_widget(AnimatedBackground(size_hint=(1, 1),
-                                           pos_hint={"x": 0, "y": 0}))
+        root.add_widget(MenuBackdrop())
 
         column = BoxLayout(orientation="vertical", padding=24, spacing=12,
                            size_hint=(0.88, 0.8),

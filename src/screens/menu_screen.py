@@ -16,8 +16,7 @@ from kivy.uix.label import Label
 from kivy.graphics import Color, RoundedRectangle
 from kivy.metrics import dp
 
-from src.widgets.animated_background import AnimatedBackground, MENU_TIME_SCALE
-from src.widgets.nature_silhouette import NatureSilhouette
+from src.widgets.menu_backdrop import MenuBackdrop
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font
 from src.widgets.fonts import title_font, ui_font
@@ -29,14 +28,8 @@ class MenuScreen(Screen):
 
         root = FloatLayout()
 
-        # Le temps demarre a 6h et s'ecoule (24h en 4 min) : le ciel suit.
-        root.add_widget(AnimatedBackground(start_seconds=6 * 3600,
-                                           time_scale=MENU_TIME_SCALE,
-                                           size_hint=(1, 1),
-                                           pos_hint={"x": 0, "y": 0}))
-        # Silhouette de foret (collines + sapins) en bas, devant le fond.
-        root.add_widget(NatureSilhouette(size_hint=(1, 1),
-                                         pos_hint={"x": 0, "y": 0}))
+        # Fond commun des ecrans de menu (ciel qui defile + foret).
+        root.add_widget(MenuBackdrop())
 
         content = BoxLayout(orientation="vertical",
                             padding=dp(26), spacing=dp(14),
