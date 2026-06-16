@@ -16,6 +16,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 
 from src.widgets.animated_background import AnimatedBackground
+from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font
 
@@ -45,6 +46,10 @@ class GameScreen(Screen):
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         root.add_widget(self.background)
+        # Decor de premier plan selon la zone (foret, champ, montagne, lac).
+        self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.scenery)
+        self._scene_key = None
 
         column = BoxLayout(orientation="vertical", padding=16, spacing=8,
                            size_hint=(0.92, 0.94),
@@ -139,6 +144,12 @@ class GameScreen(Screen):
         )
         self.journal.text = "\n".join(state.log)
         self.background.set_seconds(state.time_seconds)
+        # Decor selon la zone : redessine seulement si la case a change.
+        key = (state.current_zone(), state.player_x, state.player_y)
+        if key != self._scene_key:
+            self.scenery.set_scene(state.current_zone(),
+                                   state.player_x * 131 + state.player_y)
+            self._scene_key = key
 
     def _periodic_autosave(self, _dt):
         App.get_running_app().autosave()
