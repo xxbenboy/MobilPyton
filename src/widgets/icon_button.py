@@ -88,6 +88,11 @@ ICONS = {"explore": _explore, "wood": _wood, "food": _food, "drink": _drink,
 class IconButton(StyledButton):
     def __init__(self, icon="", **kwargs):
         super().__init__(**kwargs)
+        # Boutons noir / gris : les logos colores ressortent mieux.
+        self.set_palette(idle=(0.11, 0.11, 0.12, 0.96),
+                         down=(0.32, 0.32, 0.35, 0.98),
+                         off=(0.07, 0.07, 0.08, 0.75),
+                         border=(0.65, 0.65, 0.70, 0.55))
         self.icon = icon
         self.text = ""                              # pas de texte sur le bouton
         self.bind(pos=self._draw_icon, size=self._draw_icon)

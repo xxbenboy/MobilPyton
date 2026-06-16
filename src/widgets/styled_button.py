@@ -31,14 +31,25 @@ class StyledButton(Button):
         self.color = (0.95, 0.96, 1, 1)
         self.bold = True
 
+        # Couleurs surchargeables par les sous-classes (voir set_palette).
+        self.fill_idle = FILL_IDLE
+        self.fill_down = FILL_DOWN
+        self.fill_off = FILL_OFF
+        self.border_col = BORDER
+
         with self.canvas.before:
-            self._fill = Color(*FILL_IDLE)
+            self._fill = Color(*self.fill_idle)
             self._rect = RoundedRectangle(radius=[dp(16)])
-            self._border = Color(*BORDER)
+            self._border = Color(*self.border_col)
             self._line = Line(width=dp(1.2))
 
         self.bind(pos=self._redraw, size=self._redraw,
                   state=self._refresh, disabled=self._refresh)
+
+    def set_palette(self, idle, down, off, border):
+        self.fill_idle, self.fill_down = idle, down
+        self.fill_off, self.border_col = off, border
+        self._refresh()
 
     def _redraw(self, *_):
         r = dp(16)
@@ -50,11 +61,11 @@ class StyledButton(Button):
 
     def _refresh(self, *_):
         if self.disabled:
-            self._fill.rgba = FILL_OFF
+            self._fill.rgba = self.fill_off
             self._border.a = 0.18
         elif self.state == "down":
-            self._fill.rgba = FILL_DOWN
+            self._fill.rgba = self.fill_down
             self._border.a = 0.95
         else:
-            self._fill.rgba = FILL_IDLE
-            self._border.a = BORDER[3]
+            self._fill.rgba = self.fill_idle
+            self._border.a = self.border_col[3]

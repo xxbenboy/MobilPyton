@@ -171,10 +171,18 @@ class GameScreen(Screen):
             btn.bind(on_release=on_release)
             area.add_widget(btn)
 
-            lbl = Label(text=name, halign="center", valign="top",
-                        size_hint=(1, 0.34), color=(0.95, 0.96, 1, 1))
-            lbl.bind(size=lambda w, *_: setattr(w, "text_size",
-                                                (w.width, w.height)))
+            lbl = Label(text=name, halign="center", valign="middle",
+                        size_hint=(1, 0.34), color=(1, 1, 1, 1))   # texte blanc
+            # Fond noir derriere le nom (lisibilite).
+            with lbl.canvas.before:
+                Color(0, 0, 0, 0.75)
+                lbl_bg = RoundedRectangle(radius=[dp(4)])
+
+            def _bg(w, *_, _r=lbl_bg):
+                _r.pos = w.pos
+                _r.size = w.size
+                w.text_size = (w.width, w.height)
+            lbl.bind(pos=_bg, size=_bg)
             scale_font(lbl)
             cell.add_widget(area)
             cell.add_widget(lbl)
