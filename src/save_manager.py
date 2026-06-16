@@ -18,6 +18,9 @@ import re
 
 from src.game_state import GameState
 
+# Nombre maximal de parties sauvegardees en meme temps.
+MAX_SAVES = 5
+
 
 def slugify(name):
     """Transforme un nom de partie en nom de fichier sur (sans extension)."""
@@ -39,6 +42,14 @@ class SaveManager:
     def has_any(self):
         """Y a-t-il au moins une sauvegarde ?"""
         return any(f.endswith(".json") for f in os.listdir(self.directory))
+
+    def count(self):
+        """Nombre de parties sauvegardees."""
+        return sum(1 for f in os.listdir(self.directory) if f.endswith(".json"))
+
+    def is_full(self):
+        """A-t-on atteint la limite de parties (MAX_SAVES) ?"""
+        return self.count() >= MAX_SAVES
 
     def save(self, state):
         """Ecrit (ou ecrase) la sauvegarde de cette partie, de facon atomique."""

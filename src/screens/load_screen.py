@@ -17,6 +17,7 @@ from kivy.uix.label import Label
 from kivy.uix.button import Button
 from kivy.uix.scrollview import ScrollView
 
+from src.save_manager import MAX_SAVES
 from src.widgets.animated_background import AnimatedBackground
 from src.widgets.responsive import scale_font, font_for
 
@@ -33,8 +34,10 @@ class LoadScreen(Screen):
                            size_hint=(0.92, 0.9),
                            pos_hint={"center_x": 0.5, "center_y": 0.5})
 
-        column.add_widget(scale_font(Label(text="Charger une partie",
-                                bold=True, size_hint=(1, 0.1)), 0.032))
+        # Titre + compteur de parties (mis a jour dans refresh_list).
+        self.title = scale_font(Label(text="Charger une partie",
+                                bold=True, size_hint=(1, 0.1)), 0.032)
+        column.add_widget(self.title)
 
         # Message affiche quand il n'y a aucune sauvegarde.
         self.empty_label = scale_font(Label(
@@ -67,6 +70,8 @@ class LoadScreen(Screen):
         self.list_box.clear_widgets()
         saves = App.get_running_app().save_manager.list_saves()
         self.empty_label.opacity = 0 if saves else 1
+        # Compteur de parties (ex. "Charger  3/5").
+        self.title.text = f"Charger  {len(saves)}/{MAX_SAVES}"
 
         # Hauteur des lignes et tailles de texte proportionnelles a l'ecran.
         row_height = font_for(0.09, minimum=48)

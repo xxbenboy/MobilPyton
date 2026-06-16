@@ -18,6 +18,7 @@ from kivy.uix.textinput import TextInput
 from kivy.uix.togglebutton import ToggleButton
 
 from src.game_state import GameState, DIFFICULTIES
+from src.save_manager import MAX_SAVES
 from src.widgets.animated_background import AnimatedBackground
 from src.widgets.responsive import scale_font
 
@@ -110,6 +111,13 @@ class NewGameScreen(Screen):
             return
 
         app = App.get_running_app()
+        # Limite a MAX_SAVES parties. Reutiliser un nom existant ecrase la
+        # meme partie (ca n'augmente pas le total), donc c'est autorise.
+        if not app.save_manager.exists(name) and app.save_manager.is_full():
+            self.error.text = (f"Maximum {MAX_SAVES} parties.\n"
+                               "Supprime-en une dans 'Charger'.")
+            return
+
         app.game_state = GameState.new_random(
             name=name, difficulty=self._selected_difficulty())
         # Sauvegarde immediate : la partie apparait dans "Charger".
