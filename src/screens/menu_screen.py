@@ -19,6 +19,7 @@ from kivy.metrics import dp
 from src.widgets.animated_background import AnimatedBackground
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font
+from src.widgets.fonts import title_font, ui_font
 
 
 class MenuScreen(Screen):
@@ -46,33 +47,34 @@ class MenuScreen(Screen):
             self._panel.size = content.size
         content.bind(pos=_sync_panel, size=_sync_panel)
 
-        # Titre + petit liseré décoratif.
+        # Titre (police speciale si assets/fonts/title.ttf existe).
         content.add_widget(scale_font(Label(
-            text="SURVIVRE", bold=True,
+            text="Wild Breath", bold=True,
+            font_name=title_font(),
             color=(0.96, 0.82, 0.45, 1),          # doré
-            size_hint=(1, 0.26)), 0.055))
+            size_hint=(1, 0.26)), 0.06))
 
         content.add_widget(scale_font(Label(
-            text="Un monde different a chaque partie.\n"
-                 "Le temps ne s'arrete jamais.",
-            halign="center",
-            color=(0.82, 0.86, 0.92, 1), size_hint=(1, 0.16)), 0.017))
+            text="Trouve l'équilibre entre le souffle\n"
+                 "de la nature et celui de la survie",
+            halign="center", font_name=ui_font(),
+            color=(0.82, 0.86, 0.92, 1), size_hint=(1, 0.18)), 0.017))
 
         new_btn = scale_font(StyledButton(text="Nouvelle partie",
-                             size_hint=(1, 0.16)), 0.026)
+                             font_name=ui_font(), size_hint=(1, 0.16)), 0.026)
         new_btn.bind(on_release=lambda *_: setattr(self.manager, "current",
                                                    "newgame"))
         content.add_widget(new_btn)
 
         # "Charger" : actif seulement s'il existe au moins une sauvegarde.
         self.load_btn = scale_font(StyledButton(text="Charger",
-                                   size_hint=(1, 0.16)), 0.026)
+                                   font_name=ui_font(), size_hint=(1, 0.16)), 0.026)
         self.load_btn.bind(on_release=lambda *_: setattr(self.manager,
                                                          "current", "load"))
         content.add_widget(self.load_btn)
 
         quit_btn = scale_font(StyledButton(text="Quitter",
-                              size_hint=(1, 0.13)), 0.022)
+                              font_name=ui_font(), size_hint=(1, 0.13)), 0.022)
         quit_btn.bind(on_release=lambda *_: App.get_running_app().stop())
         content.add_widget(quit_btn)
 

@@ -1,0 +1,40 @@
+POLICES PERSONNALISEES — comment ajouter ta propre ecriture
+============================================================
+
+Le jeu peut utiliser une police speciale pour le TITRE (et, si tu veux, pour
+tout le texte). Tant que tu ne mets rien ici, il utilise la police par defaut.
+
+----------------------------------------------------------------
+1) TROUVER UNE POLICE GRATUITE
+----------------------------------------------------------------
+- Va sur https://fonts.google.com (gratuit, libre d'utilisation).
+- Pour un titre "nature / aventure", cherche par ex. :
+    Cinzel, Caveat, Pacifico, Amatic SC, Permanent Marker, Rye, Bangers.
+- Clique sur la police -> bouton "Get font" / "Download" -> tu obtiens un .zip.
+- Decompresse le .zip : tu y trouves un ou plusieurs fichiers ".ttf".
+
+IMPORTANT : choisis une police qui contient les ACCENTS (é, è, à...),
+sinon "l'équilibre" s'affichera mal. La plupart des polices Google Fonts
+latines les contiennent.
+
+----------------------------------------------------------------
+2) INSTALLER LA POLICE
+----------------------------------------------------------------
+- Copie le fichier .ttf choisi DANS CE DOSSIER (assets/fonts/).
+- Renomme-le exactement :
+      title.ttf      -> police du TITRE "Wild Breath"
+  (optionnel)
+      ui.ttf         -> police du reste du texte (boutons, description...)
+
+Exemple : tu telecharges "Cinzel-Bold.ttf", tu le renommes "title.ttf"
+et tu le places ici.
+
+----------------------------------------------------------------
+3) VOIR LE RESULTAT
+----------------------------------------------------------------
+- Sur PC : relance le jeu (py main.py).
+- Sur telephone : pousse le code (le .ttf est inclus dans l'APK) puis
+  reconstruis/reinstalle.
+
+Si aucun fichier n'est present, le jeu reste joli avec la police par defaut.
+Le code qui gere tout ca : src/widgets/fonts.py
