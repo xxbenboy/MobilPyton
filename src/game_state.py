@@ -29,17 +29,35 @@ START_RESOURCES = {
     "Difficile": {"food": 0, "wood": 0},
 }
 
+# Derive naturelle des stats, PAR MINUTE de jeu (le temps qui passe).
+HUNGER_RATE = 0.05    # on a de plus en plus faim
+THIRST_RATE = 0.08    # on a soif plus vite
+SLEEP_RATE = 0.07     # on devient fatigue (le sommeil baisse)
+ENERGY_DRAIN = 0.02   # legere perte d'energie passive
+HEALTH_RATE = 0.05    # la vie baisse si faim/soif au max ou sommeil/energie a 0
+
+# On ne peut dormir (Se reposer) que si l'energie est <= a ce seuil.
+SLEEP_ENERGY_MAX = 70
+
+
+def _clamp100(v):
+    return max(0, min(100, v))
+
 
 class GameState:
     def __init__(self, seed, name="Partie", difficulty="Moyen", time_seconds=0,
-                 energy=100, hunger=0, wood=0, food=0, action_count=0,
+                 health=100, energy=100, sleep=100, hunger=0, thirst=0,
+                 wood=0, food=0, action_count=0,
                  log=None, player_x=None, player_y=None):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
         self.time_seconds = time_seconds
-        self.energy = energy
-        self.hunger = hunger
+        self.health = health        # vie
+        self.energy = energy        # energie
+        self.sleep = sleep          # sommeil (100 = bien repose)
+        self.hunger = hunger        # faim (0 = rassasie, 100 = affame)
+        self.thirst = thirst        # soif (0 = hydrate, 100 = assoiffe)
         self.wood = wood
         self.food = food
         self.action_count = action_count
@@ -109,6 +127,22 @@ class GameState:
     def tick(self, seconds=1):
         self.time_seconds += max(0, int(seconds))
 
+    def advance_survival(self, seconds):
+        """Fait deriver les stats selon le temps de jeu ecoule (en secondes)."""
+        minutes = max(0, seconds) / 60.0
+        self.hunger = _clamp100(self.hunger + HUNGER_RATE * minutes)
+        self.thirst = _clamp100(self.thirst + THIRST_RATE * minutes)
+        self.sleep = _clamp100(self.sleep - SLEEP_RATE * minutes)
+        self.energy = _clamp100(self.energy - ENERGY_DRAIN * minutes)
+        # En danger (faim/soif au max, ou sommeil/energie a zero) : la vie baisse.
+        if (self.hunger >= 100 or self.thirst >= 100
+                or self.sleep <= 0 or self.energy <= 0):
+            self.health = _clamp100(self.health - HEALTH_RATE * minutes)
+
+    def can_sleep(self):
+        """On ne peut dormir que si on est assez fatigue (energie pas trop haute)."""
+        return self.energy <= SLEEP_ENERGY_MAX
+
     # ------------------------------------------------------------------ #
     # Journal
     # ------------------------------------------------------------------ #
@@ -126,8 +160,11 @@ class GameState:
             "name": self.name,
             "difficulty": self.difficulty,
             "time_seconds": self.time_seconds,
+            "health": self.health,
             "energy": self.energy,
+            "sleep": self.sleep,
             "hunger": self.hunger,
+            "thirst": self.thirst,
             "wood": self.wood,
             "food": self.food,
             "action_count": self.action_count,
@@ -148,8 +185,11 @@ class GameState:
             name=data.get("name", "Partie"),
             difficulty=data.get("difficulty", "Moyen"),
             time_seconds=time_seconds,
+            health=data.get("health", 100),
             energy=data.get("energy", 100),
+            sleep=data.get("sleep", 100),
             hunger=data.get("hunger", 0),
+            thirst=data.get("thirst", 0),
             wood=data.get("wood", 0),
             food=data.get("food", 0),
             action_count=data.get("action_count", 0),

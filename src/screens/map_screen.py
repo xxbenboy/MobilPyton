@@ -127,6 +127,7 @@ class MapScreen(Screen):
             self._ff_remaining -= whole
         if whole:
             state.tick(whole)
+            state.advance_survival(whole)
         if self._ff_active and self._ff_remaining <= 0:
             self._ff_active = False
             App.get_running_app().autosave()
