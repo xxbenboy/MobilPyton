@@ -53,7 +53,9 @@ class GameScreen(Screen):
         self._tick_event = None
 
         root = FloatLayout()
-        self.background = AnimatedBackground(size_hint=(1, 1),
+        # Ciel pilote par l'horloge de la partie (time_scale=0 : pas
+        # d'avance auto, on le cale via set_seconds dans refresh()).
+        self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         root.add_widget(self.background)
 
@@ -142,9 +144,6 @@ class GameScreen(Screen):
         state.action_count += 1
         state.add_log(f"Jour {state.day} {state.clock} - {action['label']}")
 
-        # Ambiance de fond selon l'action.
-        self.background.set_mood(action["mood"])
-
         self.refresh()
         # Sauvegarde APRES l'action.
         App.get_running_app().autosave()
@@ -166,6 +165,8 @@ class GameScreen(Screen):
             f"Bois {state.wood}   Nourriture {state.food}"
         )
         self.journal.text = "\n".join(state.log)
+        # Le ciel suit l'heure de la partie (cycle jour/nuit).
+        self.background.set_seconds(state.time_seconds)
 
     def _periodic_autosave(self, _dt):
         App.get_running_app().autosave()
