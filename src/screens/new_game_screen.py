@@ -21,6 +21,9 @@ from src.game_state import GameState, DIFFICULTIES
 from src.widgets.animated_background import AnimatedBackground
 from src.widgets.responsive import scale_font
 
+# Longueur maximale du nom d'une partie.
+MAX_NAME_LENGTH = 16
+
 
 class NewGameScreen(Screen):
     def __init__(self, **kwargs):
@@ -39,8 +42,11 @@ class NewGameScreen(Screen):
 
         column.add_widget(scale_font(Label(text="Nom de la partie",
                                 size_hint=(1, 0.08)), 0.018))
-        self.name_input = scale_font(TextInput(multiline=False,
-                                    size_hint=(1, 0.12)), 0.022)
+        self.name_input = TextInput(multiline=False, size_hint=(1, 0.12),
+                                    padding=(10, 6))
+        # Nom limite a 16 caracteres + police qui suit la HAUTEUR de la barre
+        # (le texte remplit la barre au lieu d'une taille fixe).
+        self.name_input.bind(text=self._limit_name, height=self._fit_font)
         column.add_widget(self.name_input)
 
         column.add_widget(scale_font(Label(text="Difficulte",
@@ -81,6 +87,15 @@ class NewGameScreen(Screen):
         self.error.text = ""
         for tb in self.diff_buttons:
             tb.state = "down" if tb.text == "Moyen" else "normal"
+
+    def _limit_name(self, instance, value):
+        # Coupe le nom a 16 caracteres maximum.
+        if len(value) > MAX_NAME_LENGTH:
+            instance.text = value[:MAX_NAME_LENGTH]
+
+    def _fit_font(self, instance, height):
+        # La police occupe ~55 % de la hauteur de la barre.
+        instance.font_size = max(10, height * 0.55)
 
     def _selected_difficulty(self):
         for tb in self.diff_buttons:
