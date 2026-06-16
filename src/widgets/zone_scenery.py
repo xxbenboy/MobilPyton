@@ -151,14 +151,6 @@ class ZoneScenery(Widget):
         self._fill_curve(far_curve, (0.18, 0.22, 0.13, 1))
         self._fill_curve(floor_curve, (0.12, 0.15, 0.09, 1))
 
-        # Canopee sombre en haut (la lumiere est filtree) -> fond.
-        Color(0.06, 0.13, 0.08, 1)
-        for i in range(9):
-            fx = i / 8.0
-            r = rng.uniform(0.13, 0.20) * w
-            Ellipse(pos=(x0 + fx * w - r, y0 + (0.80 + rng.uniform(-0.03, 0.04)) * h),
-                    size=(r * 2.1, r * 1.6))
-
         GREENS = [(0.10, 0.20, 0.12), (0.08, 0.17, 0.10), (0.12, 0.24, 0.14)]
         LEAVES = [(0.45, 0.32, 0.14, 1), (0.36, 0.40, 0.16, 1),
                   (0.52, 0.38, 0.18, 1), (0.30, 0.26, 0.12, 1)]
@@ -221,17 +213,27 @@ class ZoneScenery(Widget):
                 cap = rng.choice([(0.62, 0.30, 0.18, 1), (0.80, 0.78, 0.62, 1)])
                 items.append((my, lambda mx=mx, my=my, s=s, cap=cap:
                               self._mushroom(mx, my, s, cap)))
-        # Arbres : coniferes + feuillus, tailles variees (gros au 1er plan).
-        for _ in range(rng.randint(10, 14)):
-            tx, tb, sc, t = place(0.95)
-            th = rng.uniform(0.45, 1.05) * h * (0.5 + 0.5 * sc)
+        # Arbres : coniferes + feuillus. Ce sont leurs feuillages qui
+        # remplissent le haut (plus de fausse canopee).
+        def add_tree(tx, tb, sc, big=False):
+            th = (rng.uniform(0.85, 1.15) if big
+                  else rng.uniform(0.45, 1.05) * (0.5 + 0.5 * sc)) * h
             if rng.random() < 0.5:
-                tw = rng.uniform(0.06, 0.13) * w * (0.5 + 0.5 * sc)
+                tw = rng.uniform(0.07, 0.14) * w * (0.55 + 0.45 * sc)
                 items.append((tb, lambda tx=tx, tb=tb, tw=tw, th=th:
                               self._pine(tx, tb, tw, th, (0.06, 0.15, 0.09, 1))))
             else:
                 items.append((tb, lambda tx=tx, tb=tb, th=th, sc=sc:
                               self._forest_tree(tx, tb, th, sc)))
+
+        # Toujours des arbres AUTOUR du joueur : gros, proches, gauche/droite.
+        for fxc in (0.05, 0.18, 0.82, 0.95):
+            tx, tb, sc, t = place(0.40, fx=fxc + rng.uniform(-0.04, 0.04))
+            add_tree(tx, tb, sc, big=True)
+        # Beaucoup d'arbres repartis sur toute la profondeur.
+        for _ in range(rng.randint(16, 22)):
+            tx, tb, sc, t = place(0.97)
+            add_tree(tx, tb, sc)
         # Insectes.
         for _ in range(rng.randint(4, 7)):
             ix = x0 + rng.uniform(0.05, 0.95) * w
