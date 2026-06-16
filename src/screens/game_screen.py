@@ -11,6 +11,8 @@ L'heure n'est pas affichee. Une action lance une AVANCE RAPIDE pendant sa
 duree (boutons verrouilles). "Se reposer" est interdit si l'energie est trop
 haute (pas assez fatigue pour dormir).
 """
+import math
+
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.uix.screenmanager import Screen
@@ -147,10 +149,14 @@ class GameScreen(Screen):
                                  pos_hint={"x": 0.30, "top": 0.78}), 0.022)
         root.add_widget(self.status)
 
-        # ---- Boutons d'action (gauche) : petites icones CARREES, 2 colonnes ----
-        grid = GridLayout(cols=2, spacing=dp(8),
-                          size_hint=(0.26, 0.96),
-                          pos_hint={"x": 0.012, "center_y": 0.5})
+        # ---- Boutons d'action : icones CARREES, confinees EN BAS A GAUCHE.
+        # La zone est fixe ; ajouter des boutons augmente le nombre de
+        # colonnes/lignes et donc REDUIT la taille des boutons (jamais la zone).
+        n_btn = len(ACTIONS) + 2                  # actions + Carte + Menu
+        cols = max(1, int(math.ceil(n_btn ** 0.5)))
+        grid = GridLayout(cols=cols, spacing=dp(6),
+                          size_hint=(0.42, 0.50),
+                          pos_hint={"x": 0.012, "y": 0.012})
         self._action_buttons = []   # (bouton, action)
 
         def add_cell(icon, name, on_release):
