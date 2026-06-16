@@ -26,6 +26,9 @@ SAVE_VERSION = 1
 
 SECONDS_PER_DAY = 24 * 60 * 60
 
+# Heure a laquelle commence chaque nouvelle partie (6h du matin).
+START_HOUR = 6
+
 # Biomes possibles d'une tuile de carte (cote "generatif").
 BIOMES = ["Foret", "Plaine", "Riviere", "Montagne", "Marais", "Ruines"]
 
@@ -69,6 +72,8 @@ class GameState:
         if difficulty not in DIFFICULTIES:
             difficulty = "Moyen"
         state = cls(seed=seed, name=name, difficulty=difficulty)
+        # Chaque partie commence a 6h du matin.
+        state.time_seconds = START_HOUR * 3600
         # Ressources de depart selon la difficulte.
         start = START_RESOURCES[difficulty]
         state.food = start["food"]

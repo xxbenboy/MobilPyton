@@ -28,14 +28,23 @@ MOODS = [
     (0.28, 0.22, 0.13),  # crepuscule terreux
 ]
 
+# Ambiance "6h du matin" : lueur chaude et douce de l'aube.
+MORNING_6H = (0.40, 0.30, 0.30)
+
 
 class AnimatedBackground(Widget):
-    def __init__(self, speed=0.15, stars=28, **kwargs):
+    def __init__(self, speed=0.15, stars=28, cycle=True, mood=None, **kwargs):
         super().__init__(**kwargs)
         self.speed = speed
+        # cycle=False : le fond reste sur une ambiance fixe (ex. 6h du matin).
+        self.cycle = cycle
         self._mood_index = 0
-        self._current = list(MOODS[0])
-        self._target = list(MOODS[1])
+        if mood is not None:
+            self._current = list(mood)
+            self._target = list(mood)
+        else:
+            self._current = list(MOODS[0])
+            self._target = list(MOODS[1])
         self._t = 0.0
         self._frame = 0
 
@@ -110,7 +119,7 @@ class AnimatedBackground(Widget):
             if abs(diff) > 0.001:
                 self._current[i] += diff * self.speed * dt
                 done = False
-        if done:
+        if done and self.cycle:
             self._mood_index = (self._mood_index + 1) % len(MOODS)
             self._target = list(MOODS[self._mood_index])
 
