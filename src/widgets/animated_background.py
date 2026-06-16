@@ -20,11 +20,12 @@ from kivy.metrics import dp
 
 
 # Palette d'ambiances parcourue en boucle (couleur "du bas" du degrade).
+# Teintes naturelles : foret, sous-bois, vert d'eau, terre au crepuscule.
 MOODS = [
-    (0.12, 0.10, 0.22),  # nuit
-    (0.32, 0.18, 0.24),  # aube
-    (0.20, 0.36, 0.42),  # jour
-    (0.36, 0.22, 0.18),  # crepuscule
+    (0.09, 0.15, 0.12),  # nuit en foret
+    (0.18, 0.28, 0.16),  # sous-bois / aube
+    (0.16, 0.34, 0.30),  # jour, vert d'eau
+    (0.28, 0.22, 0.13),  # crepuscule terreux
 ]
 
 

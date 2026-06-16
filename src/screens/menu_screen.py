@@ -17,6 +17,7 @@ from kivy.graphics import Color, RoundedRectangle
 from kivy.metrics import dp
 
 from src.widgets.animated_background import AnimatedBackground
+from src.widgets.nature_silhouette import NatureSilhouette
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font
 from src.widgets.fonts import title_font, ui_font
@@ -31,6 +32,9 @@ class MenuScreen(Screen):
         # Fond anime, derriere le reste.
         root.add_widget(AnimatedBackground(size_hint=(1, 1),
                                            pos_hint={"x": 0, "y": 0}))
+        # Silhouette de foret (collines + sapins) en bas, devant le fond.
+        root.add_widget(NatureSilhouette(size_hint=(1, 1),
+                                         pos_hint={"x": 0, "y": 0}))
 
         content = BoxLayout(orientation="vertical",
                             padding=dp(26), spacing=dp(14),

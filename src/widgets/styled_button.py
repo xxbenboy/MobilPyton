@@ -14,10 +14,10 @@ from kivy.uix.button import Button
 from kivy.graphics import Color, RoundedRectangle, Line
 from kivy.metrics import dp
 
-FILL_IDLE = (0.16, 0.21, 0.31, 0.92)     # repos
-FILL_DOWN = (0.27, 0.42, 0.60, 0.97)     # appuye
-FILL_OFF = (0.12, 0.13, 0.16, 0.70)      # desactive
-BORDER = (0.55, 0.75, 1.0, 0.55)         # bordure lumineuse
+FILL_IDLE = (0.13, 0.24, 0.18, 0.92)     # repos (vert foret)
+FILL_DOWN = (0.22, 0.40, 0.28, 0.97)     # appuye (vert clair)
+FILL_OFF = (0.12, 0.14, 0.12, 0.70)      # desactive
+BORDER = (0.55, 0.85, 0.60, 0.55)        # bordure verte lumineuse
 
 
 class StyledButton(Button):
