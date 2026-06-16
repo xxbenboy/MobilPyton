@@ -55,18 +55,31 @@ class ZoneScenery(Widget):
                          cx + tw * 0.36, base + th * 0.32, cx, base + th])
 
     def _grass_tuft(self, cx, base, height, color, scale=1.0):
-        bw = max(1.5, self.width * 0.004 * scale)
-        Color(*color)
-        for off, sc in ((-1.0, 0.7), (0.0, 1.0), (1.0, 0.8)):
+        bw = max(1.2, self.width * 0.0035 * scale)
+        r, g, b, a = color
+        # 5 brins fins en eventail, longueurs/inclinaisons/teintes variees.
+        for off, hsc, lean in ((-1.3, 0.65, -0.55), (-0.6, 0.85, -0.25),
+                               (0.0, 1.0, 0.08), (0.6, 0.88, 0.30),
+                               (1.3, 0.70, 0.60)):
             bx = cx + off * bw
+            tipx = bx + lean * bw * 2.4
+            sh = 0.88 + 0.24 * ((off + 1.3) / 2.6)        # nuance par brin
+            Color(min(1.0, r * sh), min(1.0, g * sh), min(1.0, b * sh), a)
             Triangle(points=[bx - bw, base, bx + bw, base,
-                             bx + bw * 0.4, base + height * sc])
+                             tipx, base + height * hsc])
 
     def _bush(self, cx, cy, r, color):
-        Color(*color)
-        Ellipse(pos=(cx - r, cy - r * 0.5), size=(r * 2, r * 1.3))
-        Ellipse(pos=(cx - r * 1.4, cy - r * 0.3), size=(r * 1.2, r * 0.9))
-        Ellipse(pos=(cx + r * 0.3, cy - r * 0.3), size=(r * 1.2, r * 0.9))
+        cr, cg, cb, ca = color
+        Color(0, 0, 0, 0.16)                              # ombre au sol
+        Ellipse(pos=(cx - r * 1.3, cy - r * 0.4), size=(r * 2.6, r * 0.6))
+        Color(cr * 0.7, cg * 0.7, cb * 0.7, 1)            # masse sombre (bas)
+        Ellipse(pos=(cx - r * 1.4, cy - r * 0.3), size=(r * 1.3, r * 1.0))
+        Ellipse(pos=(cx + r * 0.2, cy - r * 0.3), size=(r * 1.3, r * 1.0))
+        Ellipse(pos=(cx - r, cy - r * 0.4), size=(r * 2, r * 1.2))
+        Color(cr, cg, cb, 1)                              # feuillage clair (haut)
+        Ellipse(pos=(cx - r * 0.9, cy + r * 0.1), size=(r * 1.8, r * 1.0))
+        Ellipse(pos=(cx - r * 1.2, cy), size=(r * 1.1, r * 0.8))
+        Ellipse(pos=(cx + r * 0.2, cy), size=(r * 1.1, r * 0.8))
 
     def _tree(self, cx, base, th, leaf, trunk):
         tw = max(2.0, self.width * 0.006)
@@ -114,10 +127,16 @@ class ZoneScenery(Widget):
 
     # -- objets recoltables / insectes (details) ----------------------- #
     def _mushroom(self, cx, base, size, cap):
+        Color(0, 0, 0, 0.16)                             # ombre au sol
+        Ellipse(pos=(cx - size * 0.7, base - size * 0.04),
+                size=(size * 1.4, size * 0.28))
         Color(0.92, 0.88, 0.78, 1)                       # tige
         Rectangle(pos=(cx - size * 0.18, base), size=(size * 0.36, size * 0.9))
+        Color(0, 0, 0, 0.18)                             # ombre sous le chapeau
+        Ellipse(pos=(cx - size * 0.55, base + size * 0.58),
+                size=(size * 1.1, size * 0.28))
         Color(*cap)                                      # chapeau
-        Ellipse(pos=(cx - size * 0.6, base + size * 0.65),
+        Ellipse(pos=(cx - size * 0.6, base + size * 0.62),
                 size=(size * 1.2, size * 0.8))
         Color(1, 1, 1, 0.85)                             # points
         for dx in (-0.3, 0.05, 0.32):
@@ -156,22 +175,38 @@ class ZoneScenery(Widget):
                       size=(size * 0.12, size * 0.8))
 
     def _stone(self, cx, cy, r):
-        Color(0.50, 0.50, 0.54, 1)
-        Ellipse(pos=(cx - r, cy - r * 0.55), size=(r * 2, r * 1.2))
-        Color(0.63, 0.63, 0.67, 1)
-        Ellipse(pos=(cx - r * 0.5, cy - r * 0.1), size=(r * 0.85, r * 0.5))
+        Color(0, 0, 0, 0.18)                              # ombre portee
+        Ellipse(pos=(cx - r * 1.05, cy - r * 0.35), size=(r * 2.1, r * 0.6))
+        Color(0.30, 0.31, 0.34, 1)                        # bas sombre
+        Ellipse(pos=(cx - r, cy), size=(r * 2, r * 1.25))
+        Color(0.46, 0.47, 0.51, 1)                        # corps
+        Ellipse(pos=(cx - r * 0.95, cy + r * 0.18), size=(r * 1.9, r * 1.05))
+        Color(0.60, 0.61, 0.66, 1)                        # reflet (haut-gauche)
+        Ellipse(pos=(cx - r * 0.7, cy + r * 0.55), size=(r * 1.0, r * 0.6))
+        Color(0.22, 0.22, 0.25, 0.5)                      # fissure
+        Line(points=[cx - r * 0.3, cy + r * 0.2,
+                     cx + r * 0.1, cy + r * 0.95], width=1.0)
 
     def _branch(self, cx, cy, length):
-        wdt = max(1.5, length * 0.06)
-        Color(0.36, 0.25, 0.14, 1)
+        wdt = max(1.5, length * 0.07)
+        Color(0, 0, 0, 0.14)                              # ombre
+        Line(points=[cx - length / 2, cy - wdt * 0.6,
+                     cx + length / 2, cy - wdt * 0.6 + length * 0.08],
+             width=wdt)
+        Color(0.34, 0.23, 0.13, 1)                        # bois
         Line(points=[cx - length / 2, cy, cx + length / 2, cy + length * 0.08],
              width=wdt)
+        Color(0.30, 0.20, 0.11, 1)                        # ramures
         Line(points=[cx + length * 0.1, cy + length * 0.05,
                      cx + length * 0.28, cy + length * 0.20],
-             width=max(1.0, wdt * 0.7))
+             width=max(1.0, wdt * 0.6))
         Line(points=[cx - length * 0.2, cy + length * 0.01,
                      cx - length * 0.34, cy + length * 0.16],
-             width=max(1.0, wdt * 0.7))
+             width=max(1.0, wdt * 0.6))
+        Color(0.48, 0.35, 0.21, 0.7)                      # reflet sur le dessus
+        Line(points=[cx - length * 0.42, cy + wdt * 0.3,
+                     cx + length * 0.42, cy + wdt * 0.3 + length * 0.08],
+             width=max(1.0, wdt * 0.35))
 
     def _plant(self, cx, base, size):
         Color(0.18, 0.36, 0.16, 1)                       # tige
@@ -273,13 +308,13 @@ class ZoneScenery(Widget):
             col = (0.12 + g, 0.30 + g, 0.15, 1)
             items.append((by, lambda bx=bx, by=by, r=r, col=col:
                           self._bush(bx, by, r, col)))
-        for _ in range(130):                           # gazon disperse
+        for _ in range(90):                            # gazon disperse
             gx, gb, sc, t = place()
             gh = rng.uniform(0.05, 0.16) * h * sc
             fcol = rng.choice(flowers) if rng.random() < 0.10 else None
             fr = max(1.5, w * 0.004 * sc)
             items.append((gb, f_grass(gx, gb, gh, green_at(t), sc, fcol, fr)))
-        n = 190                                        # herbe d'horizon
+        n = 125                                        # herbe d'horizon
         for i in range(n):
             gx = x0 + (i / (n - 1)) * w + rng.uniform(-0.006, 0.006) * w
             gb = y0 + (edge - rng.uniform(0.0, 0.04)) * h
