@@ -16,6 +16,8 @@ from kivy.clock import Clock
 from kivy.uix.screenmanager import Screen
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.label import Label
 from kivy.graphics import Color, RoundedRectangle
 from kivy.metrics import dp
@@ -98,8 +100,8 @@ class GameScreen(Screen):
 
         # ---- Section ZONE (haut gauche) ----
         zone_box = BoxLayout(orientation="vertical", padding=dp(10), spacing=4,
-                             size_hint=(0.36, 0.18),
-                             pos_hint={"x": 0.27, "top": 0.98})
+                             size_hint=(0.33, 0.18),
+                             pos_hint={"x": 0.30, "top": 0.98})
         _add_panel(zone_box)
         zone_box.add_widget(scale_font(Label(text="ZONE", bold=True,
                             color=(0.96, 0.82, 0.45, 1), size_hint=(1, 0.35)),
@@ -118,7 +120,7 @@ class GameScreen(Screen):
 
         # ---- Section ETAT / stats (haut droite) ----
         stats_box = BoxLayout(orientation="vertical", padding=dp(10),
-                              spacing=dp(5), size_hint=(0.34, 0.56),
+                              spacing=dp(5), size_hint=(0.32, 0.56),
                               pos_hint={"right": 0.98, "top": 0.98})
         _add_panel(stats_box)
         stats_box.add_widget(scale_font(Label(text="ETAT", bold=True,
@@ -141,28 +143,36 @@ class GameScreen(Screen):
         # ---- Etat d'action (sous la zone) ----
         self.status = scale_font(Label(text="", bold=True,
                                  color=(0.96, 0.82, 0.45, 1),
-                                 size_hint=(0.36, 0.07),
-                                 pos_hint={"x": 0.27, "top": 0.78}), 0.022)
+                                 size_hint=(0.33, 0.07),
+                                 pos_hint={"x": 0.30, "top": 0.78}), 0.022)
         root.add_widget(self.status)
 
-        # ---- Boutons d'action (gauche) : icone + nom dessous, meme taille ----
-        strip = BoxLayout(orientation="vertical", spacing=dp(8),
-                          size_hint=(0.24, 0.96),
+        # ---- Boutons d'action (gauche) : petites icones CARREES, 2 colonnes ----
+        grid = GridLayout(cols=2, spacing=dp(8),
+                          size_hint=(0.26, 0.96),
                           pos_hint={"x": 0.012, "center_y": 0.5})
         self._action_buttons = []   # (bouton, action)
 
         def add_cell(icon, name, on_release):
             cell = BoxLayout(orientation="vertical", spacing=2)
-            btn = IconButton(icon=icon, size_hint=(1, 0.62))
+            area = AnchorLayout(size_hint=(1, 0.66))
+            btn = IconButton(icon=icon, size_hint=(None, None))
+
+            def _square(a, *_):                      # bouton carre = taille logo
+                s = min(a.width, a.height) * 0.94
+                btn.size = (s, s)
+            area.bind(size=_square)
             btn.bind(on_release=on_release)
+            area.add_widget(btn)
+
             lbl = Label(text=name, halign="center", valign="top",
-                        size_hint=(1, 0.38), color=(0.95, 0.96, 1, 1))
+                        size_hint=(1, 0.34), color=(0.95, 0.96, 1, 1))
             lbl.bind(size=lambda w, *_: setattr(w, "text_size",
                                                 (w.width, w.height)))
             scale_font(lbl)
-            cell.add_widget(btn)
+            cell.add_widget(area)
             cell.add_widget(lbl)
-            strip.add_widget(cell)
+            grid.add_widget(cell)
             return btn
 
         for action in ACTIONS:
@@ -173,7 +183,7 @@ class GameScreen(Screen):
                                 lambda *_: setattr(self.manager,
                                                    "current", "map"))
         self.back_btn = add_cell("home", "Menu", self.back_to_menu)
-        root.add_widget(strip)
+        root.add_widget(grid)
 
         self.add_widget(root)
 
