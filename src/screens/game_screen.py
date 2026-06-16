@@ -92,6 +92,7 @@ class GameScreen(Screen):
         self._ff_remaining = 0.0
         self._ff_label = ""
         self._found_item = None        # objet decouvert a la fin d'une exploration
+        self._did_explore = False      # vient-on d'explorer ? (pour le message)
         self._scene_key = None
 
         root = FloatLayout()
@@ -262,8 +263,10 @@ class GameScreen(Screen):
         elif atype == "drink" and not state.has_water_source():
             state.water = max(0, state.water - 1)
         elif atype == "explore":
-            # On determine la trouvaille ; le popup s'affiche a la fin du trajet.
-            self._found_item = items.random_find(state.current_zone())
+            # Trouvaille ponderee par la rarete ; None si la case est epuisee
+            # (stock de 5 a 15 trouvailles par case). Affiche a la fin du trajet.
+            self._found_item = state.try_find()
+            self._did_explore = True
 
         state.health = _clamp100(state.health + action.get("health", 0))
         state.energy = _clamp100(state.energy + action.get("energy", 0))
@@ -290,11 +293,15 @@ class GameScreen(Screen):
             # L'objet trouve est automatiquement depose a proximite (au sol).
             App.get_running_app().game_state.add_ground(item)
             self._show_find_toast(item)
+        elif self._did_explore:
+            # Exploration sans resultat : la case n'a plus rien a offrir.
+            self._show_find_toast(None)
+        self._did_explore = False
         App.get_running_app().autosave()
 
     def _show_find_toast(self, item):
-        """Message bref (1 s puis fondu) : montre l'objet trouve, depose au sol.
-        Pas de choix a faire : l'objet est deja a proximite."""
+        """Message bref (1 s puis fondu). Si `item` est fourni : montre l'objet
+        trouve, deja depose a proximite. Si None : la case est epuisee."""
         # On enleve un eventuel message precedent.
         if self._toast is not None and self._toast.parent:
             self._toast.parent.remove_widget(self._toast)
@@ -303,11 +310,15 @@ class GameScreen(Screen):
                           size_hint=(0.28, 0.26),
                           pos_hint={"center_x": 0.5, "top": 0.97})
         _add_panel(toast, alpha=0.6)
-        toast.add_widget(ItemIcon(item, size_hint=(1, 0.66)))
+        if item:
+            toast.add_widget(ItemIcon(item, size_hint=(1, 0.66)))
+            text = ("Trouve : " + items.display_name(item)
+                    + "\n(depose a proximite)")
+        else:
+            text = "Tu ne trouves\nplus rien ici."
         msg = scale_font(Label(
-            text="Trouve : " + items.display_name(item) + "\n(depose a proximite)",
-            halign="center", valign="middle", color=(1, 1, 1, 1),
-            size_hint=(1, 0.34)), 0.018)
+            text=text, halign="center", valign="middle", color=(1, 1, 1, 1),
+            size_hint=(1, 0.34 if item else 1.0)), 0.018)
         msg.bind(size=lambda w, *_: setattr(w, "text_size", (w.width, w.height)))
         toast.add_widget(msg)
 

@@ -14,6 +14,7 @@ Contient tout ce qui definit une partie en cours et doit etre sauvegarde :
 import random
 
 from src import world
+from src import items
 
 SAVE_VERSION = 2
 
@@ -42,6 +43,12 @@ SLEEP_ENERGY_MAX = 70
 # Le joueur ne peut tenir que 2 objets dans ses mains a la fois.
 HANDS_MAX = 2
 
+# Chaque case a un "stock" de trouvailles : entre 5 et 15 (tire au hasard,
+# mais STABLE pour une case donnee). Une fois epuise, explorer cette case ne
+# donne plus rien.
+FIND_BUDGET_MIN = 5
+FIND_BUDGET_MAX = 15
+
 
 def _clamp100(v):
     return max(0, min(100, v))
@@ -51,7 +58,7 @@ class GameState:
     def __init__(self, seed, name="Partie", difficulty="Moyen", time_seconds=0,
                  health=100, energy=100, sleep=100, hunger=0, thirst=0,
                  wood=0, food=0, water=0, action_count=0,
-                 hands=None, ground=None,
+                 hands=None, ground=None, explores=None,
                  log=None, player_x=None, player_y=None):
         self.seed = seed
         self.name = name
@@ -68,6 +75,7 @@ class GameState:
         # Inventaire : 2 objets max dans les mains, le reste au sol (par case).
         self.hands = list(hands) if hands else []
         self.ground = ground if ground else {}      # {"x,y": {objet: nombre}}
+        self.explores = explores if explores else {}  # {"x,y": nb trouvailles}
         self.action_count = action_count
         self.log = log if log is not None else []
 
@@ -165,6 +173,31 @@ class GameState:
     def ground_here(self):
         """Objets au sol sur la case actuelle : {objet: nombre}."""
         return self.ground.get(self._cell_key(), {})
+
+    # --- Trouvailles a proximite (stock limite par case) --------------- #
+    def find_budget(self, x=None, y=None):
+        """Nombre de trouvailles que cette case peut donner (5 a 15).
+        Stable pour une case : derive de la graine + coordonnees."""
+        x = self.player_x if x is None else x
+        y = self.player_y if y is None else y
+        rng = random.Random(f"{self.seed}:{x}:{y}:finds")
+        return rng.randint(FIND_BUDGET_MIN, FIND_BUDGET_MAX)
+
+    def explores_here(self):
+        return self.explores.get(self._cell_key(), 0)
+
+    def can_find(self):
+        """La case a-t-elle encore des trouvailles ?"""
+        return self.explores_here() < self.find_budget()
+
+    def try_find(self):
+        """Tente une trouvaille a proximite. Renvoie le nom de l'objet (deja
+        pondere par la rarete) ou None si la case est epuisee."""
+        if not self.can_find():
+            return None
+        key = self._cell_key()
+        self.explores[key] = self.explores.get(key, 0) + 1
+        return items.random_find(self.current_zone())
 
     def hands_full(self):
         return len(self.hands) >= HANDS_MAX
@@ -266,6 +299,7 @@ class GameState:
             "water": self.water,
             "hands": self.hands,
             "ground": self.ground,
+            "explores": self.explores,
             "action_count": self.action_count,
             "log": self.log,
             "player_x": self.player_x,
@@ -294,6 +328,7 @@ class GameState:
             water=data.get("water", 0),
             hands=data.get("hands"),
             ground=data.get("ground"),
+            explores=data.get("explores"),
             action_count=data.get("action_count", 0),
             log=data.get("log", []),
             player_x=data.get("player_x"),

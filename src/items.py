@@ -26,23 +26,29 @@ def display_name(name):
     return name.replace("_", " ").capitalize()
 
 
-# Objets trouvables par type de zone (nom, poids).
+# Objets trouvables par type de zone : (nom, poids).
+# Le POIDS = rarete relative. Plus il est grand, plus l'objet est frequent.
+# Ex : une branche ou une pierre (poids eleve) sont communes ; une carcasse
+# (poids 1) est rare.
 ZONE_FINDS = {
-    "Foret": [("branche", 4), ("feuille", 4), ("pierre", 2),
-              ("champignon", 2), ("baie", 2)],
-    "Plaine": [("herbe", 4), ("branche", 2), ("pierre", 2),
-               ("baie", 2), ("fleur", 2)],
-    "Montagne": [("pierre", 5), ("branche", 1), ("minerai", 2)],
-    "Lac": [("roseau", 3), ("poisson", 3), ("pierre", 2), ("branche", 1)],
+    "Foret": [("branche", 12), ("feuille", 10), ("pierre", 7),
+              ("champignon", 4), ("baie", 4), ("plume", 2), ("carcasse", 1)],
+    "Plaine": [("herbe", 12), ("fleur", 7), ("branche", 6), ("pierre", 5),
+               ("baie", 3), ("plume", 2), ("carcasse", 1)],
+    "Montagne": [("pierre", 12), ("branche", 4), ("minerai", 3),
+                 ("os", 2), ("carcasse", 1)],
+    "Lac": [("roseau", 9), ("poisson", 7), ("pierre", 4), ("branche", 3),
+            ("coquillage", 2), ("carcasse", 1)],
 }
 
 
 def random_find(zone, rng=None):
-    """Tire un objet au hasard selon la zone."""
+    """Tire un objet au hasard selon la zone, pondere par la rarete."""
     rng = rng or _random
     table = ZONE_FINDS.get(zone, ZONE_FINDS["Foret"])
-    pool = [name for name, weight in table for _ in range(weight)]
-    return rng.choice(pool)
+    names = [name for name, _ in table]
+    weights = [weight for _, weight in table]
+    return rng.choices(names, weights=weights, k=1)[0]
 
 
 # Recettes : resultat <- ingredients (objet: quantite).
