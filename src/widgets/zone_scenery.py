@@ -11,10 +11,12 @@ seulement une bande en bas. On voit donc :
 `set_scene(zone_type, seed)` change la scene. Redessine seulement quand la zone
 change (pas a chaque frame).
 """
+import math
 import random
 
 from kivy.uix.widget import Widget
-from kivy.graphics import Color, Ellipse, Rectangle, Triangle, Line, Quad
+from kivy.graphics import (Color, Ellipse, Rectangle, Triangle, Line, Quad,
+                           Mesh)
 
 _ZONE_SEED = {"Foret": 1, "Plaine": 2, "Montagne": 3, "Lac": 4}
 
@@ -239,6 +241,18 @@ class ZoneScenery(Widget):
             yy = base + height * (0.56 + 0.11 * i)
             Ellipse(pos=(cx - rr, yy), size=(rr * 2, rr * 1.5))
 
+    def _fill_curve(self, top_fn, color, segs=40):
+        """Remplit du bas du widget jusqu'a la courbe top_fn(fx) (terrain)."""
+        x0, y0, w = self.x, self.y, self.width
+        Color(*color)
+        verts = []
+        for i in range(segs + 1):
+            fx = i / segs
+            x = x0 + fx * w
+            verts += [x, y0, 0, 0, x, top_fn(fx), 0, 0]
+        idx = list(range(len(verts) // 4))
+        Mesh(vertices=verts, indices=idx, mode="triangle_strip")
+
     def _plaine(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
         hor = 0.55
@@ -250,22 +264,34 @@ class ZoneScenery(Widget):
             return tuple(near[i] + (far[i] - near[i]) * t for i in range(3)) \
                 + (1,)
 
+        # Terrain ONDULE : deux courbes (sommes de sinus) pour un relief
+        # naturel. horizon_curve = crete lointaine (l'horizon) ; field_curve =
+        # surface du champ proche, ou reposent tous les elements.
+        p1 = rng.uniform(0, 6.28)
+        p2 = rng.uniform(0, 6.28)
+
+        def horizon_curve(fx):
+            return y0 + (edge + 0.035 * math.sin(fx * 6.28 * 1.4 + p1)
+                         + 0.018 * math.sin(fx * 6.28 * 3.1 + p2)) * h
+
+        def field_curve(fx):
+            return y0 + ((edge - 0.13)
+                         + 0.030 * math.sin(fx * 6.28 * 1.1 + p1 + 1.0)
+                         + 0.014 * math.sin(fx * 6.28 * 2.5 + p2)) * h
+
         def place(maxt=1.0):
-            fy = rng.random() * edge * maxt          # base toujours sur le vert
-            t = (fy / edge) if edge else 0.0
-            return (x0 + rng.uniform(0, 1) * w, y0 + fy * h,
-                    1.0 - 0.70 * t, t)
+            fx = rng.uniform(0, 1)
+            surf = (field_curve(fx) - y0) / h         # sommet du sol a cet x
+            fy = rng.random() * surf * maxt           # base toujours sur le sol
+            t = (fy / surf) if surf else 0.0
+            return (x0 + fx * w, y0 + fy * h, 1.0 - 0.70 * t, t)
 
         flowers = [(1, 1, 0.92, 1), (0.96, 0.85, 0.28, 1),
                    (0.92, 0.42, 0.52, 1), (0.72, 0.52, 0.92, 1)]
 
-        # Fond vert (toujours derriere tout le reste).
-        bands = [(0.00, 0.20, (0.22, 0.38, 0.16)),
-                 (0.20, 0.36, (0.27, 0.43, 0.19)),
-                 (0.36, edge, (0.33, 0.49, 0.24))]
-        for a, b, col in bands:
-            Color(*col, 1)
-            Rectangle(pos=(x0, y0 + a * h), size=(w, (b - a) * h))
+        # Collines : crete lointaine (clair) puis champ proche (fonce) ondules.
+        self._fill_curve(horizon_curve, (0.36, 0.50, 0.26, 1))
+        self._fill_curve(field_curve, (0.26, 0.42, 0.19, 1))
 
         # Petites fabriques de "fonctions de dessin" (pour differer le rendu).
         def f_grass(gx, gb, gh, col, sc, fcol, fr):
@@ -316,8 +342,9 @@ class ZoneScenery(Widget):
             items.append((gb, f_grass(gx, gb, gh, green_at(t), sc, fcol, fr)))
         n = 125                                        # herbe d'horizon
         for i in range(n):
-            gx = x0 + (i / (n - 1)) * w + rng.uniform(-0.006, 0.006) * w
-            gb = y0 + (edge - rng.uniform(0.0, 0.04)) * h
+            fx = i / (n - 1)
+            gx = x0 + fx * w + rng.uniform(-0.006, 0.006) * w
+            gb = horizon_curve(fx) - rng.uniform(0.0, 0.03) * h  # sur la crete
             gh = rng.uniform(0.05, 0.11) * h
             items.append((gb, f_grass(gx, gb, gh,
                                       green_at(rng.uniform(0.85, 1.0)),

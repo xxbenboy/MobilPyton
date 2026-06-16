@@ -25,6 +25,14 @@ SECONDS_PER_DAY = 24 * 3600
 # 24h en 4 minutes (240 s) => 360 secondes de jeu par seconde reelle.
 MENU_TIME_SCALE = SECONDS_PER_DAY / 240.0
 
+# Forme d'un nuage (cumulus). Chaque bouffee = (dx, dy, largeur, hauteur) en
+# unites de "taille de nuage". Rangee du bas (plus plate, legerement grise) +
+# bouffees du haut (blanches, bombees).
+_CLOUD_BASE = [(-1.3, 0.0, 1.2, 0.55), (-0.5, -0.05, 1.5, 0.60),
+               (0.45, -0.05, 1.4, 0.58), (1.25, 0.0, 1.0, 0.50)]
+_CLOUD_TOP = [(-0.7, 0.32, 1.2, 0.85), (0.05, 0.48, 1.3, 0.95),
+              (0.8, 0.32, 1.05, 0.80), (-0.15, 0.12, 1.5, 0.78)]
+
 _SKY_KEYS = [
     (0.0,  (0.05, 0.07, 0.12)),
     (4.0,  (0.06, 0.08, 0.13)),
@@ -98,15 +106,18 @@ class AnimatedBackground(Widget):
             self._moon_c = Color(0.92, 0.94, 1.0, 0.0)
             self._moon = Ellipse()
 
-            # 4. Nuages (chacun = 3 bouffees d'ellipses).
+            # 4. Nuages : cumulus = plusieurs bouffees (fond bas legerement
+            #    grise pour le volume, puis bouffees blanches dessus).
             self._clouds = []
             crng = random.Random(777)
             for _ in range(4):
                 self._clouds.append({
-                    "c": Color(1, 1, 1, 0.0),
-                    "ell": [Ellipse(), Ellipse(), Ellipse()],
-                    "fy": crng.uniform(0.60, 0.90),
-                    "scale": crng.uniform(0.10, 0.18),
+                    "c_base": Color(0.86, 0.88, 0.92, 0.0),
+                    "base_ell": [Ellipse() for _ in range(len(_CLOUD_BASE))],
+                    "c_top": Color(1, 1, 1, 0.0),
+                    "top_ell": [Ellipse() for _ in range(len(_CLOUD_TOP))],
+                    "fy": crng.uniform(0.58, 0.88),
+                    "scale": crng.uniform(0.11, 0.20),
                     "speed": crng.uniform(0.006, 0.016),
                     "base": crng.uniform(0.0, 1.0),
                 })
@@ -198,15 +209,18 @@ class AnimatedBackground(Widget):
         self._moon_c.a = night
         self._place_disc(self._moon, mx, my, radius * 0.85)
 
-        # Nuages.
-        cloud_a = 0.50 * (0.30 + 0.70 * sun_a)
+        # Nuages (cumulus : bouffees grises en bas, blanches bombees au-dessus).
+        cloud_a = 0.55 * (0.30 + 0.70 * sun_a)
         for cl in self._clouds:
-            fx = (cl["base"] + self._t * cl["speed"]) % 1.3 - 0.15
+            fx = (cl["base"] + self._t * cl["speed"]) % 1.4 - 0.2
             cx = x0 + fx * w
             cy = y0 + cl["fy"] * h
             s = w * cl["scale"]
-            cl["c"].a = cloud_a
-            e0, e1, e2 = cl["ell"]
-            e0.size = (s * 1.4, s * 0.7); e0.pos = (cx, cy)
-            e1.size = (s * 1.0, s * 0.6); e1.pos = (cx + s * 0.5, cy + s * 0.12)
-            e2.size = (s * 0.9, s * 0.5); e2.pos = (cx - s * 0.3, cy + s * 0.08)
+            cl["c_base"].a = cloud_a * 0.85
+            for ell, (dx, dy, sw, sh) in zip(cl["base_ell"], _CLOUD_BASE):
+                ell.size = (sw * s, sh * s)
+                ell.pos = (cx + dx * s - sw * s / 2, cy + dy * s)
+            cl["c_top"].a = cloud_a
+            for ell, (dx, dy, sw, sh) in zip(cl["top_ell"], _CLOUD_TOP):
+                ell.size = (sw * s, sh * s)
+                ell.pos = (cx + dx * s - sw * s / 2, cy + dy * s)
