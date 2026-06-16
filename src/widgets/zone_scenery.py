@@ -155,70 +155,112 @@ class ZoneScenery(Widget):
             Rectangle(pos=(cx + dx * size - size * 0.06, cy - size * 0.4),
                       size=(size * 0.12, size * 0.8))
 
+    def _stone(self, cx, cy, r):
+        Color(0.50, 0.50, 0.54, 1)
+        Ellipse(pos=(cx - r, cy - r * 0.55), size=(r * 2, r * 1.2))
+        Color(0.63, 0.63, 0.67, 1)
+        Ellipse(pos=(cx - r * 0.5, cy - r * 0.1), size=(r * 0.85, r * 0.5))
+
+    def _branch(self, cx, cy, length):
+        wdt = max(1.5, length * 0.06)
+        Color(0.36, 0.25, 0.14, 1)
+        Line(points=[cx - length / 2, cy, cx + length / 2, cy + length * 0.08],
+             width=wdt)
+        Line(points=[cx + length * 0.1, cy + length * 0.05,
+                     cx + length * 0.28, cy + length * 0.20],
+             width=max(1.0, wdt * 0.7))
+        Line(points=[cx - length * 0.2, cy + length * 0.01,
+                     cx - length * 0.34, cy + length * 0.16],
+             width=max(1.0, wdt * 0.7))
+
+    def _plant(self, cx, base, size):
+        Color(0.18, 0.36, 0.16, 1)                       # tige
+        Rectangle(pos=(cx - size * 0.06, base), size=(size * 0.12, size * 0.8))
+        Color(0.24, 0.46, 0.20, 1)                       # feuilles
+        Ellipse(pos=(cx - size * 0.55, base + size * 0.20),
+                size=(size * 0.60, size * 0.30))
+        Ellipse(pos=(cx - size * 0.05, base + size * 0.30),
+                size=(size * 0.60, size * 0.30))
+        Ellipse(pos=(cx - size * 0.22, base + size * 0.55),
+                size=(size * 0.44, size * 0.50))
+
     def _plaine(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
-        # Champ a perte de vue : on remplit presque tout le cadre de vert,
-        # plus clair vers le haut (effet de distance). Fin liseré de ciel.
-        bands = [(0.00, 0.32, (0.22, 0.38, 0.16)),
-                 (0.32, 0.60, (0.27, 0.43, 0.19)),
-                 (0.60, 0.80, (0.34, 0.49, 0.25)),
-                 (0.80, 0.95, (0.44, 0.57, 0.34))]
+        hor = 0.55                       # hauteur du champ (ciel visible au-dessus)
+
+        # Sol du champ (le ciel reste visible au-dessus de l'horizon).
+        bands = [(0.00, 0.20, (0.22, 0.38, 0.16)),
+                 (0.20, 0.36, (0.27, 0.43, 0.19)),
+                 (0.36, 0.48, (0.33, 0.49, 0.24)),
+                 (0.48, hor, (0.41, 0.55, 0.31))]
         for a, b, col in bands:
             Color(*col, 1)
             Rectangle(pos=(x0, y0 + a * h), size=(w, (b - a) * h))
+        Color(0.41, 0.55, 0.31, 1)       # legere ondulation d'horizon
+        Ellipse(pos=(x0 - 0.2 * w, y0 + (hor - 0.05) * h),
+                size=(1.4 * w, 0.10 * h))
 
         near = (0.20, 0.40, 0.14)
-        far = (0.46, 0.58, 0.36)
+        far = (0.44, 0.56, 0.33)
 
-        def green_at(fy):
-            return tuple(near[i] + (far[i] - near[i]) * fy for i in range(3)) \
+        def green_at(t):
+            return tuple(near[i] + (far[i] - near[i]) * t for i in range(3)) \
                 + (1,)
+
+        def place(maxt=1.0):
+            fy = rng.random() * hor * maxt
+            t = (fy / hor) if hor else 0.0
+            return (x0 + rng.uniform(0, 1) * w, y0 + fy * h,
+                    1.0 - 0.70 * t, t)
 
         flowers = [(1, 1, 0.92, 1), (0.96, 0.85, 0.28, 1),
                    (0.92, 0.42, 0.52, 1), (0.72, 0.52, 0.92, 1)]
 
-        # Buissons repartis sur toute la hauteur.
-        for _ in range(rng.randint(8, 12)):
-            fy = rng.random() * 0.85
-            sc = 1.0 - 0.7 * fy
+        # Pierres (au sol, dessinees tot).
+        for _ in range(rng.randint(9, 13)):
+            sx, sy, sc, t = place(0.92)
+            self._stone(sx, sy, rng.uniform(0.018, 0.045) * h * sc)
+        # Branches mortes.
+        for _ in range(rng.randint(6, 9)):
+            bx, by, sc, t = place(0.85)
+            self._branch(bx, by, rng.uniform(0.06, 0.12) * w * sc)
+        # Buissons.
+        for _ in range(rng.randint(4, 6)):
+            bx, by, sc, t = place(0.90)
             g = rng.uniform(0.0, 0.10)
-            self._bush(x0 + rng.uniform(0.0, 1.0) * w, y0 + fy * h,
-                       rng.uniform(0.03, 0.06) * h * sc,
+            self._bush(bx, by, rng.uniform(0.03, 0.055) * h * sc,
                        (0.12 + g, 0.30 + g, 0.15, 1))
 
-        # Hautes herbes PARTOUT (haut compris), plus petites en hauteur.
-        for _ in range(190):
-            fy = rng.random() * 0.90
-            sc = 1.0 - 0.72 * fy
-            gx = x0 + rng.uniform(0, 1) * w
-            gb = y0 + fy * h
-            gh = rng.uniform(0.08, 0.22) * h * sc
-            self._grass_tuft(gx, gb, gh, green_at(fy), scale=sc)
-            if rng.random() < 0.12:                       # fleur au sommet
+        # GAZON dense : beaucoup d'herbes, hauteurs variees, partout.
+        for _ in range(160):
+            gx, gb, sc, t = place()
+            gh = rng.uniform(0.04, 0.16) * h * sc
+            self._grass_tuft(gx, gb, gh, green_at(t), scale=sc)
+            if rng.random() < 0.10:
                 Color(*rng.choice(flowers))
                 fr = max(1.5, w * 0.004 * sc)
                 Ellipse(pos=(gx - fr, gb + gh - fr), size=(fr * 2, fr * 2))
 
+        # Plantes feuillues.
+        for _ in range(rng.randint(10, 14)):
+            px, py, sc, t = place()
+            self._plant(px, py, rng.uniform(0.05, 0.09) * h * sc)
         # Champignons (recoltables).
-        for _ in range(rng.randint(7, 11)):
-            fy = rng.random() * 0.8
-            sc = 1.0 - 0.7 * fy
-            self._mushroom(x0 + rng.uniform(0, 1) * w, y0 + fy * h,
-                           rng.uniform(0.035, 0.06) * h * sc,
+        for _ in range(rng.randint(7, 10)):
+            mx, my, sc, t = place(0.85)
+            self._mushroom(mx, my, rng.uniform(0.03, 0.05) * h * sc,
                            rng.choice([(0.80, 0.22, 0.20, 1),
                                        (0.72, 0.50, 0.30, 1)]))
         # Baies (recoltables).
-        for _ in range(rng.randint(5, 8)):
-            fy = rng.random() * 0.75
-            sc = 1.0 - 0.7 * fy
-            self._berries(x0 + rng.uniform(0, 1) * w, y0 + fy * h,
-                          rng.uniform(0.03, 0.05) * h * sc)
+        for _ in range(rng.randint(4, 6)):
+            bx, by, sc, t = place(0.80)
+            self._berries(bx, by, rng.uniform(0.03, 0.045) * h * sc)
 
-        # Insectes (papillons, abeilles).
-        for _ in range(rng.randint(6, 10)):
+        # Insectes (volent au-dessus du champ).
+        for _ in range(rng.randint(6, 9)):
             ix = x0 + rng.uniform(0.05, 0.95) * w
-            iy = y0 + rng.uniform(0.15, 0.88) * h
-            sz = rng.uniform(0.014, 0.028) * h
+            iy = y0 + rng.uniform(0.10, hor + 0.12) * h
+            sz = rng.uniform(0.014, 0.026) * h
             if rng.random() < 0.6:
                 self._butterfly(ix, iy, sz,
                                 rng.choice([(0.95, 0.6, 0.2, 1),
