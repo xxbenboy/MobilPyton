@@ -62,7 +62,7 @@ class AnimatedBackground(Widget):
         self.time_scale = float(time_scale)
         self._current = sky_color(self._seconds)
         self._t = 0.0
-        self._frame = 0
+        self._grad_accum = 0.0
 
         self._grad_tex = Texture.create(size=(1, 64), colorfmt="rgba")
         self._grad_tex.wrap = "clamp_to_edge"
@@ -151,14 +151,19 @@ class AnimatedBackground(Widget):
         ellipse.pos = (cx - r, cy - r)
 
     def _tick(self, dt):
+        # Independant du framerate : tout se base sur dt (temps reel), avec un
+        # plafond pour eviter un bond apres un ralentissement / reveil.
+        dt = min(dt, 0.25)
         self._t += dt
         if self.time_scale:
             self._seconds = (self._seconds + dt * self.time_scale) \
                 % SECONDS_PER_DAY
         self._current = sky_color(self._seconds)
 
-        self._frame += 1
-        if self._frame % 3 == 0:
+        # Redessin du degrade a cadence fixe (~20/s), quel que soit le fps.
+        self._grad_accum += dt
+        if self._grad_accum >= 0.05:
+            self._grad_accum = 0.0
             self._build_gradient()
 
         w, h, x0, y0 = self.width, self.height, self.x, self.y

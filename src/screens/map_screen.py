@@ -116,6 +116,8 @@ class MapScreen(Screen):
         state = App.get_running_app().game_state
         if state is None:
             return
+        # Independant du framerate (base sur dt) + plafond anti-bond.
+        dt = min(dt, 0.25)
         self._time_accum += dt * TIME_SCALE
         whole = int(self._time_accum)
         if whole:

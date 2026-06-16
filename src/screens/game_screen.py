@@ -114,6 +114,9 @@ class GameScreen(Screen):
         state = App.get_running_app().game_state
         if state is None:
             return
+        # Independant du framerate : on se base sur le temps REEL ecoule (dt).
+        # On plafonne dt pour eviter un bond apres un ralentissement / reveil.
+        dt = min(dt, 0.25)
         # On accumule le temps reel * vitesse, et on n'ajoute que des secondes
         # entieres a l'horloge (pas de perte, et le rendu reste fluide).
         self._time_accum += dt * TIME_SCALE
