@@ -2,7 +2,7 @@
 Le MONDE : carte generative en zones.
 
 La carte est une grille de GRID_W x GRID_H zones (625 = 25x25 pour commencer).
-Chaque zone fait 1 km x 1 km et a un TYPE (foret, champ, montagne, lac).
+Chaque zone fait 1 km x 1 km et a un TYPE (foret, plaine, montagne, lac).
 Le type determine sa couleur sur la mini-carte et, plus tard, ce qu'on peut y
 faire.
 
@@ -30,9 +30,9 @@ ZONE_TYPES = {
         "weight": 4, "color": (0.13, 0.35, 0.17),
         "desc": "Foret neutre : du bois, du calme.",
     },
-    "Champ": {
-        "weight": 4, "color": (0.55, 0.60, 0.24),
-        "desc": "Champ : herbes et cueillette.",
+    "Plaine": {
+        "weight": 4, "color": (0.42, 0.60, 0.28),
+        "desc": "Plaine : hautes herbes, fleurs et cueillette.",
     },
     "Montagne": {
         "weight": 2, "color": (0.46, 0.44, 0.41),

@@ -4,7 +4,7 @@ Decor de premier plan selon le TYPE de zone.
 Dessine au canvas (aucune image) une scene differente en bas de l'ecran selon
 la zone ou se trouve le joueur :
 - Foret    : collines + sapins,
-- Champ    : collines douces + brins d'herbe,
+- Plaine   : collines douces, hautes herbes, buissons, fleurs, arbres lointains,
 - Montagne : pics rocheux avec neige,
 - Lac      : etendue d'eau + ondulations.
 
@@ -18,7 +18,7 @@ from kivy.uix.widget import Widget
 from kivy.graphics import Color, Ellipse, Rectangle, Triangle, Line
 
 # Graine de base par type (pour un rendu deterministe, sans hash() aleatoire).
-_ZONE_SEED = {"Foret": 1, "Champ": 2, "Montagne": 3, "Lac": 4}
+_ZONE_SEED = {"Foret": 1, "Plaine": 2, "Montagne": 3, "Lac": 4}
 
 
 class ZoneScenery(Widget):
@@ -40,7 +40,7 @@ class ZoneScenery(Widget):
             return
         draw = {
             "Foret": self._foret,
-            "Champ": self._champ,
+            "Plaine": self._plaine,
             "Montagne": self._montagne,
             "Lac": self._lac,
         }.get(self._zone, self._foret)
@@ -73,22 +73,70 @@ class ZoneScenery(Widget):
             self._pine(x0 + fx * w, y0 + 0.04 * h, sh * 0.5 * h, sh * h * 1.9,
                        (0.04, 0.11, 0.07, 1))
 
-    def _champ(self, rng):
+    def _grass_tuft(self, cx, base, height, color):
+        """Une touffe = 3 brins d'herbe legerement ecartes."""
+        bw = max(2.0, self.width * 0.0035)
+        Color(*color)
+        for off, sc in ((-1.0, 0.7), (0.0, 1.0), (1.0, 0.8)):
+            bx = cx + off * bw
+            Triangle(points=[bx - bw, base, bx + bw, base,
+                             bx + bw * 0.4, base + height * sc])
+
+    def _bush(self, cx, cy, r, color):
+        Color(*color)
+        Ellipse(pos=(cx - r, cy - r * 0.5), size=(r * 2, r * 1.3))
+        Ellipse(pos=(cx - r * 1.4, cy - r * 0.3), size=(r * 1.2, r * 0.9))
+        Ellipse(pos=(cx + r * 0.3, cy - r * 0.3), size=(r * 1.2, r * 0.9))
+
+    def _tree(self, cx, base, th, leaf, trunk):
+        tw = max(2.0, self.width * 0.006)
+        Color(*trunk)
+        Rectangle(pos=(cx - tw / 2, base), size=(tw, th * 0.5))
+        Color(*leaf)
+        r = th * 0.35
+        Ellipse(pos=(cx - r, base + th * 0.32), size=(r * 2, r * 2))
+
+    def _plaine(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
-        Color(0.30, 0.40, 0.18, 1)
-        Ellipse(pos=(x0 - 0.30 * w, y0 - 0.16 * h), size=(1.6 * w, 0.30 * h))
-        Color(0.42, 0.52, 0.22, 1)
-        Ellipse(pos=(x0 - 0.20 * w, y0 - 0.18 * h), size=(1.4 * w, 0.24 * h))
-        Color(0.36, 0.46, 0.20, 1)
-        Rectangle(pos=(x0, y0), size=(w, 0.09 * h))
-        # Brins d'herbe.
-        for _ in range(48):
+        # Collines en degrade de verts (lointain clair -> proche fonce).
+        Color(0.40, 0.55, 0.30, 1)
+        Ellipse(pos=(x0 - 0.30 * w, y0 + 0.04 * h), size=(1.7 * w, 0.22 * h))
+        Color(0.34, 0.50, 0.26, 1)
+        Ellipse(pos=(x0 - 0.25 * w, y0 - 0.10 * h), size=(1.5 * w, 0.30 * h))
+        Color(0.28, 0.44, 0.20, 1)
+        Ellipse(pos=(x0 - 0.30 * w, y0 - 0.16 * h), size=(1.6 * w, 0.26 * h))
+        # Sol herbeux.
+        Color(0.24, 0.40, 0.18, 1)
+        Rectangle(pos=(x0, y0), size=(w, 0.10 * h))
+
+        # Quelques arbres lointains.
+        for _ in range(rng.randint(2, 3)):
+            tx = x0 + rng.uniform(0.1, 0.9) * w
+            self._tree(tx, y0 + 0.10 * h, rng.uniform(0.12, 0.18) * h,
+                       (0.18, 0.34, 0.16, 1), (0.26, 0.18, 0.10, 1))
+
+        # Buissons le long du sol.
+        for _ in range(rng.randint(4, 6)):
+            bx = x0 + rng.uniform(0.02, 0.98) * w
+            by = y0 + rng.uniform(0.04, 0.12) * h
+            g = rng.uniform(0.0, 0.10)
+            self._bush(bx, by, rng.uniform(0.025, 0.05) * h,
+                       (0.12 + g, 0.30 + g, 0.15, 1))
+
+        # Hautes herbes denses (verts varies) + quelques fleurs.
+        greens = [(0.20, 0.40, 0.14, 1), (0.26, 0.46, 0.16, 1),
+                  (0.32, 0.52, 0.18, 1), (0.30, 0.48, 0.22, 1)]
+        flowers = [(1, 1, 0.92, 1), (0.96, 0.85, 0.28, 1),
+                   (0.92, 0.42, 0.52, 1), (0.72, 0.52, 0.92, 1)]
+        for _ in range(90):
             gx = x0 + rng.uniform(0, 1) * w
-            gb = y0 + rng.uniform(0.0, 0.10) * h
-            gh = rng.uniform(0.02, 0.05) * h
-            gw = max(2.0, w * 0.004)
-            Color(0.22, 0.36, 0.14, 1)
-            Triangle(points=[gx - gw, gb, gx + gw, gb, gx, gb + gh])
+            gb = y0 + rng.uniform(0.0, 0.13) * h
+            gh = rng.uniform(0.04, 0.11) * h
+            self._grass_tuft(gx, gb, gh, rng.choice(greens))
+            if rng.random() < 0.12:                      # une fleur au sommet
+                Color(*rng.choice(flowers))
+                fr = max(2.0, w * 0.004)
+                Ellipse(pos=(gx - fr, gb + gh - fr), size=(fr * 2, fr * 2))
 
     def _montagne(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
