@@ -23,8 +23,9 @@ class PlayerHands(Widget):
         if self.width <= 0 or self.height <= 0:
             return
         with self.canvas:
-            self._arm(0.30, 0.43, 0.16, +1)      # bras / main gauche
-            self._arm(0.70, 0.57, 0.16, -1)      # bras / main droite
+            # Avant-bras quasi verticaux (paralleles) : base alignee sous la main.
+            self._arm(0.41, 0.42, 0.16, +1)      # bras / main gauche
+            self._arm(0.59, 0.58, 0.16, -1)      # bras / main droite
 
     def _arm(self, base_fx, hand_fx, hand_fy, thumb_dir):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
