@@ -11,18 +11,15 @@
 name: Build Android APK
 
 on:
-  # Build MANUEL uniquement : il ne se declenche PLUS tout seul a chaque push.
-  # Pour lancer un build : onglet "Actions" -> "Build Android APK" -> bouton
-  # "Run workflow".
+  # Build AUTOMATIQUE a chaque push sur main/master.
+  push:
+    branches: [ main, master ]
+  # Permet aussi de lancer un build a la main (Actions -> Run workflow).
   workflow_dispatch:
-  #
-  # >>> Pour revenir au build AUTOMATIQUE a chaque push, dé-commente ces 3
-  #     lignes (enleve le "# " devant) :
-  # push:
-  #   branches: [ main, master ]
 
-# Si plusieurs builds sont lances, seul le plus recent continue : les anciens
-# sont annules automatiquement (jamais d'attente ni de minutes gaspillees).
+# Si plusieurs builds sont lances (ex. 2 push rapproches), seul le plus recent
+# continue : les anciens sont annules automatiquement (pas d'attente ni de
+# minutes gaspillees).
 concurrency:
   group: build-apk
   cancel-in-progress: true
