@@ -47,7 +47,7 @@ def _clamp100(v):
 class GameState:
     def __init__(self, seed, name="Partie", difficulty="Moyen", time_seconds=0,
                  health=100, energy=100, sleep=100, hunger=0, thirst=0,
-                 wood=0, food=0, action_count=0,
+                 wood=0, food=0, water=0, action_count=0,
                  log=None, player_x=None, player_y=None):
         self.seed = seed
         self.name = name
@@ -60,6 +60,7 @@ class GameState:
         self.thirst = thirst        # soif (0 = hydrate, 100 = assoiffe)
         self.wood = wood
         self.food = food
+        self.water = water          # eau dans la gourde (unites a boire)
         self.action_count = action_count
         self.log = log if log is not None else []
 
@@ -143,6 +144,11 @@ class GameState:
         """On ne peut dormir que si on est assez fatigue (energie pas trop haute)."""
         return self.energy <= SLEEP_ENERGY_MAX
 
+    def has_water_source(self):
+        """Y a-t-il un ruisseau d'eau potable sur la case actuelle ?"""
+        return (self.current_zone() in world.STREAM_TYPES
+                and world.has_stream(self.seed, self.player_x, self.player_y))
+
     # ------------------------------------------------------------------ #
     # Journal
     # ------------------------------------------------------------------ #
@@ -167,6 +173,7 @@ class GameState:
             "thirst": self.thirst,
             "wood": self.wood,
             "food": self.food,
+            "water": self.water,
             "action_count": self.action_count,
             "log": self.log,
             "player_x": self.player_x,
@@ -192,6 +199,7 @@ class GameState:
             thirst=data.get("thirst", 0),
             wood=data.get("wood", 0),
             food=data.get("food", 0),
+            water=data.get("water", 0),
             action_count=data.get("action_count", 0),
             log=data.get("log", []),
             player_x=data.get("player_x"),

@@ -46,6 +46,16 @@ ZONE_TYPES = {
 
 DEFAULT_TYPE = "Foret"
 
+# Seules certaines forets et montagnes ont un RUISSEAU (eau potable).
+# Les lacs ne sont PAS potables. ~35% des cases foret/montagne ont un ruisseau.
+STREAM_TYPES = {"Foret", "Montagne"}
+
+
+def has_stream(seed, x, y):
+    """Cette case a-t-elle un ruisseau ? (deterministe, par case)."""
+    rng = random.Random((seed * 73856093) ^ (x * 19349663) ^ (y * 83492791))
+    return rng.random() < 0.35
+
 
 def zone_color(zone_type):
     return ZONE_TYPES.get(zone_type, ZONE_TYPES[DEFAULT_TYPE])["color"]

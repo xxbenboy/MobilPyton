@@ -38,10 +38,25 @@ ACTIONS = [
     {"label": "Couper du bois",    "minutes": 120, "energy": -15, "wood": 3},
     {"label": "Chercher a manger", "minutes": 60,  "energy": -5,
      "hunger": -25, "food": 2},
-    {"label": "Boire",             "minutes": 10,  "thirst": -40},
+    {"label": "Boire",             "minutes": 10,  "thirst": -40,
+     "type": "drink"},
+    {"label": "Remplir gourde",    "minutes": 15,  "type": "fill"},
     {"label": "Se reposer",        "minutes": 240, "energy": 35, "sleep": 50,
      "requires_sleep": True},
 ]
+
+
+def _action_available(state, action):
+    """Une action est-elle realisable dans l'etat / la zone actuels ?"""
+    if action.get("requires_sleep") and not state.can_sleep():
+        return False
+    if action.get("type") == "drink":
+        # Boire : il faut un ruisseau ici OU de l'eau dans la gourde.
+        return state.has_water_source() or state.water > 0
+    if action.get("type") == "fill":
+        # Remplir la gourde : seulement a un ruisseau.
+        return state.has_water_source()
+    return True
 
 
 def _add_panel(widget, alpha=0.34):
@@ -188,8 +203,16 @@ class GameScreen(Screen):
         state = App.get_running_app().game_state
         if state is None or self._ff_active:
             return
-        if action.get("requires_sleep") and not state.can_sleep():
+        if not _action_available(state, action):
             return
+        atype = action.get("type")
+        # Eau : remplir la gourde au ruisseau ; boire consomme la gourde sauf
+        # si on boit directement a un ruisseau.
+        if atype == "fill":
+            state.water += 3
+        elif atype == "drink" and not state.has_water_source():
+            state.water = max(0, state.water - 1)
+
         state.health = _clamp100(state.health + action.get("health", 0))
         state.energy = _clamp100(state.energy + action.get("energy", 0))
         state.sleep = _clamp100(state.sleep + action.get("sleep", 0))
@@ -223,7 +246,10 @@ class GameScreen(Screen):
         zone = state.current_zone()
         self.zone_name.text = zone
         from src import world
-        self.zone_desc.text = world.zone_desc(zone)
+        desc = world.zone_desc(zone)
+        if state.has_water_source():
+            desc += "\nUn ruisseau d'eau potable coule ici."
+        self.zone_desc.text = desc
         self.status.text = f"{self._ff_label}..." if self._ff_active else ""
 
         self.bar_health.set_value(state.health)
@@ -231,15 +257,13 @@ class GameScreen(Screen):
         self.bar_sleep.set_value(state.sleep)
         self.bar_hunger.set_value(state.hunger)
         self.bar_thirst.set_value(state.thirst)
-        self.resources.text = f"Bois {state.wood}    Nourriture {state.food}"
+        self.resources.text = (f"Bois {state.wood}   Nourriture {state.food}"
+                               f"   Eau {state.water}")
 
-        # Boutons : tout verrouille en avance rapide ; "Se reposer" interdit
-        # si l'energie est trop haute.
+        # Boutons : tout verrouille en avance rapide ; sinon selon la zone /
+        # l'etat (dormir, boire, remplir la gourde).
         for btn, action in self._action_buttons:
-            locked = self._ff_active
-            if action.get("requires_sleep") and not state.can_sleep():
-                locked = True
-            btn.disabled = locked
+            btn.disabled = self._ff_active or not _action_available(state, action)
         self.map_btn.disabled = self._ff_active
         self.back_btn.disabled = self._ff_active
 
