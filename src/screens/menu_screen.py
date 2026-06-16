@@ -52,7 +52,7 @@ class MenuScreen(Screen):
             text="Wild Breath", bold=True,
             font_name=title_font(),
             color=(0.96, 0.82, 0.45, 1),          # doré
-            size_hint=(1, 0.26)), 0.06))
+            size_hint=(1, 0.34)), 0.11))
 
         content.add_widget(scale_font(Label(
             text="Trouve l'équilibre entre le souffle\n"
