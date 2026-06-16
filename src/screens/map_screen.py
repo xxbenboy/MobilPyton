@@ -16,6 +16,7 @@ from kivy.uix.label import Label
 
 from src import world
 from src.widgets.animated_background import AnimatedBackground
+from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.minimap import MiniMap
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font
@@ -43,6 +44,10 @@ class MapScreen(Screen):
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         root.add_widget(self.background)
+        # Decor du sol de la zone courante en fond (au lieu du ciel seul).
+        self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.scenery)
+        self._scene_key = None
 
         main = BoxLayout(orientation="horizontal", padding=12, spacing=12,
                          size_hint=(0.96, 0.96),
@@ -168,6 +173,11 @@ class MapScreen(Screen):
         self.btn_o.disabled = self._ff_active or not state.can_move(-1, 0)
         self.quit_btn.disabled = self._ff_active
         self.background.set_seconds(state.time_seconds)
+        # Fond = decor du sol de la zone courante (redessine si la case change).
+        key = (zone, state.player_x, state.player_y)
+        if key != self._scene_key:
+            self.scenery.set_scene(zone, state.player_x * 131 + state.player_y)
+            self._scene_key = key
 
     def _periodic_autosave(self, _dt):
         if not self._ff_active:
