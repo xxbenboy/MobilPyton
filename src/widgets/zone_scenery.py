@@ -184,24 +184,33 @@ class ZoneScenery(Widget):
         Ellipse(pos=(cx - size * 0.22, base + size * 0.55),
                 size=(size * 0.44, size * 0.50))
 
+    def _hay(self, cx, base, height, scale):
+        """Touffe de foin (graminees dorees)."""
+        bw = max(1.5, self.width * 0.004 * scale)
+        Color(0.74, 0.64, 0.30, 1)
+        for off, sc in ((-1.5, 0.8), (-0.7, 1.0), (0.0, 0.9),
+                        (0.7, 1.0), (1.5, 0.75)):
+            bx = cx + off * bw
+            Triangle(points=[bx - bw, base, bx + bw, base,
+                             bx + off * bw * 0.15, base + height * sc])
+
+    def _wheat(self, cx, base, height, scale):
+        """Epi de cereale : tige + grains."""
+        Color(0.80, 0.70, 0.34, 1)
+        Line(points=[cx, base, cx, base + height], width=max(1.0, 2.0 * scale))
+        Color(0.87, 0.74, 0.34, 1)
+        rr = max(2.0, 3.2 * scale)
+        for i in range(4):
+            yy = base + height * (0.56 + 0.11 * i)
+            Ellipse(pos=(cx - rr, yy), size=(rr * 2, rr * 1.5))
+
     def _plaine(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
-        hor = 0.55                       # hauteur du champ (ciel visible au-dessus)
-
-        # Sol du champ (le ciel reste visible au-dessus de l'horizon).
-        bands = [(0.00, 0.20, (0.22, 0.38, 0.16)),
-                 (0.20, 0.36, (0.27, 0.43, 0.19)),
-                 (0.36, 0.48, (0.33, 0.49, 0.24)),
-                 (0.48, hor, (0.41, 0.55, 0.31))]
-        for a, b, col in bands:
-            Color(*col, 1)
-            Rectangle(pos=(x0, y0 + a * h), size=(w, (b - a) * h))
-        Color(0.41, 0.55, 0.31, 1)       # legere ondulation d'horizon
-        Ellipse(pos=(x0 - 0.2 * w, y0 + (hor - 0.05) * h),
-                size=(1.4 * w, 0.10 * h))
+        hor = 0.55                       # hauteur du champ (ciel au-dessus)
+        edge = hor - 0.06                # le vert plein s'arrete un peu plus bas
 
         near = (0.20, 0.40, 0.14)
-        far = (0.44, 0.56, 0.33)
+        far = (0.42, 0.55, 0.32)
 
         def green_at(t):
             return tuple(near[i] + (far[i] - near[i]) * t for i in range(3)) \
@@ -216,45 +225,71 @@ class ZoneScenery(Widget):
         flowers = [(1, 1, 0.92, 1), (0.96, 0.85, 0.28, 1),
                    (0.92, 0.42, 0.52, 1), (0.72, 0.52, 0.92, 1)]
 
-        # Pierres (au sol, dessinees tot).
+        # Sol vert plein qui s'arrete SOUS l'horizon (le haut sera de l'herbe).
+        bands = [(0.00, 0.20, (0.22, 0.38, 0.16)),
+                 (0.20, 0.36, (0.27, 0.43, 0.19)),
+                 (0.36, edge, (0.33, 0.49, 0.24))]
+        for a, b, col in bands:
+            Color(*col, 1)
+            Rectangle(pos=(x0, y0 + a * h), size=(w, (b - a) * h))
+
+        # Pierres / branches / buissons au sol.
         for _ in range(rng.randint(9, 13)):
-            sx, sy, sc, t = place(0.92)
+            sx, sy, sc, t = place(0.85)
             self._stone(sx, sy, rng.uniform(0.018, 0.045) * h * sc)
-        # Branches mortes.
         for _ in range(rng.randint(6, 9)):
-            bx, by, sc, t = place(0.85)
+            bx, by, sc, t = place(0.82)
             self._branch(bx, by, rng.uniform(0.06, 0.12) * w * sc)
-        # Buissons.
         for _ in range(rng.randint(4, 6)):
-            bx, by, sc, t = place(0.90)
+            bx, by, sc, t = place(0.85)
             g = rng.uniform(0.0, 0.10)
             self._bush(bx, by, rng.uniform(0.03, 0.055) * h * sc,
                        (0.12 + g, 0.30 + g, 0.15, 1))
 
-        # GAZON dense : beaucoup d'herbes, hauteurs variees, partout.
-        for _ in range(160):
+        # Gazon disperse sur TOUT le champ (haut compris).
+        for _ in range(130):
             gx, gb, sc, t = place()
-            gh = rng.uniform(0.04, 0.16) * h * sc
+            gh = rng.uniform(0.05, 0.16) * h * sc
             self._grass_tuft(gx, gb, gh, green_at(t), scale=sc)
             if rng.random() < 0.10:
                 Color(*rng.choice(flowers))
                 fr = max(1.5, w * 0.004 * sc)
                 Ellipse(pos=(gx - fr, gb + gh - fr), size=(fr * 2, fr * 2))
 
-        # Plantes feuillues.
+        # HERBE D'HORIZON : tres dense, recouvre le bord du vert et depasse
+        # dans le ciel => l'horizon est dessine par les brins (pas de ligne).
+        n = 190
+        for i in range(n):
+            gx = x0 + (i / (n - 1)) * w + rng.uniform(-0.006, 0.006) * w
+            gb = y0 + (edge + rng.uniform(-0.03, 0.02)) * h
+            gh = rng.uniform(0.04, 0.075) * h
+            self._grass_tuft(gx, gb, gh, green_at(rng.uniform(0.85, 1.0)),
+                             scale=0.5)
+
+        # Plantes feuillues (toujours quelques-unes).
         for _ in range(rng.randint(10, 14)):
             px, py, sc, t = place()
             self._plant(px, py, rng.uniform(0.05, 0.09) * h * sc)
-        # Champignons (recoltables).
-        for _ in range(rng.randint(7, 10)):
-            mx, my, sc, t = place(0.85)
-            self._mushroom(mx, my, rng.uniform(0.03, 0.05) * h * sc,
-                           rng.choice([(0.80, 0.22, 0.20, 1),
-                                       (0.72, 0.50, 0.30, 1)]))
-        # Baies (recoltables).
-        for _ in range(rng.randint(4, 6)):
-            bx, by, sc, t = place(0.80)
-            self._berries(bx, by, rng.uniform(0.03, 0.045) * h * sc)
+
+        # --- Plantes de champ OPTIONNELLES (tirage generatif) ---
+        if rng.random() < 0.75:                       # foin
+            for _ in range(rng.randint(6, 12)):
+                fx, fb, sc, t = place(0.95)
+                self._hay(fx, fb, rng.uniform(0.10, 0.20) * h * sc, sc)
+        if rng.random() < 0.65:                       # epis / graminees
+            for _ in range(rng.randint(8, 16)):
+                ex, eb, sc, t = place(0.95)
+                self._wheat(ex, eb, rng.uniform(0.10, 0.18) * h * sc, sc)
+        if rng.random() < 0.6:                        # champignons
+            for _ in range(rng.randint(5, 9)):
+                mx, my, sc, t = place(0.82)
+                self._mushroom(mx, my, rng.uniform(0.03, 0.05) * h * sc,
+                               rng.choice([(0.80, 0.22, 0.20, 1),
+                                           (0.72, 0.50, 0.30, 1)]))
+        if rng.random() < 0.5:                        # baies
+            for _ in range(rng.randint(3, 6)):
+                bx, by, sc, t = place(0.80)
+                self._berries(bx, by, rng.uniform(0.03, 0.045) * h * sc)
 
         # Insectes (volent au-dessus du champ).
         for _ in range(rng.randint(6, 9)):
