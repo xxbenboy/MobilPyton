@@ -27,12 +27,10 @@ from kivy.metrics import dp
 from src.game_state import _clamp100
 from src.widgets.animated_background import AnimatedBackground
 from src.widgets.zone_scenery import ZoneScenery
-from kivy.uix.popup import Popup
 
 from src import items
 from src.widgets.player_hands import PlayerHands
 from src.widgets.icon_button import IconButton
-from src.widgets.styled_button import StyledButton
 from src.widgets.item_icon import ItemIcon
 from src.widgets.stat_bar import StatBar
 from src.widgets.responsive import scale_font
@@ -97,6 +95,8 @@ class GameScreen(Screen):
         self._scene_key = None
 
         root = FloatLayout()
+        self.root_layout = root
+        self._toast = None
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         root.add_widget(self.background)
@@ -284,44 +284,50 @@ class GameScreen(Screen):
     def _finish_action(self):
         self._ff_active = False
         self._ff_label = ""
-        App.get_running_app().autosave()
         if self._found_item:
             item = self._found_item
             self._found_item = None
-            self._show_find_popup(item)
-
-    def _show_find_popup(self, item):
-        content = BoxLayout(orientation="vertical", spacing=dp(8),
-                            padding=dp(10))
-        content.add_widget(ItemIcon(item, size_hint=(1, 0.55)))
-        content.add_widget(scale_font(Label(
-            text="Tu trouves : " + items.display_name(item),
-            size_hint=(1, 0.18)), 0.04))
-        row = BoxLayout(orientation="horizontal", spacing=dp(10),
-                        size_hint=(1, 0.27))
-        take = scale_font(StyledButton(text="Prendre"), 0.03)
-        leave = scale_font(StyledButton(text="Laisser"), 0.03)
-        row.add_widget(take)
-        row.add_widget(leave)
-        content.add_widget(row)
-        popup = Popup(title="Exploration", content=content,
-                      size_hint=(0.7, 0.6), auto_dismiss=False)
-
-        def _take(*_):
-            App.get_running_app().game_state.take_found(item)
-            popup.dismiss()
-            App.get_running_app().autosave()
-            self.refresh()
-
-        def _leave(*_):
+            # L'objet trouve est automatiquement depose a proximite (au sol).
             App.get_running_app().game_state.add_ground(item)
-            popup.dismiss()
-            App.get_running_app().autosave()
-            self.refresh()
+            self._show_find_toast(item)
+        App.get_running_app().autosave()
 
-        take.bind(on_release=_take)
-        leave.bind(on_release=_leave)
-        popup.open()
+    def _show_find_toast(self, item):
+        """Message bref (1 s puis fondu) : montre l'objet trouve, depose au sol.
+        Pas de choix a faire : l'objet est deja a proximite."""
+        # On enleve un eventuel message precedent.
+        if self._toast is not None and self._toast.parent:
+            self._toast.parent.remove_widget(self._toast)
+
+        toast = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(4),
+                          size_hint=(0.28, 0.26),
+                          pos_hint={"center_x": 0.5, "top": 0.97})
+        _add_panel(toast, alpha=0.6)
+        toast.add_widget(ItemIcon(item, size_hint=(1, 0.66)))
+        msg = scale_font(Label(
+            text="Trouve : " + items.display_name(item) + "\n(depose a proximite)",
+            halign="center", valign="middle", color=(1, 1, 1, 1),
+            size_hint=(1, 0.34)), 0.018)
+        msg.bind(size=lambda w, *_: setattr(w, "text_size", (w.width, w.height)))
+        toast.add_widget(msg)
+
+        self.root_layout.add_widget(toast)
+        self._toast = toast
+
+        from kivy.animation import Animation
+
+        def _remove(*_):
+            if toast.parent:
+                toast.parent.remove_widget(toast)
+            if self._toast is toast:
+                self._toast = None
+
+        # Affiche 1 s, puis fondu doux de 0.8 s.
+        anim = Animation(opacity=1, duration=1.0) + Animation(opacity=0,
+                                                              duration=0.8)
+        anim.bind(on_complete=_remove)
+        anim.start(toast)
+        self.refresh()
 
     def back_to_menu(self, *_):
         App.get_running_app().autosave()
