@@ -54,7 +54,7 @@ class LoadScreen(Screen):
         scroll.add_widget(self.list_box)
         column.add_widget(scroll)
 
-        back_btn = Button(text="Retour", font_size="15sp", size_hint=(1, 0.1))
+        back_btn = scale_font(Button(text="Retour", size_hint=(1, 0.1)), 0.02)
         back_btn.bind(on_release=lambda *_: setattr(self.manager, "current",
                                                     "menu"))
         column.add_widget(back_btn)

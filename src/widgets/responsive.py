@@ -12,10 +12,14 @@ HAUTEUR de la fenetre. Exemple : fraction=0.03 => le texte fait toujours
 """
 from kivy.core.window import Window
 
+# Multiplicateur GLOBAL de la taille du texte (1.0 = normal). On l'augmente
+# pour grossir toutes les ecritures du jeu d'un coup.
+FONT_SCALE = 1.3
+
 
 def font_for(fraction, minimum=10):
     """Taille de police (px) correspondant a une fraction de la hauteur."""
-    return max(minimum, Window.height * fraction)
+    return max(minimum, Window.height * fraction * FONT_SCALE)
 
 
 def scale_font(widget, fraction, minimum=10):
