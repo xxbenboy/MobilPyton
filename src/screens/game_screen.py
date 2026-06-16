@@ -21,7 +21,9 @@ from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font
 
 AUTOSAVE_SECONDS = 30
-TIME_SCALE = 1            # secondes de jeu par seconde reelle
+# Vitesse du temps en partie : 24h en 10 min => 86400 / 600 = 144 secondes de
+# jeu par seconde reelle.
+TIME_SCALE = 144
 
 # Actions de survie : libelle, minutes consommees, effets sur les stats.
 ACTIONS = [

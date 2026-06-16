@@ -24,7 +24,8 @@ from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font
 
 AUTOSAVE_SECONDS = 30
-TIME_SCALE = 1
+# 24h en 10 min => 86400 / 600 = 144 secondes de jeu par seconde reelle.
+TIME_SCALE = 144
 
 # Cout d'un deplacement d'une case (1 km a pied).
 MOVE_MINUTES = 12
