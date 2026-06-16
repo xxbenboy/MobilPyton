@@ -26,11 +26,21 @@ class ZoneScenery(Widget):
         super().__init__(**kwargs)
         self._zone = "Foret"
         self._seed = 0
+        self._mode = "scene"        # "scene" = vue horizon ; "ground" = vue sol
         self.bind(pos=self._redraw, size=self._redraw)
 
     def set_scene(self, zone_type, seed=0):
+        """Vue a l'horizon (sol en bas + ciel)."""
         self._zone = zone_type
         self._seed = seed
+        self._mode = "scene"
+        self._redraw()
+
+    def set_ground(self, zone_type, seed=0):
+        """Vue VERS LE BAS : on regarde le sol, qui remplit tout l'ecran."""
+        self._zone = zone_type
+        self._seed = seed
+        self._mode = "ground"
         self._redraw()
 
     # ------------------------------------------------------------------ #
@@ -38,15 +48,101 @@ class ZoneScenery(Widget):
         self.canvas.clear()
         if self.width <= 0 or self.height <= 0:
             return
-        draw = {
-            "Foret": self._foret,
-            "Plaine": self._plaine,
-            "Montagne": self._montagne,
-            "Lac": self._lac,
-        }.get(self._zone, self._foret)
         rng = random.Random(_ZONE_SEED.get(self._zone, 0) * 100000 + self._seed)
         with self.canvas:
-            draw(rng)
+            if self._mode == "ground":
+                self._ground_view(rng)
+            else:
+                {
+                    "Foret": self._foret,
+                    "Plaine": self._plaine,
+                    "Montagne": self._montagne,
+                    "Lac": self._lac,
+                }.get(self._zone, self._foret)(rng)
+
+    # -- vue VERS LE BAS (sol qui remplit l'ecran) ---------------------- #
+    def _ground_view(self, rng):
+        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        zone = self._zone
+
+        if zone == "Lac":                              # surface de l'eau vue d'en haut
+            Color(0.14, 0.36, 0.55, 1)
+            Rectangle(pos=(x0, y0), size=(w, h))
+            for _ in range(70):                        # ondulations / reflets
+                ly = y0 + rng.uniform(0, 1) * h
+                lx = x0 + rng.uniform(0, 0.7) * w
+                Color(0.34, 0.58, 0.76, rng.uniform(0.2, 0.5))
+                Line(points=[lx, ly, lx + rng.uniform(0.1, 0.35) * w, ly],
+                     width=1.4)
+            for _ in range(rng.randint(4, 8)):         # nenuphars
+                gx = x0 + rng.uniform(0, 1) * w
+                gy = y0 + rng.uniform(0, 1) * h
+                r = rng.uniform(0.03, 0.06) * h
+                Color(0.16, 0.40, 0.20, 1)
+                Ellipse(pos=(gx - r, gy - r * 0.8), size=(r * 2, r * 1.6))
+            return
+
+        if zone == "Montagne":
+            base = (0.34, 0.34, 0.38)
+        elif zone == "Foret":
+            base = (0.16, 0.18, 0.11)
+        else:                                          # Plaine
+            base = (0.24, 0.42, 0.18)
+
+        Color(*base, 1)
+        Rectangle(pos=(x0, y0), size=(w, h))
+        for _ in range(14):                            # taches de variation
+            gx = x0 + rng.uniform(0, 1) * w
+            gy = y0 + rng.uniform(0, 1) * h
+            r = rng.uniform(0.08, 0.18) * h
+            Color(min(1, base[0] * 1.15), min(1, base[1] * 1.15),
+                  min(1, base[2] * 1.15), 0.5)
+            Ellipse(pos=(gx - r, gy - r * 0.7), size=(r * 2, r * 1.4))
+
+        def rnd():
+            return x0 + rng.uniform(0, 1) * w, y0 + rng.uniform(0, 1) * h
+
+        if zone == "Plaine":
+            greens = [(0.22, 0.42, 0.16, 1), (0.28, 0.48, 0.18, 1),
+                      (0.18, 0.38, 0.14, 1)]
+            for _ in range(110):                       # gazon partout
+                gx, gy = rnd()
+                self._grass_tuft(gx, gy, rng.uniform(0.04, 0.09) * h,
+                                 rng.choice(greens), scale=0.8)
+            for _ in range(rng.randint(8, 14)):        # petites pierres
+                gx, gy = rnd()
+                self._stone(gx, gy, rng.uniform(0.015, 0.035) * h)
+            for _ in range(rng.randint(16, 26)):       # fleurs
+                gx, gy = rnd()
+                Color(*rng.choice([(1, 1, 0.9, 1), (0.96, 0.85, 0.28, 1),
+                                   (0.9, 0.45, 0.55, 1)]))
+                r = rng.uniform(0.01, 0.02) * h
+                Ellipse(pos=(gx - r, gy - r), size=(r * 2, r * 2))
+        elif zone == "Foret":
+            leaves = [(0.45, 0.32, 0.14, 1), (0.36, 0.40, 0.16, 1),
+                      (0.52, 0.38, 0.18, 1), (0.30, 0.26, 0.12, 1)]
+            for _ in range(150):                       # litiere de feuilles
+                gx, gy = rnd()
+                self._leaf(gx, gy, rng.uniform(0.012, 0.024) * h,
+                           rng.choice(leaves))
+            for _ in range(rng.randint(10, 16)):       # brindilles
+                gx, gy = rnd()
+                self._branch(gx, gy, rng.uniform(0.05, 0.10) * w)
+            for _ in range(45):                        # touffes sombres
+                gx, gy = rnd()
+                self._grass_tuft(gx, gy, rng.uniform(0.03, 0.07) * h,
+                                 (0.12, 0.22, 0.13, 1), scale=0.7)
+            for _ in range(rng.randint(8, 14)):        # pierres mousseuses
+                gx, gy = rnd()
+                self._stone(gx, gy, rng.uniform(0.02, 0.045) * h)
+        else:                                          # Montagne (rocaille)
+            for _ in range(rng.randint(45, 65)):       # rochers / galets
+                gx, gy = rnd()
+                self._stone(gx, gy, rng.uniform(0.02, 0.06) * h)
+            for _ in range(rng.randint(8, 14)):        # touffes rares
+                gx, gy = rnd()
+                self._grass_tuft(gx, gy, rng.uniform(0.03, 0.06) * h,
+                                 (0.22, 0.34, 0.16, 1), scale=0.7)
 
     # -- helpers -------------------------------------------------------- #
     def _pine(self, cx, base, tw, th, color):

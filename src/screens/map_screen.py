@@ -173,10 +173,10 @@ class MapScreen(Screen):
         self.btn_o.disabled = self._ff_active or not state.can_move(-1, 0)
         self.quit_btn.disabled = self._ff_active
         self.background.set_seconds(state.time_seconds)
-        # Fond = decor du sol de la zone courante (redessine si la case change).
+        # Fond = vue VERS LE BAS du sol de la zone (on regarde la carte/le sol).
         key = (zone, state.player_x, state.player_y)
         if key != self._scene_key:
-            self.scenery.set_scene(zone, state.player_x * 131 + state.player_y)
+            self.scenery.set_ground(zone, state.player_x * 131 + state.player_y)
             self._scene_key = key
 
     def _periodic_autosave(self, _dt):
