@@ -16,7 +16,10 @@ git push
 
 echo.
 echo ============================================
-echo   Termine. Le build APK demarre tout seul :
-echo   https://github.com/xxbenboy/MobilPyton/actions
+echo   Code envoye sur GitHub.
+echo   Le build NE demarre PAS tout seul (mode manuel).
+echo   Pour fabriquer l'APK quand tu es pret :
+echo   1) va sur https://github.com/xxbenboy/MobilPyton/actions
+echo   2) clique "Build Android APK" puis "Run workflow"
 echo ============================================
 pause
