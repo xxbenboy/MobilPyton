@@ -206,9 +206,8 @@ class ZoneScenery(Widget):
 
     def _plaine(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
-        hor = 0.55                       # hauteur du champ (ciel au-dessus)
-        edge = hor - 0.06                # le vert plein s'arrete un peu plus bas
-
+        hor = 0.55
+        edge = hor - 0.06
         near = (0.20, 0.40, 0.14)
         far = (0.42, 0.55, 0.32)
 
@@ -217,8 +216,7 @@ class ZoneScenery(Widget):
                 + (1,)
 
         def place(maxt=1.0):
-            # La base est TOUJOURS sur le vert plein (<= edge) : rien ne flotte.
-            fy = rng.random() * edge * maxt
+            fy = rng.random() * edge * maxt          # base toujours sur le vert
             t = (fy / edge) if edge else 0.0
             return (x0 + rng.uniform(0, 1) * w, y0 + fy * h,
                     1.0 - 0.70 * t, t)
@@ -226,7 +224,7 @@ class ZoneScenery(Widget):
         flowers = [(1, 1, 0.92, 1), (0.96, 0.85, 0.28, 1),
                    (0.92, 0.42, 0.52, 1), (0.72, 0.52, 0.92, 1)]
 
-        # Sol vert plein qui s'arrete SOUS l'horizon (le haut sera de l'herbe).
+        # Fond vert (toujours derriere tout le reste).
         bands = [(0.00, 0.20, (0.22, 0.38, 0.16)),
                  (0.20, 0.36, (0.27, 0.43, 0.19)),
                  (0.36, edge, (0.33, 0.49, 0.24))]
@@ -234,76 +232,106 @@ class ZoneScenery(Widget):
             Color(*col, 1)
             Rectangle(pos=(x0, y0 + a * h), size=(w, (b - a) * h))
 
-        # Pierres / branches / buissons au sol.
-        for _ in range(rng.randint(9, 13)):
+        # Petites fabriques de "fonctions de dessin" (pour differer le rendu).
+        def f_grass(gx, gb, gh, col, sc, fcol, fr):
+            def fn():
+                self._grass_tuft(gx, gb, gh, col, scale=sc)
+                if fcol:
+                    Color(*fcol)
+                    Ellipse(pos=(gx - fr, gb + gh - fr), size=(fr * 2, fr * 2))
+            return fn
+
+        def f_insect(ix, iy, sz, is_b, col):
+            def fn():
+                if is_b:
+                    self._butterfly(ix, iy, sz, col)
+                else:
+                    self._bee(ix, iy, sz)
+            return fn
+
+        # On collecte chaque element avec sa PROFONDEUR (= y de sa base), puis
+        # on dessine du plus LOIN (base haute) au plus PROCHE (base basse) :
+        # les elements proches recouvrent ceux du fond, de facon realiste.
+        items = []   # (y_base, fonction)
+
+        for _ in range(rng.randint(9, 13)):            # pierres
             sx, sy, sc, t = place(0.85)
-            self._stone(sx, sy, rng.uniform(0.018, 0.045) * h * sc)
-        for _ in range(rng.randint(6, 9)):
+            r = rng.uniform(0.018, 0.045) * h * sc
+            items.append((sy, lambda sx=sx, sy=sy, r=r: self._stone(sx, sy, r)))
+        for _ in range(rng.randint(6, 9)):             # branches
             bx, by, sc, t = place(0.82)
-            self._branch(bx, by, rng.uniform(0.06, 0.12) * w * sc)
-        for _ in range(rng.randint(4, 6)):
+            ln = rng.uniform(0.06, 0.12) * w * sc
+            # Un baton repose SUR l'herbe locale : on le rapproche (biais) pour
+            # qu'il soit dessine par-dessus l'herbe de sa profondeur. Seule
+            # l'herbe nettement plus proche (plus bas) passe devant.
+            items.append((by - 0.12 * h, lambda bx=bx, by=by, ln=ln:
+                          self._branch(bx, by, ln)))
+        for _ in range(rng.randint(4, 6)):             # buissons
             bx, by, sc, t = place(0.85)
             g = rng.uniform(0.0, 0.10)
-            self._bush(bx, by, rng.uniform(0.03, 0.055) * h * sc,
-                       (0.12 + g, 0.30 + g, 0.15, 1))
-
-        # Gazon disperse sur TOUT le champ (haut compris).
-        for _ in range(130):
+            r = rng.uniform(0.03, 0.055) * h * sc
+            col = (0.12 + g, 0.30 + g, 0.15, 1)
+            items.append((by, lambda bx=bx, by=by, r=r, col=col:
+                          self._bush(bx, by, r, col)))
+        for _ in range(130):                           # gazon disperse
             gx, gb, sc, t = place()
             gh = rng.uniform(0.05, 0.16) * h * sc
-            self._grass_tuft(gx, gb, gh, green_at(t), scale=sc)
-            if rng.random() < 0.10:
-                Color(*rng.choice(flowers))
-                fr = max(1.5, w * 0.004 * sc)
-                Ellipse(pos=(gx - fr, gb + gh - fr), size=(fr * 2, fr * 2))
-
-        # HERBE D'HORIZON : tres dense, recouvre le bord du vert et depasse
-        # dans le ciel => l'horizon est dessine par les brins (pas de ligne).
-        n = 190
+            fcol = rng.choice(flowers) if rng.random() < 0.10 else None
+            fr = max(1.5, w * 0.004 * sc)
+            items.append((gb, f_grass(gx, gb, gh, green_at(t), sc, fcol, fr)))
+        n = 190                                        # herbe d'horizon
         for i in range(n):
             gx = x0 + (i / (n - 1)) * w + rng.uniform(-0.006, 0.006) * w
-            gb = y0 + (edge - rng.uniform(0.0, 0.04)) * h   # base sur le vert
-            gh = rng.uniform(0.05, 0.11) * h                 # pointe dans le ciel
-            self._grass_tuft(gx, gb, gh, green_at(rng.uniform(0.85, 1.0)),
-                             scale=0.5)
-
-        # Plantes feuillues (toujours quelques-unes).
-        for _ in range(rng.randint(10, 14)):
+            gb = y0 + (edge - rng.uniform(0.0, 0.04)) * h
+            gh = rng.uniform(0.05, 0.11) * h
+            items.append((gb, f_grass(gx, gb, gh,
+                                      green_at(rng.uniform(0.85, 1.0)),
+                                      0.5, None, 0)))
+        for _ in range(rng.randint(10, 14)):           # plantes feuillues
             px, py, sc, t = place()
-            self._plant(px, py, rng.uniform(0.05, 0.09) * h * sc)
+            s = rng.uniform(0.05, 0.09) * h * sc
+            items.append((py, lambda px=px, py=py, s=s: self._plant(px, py, s)))
 
         # --- Plantes de champ OPTIONNELLES (tirage generatif) ---
-        if rng.random() < 0.75:                       # foin
+        if rng.random() < 0.75:                        # foin
             for _ in range(rng.randint(6, 12)):
                 fx, fb, sc, t = place(0.95)
-                self._hay(fx, fb, rng.uniform(0.10, 0.20) * h * sc, sc)
-        if rng.random() < 0.65:                       # epis / graminees
+                ht = rng.uniform(0.10, 0.20) * h * sc
+                items.append((fb, lambda fx=fx, fb=fb, ht=ht, sc=sc:
+                              self._hay(fx, fb, ht, sc)))
+        if rng.random() < 0.65:                        # epis / graminees
             for _ in range(rng.randint(8, 16)):
                 ex, eb, sc, t = place(0.95)
-                self._wheat(ex, eb, rng.uniform(0.10, 0.18) * h * sc, sc)
-        if rng.random() < 0.6:                        # champignons
+                ht = rng.uniform(0.10, 0.18) * h * sc
+                items.append((eb, lambda ex=ex, eb=eb, ht=ht, sc=sc:
+                              self._wheat(ex, eb, ht, sc)))
+        if rng.random() < 0.6:                         # champignons
             for _ in range(rng.randint(5, 9)):
                 mx, my, sc, t = place(0.82)
-                self._mushroom(mx, my, rng.uniform(0.03, 0.05) * h * sc,
-                               rng.choice([(0.80, 0.22, 0.20, 1),
-                                           (0.72, 0.50, 0.30, 1)]))
-        if rng.random() < 0.5:                        # baies
+                s = rng.uniform(0.03, 0.05) * h * sc
+                cap = rng.choice([(0.80, 0.22, 0.20, 1), (0.72, 0.50, 0.30, 1)])
+                items.append((my, lambda mx=mx, my=my, s=s, cap=cap:
+                              self._mushroom(mx, my, s, cap)))
+        if rng.random() < 0.5:                         # baies
             for _ in range(rng.randint(3, 6)):
                 bx, by, sc, t = place(0.80)
-                self._berries(bx, by, rng.uniform(0.03, 0.045) * h * sc)
+                r = rng.uniform(0.03, 0.045) * h * sc
+                items.append((by, lambda bx=bx, by=by, r=r:
+                              self._berries(bx, by, r)))
 
-        # Insectes : volent juste au-dessus des herbes (pas dans le vide).
-        for _ in range(rng.randint(6, 9)):
+        for _ in range(rng.randint(6, 9)):             # insectes
             ix = x0 + rng.uniform(0.05, 0.95) * w
             iy = y0 + rng.uniform(0.08, hor) * h
             sz = rng.uniform(0.014, 0.026) * h
-            if rng.random() < 0.6:
-                self._butterfly(ix, iy, sz,
-                                rng.choice([(0.95, 0.6, 0.2, 1),
-                                            (0.6, 0.42, 0.92, 1),
-                                            (0.92, 0.92, 0.96, 1)]))
-            else:
-                self._bee(ix, iy, sz)
+            is_b = rng.random() < 0.6
+            col = rng.choice([(0.95, 0.6, 0.2, 1), (0.6, 0.42, 0.92, 1),
+                              (0.92, 0.92, 0.96, 1)])
+            items.append((iy, f_insect(ix, iy, sz, is_b, col)))
+
+        # Rendu trie : plus loin (base haute) d'abord, plus proche par-dessus.
+        items.sort(key=lambda it: it[0], reverse=True)
+        for _, fn in items:
+            fn()
 
     def _montagne(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
