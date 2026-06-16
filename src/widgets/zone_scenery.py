@@ -301,10 +301,10 @@ class ZoneScenery(Widget):
             # l'herbe nettement plus proche (plus bas) passe devant.
             items.append((by - 0.12 * h, lambda bx=bx, by=by, ln=ln:
                           self._branch(bx, by, ln)))
-        for _ in range(rng.randint(4, 6)):             # buissons
+        for _ in range(rng.randint(4, 6)):             # buissons (taille humaine)
             bx, by, sc, t = place(0.85)
             g = rng.uniform(0.0, 0.10)
-            r = rng.uniform(0.03, 0.055) * h * sc
+            r = rng.uniform(0.11, 0.20) * h * sc
             col = (0.12 + g, 0.30 + g, 0.15, 1)
             items.append((by, lambda bx=bx, by=by, r=r, col=col:
                           self._bush(bx, by, r, col)))

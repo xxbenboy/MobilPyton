@@ -23,6 +23,7 @@ from kivy.metrics import dp
 from src.game_state import _clamp100
 from src.widgets.animated_background import AnimatedBackground
 from src.widgets.zone_scenery import ZoneScenery
+from src.widgets.player_hands import PlayerHands
 from src.widgets.styled_button import StyledButton
 from src.widgets.stat_bar import StatBar
 from src.widgets.responsive import scale_font
@@ -88,6 +89,9 @@ class GameScreen(Screen):
         root.add_widget(self.background)
         self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.scenery)
+        # Mains du joueur (vue 1re personne), devant le decor.
+        self.hands = PlayerHands(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.hands)
 
         # ---- Section ZONE (haut gauche) ----
         zone_box = BoxLayout(orientation="vertical", padding=dp(10), spacing=4,
