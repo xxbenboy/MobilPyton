@@ -51,8 +51,25 @@ def _resolve(cache_key, registered_name, *filenames):
 
 
 def title_font():
-    """Police du titre (assets/fonts/title.ttf si present)."""
-    return _resolve("title", "WildTitle", "title.ttf", "title.otf")
+    """Police du titre.
+
+    Cherche assets/fonts/title.ttf (regulier) et, en option,
+    assets/fonts/title-bold.ttf (gras). Repli sur Roboto si absent.
+    """
+    if "title" in _cache:
+        return _cache["title"]
+    regular = _find("title.ttf", "title.otf")
+    bold = _find("title-bold.ttf", "title-bold.otf")
+    if regular:
+        kwargs = {"name": "WildTitle", "fn_regular": regular}
+        if bold:
+            kwargs["fn_bold"] = bold
+        LabelBase.register(**kwargs)
+        result = "WildTitle"
+    else:
+        result = "Roboto"
+    _cache["title"] = result
+    return result
 
 
 def ui_font():
