@@ -217,8 +217,9 @@ class ZoneScenery(Widget):
                 + (1,)
 
         def place(maxt=1.0):
-            fy = rng.random() * hor * maxt
-            t = (fy / hor) if hor else 0.0
+            # La base est TOUJOURS sur le vert plein (<= edge) : rien ne flotte.
+            fy = rng.random() * edge * maxt
+            t = (fy / edge) if edge else 0.0
             return (x0 + rng.uniform(0, 1) * w, y0 + fy * h,
                     1.0 - 0.70 * t, t)
 
@@ -261,8 +262,8 @@ class ZoneScenery(Widget):
         n = 190
         for i in range(n):
             gx = x0 + (i / (n - 1)) * w + rng.uniform(-0.006, 0.006) * w
-            gb = y0 + (edge + rng.uniform(-0.03, 0.02)) * h
-            gh = rng.uniform(0.04, 0.075) * h
+            gb = y0 + (edge - rng.uniform(0.0, 0.04)) * h   # base sur le vert
+            gh = rng.uniform(0.05, 0.11) * h                 # pointe dans le ciel
             self._grass_tuft(gx, gb, gh, green_at(rng.uniform(0.85, 1.0)),
                              scale=0.5)
 
@@ -291,10 +292,10 @@ class ZoneScenery(Widget):
                 bx, by, sc, t = place(0.80)
                 self._berries(bx, by, rng.uniform(0.03, 0.045) * h * sc)
 
-        # Insectes (volent au-dessus du champ).
+        # Insectes : volent juste au-dessus des herbes (pas dans le vide).
         for _ in range(rng.randint(6, 9)):
             ix = x0 + rng.uniform(0.05, 0.95) * w
-            iy = y0 + rng.uniform(0.10, hor + 0.12) * h
+            iy = y0 + rng.uniform(0.08, hor) * h
             sz = rng.uniform(0.014, 0.026) * h
             if rng.random() < 0.6:
                 self._butterfly(ix, iy, sz,
