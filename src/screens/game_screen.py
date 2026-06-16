@@ -1,49 +1,38 @@
 """
-Ecran de jeu.
+Ecran de jeu : exploration de la carte generative.
 
-Le jeu est de style "menu jouable" : le joueur choisit une action, chaque
-action fait AVANCER LE TEMPS (qui ne s'arrete jamais) et modifie ses stats.
-L'affichage se met a jour apres chaque action.
+A gauche  : la mini-carte (25x25) + les infos de la zone courante.
+A droite  : jour/heure, stats du joueur, une boussole de deplacement
+            (Nord / Sud / Est / Ouest) et le retour au menu.
 
-Sauvegarde automatique (gere ici, pour la partie en cours) :
-- PERIODIQUE : toutes les `AUTOSAVE_SECONDS` secondes tant qu'on est en jeu.
-- APRES CERTAINES ACTIONS : chaque action declenche une sauvegarde.
-La sauvegarde "avant fermeture" est geree au niveau de l'app (voir game.py).
+Se deplacer d'une case = parcourir 1 km : ca fait avancer le temps et coute un
+peu d'energie. Le ciel suit l'heure de la partie.
 
-L'etat de la partie n'est PAS cree ici : il est prepare par le menu
-(nouvelle partie ou chargement) puis depose dans `App.game_state`. Cet
-ecran lit/modifie cet etat partage.
+Sauvegarde automatique : periodique, apres chaque deplacement, et avant la
+fermeture (geree dans game.py).
 """
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.uix.screenmanager import Screen
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.boxlayout import BoxLayout
+from kivy.uix.gridlayout import GridLayout
+from kivy.uix.widget import Widget
 from kivy.uix.label import Label
-from kivy.uix.button import Button
 
+from src import world
 from src.widgets.animated_background import AnimatedBackground
+from src.widgets.minimap import MiniMap
+from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font
 
-# Intervalle de la sauvegarde automatique periodique (en secondes).
 AUTOSAVE_SECONDS = 30
+TIME_SCALE = 1            # secondes de jeu par seconde reelle (ecoulement)
 
-# Vitesse d'ecoulement du temps : combien de secondes de JEU passent pour
-# chaque seconde reelle. 1 = temps reel. Augmenter pour accelerer l'horloge.
-TIME_SCALE = 1
-
-# Definition des actions : libelle, minutes de temps consommees, effets sur
-# les stats, et une ambiance (couleur de fond) associee.
-ACTIONS = [
-    {"label": "Explorer",       "minutes": 90,  "energy": -15, "hunger": +10,
-     "wood": 0, "food": +1, "mood": (0.20, 0.35, 0.40)},
-    {"label": "Couper du bois", "minutes": 120, "energy": -20, "hunger": +12,
-     "wood": +3, "food": 0,  "mood": (0.18, 0.30, 0.18)},
-    {"label": "Chercher a manger", "minutes": 60, "energy": -10, "hunger": -5,
-     "wood": 0, "food": +2, "mood": (0.30, 0.28, 0.15)},
-    {"label": "Se reposer",     "minutes": 240, "energy": +35, "hunger": +8,
-     "wood": 0, "food": 0,  "mood": (0.12, 0.10, 0.20)},
-]
+# Cout d'un deplacement d'une case (1 km a pied).
+MOVE_MINUTES = 12
+MOVE_ENERGY = -3
+MOVE_HUNGER = 2
 
 
 class GameScreen(Screen):
@@ -53,99 +42,110 @@ class GameScreen(Screen):
         self._tick_event = None
 
         root = FloatLayout()
-        # Ciel pilote par l'horloge de la partie (time_scale=0 : pas
-        # d'avance auto, on le cale via set_seconds dans refresh()).
+        # Ciel pilote par l'horloge de la partie (cale via set_seconds).
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         root.add_widget(self.background)
 
-        column = BoxLayout(orientation="vertical", padding=16, spacing=8,
-                           size_hint=(0.92, 0.94),
-                           pos_hint={"center_x": 0.5, "center_y": 0.5})
+        main = BoxLayout(orientation="horizontal", padding=12, spacing=12,
+                         size_hint=(0.96, 0.96),
+                         pos_hint={"center_x": 0.5, "center_y": 0.5})
 
-        # En-tete : temps + jour.
-        self.header = scale_font(Label(text="", bold=True,
-                            size_hint=(1, 0.1)), 0.026)
-        column.add_widget(self.header)
+        # ---- Gauche : mini-carte + infos de zone ----
+        left = BoxLayout(orientation="vertical", spacing=8, size_hint_x=0.52)
+        self.minimap = MiniMap(size_hint_y=0.74)
+        left.add_widget(self.minimap)
+        self.zone_label = scale_font(Label(text="", halign="center",
+                                           valign="middle",
+                                           size_hint_y=0.26), 0.02)
+        self.zone_label.bind(size=lambda w, *_: setattr(
+            w, "text_size", (w.width, None)))
+        left.add_widget(self.zone_label)
+        main.add_widget(left)
 
-        # Stats du joueur.
+        # ---- Droite : temps, stats, boussole, retour ----
+        right = BoxLayout(orientation="vertical", spacing=8, size_hint_x=0.48)
+
+        self.header = scale_font(Label(text="", bold=True, size_hint_y=0.12),
+                                 0.026)
+        right.add_widget(self.header)
+
         self.stats = scale_font(Label(text="", halign="center",
-                           size_hint=(1, 0.12)), 0.018)
-        column.add_widget(self.stats)
+                                      size_hint_y=0.16), 0.018)
+        right.add_widget(self.stats)
 
-        # Journal des dernieres actions.
-        self.journal = scale_font(Label(text="", halign="center",
-                             color=(0.85, 0.85, 0.85, 1), size_hint=(1, 0.22)),
-                             0.016)
-        column.add_widget(self.journal)
+        # Boussole : grille 3x3, N/S/E/O en croix.
+        cross = GridLayout(cols=3, spacing=6, size_hint_y=0.5)
+        self.btn_n = self._move_btn("N", 0, -1)
+        self.btn_s = self._move_btn("S", 0, 1)
+        self.btn_e = self._move_btn("E", 1, 0)
+        self.btn_o = self._move_btn("O", -1, 0)
+        cross.add_widget(Widget())
+        cross.add_widget(self.btn_n)
+        cross.add_widget(Widget())
+        cross.add_widget(self.btn_o)
+        cross.add_widget(Widget())
+        cross.add_widget(self.btn_e)
+        cross.add_widget(Widget())
+        cross.add_widget(self.btn_s)
+        cross.add_widget(Widget())
+        right.add_widget(cross)
 
-        # Boutons d'action (un par action definie).
-        actions_box = BoxLayout(orientation="vertical", spacing=6,
-                                size_hint=(1, 0.42))
-        for action in ACTIONS:
-            btn = scale_font(Button(text=action["label"]), 0.022)
-            btn.bind(on_release=lambda _w, a=action: self.do_action(a))
-            actions_box.add_widget(btn)
-        column.add_widget(actions_box)
-
-        # Retour au menu (sauvegarde avant de partir).
-        back_btn = scale_font(Button(text="Menu (sauvegarde)",
-                          size_hint=(1, 0.12)), 0.018)
+        back_btn = scale_font(StyledButton(text="Menu (sauvegarde)",
+                              size_hint_y=0.12), 0.018)
         back_btn.bind(on_release=self.back_to_menu)
-        column.add_widget(back_btn)
+        right.add_widget(back_btn)
 
-        root.add_widget(column)
+        main.add_widget(right)
+        root.add_widget(main)
         self.add_widget(root)
 
+    def _move_btn(self, label, dx, dy):
+        btn = scale_font(StyledButton(text=label), 0.03)
+        btn.bind(on_release=lambda _w: self.do_move(dx, dy))
+        return btn
+
     # ------------------------------------------------------------------ #
-    # Cycle de vie de l'ecran
+    # Cycle de vie
     # ------------------------------------------------------------------ #
     def on_pre_enter(self):
-        # L'etat a ete prepare par le menu : on rafraichit l'affichage.
-        self.refresh()
+        self.refresh_hud()
+        self.minimap.refresh()
 
     def on_enter(self):
-        # Demarre la sauvegarde automatique periodique.
         self._autosave_event = Clock.schedule_interval(
             self._periodic_autosave, AUTOSAVE_SECONDS)
-        # Demarre l'ecoulement continu du temps (1 fois par seconde).
         self._tick_event = Clock.schedule_interval(self._tick, 1.0)
 
     def on_leave(self):
-        # Arrete la sauvegarde periodique quand on quitte l'ecran.
-        if self._autosave_event is not None:
-            self._autosave_event.cancel()
-            self._autosave_event = None
-        # Arrete l'horloge temps reel.
-        if self._tick_event is not None:
-            self._tick_event.cancel()
-            self._tick_event = None
+        for ev in ("_autosave_event", "_tick_event"):
+            event = getattr(self, ev)
+            if event is not None:
+                event.cancel()
+                setattr(self, ev, None)
 
     def _tick(self, _dt):
         state = App.get_running_app().game_state
         if state is None:
             return
         state.tick(TIME_SCALE)
-        self.refresh()
+        self.refresh_hud()          # met a jour heure + ciel (pas la carte)
 
     # ------------------------------------------------------------------ #
-    # Actions
+    # Deplacement
     # ------------------------------------------------------------------ #
-    def do_action(self, action):
+    def do_move(self, dx, dy):
         state = App.get_running_app().game_state
-        if state is None:
+        if state is None or not state.move(dx, dy):
             return
-
-        state.advance_time(action["minutes"])
-        state.energy = _clamp(state.energy + action["energy"])
-        state.hunger = _clamp(state.hunger + action["hunger"])
-        state.wood += action["wood"]
-        state.food += action["food"]
+        state.advance_time(MOVE_MINUTES)
+        state.energy = _clamp(state.energy + MOVE_ENERGY)
+        state.hunger = _clamp(state.hunger + MOVE_HUNGER)
         state.action_count += 1
-        state.add_log(f"Jour {state.day} {state.clock} - {action['label']}")
-
-        self.refresh()
-        # Sauvegarde APRES l'action.
+        state.add_log(f"Jour {state.day} {state.clock} - "
+                      f"{state.current_zone()} ({state.player_x},{state.player_y})")
+        self.refresh_hud()
+        self.minimap.refresh()
         App.get_running_app().autosave()
 
     def back_to_menu(self, *_):
@@ -153,19 +153,29 @@ class GameScreen(Screen):
         self.manager.current = "menu"
 
     # ------------------------------------------------------------------ #
-    # Affichage & sauvegarde periodique
+    # Affichage
     # ------------------------------------------------------------------ #
-    def refresh(self):
+    def refresh_hud(self):
         state = App.get_running_app().game_state
         if state is None:
             return
+        zone = state.current_zone()
         self.header.text = f"Jour {state.day}   -   {state.clock}"
         self.stats.text = (
             f"Energie {state.energy}   Faim {state.hunger}\n"
             f"Bois {state.wood}   Nourriture {state.food}"
         )
-        self.journal.text = "\n".join(state.log)
-        # Le ciel suit l'heure de la partie (cycle jour/nuit).
+        self.zone_label.text = (
+            f"[b]{zone}[/b]\n{world.zone_desc(zone)}\n"
+            f"Case ({state.player_x},{state.player_y}) - 1x1 km"
+        )
+        self.zone_label.markup = True
+        # Boussole : on grise les directions hors carte.
+        self.btn_n.disabled = not state.can_move(0, -1)
+        self.btn_s.disabled = not state.can_move(0, 1)
+        self.btn_e.disabled = not state.can_move(1, 0)
+        self.btn_o.disabled = not state.can_move(-1, 0)
+        # Ciel cale sur l'heure de la partie.
         self.background.set_seconds(state.time_seconds)
 
     def _periodic_autosave(self, _dt):
