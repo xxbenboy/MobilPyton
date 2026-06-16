@@ -28,8 +28,9 @@ version = 0.1
 # Bibliotheques Python necessaires (ajouter ici : pillow, requests, etc.)
 requirements = python3,kivy
 
-# Orientation : portrait pour un jeu mobile vertical
-orientation = portrait
+# Orientation : paysage (le jeu se joue de cote). Le telephone bascule
+# automatiquement en horizontal au lancement de l'app.
+orientation = landscape
 
 # Plein ecran : 0 = barre de statut visible, 1 = plein ecran
 fullscreen = 0

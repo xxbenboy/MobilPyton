@@ -5,11 +5,12 @@ Buildozer (l'outil qui fabrique l'APK Android) EXIGE un fichier `main.py`
 a la racine du projet : c'est lui qui est lance au demarrage de l'app.
 
 Resolution de BASE (resolution "cible") : celle d'un telephone courant,
-2340x1080, mais en PORTRAIT (le jeu est un menu vertical), donc
-1080 de large x 2340 de haut.
+2340x1080, en PAYSAGE (le jeu se joue de cote / horizontalement), donc
+2340 de large x 1080 de haut.
 
-- Sur Android, ces reglages sont IGNORES : c'est l'ecran reel du telephone
-  qui est utilise (et l'interface s'y adapte toute seule).
+- Sur Android, l'orientation paysage est forcee via buildozer.spec
+  (orientation = landscape) : le telephone bascule de cote tout seul, et
+  l'interface s'adapte a l'ecran reel.
 - Sur PC, on ouvre une fenetre a cette taille MAIS on la reduit pour qu'elle
   tienne dans l'ecran, en gardant les memes proportions. Comme toute
   l'interface est en proportions (size_hint / pos_hint) + polices qui suivent
@@ -18,9 +19,9 @@ Resolution de BASE (resolution "cible") : celle d'un telephone courant,
 from kivy.config import Config
 from kivy.utils import platform
 
-# Resolution de base (portrait).
-BASE_WIDTH = 1080
-BASE_HEIGHT = 2340
+# Resolution de base (paysage / horizontal) : 2340 x 1080.
+BASE_WIDTH = 2340
+BASE_HEIGHT = 1080
 
 # Taille minimale de la fenetre, en proportion de la base (30 %). En dessous,
 # l'interface deviendrait trop petite : on empeche donc de retrecir plus.
