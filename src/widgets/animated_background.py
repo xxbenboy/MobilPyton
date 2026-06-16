@@ -1,75 +1,124 @@
 """
-Fond anime d'ambiance.
+Fond anime d'ambiance (plus elabore).
 
-Idee du jeu : le temps s'ecoule SANS arret et un fond anime accompagne
-l'ambiance. Ce widget pose les bases de cette idee : il dessine un fond
-qui change lentement de couleur en boucle (aube -> jour -> crepuscule ->
-nuit -> aube...), pour donner la sensation que le temps passe.
-
-Plus tard, le jeu pourra appeler `set_mood(...)` pour changer l'ambiance
-selon l'action effectuee (foret, combat, repos, etc.). Pour l'instant il
-sert surtout au menu : c'est purement decoratif.
+Trois couches dessinees au canvas (aucune image necessaire) :
+1. un DEGRADE vertical (haut sombre -> bas couleur d'ambiance) qui change
+   lentement de teinte en boucle (aube -> jour -> crepuscule -> nuit...),
+   pour donner la sensation que le temps passe ;
+2. des ETOILES qui scintillent doucement ;
+3. (le jeu peut appeler `set_mood(...)` pour orienter l'ambiance selon
+   l'action en cours).
 """
+import math
+import random
+
 from kivy.uix.widget import Widget
 from kivy.clock import Clock
-from kivy.graphics import Color, Rectangle
+from kivy.graphics import Color, Rectangle, Ellipse
+from kivy.graphics.texture import Texture
+from kivy.metrics import dp
 
 
-# Palette d'ambiances parcourue en boucle. Chaque entree est une couleur
-# (r, g, b) vers laquelle le fond se dirige doucement.
+# Palette d'ambiances parcourue en boucle (couleur "du bas" du degrade).
 MOODS = [
-    (0.12, 0.10, 0.20),  # nuit
-    (0.30, 0.18, 0.22),  # aube
-    (0.20, 0.35, 0.40),  # jour
-    (0.35, 0.22, 0.18),  # crepuscule
+    (0.12, 0.10, 0.22),  # nuit
+    (0.32, 0.18, 0.24),  # aube
+    (0.20, 0.36, 0.42),  # jour
+    (0.36, 0.22, 0.18),  # crepuscule
 ]
 
 
 class AnimatedBackground(Widget):
-    """Rectangle plein qui derive lentement entre plusieurs couleurs."""
-
-    def __init__(self, speed=0.15, **kwargs):
+    def __init__(self, speed=0.15, stars=28, **kwargs):
         super().__init__(**kwargs)
-        # `speed` = vitesse de transition (plus grand = plus rapide).
         self.speed = speed
         self._mood_index = 0
-        self._current = list(MOODS[0])          # couleur affichee
-        self._target = list(MOODS[1])           # couleur visee
+        self._current = list(MOODS[0])
+        self._target = list(MOODS[1])
+        self._t = 0.0
+        self._frame = 0
 
-        # On dessine le fond dans le canvas du widget.
+        # Texture 1xN qui contient le degrade vertical (mise a jour au fil du
+        # temps quand la couleur change).
+        self._grad_tex = Texture.create(size=(1, 64), colorfmt="rgba")
+        self._grad_tex.wrap = "clamp_to_edge"
+        self._grad_tex.mag_filter = "linear"
+        self._grad_tex.min_filter = "linear"
+
         with self.canvas.before:
-            self._color = Color(*self._current)
-            self._rect = Rectangle(pos=self.pos, size=self.size)
+            # Couche 1 : le degrade.
+            Color(1, 1, 1, 1)
+            self._rect = Rectangle(texture=self._grad_tex,
+                                   pos=self.pos, size=self.size)
+            # Couche 2 : les etoiles.
+            self._stars = []
+            rng = random.Random(20240601)
+            for _ in range(stars):
+                col = Color(1, 1, 1, 0.5)
+                ellipse = Ellipse()
+                self._stars.append({
+                    "col": col, "e": ellipse,
+                    "fx": rng.uniform(0.02, 0.98),
+                    "fy": rng.uniform(0.32, 0.98),
+                    "size": dp(rng.uniform(1.5, 3.5)),
+                    "base": rng.uniform(0.25, 0.75),
+                    "phase": rng.uniform(0.0, 6.28),
+                    "tw": rng.uniform(0.6, 1.8),
+                })
 
-        # Le rectangle doit toujours couvrir le widget, meme si on
-        # redimensionne la fenetre.
-        self.bind(pos=self._update_rect, size=self._update_rect)
-
-        # Mise a jour ~60 fois par seconde.
+        self._build_gradient()
+        self.bind(pos=self._update_layout, size=self._update_layout)
         Clock.schedule_interval(self._tick, 1 / 60.0)
 
-    def set_mood(self, rgb):
-        """Force l'ambiance vers une couleur precise (ex. selon l'action).
-
-        Le fond continue ensuite sa boucle naturelle a partir de la.
-        """
-        self._target = list(rgb)
-
-    def _update_rect(self, *_):
+    # ------------------------------------------------------------------ #
+    def _update_layout(self, *_):
         self._rect.pos = self.pos
         self._rect.size = self.size
+        for s in self._stars:
+            sz = s["size"]
+            s["e"].size = (sz, sz)
+            s["e"].pos = (self.x + s["fx"] * self.width - sz / 2,
+                          self.y + s["fy"] * self.height - sz / 2)
+
+    def _build_gradient(self):
+        """Recree la texture du degrade a partir de la couleur courante."""
+        h = 64
+        bot = self._current
+        top = [c * 0.4 for c in self._current]  # haut plus sombre
+        buf = bytearray(h * 4)
+        for i in range(h):
+            t = i / (h - 1)            # 0 = bas, 1 = haut
+            buf[i * 4] = int((bot[0] * (1 - t) + top[0] * t) * 255)
+            buf[i * 4 + 1] = int((bot[1] * (1 - t) + top[1] * t) * 255)
+            buf[i * 4 + 2] = int((bot[2] * (1 - t) + top[2] * t) * 255)
+            buf[i * 4 + 3] = 255
+        self._grad_tex.blit_buffer(bytes(buf), colorfmt="rgba",
+                                   bufferfmt="ubyte")
+
+    def set_mood(self, rgb):
+        """Oriente l'ambiance vers une couleur (ex. selon l'action)."""
+        self._target = list(rgb)
 
     def _tick(self, dt):
-        # On rapproche doucement la couleur courante de la couleur visee.
+        self._t += dt
+
+        # Transition douce de la couleur d'ambiance.
         done = True
         for i in range(3):
             diff = self._target[i] - self._current[i]
             if abs(diff) > 0.001:
                 self._current[i] += diff * self.speed * dt
                 done = False
-        self._color.rgb = self._current
-
-        # Couleur visee atteinte : on passe a l'ambiance suivante.
         if done:
             self._mood_index = (self._mood_index + 1) % len(MOODS)
             self._target = list(MOODS[self._mood_index])
+
+        # Degrade : reconstruit 15 fois/seconde (suffisant, et leger).
+        self._frame += 1
+        if self._frame % 4 == 0:
+            self._build_gradient()
+
+        # Scintillement des etoiles.
+        for s in self._stars:
+            s["col"].a = s["base"] * (0.35 + 0.65 *
+                                      abs(math.sin(self._t * s["tw"] + s["phase"])))
