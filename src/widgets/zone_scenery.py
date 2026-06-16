@@ -187,9 +187,9 @@ class ZoneScenery(Widget):
             ln = rng.uniform(0.06, 0.13) * w * sc
             items.append((by - 0.12 * h, lambda bx=bx, by=by, ln=ln:
                           self._branch(bx, by, ln)))
-        # Herbe de sous-bois (sombre), en touffes.
-        for _ in range(60):
-            fx = grass_pick() if rng.random() < 0.75 else None
+        # Herbe de sous-bois (sombre), en touffes (dense).
+        for _ in range(130):
+            fx = grass_pick() if rng.random() < 0.72 else None
             gx, gb, sc, t = place(fx=fx)
             gh = rng.uniform(0.05, 0.13) * h * sc
             items.append((gb, f_grass(gx, gb, gh, rng.choice(GREENS) + (1,), sc)))
@@ -234,6 +234,21 @@ class ZoneScenery(Widget):
         for _ in range(rng.randint(16, 22)):
             tx, tb, sc, t = place(0.97)
             add_tree(tx, tb, sc)
+        # Ligne d'arbres DENSE a l'horizon (lointains et petits).
+        m = rng.randint(24, 32)
+        for i in range(m):
+            fx = min(0.999, max(0.001, i / (m - 1) + rng.uniform(-0.02, 0.02)))
+            tb = floor_curve(fx) - rng.uniform(0.0, 0.03) * h
+            tx = x0 + fx * w
+            if rng.random() < 0.55:
+                tw = rng.uniform(0.03, 0.06) * w
+                th = rng.uniform(0.12, 0.22) * h
+                items.append((tb, lambda tx=tx, tb=tb, tw=tw, th=th:
+                              self._pine(tx, tb, tw, th, (0.09, 0.17, 0.11, 1))))
+            else:
+                th = rng.uniform(0.12, 0.20) * h
+                items.append((tb, lambda tx=tx, tb=tb, th=th:
+                              self._forest_tree(tx, tb, th, 0.4)))
         # Insectes.
         for _ in range(rng.randint(4, 7)):
             ix = x0 + rng.uniform(0.05, 0.95) * w
