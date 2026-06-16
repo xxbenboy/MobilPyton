@@ -41,11 +41,22 @@ fullscreen = 0
 
 [android]
 
-# Versions Android visees
+# --- COMPATIBILITE (ne pas durcir sans raison) ---------------------------
+# minapi = version Android MINIMALE acceptee. 21 = Android 5.0 (2014).
+#   => l'app s'installe sur plus de 99 % des appareils Android actifs.
+#   /!\ NE PAS AUGMENTER cette valeur : cela exclurait des telephones plus
+#       anciens. La laisser basse = compatibilite maximale.
+# api = version Android CIBLE (la plus recente testee). Une app qui cible
+#   l'API 33 fonctionne quand meme sur Android 14/15+ (compatibilite
+#   ascendante geree par Android). A monter seulement si un jour tu publies
+#   sur le Play Store (qui exige une cible recente).
 android.api = 33
 android.minapi = 21
 
-# Architectures processeur (couvre la quasi-totalite des telephones)
+# Architectures processeur. arm64-v8a + armeabi-v7a = TOUS les telephones
+# reels (64 bits modernes + 32 bits anciens). Ne pas retirer pour garder la
+# compatibilite. (Optionnel : ajouter "x86_64" couvre les emulateurs et
+# Chromebooks, mais alourdit l'APK et rallonge le build.)
 android.archs = arm64-v8a, armeabi-v7a
 
 # Permissions Android — decommenter/ajouter selon les besoins
