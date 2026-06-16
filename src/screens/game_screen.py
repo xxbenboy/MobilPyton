@@ -24,7 +24,7 @@ from src.game_state import _clamp100
 from src.widgets.animated_background import AnimatedBackground
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.player_hands import PlayerHands
-from src.widgets.styled_button import StyledButton
+from src.widgets.icon_button import IconButton
 from src.widgets.stat_bar import StatBar
 from src.widgets.responsive import scale_font
 
@@ -35,15 +35,18 @@ FAST_FORWARD_SCALE = 3600     # avance rapide : 1h de jeu / s reelle
 # Actions : effets ponctuels (la faim/soif/sommeil derivent en plus avec le
 # temps). "requires_sleep" => possible seulement si on est assez fatigue.
 ACTIONS = [
-    {"label": "Explorer",          "minutes": 90,  "energy": -10, "food": 1},
-    {"label": "Couper du bois",    "minutes": 120, "energy": -15, "wood": 3},
-    {"label": "Chercher a manger", "minutes": 60,  "energy": -5,
-     "hunger": -25, "food": 2},
-    {"label": "Boire",             "minutes": 10,  "thirst": -40,
-     "type": "drink"},
-    {"label": "Remplir gourde",    "minutes": 15,  "type": "fill"},
-    {"label": "Se reposer",        "minutes": 240, "energy": 35, "sleep": 50,
-     "requires_sleep": True},
+    {"label": "Explorer", "icon": "explore", "name": "Explorer",
+     "minutes": 90, "energy": -10, "food": 1},
+    {"label": "Couper du bois", "icon": "wood", "name": "Couper\ndu bois",
+     "minutes": 120, "energy": -15, "wood": 3},
+    {"label": "Chercher a manger", "icon": "food", "name": "Chercher\na manger",
+     "minutes": 60, "energy": -5, "hunger": -25, "food": 2},
+    {"label": "Boire", "icon": "drink", "name": "Boire",
+     "minutes": 10, "thirst": -40, "type": "drink"},
+    {"label": "Remplir gourde", "icon": "fill", "name": "Remplir\ngourde",
+     "minutes": 15, "type": "fill"},
+    {"label": "Se reposer", "icon": "rest", "name": "Se\nreposer",
+     "minutes": 240, "energy": 35, "sleep": 50, "requires_sleep": True},
 ]
 
 
@@ -95,8 +98,8 @@ class GameScreen(Screen):
 
         # ---- Section ZONE (haut gauche) ----
         zone_box = BoxLayout(orientation="vertical", padding=dp(10), spacing=4,
-                             size_hint=(0.42, 0.22),
-                             pos_hint={"x": 0.02, "top": 0.98})
+                             size_hint=(0.36, 0.18),
+                             pos_hint={"x": 0.27, "top": 0.98})
         _add_panel(zone_box)
         zone_box.add_widget(scale_font(Label(text="ZONE", bold=True,
                             color=(0.96, 0.82, 0.45, 1), size_hint=(1, 0.35)),
@@ -115,7 +118,7 @@ class GameScreen(Screen):
 
         # ---- Section ETAT / stats (haut droite) ----
         stats_box = BoxLayout(orientation="vertical", padding=dp(10),
-                              spacing=dp(5), size_hint=(0.40, 0.56),
+                              spacing=dp(5), size_hint=(0.34, 0.56),
                               pos_hint={"right": 0.98, "top": 0.98})
         _add_panel(stats_box)
         stats_box.add_widget(scale_font(Label(text="ETAT", bold=True,
@@ -135,33 +138,42 @@ class GameScreen(Screen):
         stats_box.add_widget(self.resources)
         root.add_widget(stats_box)
 
-        # ---- Etat d'action (haut centre) ----
+        # ---- Etat d'action (sous la zone) ----
         self.status = scale_font(Label(text="", bold=True,
                                  color=(0.96, 0.82, 0.45, 1),
-                                 size_hint=(0.5, 0.08),
-                                 pos_hint={"center_x": 0.5, "top": 0.99}), 0.022)
+                                 size_hint=(0.36, 0.07),
+                                 pos_hint={"x": 0.27, "top": 0.78}), 0.022)
         root.add_widget(self.status)
 
-        # ---- Boutons (bas gauche, petits) ----
-        buttons = BoxLayout(orientation="vertical", spacing=4,
-                            size_hint=(0.30, 0.56),
-                            pos_hint={"x": 0.02, "y": 0.03})
+        # ---- Boutons d'action (gauche) : icone + nom dessous, meme taille ----
+        strip = BoxLayout(orientation="vertical", spacing=dp(8),
+                          size_hint=(0.24, 0.96),
+                          pos_hint={"x": 0.012, "center_y": 0.5})
         self._action_buttons = []   # (bouton, action)
+
+        def add_cell(icon, name, on_release):
+            cell = BoxLayout(orientation="vertical", spacing=2)
+            btn = IconButton(icon=icon, size_hint=(1, 0.62))
+            btn.bind(on_release=on_release)
+            lbl = Label(text=name, halign="center", valign="top",
+                        size_hint=(1, 0.38), color=(0.95, 0.96, 1, 1))
+            lbl.bind(size=lambda w, *_: setattr(w, "text_size",
+                                                (w.width, w.height)))
+            scale_font(lbl)
+            cell.add_widget(btn)
+            cell.add_widget(lbl)
+            strip.add_widget(cell)
+            return btn
+
         for action in ACTIONS:
-            btn = scale_font(StyledButton(text=action["label"]), 0.016)
-            btn.bind(on_release=lambda _w, a=action: self.do_action(a))
-            buttons.add_widget(btn)
+            btn = add_cell(action["icon"], action["name"],
+                           lambda _w, a=action: self.do_action(a))
             self._action_buttons.append((btn, action))
-
-        self.map_btn = scale_font(StyledButton(text="Carte"), 0.016)
-        self.map_btn.bind(on_release=lambda *_: setattr(self.manager, "current",
-                                                        "map"))
-        buttons.add_widget(self.map_btn)
-
-        self.back_btn = scale_font(StyledButton(text="Menu"), 0.016)
-        self.back_btn.bind(on_release=self.back_to_menu)
-        buttons.add_widget(self.back_btn)
-        root.add_widget(buttons)
+        self.map_btn = add_cell("map", "Carte",
+                                lambda *_: setattr(self.manager,
+                                                   "current", "map"))
+        self.back_btn = add_cell("home", "Menu", self.back_to_menu)
+        root.add_widget(strip)
 
         self.add_widget(root)
 
