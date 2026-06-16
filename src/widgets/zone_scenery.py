@@ -92,40 +92,159 @@ class ZoneScenery(Widget):
         Ellipse(pos=(cx - r, base + th * 0.32), size=(r * 2, r * 2))
 
     # -- scenes (plein cadre) ------------------------------------------- #
+    def _leaf(self, cx, cy, size, color):
+        """Feuille morte au sol (litiere)."""
+        Color(*color)
+        Ellipse(pos=(cx - size, cy - size * 0.4), size=(size * 2, size * 0.8))
+
+    def _forest_tree(self, cx, base, th, scale):
+        """Arbre feuillu : tronc conique + amas de feuillage sombre."""
+        tw = max(2.0, self.width * 0.012 * scale)
+        Color(0.28, 0.19, 0.11, 1)
+        Quad(points=[cx - tw, base, cx + tw, base,
+                     cx + tw * 0.5, base + th * 0.6, cx - tw * 0.5, base + th * 0.6])
+        fr = th * 0.32
+        fy = base + th * 0.55
+        Color(0.09, 0.18, 0.11, 1)
+        for dx, dy in ((-0.5, 0.0), (0.5, 0.05), (0.0, 0.35),
+                       (-0.3, 0.42), (0.35, 0.40), (0.0, 0.05)):
+            Ellipse(pos=(cx + dx * fr - fr * 0.7, fy + dy * fr),
+                    size=(fr * 1.4, fr * 1.3))
+        Color(0.14, 0.26, 0.15, 1)                        # reflet de lumiere
+        Ellipse(pos=(cx - fr * 0.45, fy + fr * 0.3), size=(fr * 0.9, fr * 0.8))
+
     def _foret(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
-        # Sol.
-        Color(0.06, 0.14, 0.09, 1)
-        Rectangle(pos=(x0, y0), size=(w, 0.15 * h))
-        # Arbres du fond (clairs, moyens).
-        for _ in range(18):
-            fx = x0 + rng.uniform(-0.03, 1.03) * w
-            self._pine(fx, y0 + rng.uniform(0.18, 0.34) * h,
-                       rng.uniform(0.05, 0.09) * w, rng.uniform(0.34, 0.50) * h,
-                       (0.10, 0.21, 0.13, 1))
-        # Arbres du milieu.
-        for _ in range(13):
-            fx = x0 + rng.uniform(-0.03, 1.03) * w
-            self._pine(fx, y0 + rng.uniform(0.06, 0.20) * h,
-                       rng.uniform(0.08, 0.12) * w, rng.uniform(0.50, 0.72) * h,
-                       (0.07, 0.17, 0.10, 1))
-        # Grands arbres de premier plan.
-        for _ in range(7):
-            fx = x0 + rng.uniform(-0.03, 1.03) * w
-            self._pine(fx, y0 + rng.uniform(-0.02, 0.08) * h,
-                       rng.uniform(0.11, 0.16) * w, rng.uniform(0.72, 0.98) * h,
-                       (0.04, 0.10, 0.07, 1))
-        # Canopee en haut (remplit le ciel).
-        Color(0.05, 0.12, 0.08, 1)
-        for i in range(10):
-            fx = x0 + (i / 9.0) * w + rng.uniform(-0.04, 0.04) * w
-            r = rng.uniform(0.10, 0.16) * w
-            Ellipse(pos=(fx - r, y0 + 0.82 * h), size=(r * 2.2, r * 1.5))
-        # Sous-bois.
-        for _ in range(6):
-            bx = x0 + rng.uniform(0, 1) * w
-            self._bush(bx, y0 + rng.uniform(0.04, 0.13) * h,
-                       rng.uniform(0.03, 0.06) * h, (0.06, 0.16, 0.09, 1))
+        floor = 0.42                      # hauteur moyenne du sol forestier
+
+        p1 = rng.uniform(0, 6.28)
+        p2 = rng.uniform(0, 6.28)
+
+        def far_curve(fx):
+            return y0 + (floor + 0.05 + 0.03 * math.sin(fx * 6.28 * 1.3 + p1)
+                         + 0.015 * math.sin(fx * 6.28 * 2.7 + p2)) * h
+
+        def floor_curve(fx):
+            return y0 + (floor + 0.025 * math.sin(fx * 6.28 * 1.1 + p1 + 1.0)
+                         + 0.012 * math.sin(fx * 6.28 * 2.4 + p2)) * h
+
+        def place(maxt=1.0, fx=None):
+            if fx is None:
+                fx = rng.uniform(0, 1)
+            fx = min(0.999, max(0.001, fx))
+            surf = (floor_curve(fx) - y0) / h
+            fy = rng.random() * surf * maxt
+            t = (fy / surf) if surf else 0.0
+            return (x0 + fx * w, y0 + fy * h, 1.0 - 0.70 * t, t)
+
+        def clusters(count, spread):
+            centers = [rng.uniform(0.05, 0.95) for _ in range(max(1, count))]
+            return lambda: rng.choice(centers) + rng.gauss(0, spread)
+
+        leaf_pick = clusters(rng.randint(4, 6), 0.13)
+        grass_pick = clusters(rng.randint(3, 5), 0.12)
+        stone_pick = clusters(rng.randint(2, 3), 0.06)
+        fern_pick = clusters(rng.randint(3, 4), 0.09)
+        mush_pick = clusters(rng.randint(2, 3), 0.05)
+
+        # Sol forestier (terre/mousse) ondule, deux tons.
+        self._fill_curve(far_curve, (0.18, 0.22, 0.13, 1))
+        self._fill_curve(floor_curve, (0.12, 0.15, 0.09, 1))
+
+        # Canopee sombre en haut (la lumiere est filtree) -> fond.
+        Color(0.06, 0.13, 0.08, 1)
+        for i in range(9):
+            fx = i / 8.0
+            r = rng.uniform(0.13, 0.20) * w
+            Ellipse(pos=(x0 + fx * w - r, y0 + (0.80 + rng.uniform(-0.03, 0.04)) * h),
+                    size=(r * 2.1, r * 1.6))
+
+        GREENS = [(0.10, 0.20, 0.12), (0.08, 0.17, 0.10), (0.12, 0.24, 0.14)]
+        LEAVES = [(0.45, 0.32, 0.14, 1), (0.36, 0.40, 0.16, 1),
+                  (0.52, 0.38, 0.18, 1), (0.30, 0.26, 0.12, 1)]
+
+        def f_grass(gx, gb, gh, col, sc):
+            return lambda: self._grass_tuft(gx, gb, gh, col, scale=sc)
+
+        def f_insect(ix, iy, sz, is_b, col):
+            def fn():
+                if is_b:
+                    self._butterfly(ix, iy, sz, col)
+                else:
+                    self._bee(ix, iy, sz)
+            return fn
+
+        items = []   # (y_base, fonction) -> tri par profondeur
+
+        # Litiere de feuilles mortes (beaucoup, en plaques).
+        for _ in range(100):
+            fx = leaf_pick() if rng.random() < 0.8 else None
+            lx, ly, sc, t = place(fx=fx)
+            s = rng.uniform(0.010, 0.022) * h * sc
+            col = rng.choice(LEAVES)
+            items.append((ly, lambda lx=lx, ly=ly, s=s, col=col:
+                          self._leaf(lx, ly, s, col)))
+        # Pierres mousseuses (en tas).
+        for _ in range(rng.randint(6, 10)):
+            sx, sy, sc, t = place(0.8, fx=stone_pick())
+            r = rng.uniform(0.02, 0.05) * h * sc
+            items.append((sy, lambda sx=sx, sy=sy, r=r: self._stone(sx, sy, r)))
+        # Branches au sol.
+        for _ in range(rng.randint(7, 11)):
+            bx, by, sc, t = place(0.8)
+            ln = rng.uniform(0.06, 0.13) * w * sc
+            items.append((by - 0.12 * h, lambda bx=bx, by=by, ln=ln:
+                          self._branch(bx, by, ln)))
+        # Herbe de sous-bois (sombre), en touffes.
+        for _ in range(60):
+            fx = grass_pick() if rng.random() < 0.75 else None
+            gx, gb, sc, t = place(fx=fx)
+            gh = rng.uniform(0.05, 0.13) * h * sc
+            items.append((gb, f_grass(gx, gb, gh, rng.choice(GREENS) + (1,), sc)))
+        # Fougeres / plantes (bosquets).
+        for _ in range(rng.randint(8, 12)):
+            px, py, sc, t = place(fx=fern_pick())
+            s = rng.uniform(0.05, 0.10) * h * sc
+            items.append((py, lambda px=px, py=py, s=s: self._plant(px, py, s)))
+        # Buissons de sous-bois.
+        for _ in range(rng.randint(5, 8)):
+            bx, by, sc, t = place(0.85)
+            g = rng.uniform(0.0, 0.06)
+            r = rng.uniform(0.06, 0.13) * h * sc
+            items.append((by, lambda bx=bx, by=by, r=r, g=g:
+                          self._bush(bx, by, r, (0.06 + g, 0.16 + g, 0.09, 1))))
+        # Champignons.
+        if rng.random() < 0.8:
+            for _ in range(rng.randint(4, 8)):
+                mx, my, sc, t = place(0.8, fx=mush_pick())
+                s = rng.uniform(0.03, 0.05) * h * sc
+                cap = rng.choice([(0.62, 0.30, 0.18, 1), (0.80, 0.78, 0.62, 1)])
+                items.append((my, lambda mx=mx, my=my, s=s, cap=cap:
+                              self._mushroom(mx, my, s, cap)))
+        # Arbres : coniferes + feuillus, tailles variees (gros au 1er plan).
+        for _ in range(rng.randint(10, 14)):
+            tx, tb, sc, t = place(0.95)
+            th = rng.uniform(0.45, 1.05) * h * (0.5 + 0.5 * sc)
+            if rng.random() < 0.5:
+                tw = rng.uniform(0.06, 0.13) * w * (0.5 + 0.5 * sc)
+                items.append((tb, lambda tx=tx, tb=tb, tw=tw, th=th:
+                              self._pine(tx, tb, tw, th, (0.06, 0.15, 0.09, 1))))
+            else:
+                items.append((tb, lambda tx=tx, tb=tb, th=th, sc=sc:
+                              self._forest_tree(tx, tb, th, sc)))
+        # Insectes.
+        for _ in range(rng.randint(4, 7)):
+            ix = x0 + rng.uniform(0.05, 0.95) * w
+            iy = y0 + rng.uniform(0.10, floor + 0.15) * h
+            sz = rng.uniform(0.012, 0.022) * h
+            is_b = rng.random() < 0.5
+            col = rng.choice([(0.85, 0.80, 0.40, 1), (0.70, 0.50, 0.30, 1),
+                              (0.90, 0.90, 0.95, 1)])
+            items.append((iy, f_insect(ix, iy, sz, is_b, col)))
+
+        items.sort(key=lambda it: it[0], reverse=True)
+        for _, fn in items:
+            fn()
 
     # -- objets recoltables / insectes (details) ----------------------- #
     def _mushroom(self, cx, base, size, cap):
