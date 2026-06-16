@@ -43,6 +43,7 @@ class GameScreen(Screen):
         super().__init__(**kwargs)
         self._autosave_event = None
         self._tick_event = None
+        self._time_accum = 0.0        # secondes de jeu en attente (fluide)
 
         root = FloatLayout()
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
@@ -99,7 +100,8 @@ class GameScreen(Screen):
     def on_enter(self):
         self._autosave_event = Clock.schedule_interval(
             self._periodic_autosave, AUTOSAVE_SECONDS)
-        self._tick_event = Clock.schedule_interval(self._tick, 1.0)
+        # 60 fps : ecoulement du temps fluide (comme le fond du menu).
+        self._tick_event = Clock.schedule_interval(self._tick, 1 / 60.0)
 
     def on_leave(self):
         for ev in ("_autosave_event", "_tick_event"):
@@ -108,11 +110,17 @@ class GameScreen(Screen):
                 event.cancel()
                 setattr(self, ev, None)
 
-    def _tick(self, _dt):
+    def _tick(self, dt):
         state = App.get_running_app().game_state
         if state is None:
             return
-        state.tick(TIME_SCALE)
+        # On accumule le temps reel * vitesse, et on n'ajoute que des secondes
+        # entieres a l'horloge (pas de perte, et le rendu reste fluide).
+        self._time_accum += dt * TIME_SCALE
+        whole = int(self._time_accum)
+        if whole:
+            state.tick(whole)
+            self._time_accum -= whole
         self.refresh()
 
     # ------------------------------------------------------------------ #
