@@ -279,12 +279,29 @@ class ZoneScenery(Widget):
                          + 0.030 * math.sin(fx * 6.28 * 1.1 + p1 + 1.0)
                          + 0.014 * math.sin(fx * 6.28 * 2.5 + p2)) * h
 
-        def place(maxt=1.0):
-            fx = rng.uniform(0, 1)
+        def place(maxt=1.0, fx=None):
+            if fx is None:
+                fx = rng.uniform(0, 1)
+            fx = min(0.999, max(0.001, fx))
             surf = (field_curve(fx) - y0) / h         # sommet du sol a cet x
             fy = rng.random() * surf * maxt           # base toujours sur le sol
             t = (fy / surf) if surf else 0.0
             return (x0 + fx * w, y0 + fy * h, 1.0 - 0.70 * t, t)
+
+        # Distribution en AMAS : chaque type pousse autour de quelques foyers
+        # (touffes d'herbe, tas de pierres, bosquets...) au lieu d'un saupoudrage
+        # uniforme -> bien plus naturel.
+        def clusters(count, spread):
+            centers = [rng.uniform(0.05, 0.95) for _ in range(max(1, count))]
+            return lambda: rng.choice(centers) + rng.gauss(0, spread)
+
+        grass_pick = clusters(rng.randint(4, 6), 0.13)
+        stone_pick = clusters(rng.randint(2, 3), 0.05)
+        plant_pick = clusters(rng.randint(3, 4), 0.08)
+        mush_pick = clusters(rng.randint(2, 3), 0.05)
+        berry_pick = clusters(rng.randint(2, 3), 0.05)
+        hay_pick = clusters(rng.randint(2, 3), 0.10)
+        wheat_pick = clusters(rng.randint(2, 3), 0.10)
 
         flowers = [(1, 1, 0.92, 1), (0.96, 0.85, 0.28, 1),
                    (0.92, 0.42, 0.52, 1), (0.72, 0.52, 0.92, 1)]
@@ -315,8 +332,8 @@ class ZoneScenery(Widget):
         # les elements proches recouvrent ceux du fond, de facon realiste.
         items = []   # (y_base, fonction)
 
-        for _ in range(rng.randint(9, 13)):            # pierres
-            sx, sy, sc, t = place(0.85)
+        for _ in range(rng.randint(9, 13)):            # pierres (en tas)
+            sx, sy, sc, t = place(0.85, fx=stone_pick())
             r = rng.uniform(0.018, 0.045) * h * sc
             items.append((sy, lambda sx=sx, sy=sy, r=r: self._stone(sx, sy, r)))
         for _ in range(rng.randint(6, 9)):             # branches
@@ -334,8 +351,9 @@ class ZoneScenery(Widget):
             col = (0.12 + g, 0.30 + g, 0.15, 1)
             items.append((by, lambda bx=bx, by=by, r=r, col=col:
                           self._bush(bx, by, r, col)))
-        for _ in range(90):                            # gazon disperse
-            gx, gb, sc, t = place()
+        for _ in range(105):                           # gazon (en touffes)
+            fx = grass_pick() if rng.random() < 0.72 else None  # amas + un peu partout
+            gx, gb, sc, t = place(fx=fx)
             gh = rng.uniform(0.05, 0.16) * h * sc
             fcol = rng.choice(flowers) if rng.random() < 0.10 else None
             fr = max(1.5, w * 0.004 * sc)
@@ -349,34 +367,34 @@ class ZoneScenery(Widget):
             items.append((gb, f_grass(gx, gb, gh,
                                       green_at(rng.uniform(0.85, 1.0)),
                                       0.5, None, 0)))
-        for _ in range(rng.randint(10, 14)):           # plantes feuillues
-            px, py, sc, t = place()
+        for _ in range(rng.randint(10, 14)):           # plantes feuillues (bosquets)
+            px, py, sc, t = place(fx=plant_pick())
             s = rng.uniform(0.05, 0.09) * h * sc
             items.append((py, lambda px=px, py=py, s=s: self._plant(px, py, s)))
 
         # --- Plantes de champ OPTIONNELLES (tirage generatif) ---
-        if rng.random() < 0.75:                        # foin
+        if rng.random() < 0.75:                        # foin (en parcelles)
             for _ in range(rng.randint(6, 12)):
-                fx, fb, sc, t = place(0.95)
+                fx, fb, sc, t = place(0.95, fx=hay_pick())
                 ht = rng.uniform(0.10, 0.20) * h * sc
                 items.append((fb, lambda fx=fx, fb=fb, ht=ht, sc=sc:
                               self._hay(fx, fb, ht, sc)))
-        if rng.random() < 0.65:                        # epis / graminees
+        if rng.random() < 0.65:                        # epis / graminees (parcelles)
             for _ in range(rng.randint(8, 16)):
-                ex, eb, sc, t = place(0.95)
+                ex, eb, sc, t = place(0.95, fx=wheat_pick())
                 ht = rng.uniform(0.10, 0.18) * h * sc
                 items.append((eb, lambda ex=ex, eb=eb, ht=ht, sc=sc:
                               self._wheat(ex, eb, ht, sc)))
-        if rng.random() < 0.6:                         # champignons
+        if rng.random() < 0.6:                         # champignons (en cercles)
             for _ in range(rng.randint(5, 9)):
-                mx, my, sc, t = place(0.82)
+                mx, my, sc, t = place(0.82, fx=mush_pick())
                 s = rng.uniform(0.03, 0.05) * h * sc
                 cap = rng.choice([(0.80, 0.22, 0.20, 1), (0.72, 0.50, 0.30, 1)])
                 items.append((my, lambda mx=mx, my=my, s=s, cap=cap:
                               self._mushroom(mx, my, s, cap)))
-        if rng.random() < 0.5:                         # baies
+        if rng.random() < 0.5:                         # baies (en buissons groupes)
             for _ in range(rng.randint(3, 6)):
-                bx, by, sc, t = place(0.80)
+                bx, by, sc, t = place(0.80, fx=berry_pick())
                 r = rng.uniform(0.03, 0.045) * h * sc
                 items.append((by, lambda bx=bx, by=by, r=r:
                               self._berries(bx, by, r)))

@@ -25,14 +25,6 @@ SECONDS_PER_DAY = 24 * 3600
 # 24h en 4 minutes (240 s) => 360 secondes de jeu par seconde reelle.
 MENU_TIME_SCALE = SECONDS_PER_DAY / 240.0
 
-# Forme d'un nuage (cumulus). Chaque bouffee = (dx, dy, largeur, hauteur) en
-# unites de "taille de nuage". Rangee du bas (plus plate, legerement grise) +
-# bouffees du haut (blanches, bombees).
-_CLOUD_BASE = [(-1.3, 0.0, 1.2, 0.55), (-0.5, -0.05, 1.5, 0.60),
-               (0.45, -0.05, 1.4, 0.58), (1.25, 0.0, 1.0, 0.50)]
-_CLOUD_TOP = [(-0.7, 0.32, 1.2, 0.85), (0.05, 0.48, 1.3, 0.95),
-              (0.8, 0.32, 1.05, 0.80), (-0.15, 0.12, 1.5, 0.78)]
-
 _SKY_KEYS = [
     (0.0,  (0.05, 0.07, 0.12)),
     (4.0,  (0.06, 0.08, 0.13)),
@@ -106,19 +98,31 @@ class AnimatedBackground(Widget):
             self._moon_c = Color(0.92, 0.94, 1.0, 0.0)
             self._moon = Ellipse()
 
-            # 4. Nuages : cumulus = plusieurs bouffees (fond bas legerement
-            #    grise pour le volume, puis bouffees blanches dessus).
+            # 4. Nuages : chaque cumulus a sa PROPRE forme aleatoire (aucun
+            #    identique). Base plate et grisee (volume) + bouffees blanches.
             self._clouds = []
             crng = random.Random(777)
-            for _ in range(4):
+            for _ in range(5):
+                nb = crng.randint(4, 5)
+                base_shape = [((k / (nb - 1) - 0.5) * 2.6,
+                               crng.uniform(-0.05, 0.05),
+                               crng.uniform(1.0, 1.5),
+                               crng.uniform(0.5, 0.65)) for k in range(nb)]
+                nt = crng.randint(5, 7)
+                top_shape = [(crng.uniform(-1.05, 1.05),
+                              crng.uniform(0.18, 0.62),
+                              crng.uniform(0.85, 1.45),
+                              crng.uniform(0.70, 1.05)) for _ in range(nt)]
                 self._clouds.append({
-                    "c_base": Color(0.86, 0.88, 0.92, 0.0),
-                    "base_ell": [Ellipse() for _ in range(len(_CLOUD_BASE))],
+                    "c_base": Color(0.85, 0.87, 0.92, 0.0),
+                    "base_ell": [Ellipse() for _ in base_shape],
+                    "base_shape": base_shape,
                     "c_top": Color(1, 1, 1, 0.0),
-                    "top_ell": [Ellipse() for _ in range(len(_CLOUD_TOP))],
-                    "fy": crng.uniform(0.58, 0.88),
-                    "scale": crng.uniform(0.11, 0.20),
-                    "speed": crng.uniform(0.006, 0.016),
+                    "top_ell": [Ellipse() for _ in top_shape],
+                    "top_shape": top_shape,
+                    "fy": crng.uniform(0.55, 0.90),
+                    "scale": crng.uniform(0.10, 0.20),
+                    "speed": crng.uniform(0.005, 0.016),
                     "base": crng.uniform(0.0, 1.0),
                 })
 
@@ -216,11 +220,11 @@ class AnimatedBackground(Widget):
             cx = x0 + fx * w
             cy = y0 + cl["fy"] * h
             s = w * cl["scale"]
-            cl["c_base"].a = cloud_a * 0.85
-            for ell, (dx, dy, sw, sh) in zip(cl["base_ell"], _CLOUD_BASE):
+            cl["c_base"].a = cloud_a * 0.8
+            for ell, (dx, dy, sw, sh) in zip(cl["base_ell"], cl["base_shape"]):
                 ell.size = (sw * s, sh * s)
                 ell.pos = (cx + dx * s - sw * s / 2, cy + dy * s)
             cl["c_top"].a = cloud_a
-            for ell, (dx, dy, sw, sh) in zip(cl["top_ell"], _CLOUD_TOP):
+            for ell, (dx, dy, sw, sh) in zip(cl["top_ell"], cl["top_shape"]):
                 ell.size = (sw * s, sh * s)
                 ell.pos = (cx + dx * s - sw * s / 2, cy + dy * s)
