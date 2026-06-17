@@ -1,0 +1,36 @@
+IMAGES DES BOUTONS
+==================
+
+Depose ici les images des boutons d'action du jeu. Le jeu cherche
+automatiquement un fichier nomme d'apres le bouton :
+
+    assets/buttons/<nom>.png      (ou .jpg / .jpeg)
+
+Tant qu'aucune image n'existe pour un bouton, le jeu dessine son logo par
+defaut. Des que tu ajoutes le bon fichier (meme nom), il remplace le logo.
+
+(Le NOM ecrit sous le bouton ne change pas : seul le logo est remplace.)
+
+----------------------------------------------------------------
+NOMS DE FICHIERS ATTENDUS (exactement, en minuscules)
+----------------------------------------------------------------
+    explore.png        -> bouton "Explorer"        (loupe par defaut)
+    wood.png           -> bouton "Couper du bois"  (hache)
+    food.png           -> bouton "Chercher a manger" (pomme)
+    drink.png          -> bouton "Boire"           (goutte d'eau)
+    fill.png           -> bouton "Remplir gourde"  (gourde)
+    rest.png           -> bouton "Se reposer"      (Zzz)
+    map.png            -> bouton "Carte"           (carte)
+    craft.png          -> bouton "Craft"           (marteau)
+    home.png           -> bouton "Menu"            (maison)
+
+----------------------------------------------------------------
+CONSEILS
+----------------------------------------------------------------
+- Format conseille : PNG CARRE avec fond transparent (ex. 256x256).
+  L'image est affichee dans un carre : une image carree ne sera pas deformee.
+- Le nom doit correspondre EXACTEMENT (minuscules, sans accents).
+- Apres avoir ajoute des images : pousse le projet (envoyer-sur-github.bat)
+  pour qu'elles soient incluses dans l'APK.
+
+La liste des boutons est definie dans : src/widgets/icon_button.py

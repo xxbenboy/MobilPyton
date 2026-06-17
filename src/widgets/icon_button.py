@@ -1,12 +1,41 @@
 """
-Bouton-ICONE : un StyledButton sans texte, avec un petit logo dessine au
-canvas (selon l'action). Le nom de l'action s'ecrit a cote, sous le bouton
-(gere par l'ecran).
+Bouton-ICONE : un StyledButton sans texte, avec un petit logo.
+
+Le logo est soit une IMAGE personnalisee (assets/buttons/<nom>.png, voir
+assets/buttons/LISEZMOI.txt), soit, si l'image n'existe pas, un logo dessine
+au canvas. Le nom de l'action s'ecrit sous le bouton (gere par l'ecran).
 """
+import os
+
+from kivy.core.image import Image as CoreImage
 from kivy.graphics import (Color, Ellipse, Rectangle, RoundedRectangle,
                            Triangle, Line)
 
 from src.widgets.styled_button import StyledButton
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+BUTTONS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", "assets",
+                                           "buttons"))
+_TEX_CACHE = {}
+
+
+def button_image_path(name):
+    """Chemin de l'image personnalisee du bouton si elle existe, sinon None."""
+    for ext in (".png", ".jpg", ".jpeg"):
+        p = os.path.join(BUTTONS_DIR, name + ext)
+        if os.path.isfile(p):
+            return p
+    return None
+
+
+def _texture(path):
+    """Charge (et met en cache) la texture d'une image."""
+    if path not in _TEX_CACHE:
+        try:
+            _TEX_CACHE[path] = CoreImage(path).texture
+        except Exception:
+            _TEX_CACHE[path] = None
+    return _TEX_CACHE[path]
 
 
 def _zed(x, y, sz, wd):                              # petit "Z" (sommeil)
@@ -110,6 +139,19 @@ class IconButton(StyledButton):
         self.canvas.after.clear()
         if self.width <= 0 or self.height <= 0:
             return
+        # 1) Image personnalisee (assets/buttons/<nom>.png) si elle existe.
+        path = button_image_path(self.icon)
+        if path:
+            tex = _texture(path)
+            if tex is not None:
+                s = min(self.width, self.height) * 0.80
+                with self.canvas.after:
+                    Color(1, 1, 1, 1)
+                    Rectangle(texture=tex,
+                              pos=(self.center_x - s / 2, self.center_y - s / 2),
+                              size=(s, s))
+                return
+        # 2) Sinon : logo dessine au canvas.
         fn = ICONS.get(self.icon)
         if not fn:
             return
