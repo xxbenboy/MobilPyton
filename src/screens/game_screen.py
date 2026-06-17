@@ -448,6 +448,9 @@ class GameScreen(Screen):
         self.stat_hunger.set_value(state.hunger)
         self.stat_thirst.set_value(state.thirst)
 
+        # Objets tenus -> affiches dans les mains du joueur (1re personne).
+        self.hands.set_items(state.hands[0], state.hands[1])
+
         # Boutons : tout verrouille en avance rapide ; sinon selon la zone /
         # l'etat (dormir, boire, remplir la gourde).
         for btn, action in self._action_buttons:

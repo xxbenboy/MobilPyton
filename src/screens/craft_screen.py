@@ -15,12 +15,10 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.label import Label
-from kivy.uix.widget import Widget
 from kivy.graphics import Color, RoundedRectangle
 from kivy.metrics import dp
 
 from src import items
-from src.game_state import HANDS_MAX
 from src.widgets.animated_background import AnimatedBackground
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.item_icon import ItemIcon
@@ -34,6 +32,12 @@ def _panel(widget, alpha=0.45):
         rect = RoundedRectangle(radius=[dp(12)])
     widget.bind(pos=lambda w, *_: setattr(rect, "pos", w.pos),
                 size=lambda w, *_: setattr(rect, "size", w.size))
+
+
+def _btn_font(w, *_):
+    """Taille de police d'un bouton, divisee par le nombre de lignes du texte."""
+    lines = (w.text or "").count("\n") + 1
+    w.font_size = max(9, w.height * 0.34 / lines)
 
 
 class CraftScreen(Screen):
@@ -112,59 +116,48 @@ class CraftScreen(Screen):
 
         # Inventaire (mains + sol)
         self.inventory_box.clear_widgets()
-        
-        # Afficher les objets en main
-        if state.hands:
-            hands_names = ["Main gauche", "Main droite"]
-            for i, item in enumerate(state.hands):
-                # Objet + Label + Bouton sur la même ligne
-                row = BoxLayout(orientation="horizontal", spacing=dp(6),
-                               size_hint_y=None, height=dh(140))
-                row.add_widget(ItemIcon(item, size_hint_x=0.22))
-                row.add_widget(Widget(size_hint_x=0.02))
-                lbl = Label(text=hands_names[i], halign="left",
-                                valign="middle", size_hint_x=0.51,
-                                color=(0.96, 0.82, 0.45, 1))
-                def _adjust_lbl_font(w, *_):
-                    w.font_size = max(8, w.height * 0.4)
-                lbl.bind(size=_adjust_lbl_font)
-                lbl.bind(size=lambda w, *_: setattr(w, "text_size", (w.width, None)))
-                row.add_widget(lbl)
-                btn = scale_font(StyledButton(text="Deposer", size_hint_x=0.25),
-                                0.008)
-                def _adjust_btn_font(w, *_):
-                    w.font_size = max(10, w.height * 0.35)
-                btn.bind(size=_adjust_btn_font)
-                btn.bind(on_release=lambda _w, idx=i: self._drop(idx))
-                row.add_widget(btn)
-                self.inventory_box.add_widget(row)
-        
-        # Afficher les objets au sol
+
+        hand_names = ["Main gauche", "Main droite"]
+
+        # Objets TENUS : un bouton "Deposer" par main occupee.
+        for i, item in enumerate(state.hands):
+            if item is None:
+                continue
+            row = BoxLayout(orientation="horizontal", spacing=dp(6),
+                            size_hint_y=None, height=dh(140))
+            row.add_widget(ItemIcon(item, size_hint_x=0.24))
+            lbl = Label(text=hand_names[i], halign="left", valign="middle",
+                        size_hint_x=0.38, color=(0.96, 0.82, 0.45, 1))
+            lbl.bind(size=lambda w, *_: (
+                setattr(w, "font_size", max(8, w.height * 0.4)),
+                setattr(w, "text_size", (w.width, None))))
+            row.add_widget(lbl)
+            drop = StyledButton(text="Deposer", size_hint_x=0.38, bold=True)
+            drop.bind(size=_btn_font)
+            drop.bind(on_release=lambda _w, idx=i: self._drop(idx))
+            row.add_widget(drop)
+            self.inventory_box.add_widget(row)
+
+        # Objets AU SOL : deux boutons -> prendre dans la main gauche / droite
+        # (desactives si la main visee est deja occupee).
         ground = state.ground_here()
-        if ground:
-            for name, count in sorted(ground.items()):
-                row = BoxLayout(orientation="horizontal", spacing=dp(6),
-                               size_hint_y=None, height=dh(140))
-                row.add_widget(ItemIcon(name, count, size_hint_x=0.22))
-                row.add_widget(Widget(size_hint_x=0.02))
-                lbl = Label(text="À Proximité", halign="left",
-                                valign="middle", size_hint_x=0.51,
-                                color=(0.96, 0.82, 0.45, 1))
-                def _adjust_lbl_font2(w, *_):
-                    w.font_size = max(8, w.height * 0.4)
-                lbl.bind(size=_adjust_lbl_font2)
-                lbl.bind(size=lambda w, *_: setattr(w, "text_size", (w.width, None)))
-                row.add_widget(lbl)
-                take = scale_font(StyledButton(text="Prendre", size_hint_x=0.25),
-                                 0.008)
-                def _adjust_take_font(w, *_):
-                    w.font_size = max(10, w.height * 0.35)
-                take.bind(size=_adjust_take_font)
-                take.disabled = state.hands_full()
-                take.bind(on_release=lambda _w, n=name: self._take(n))
+        for name, count in sorted(ground.items()):
+            row = BoxLayout(orientation="horizontal", spacing=dp(6),
+                            size_hint_y=None, height=dh(140))
+            row.add_widget(ItemIcon(name, count, size_hint_x=0.24))
+            for hand_idx, text in ((0, "Prendre\nmain gauche"),
+                                   (1, "Prendre\nmain droite")):
+                take = StyledButton(text=text, halign="center", size_hint_x=0.38,
+                                    bold=True)
+                take.bind(size=_btn_font)
+                take.disabled = state.hands[hand_idx] is not None
+                take.bind(on_release=lambda _w, n=name, h=hand_idx:
+                          self._take(n, h))
                 row.add_widget(take)
-                self.inventory_box.add_widget(row)
-        elif not state.hands:
+            self.inventory_box.add_widget(row)
+
+        # Rien dans les mains ni au sol.
+        if all(h is None for h in state.hands) and not ground:
             lbl = scale_font(Label(text="Rien à proximité.",
                              color=(0.8, 0.8, 0.85, 1), size_hint_y=None,
                              height=dh(40)), 0.018)
@@ -204,8 +197,8 @@ class CraftScreen(Screen):
             self.recipe_box.add_widget(row)
 
     # ------------------------------------------------------------------ #
-    def _take(self, name):
-        App.get_running_app().game_state.take_from_ground(name)
+    def _take(self, name, hand):
+        App.get_running_app().game_state.take_from_ground(name, hand)
         App.get_running_app().autosave()
         self.refresh()
 

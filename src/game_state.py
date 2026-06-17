@@ -72,8 +72,12 @@ class GameState:
         self.wood = wood
         self.food = food
         self.water = water          # eau dans la gourde (unites a boire)
-        # Inventaire : 2 objets max dans les mains, le reste au sol (par case).
-        self.hands = list(hands) if hands else []
+        # Mains : 2 emplacements [gauche, droite] ; None = main vide. On
+        # normalise (compat. anciennes sauvegardes : liste plus courte ou sans
+        # None).
+        raw = list(hands) if hands else []
+        self.hands = [raw[0] if len(raw) > 0 else None,
+                      raw[1] if len(raw) > 1 else None]
         self.ground = ground if ground else {}      # {"x,y": {objet: nombre}}
         self.explores = explores if explores else {}  # {"x,y": nb trouvailles}
         self.revealed = set(revealed) if revealed else set()  # {"x,y", ...} zones revelees
@@ -214,36 +218,49 @@ class GameState:
                     self.revealed.add(f"{nx},{ny}")
 
     def hands_full(self):
-        return len(self.hands) >= HANDS_MAX
+        return all(h is not None for h in self.hands)
+
+    def free_hand(self):
+        """Indice d'une main libre (0=gauche, 1=droite), ou None si pleines."""
+        for i, h in enumerate(self.hands):
+            if h is None:
+                return i
+        return None
 
     def add_ground(self, item, n=1):
         g = self.ground.setdefault(self._cell_key(), {})
         g[item] = g.get(item, 0) + n
 
-    def take_from_ground(self, item):
-        """Ramasse 1 objet du sol vers les mains (si place)."""
+    def take_from_ground(self, item, hand):
+        """Ramasse 1 objet du sol vers la main donnee (0=gauche, 1=droite).
+
+        Echoue si la main visee est deja occupee ou si l'objet n'est plus la."""
+        if hand not in (0, 1) or self.hands[hand] is not None:
+            return False
         g = self.ground.get(self._cell_key(), {})
-        if g.get(item, 0) <= 0 or self.hands_full():
+        if g.get(item, 0) <= 0:
             return False
         g[item] -= 1
         if g[item] <= 0:
             del g[item]
         if not g:
             self.ground.pop(self._cell_key(), None)
-        self.hands.append(item)
+        self.hands[hand] = item
         return True
 
     def drop_from_hands(self, index):
-        """Depose au sol l'objet tenu a l'indice donne."""
-        if 0 <= index < len(self.hands):
-            self.add_ground(self.hands.pop(index))
+        """Depose au sol l'objet tenu dans la main donnee (0=gauche, 1=droite)."""
+        if index in (0, 1) and self.hands[index] is not None:
+            self.add_ground(self.hands[index])
+            self.hands[index] = None
             return True
         return False
 
     def take_found(self, item):
-        """Prend un objet trouve : dans les mains si place, sinon au sol."""
-        if not self.hands_full():
-            self.hands.append(item)
+        """Prend un objet trouve : dans une main libre si possible, sinon au sol."""
+        hand = self.free_hand()
+        if hand is not None:
+            self.hands[hand] = item
             return True
         self.add_ground(item)
         return False
@@ -252,7 +269,8 @@ class GameState:
         """Objets disponibles pour le craft = mains + sol de la case."""
         pool = {}
         for it in self.hands:
-            pool[it] = pool.get(it, 0) + 1
+            if it is not None:
+                pool[it] = pool.get(it, 0) + 1
         for it, c in self.ground_here().items():
             pool[it] = pool.get(it, 0) + c
         return pool
@@ -274,14 +292,19 @@ class GameState:
                 if g[item] <= 0:
                     del g[item]
                 need -= take
-            while need > 0 and item in self.hands:
-                self.hands.remove(item)
-                need -= 1
+            # Puis dans les mains (on vide l'emplacement correspondant).
+            for i in range(len(self.hands)):
+                if need <= 0:
+                    break
+                if self.hands[i] == item:
+                    self.hands[i] = None
+                    need -= 1
             if not g:
                 self.ground.pop(self._cell_key(), None)
         result = recipe["result"]
-        if not self.hands_full():
-            self.hands.append(result)
+        hand = self.free_hand()
+        if hand is not None:
+            self.hands[hand] = result
         else:
             self.add_ground(result)
         return True

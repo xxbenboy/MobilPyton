@@ -3,19 +3,45 @@ Mains du joueur (vue a la premiere personne).
 
 Deux avant-bras qui remontent du bas de l'ecran vers le centre, termines par
 des mains ouvertes (paume arrondie + doigts de longueurs variees + pouce).
-Dessine devant le decor. Pour l'instant les mains sont VIDES.
+Dessine devant le decor.
+
+Si le joueur tient un objet (main gauche / droite), l'image de l'objet est
+affichee dans la main correspondante (via `set_items`).
 """
 from kivy.uix.widget import Widget
-from kivy.graphics import (Color, Ellipse, Quad, RoundedRectangle, Line,
-                           RenderContext)
+from kivy.core.image import Image as CoreImage
+from kivy.graphics import (Color, Ellipse, Quad, Rectangle, RoundedRectangle,
+                           Line, RenderContext)
 
+from src import items
 from src.widgets import textures, pbr
+
+_ITEM_TEX = {}
+
+
+def _item_texture(name):
+    """Texture de l'image d'un objet (assets/items/<nom>.png), ou None."""
+    if not name:
+        return None
+    path = items.image_path(name)
+    if not path:
+        return None
+    if path not in _ITEM_TEX:
+        try:
+            _ITEM_TEX[path] = CoreImage(path).texture
+        except Exception:
+            _ITEM_TEX[path] = None
+    return _ITEM_TEX[path]
 
 
 class PlayerHands(Widget):
     SKIN = (0.84, 0.66, 0.50, 1)
     SKIN_MID = (0.76, 0.58, 0.43, 1)
     SKIN_DK = (0.64, 0.48, 0.35, 1)
+
+    # Position horizontale du centre de chaque main (gauche, droite), alignee
+    # sur les mains dessinees dans _redraw.
+    HAND_FX = (0.31, 0.69)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -25,7 +51,39 @@ class PlayerHands(Widget):
                                         use_parent_modelview=True,
                                         use_parent_frag_modelview=True)
             pbr.setup(self.canvas)
+        self._items = [None, None]      # objets tenus : [gauche, droite]
         self.bind(pos=self._redraw, size=self._redraw)
+
+    def set_items(self, left, right):
+        """Definit les objets tenus (None = main vide) et met a jour l'affichage."""
+        new = [left, right]
+        if new == self._items:
+            return
+        self._items = new
+        self._draw_items()
+
+    def _draw_items(self):
+        """Dessine l'image des objets tenus dans les mains (canvas.after)."""
+        self.canvas.after.clear()
+        if self.width <= 0 or self.height <= 0:
+            return
+        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        box = 0.17 * w
+        for i, name in enumerate(self._items):
+            tex = _item_texture(name)
+            if tex is None:
+                continue
+            tw, th = tex.size
+            if tw >= th:                 # garder le ratio dans une boite carree
+                iw, ih = box, box * th / max(1, tw)
+            else:
+                iw, ih = box * tw / max(1, th), box
+            cx = x0 + self.HAND_FX[i] * w
+            cy = y0 + 0.21 * h
+            with self.canvas.after:
+                Color(1, 1, 1, 1)
+                Rectangle(texture=tex, pos=(cx - iw / 2, cy - ih / 2),
+                          size=(iw, ih))
 
     def _skin(self, shade):
         """Pose la couleur de la peau et renvoie la BaseColor "skin" (ou None).
@@ -52,6 +110,8 @@ class PlayerHands(Widget):
             # Avant-bras quasi verticaux (paralleles), ecartes et plus bas.
             self._arm(0.30, 0.31, 0.12, +1)      # bras / main gauche
             self._arm(0.70, 0.69, 0.12, -1)      # bras / main droite
+        # Objets tenus (repositionnes apres un redimensionnement).
+        self._draw_items()
 
     def _arm(self, base_fx, hand_fx, hand_fy, thumb_dir):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
