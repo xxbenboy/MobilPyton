@@ -74,6 +74,17 @@ jobs:
           path: .buildozer
           key: buildozer-project-aidl2-${{ hashFiles('buildozer.spec') }}
 
+      # Estampille le numero de build DANS l'app (visible au menu) et dans la
+      # version Android. Fait APRES le cache (la cle du cache est calculee a
+      # l'etape de cache, donc la modifier ici ne casse pas le cache).
+      - name: Estampiller la version
+        run: |
+          printf 'BUILD = "%s"\nSHA = "%s"\n' \
+            "${{ github.run_number }}" "${GITHUB_SHA:0:7}" > src/build_info.py
+          sed -i "s/^version = .*/version = 0.1.${{ github.run_number }}/" buildozer.spec
+          echo "----- src/build_info.py -----" && cat src/build_info.py
+          echo "----- version buildozer.spec -----" && grep '^version' buildozer.spec
+
       - name: Construire l'APK (debug)
         run: |
           set -e
