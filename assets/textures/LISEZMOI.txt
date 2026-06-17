@@ -1,46 +1,60 @@
-TEXTURES SEAMLESS (pour embellir le jeu)
-========================================
+TEXTURES PBR SEAMLESS (pour embellir le jeu)
+============================================
 
-Depose ici des images qui se REPETENT sans coupure ("seamless"). Le jeu
-cherche automatiquement un fichier nomme d'apres la surface :
+Chaque surface peut recevoir un JEU de 3 images PBR (toutes optionnelles).
+Le NOM est celui de la surface (voir liste plus bas) + un SUFFIXE selon le
+type de carte :
 
-    assets/textures/<nom>.png      (ou .jpg / .jpeg)
+    <nom>_B.png   BaseColor  (la couleur / albedo)   -> ce qu'on voit
+    <nom>_R.png   Normal     (le relief)             -> eclairage / volume
+    <nom>_P.png   Packed     (AO / Rugosite / ...)   -> ombrage (canal R = AO)
 
-- Si la texture existe -> elle habille la surface correspondante.
-- Si elle n'existe pas  -> le jeu utilise une COULEUR PLANE de repli
-  (donc le jeu reste joli meme sans aucune texture ; tu en ajoutes quand
-  tu veux et il s'embellit petit a petit).
+Exemple pour l'herbe :  grass_B.png  grass_R.png  grass_P.png
+
+A deposer dans  assets/textures/  (ou .jpg / .jpeg).
+
+COMMENT CA MARCHE
+-----------------
+- BaseColor (_B) presente  -> elle habille la surface ; sinon couleur plane de
+  repli (le jeu reste joli meme sans aucune image).
+- Au moins une carte Normal (_R) presente -> un ECLAIRAGE PAR RELIEF s'active
+  automatiquement (les creux/bosses reagissent a la lumiere). Sans aucune carte
+  Normal, l'eclairage ne s'active pas (rendu identique a avant, zero risque).
+- Packed (_P) : le canal ROUGE est utilise comme occlusion ambiante (assombrit
+  les creux). Les autres canaux sont reserves (rugosite/metallique).
+- Compat : un ancien fichier  <nom>.png  (sans suffixe) est lu comme BaseColor.
 
 ----------------------------------------------------------------
-NOMS DE FICHIERS ATTENDUS (exactement, en minuscules)
+NOMS DE SURFACES (a combiner avec _B / _R / _P)
 ----------------------------------------------------------------
 Sols / terrain :
-    grass.png              herbe proche (plaine, sol vu d'en haut)
-    grass_far.png          herbe lointaine (crete a l'horizon)
-    forest_floor.png       sol de foret proche
-    forest_floor_far.png   sol de foret lointain
-    rock.png               roche (pente de montagne)
-    rock_dark.png          roche en bas de pente (plus sombre)
-    water.png              eau (lac)
-    sand.png               rive / terre au premier plan
+    grass              herbe proche (plaine, sol vu d'en haut)
+    grass_far          herbe lointaine (crete a l'horizon)
+    forest_floor       sol de foret proche
+    forest_floor_far   sol de foret lointain
+    rock               roche (pente de montagne)
+    rock_dark          roche en bas de pente (plus sombre)
+    water              eau (lac)
+    sand               rive / terre au premier plan
 
 Vegetation :
-    bark.png               ecorce (troncs d'arbres)
-    foliage.png            feuillage (arbres, buissons)
+    bark               ecorce (troncs d'arbres)
+    foliage            feuillage (arbres, buissons)
 
 Personnage :
-    skin.png               peau (mains du joueur)
+    skin               peau (mains du joueur)
 
 ----------------------------------------------------------------
 CONSEILS IMPORTANTS
 ----------------------------------------------------------------
-- Pour une repetition PROPRE (sans coupure), l'image doit etre :
-    * CARREE et en PUISSANCE DE 2 : 256x256 ou 512x512 (important sur
-      telephone : sinon la repetition peut ne pas marcher) ;
-    * "seamless" : les bords gauche/droite et haut/bas se raccordent.
-- Le nom doit correspondre EXACTEMENT (minuscules, sans accents).
-- Apres avoir ajoute des images : pousse le projet (envoyer-sur-github.bat)
-  pour qu'elles soient incluses dans l'APK.
+- Repetition PROPRE : images CARREES en PUISSANCE DE 2 (256x256 ou 512x512),
+  "seamless" (bords qui se raccordent). Important sur telephone.
+- Les 3 cartes d'une meme surface doivent avoir LA MEME taille / le meme cadrage
+  (elles se superposent pixel par pixel).
+- La carte Normal doit etre au format "OpenGL" classique (bleu dominant).
+- Noms EXACTS (minuscules, sans accents) + bon suffixe (_B / _R / _P).
+- Apres ajout : pousse le projet (envoyer-sur-github.bat) pour inclure les
+  images dans l'APK.
 
-La correspondance noms <-> surfaces et les couleurs de repli sont dans :
-    src/widgets/textures.py
+Reglages (direction de la lumiere, activation) : src/widgets/pbr.py
+Correspondance noms <-> surfaces + couleurs de repli : src/widgets/textures.py

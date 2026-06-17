@@ -6,9 +6,9 @@ des mains ouvertes (paume arrondie + doigts de longueurs variees + pouce).
 Dessine devant le decor. Pour l'instant les mains sont VIDES.
 """
 from kivy.uix.widget import Widget
-from kivy.graphics import Color, Ellipse, Quad, RoundedRectangle
+from kivy.graphics import Color, Ellipse, Quad, RoundedRectangle, RenderContext
 
-from src.widgets.textures import texture
+from src.widgets import textures, pbr
 
 
 class PlayerHands(Widget):
@@ -18,15 +18,20 @@ class PlayerHands(Widget):
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        self._pbr = pbr.LIGHTING and textures.has_any_normal()
+        if self._pbr:
+            self.canvas = RenderContext(use_parent_projection=True,
+                                        use_parent_modelview=True,
+                                        use_parent_frag_modelview=True)
+            pbr.setup(self.canvas)
         self.bind(pos=self._redraw, size=self._redraw)
 
     def _skin(self, shade):
-        """Pose la couleur de la peau et renvoie la texture "skin" (ou None).
+        """Pose la couleur de la peau et renvoie la BaseColor "skin" (ou None).
 
-        S'il y a une texture, on la TEINTE selon la nuance demandee (clair /
-        moyen / sombre) pour garder le volume des mains ; sinon on utilise la
-        couleur plane comme avant."""
-        tex = texture("skin")
+        S'il y a une BaseColor, on la TEINTE selon la nuance demandee (clair /
+        moyen / sombre) pour garder le volume des mains ; sinon couleur plane."""
+        tex = textures.base_texture("skin")
         if tex is None:
             Color(*shade)
         else:
@@ -40,6 +45,9 @@ class PlayerHands(Widget):
         if self.width <= 0 or self.height <= 0:
             return
         with self.canvas:
+            if self._pbr:                        # relief de la peau (si dispo)
+                pbr.bind_maps(textures.normal_texture("skin"),
+                              textures.packed_texture("skin"))
             # Avant-bras quasi verticaux (paralleles), ecartes et plus bas.
             self._arm(0.30, 0.31, 0.12, +1)      # bras / main gauche
             self._arm(0.70, 0.69, 0.12, -1)      # bras / main droite

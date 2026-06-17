@@ -1,57 +1,95 @@
 """
-Systeme de TEXTURES seamless (qui se repetent sans coupure visible).
+Systeme de TEXTURES PBR (Physically Based Rendering), seamless.
 
-Depose tes images dans  assets/textures/<nom>.png  (voir LISEZMOI.txt). Si une
-texture existe pour une surface, elle l'habille ; sinon on utilise une COULEUR
-PLANE de repli -> le jeu reste joli meme sans aucune texture, et s'embellit au
-fur et a mesure que tu ajoutes des images.
+Chaque surface peut recevoir un JEU de 3 images (toutes optionnelles) :
+    <nom>_B.png   BaseColor  (couleur / albedo)         -> ce qu'on voit
+    <nom>_R.png   Normal     (relief / carte de normales) -> eclairage
+    <nom>_P.png   Packed     (AO/Rugosite/Metallique...)   -> occlusion (canal R)
 
-Pour une repetition propre, utilise des PNG CARRES en puissance de 2
-(256x256 ou 512x512) concus "seamless" (les bords se raccordent).
+A deposer dans  assets/textures/  (voir LISEZMOI.txt).
+
+- Si la BaseColor existe -> elle habille la surface ; sinon couleur plane de
+  repli (le rendu actuel est preserve sans aucune image).
+- Si des cartes Normal existent -> un eclairage par relief s'active (shader).
+- Compat : un ancien fichier  <nom>.png  (sans suffixe) est pris comme BaseColor.
+
+Pour une repetition propre : PNG CARRES en puissance de 2 (256 ou 512),
+"seamless" (bords raccord).
 """
 import os
 
 from kivy.core.image import Image as CoreImage
-from kivy.graphics import Color, Rectangle, Quad, Mesh
+from kivy.graphics import Color
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 TEXTURES_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", "assets",
                                             "textures"))
 
-# Couleur de repli par texture (utilisee tant que l'image n'existe pas).
-# Choisies pour coller au rendu actuel : sans aucune texture, rien ne change.
+# Suffixes des 3 cartes PBR (confirme par l'utilisateur).
+SUFFIX_BASE = "_B"     # BaseColor
+SUFFIX_PACKED = "_P"   # Packed (AO / Rugosite / Metallique)
+SUFFIX_NORMAL = "_R"   # Normal (relief)
+
+# Couleur de repli par surface (si pas de BaseColor). Colle au rendu actuel.
 FALLBACKS = {
-    "grass":            (0.26, 0.42, 0.19, 1),   # herbe proche (plaine)
-    "grass_far":        (0.36, 0.50, 0.26, 1),   # herbe lointaine (crete)
-    "forest_floor":     (0.12, 0.15, 0.09, 1),   # sol de foret proche
-    "forest_floor_far": (0.18, 0.22, 0.13, 1),   # sol de foret lointain
-    "rock":             (0.42, 0.41, 0.46, 1),   # roche (montagne)
-    "rock_dark":        (0.33, 0.32, 0.37, 1),   # roche en bas (ombre)
-    "water":            (0.15, 0.38, 0.58, 1),   # eau (lac)
-    "sand":             (0.32, 0.30, 0.22, 1),   # rive / terre
-    "bark":             (0.28, 0.19, 0.11, 1),   # ecorce (troncs)
-    "foliage":          (0.09, 0.18, 0.11, 1),   # feuillage (arbres/buissons)
-    "skin":             (0.84, 0.66, 0.50, 1),   # peau (mains)
+    "grass":            (0.26, 0.42, 0.19, 1),
+    "grass_far":        (0.36, 0.50, 0.26, 1),
+    "forest_floor":     (0.12, 0.15, 0.09, 1),
+    "forest_floor_far": (0.18, 0.22, 0.13, 1),
+    "rock":             (0.42, 0.41, 0.46, 1),
+    "rock_dark":        (0.33, 0.32, 0.37, 1),
+    "water":            (0.15, 0.38, 0.58, 1),
+    "sand":             (0.32, 0.30, 0.22, 1),
+    "bark":             (0.28, 0.19, 0.11, 1),
+    "foliage":          (0.09, 0.18, 0.11, 1),
+    "skin":             (0.84, 0.66, 0.50, 1),
 }
 
-_CACHE = {}
+_CACHE = {}      # chemin -> texture (ou None)
 
 
-def texture(name):
-    """Texture Kivy (repetable) pour `name`, ou None si l'image n'existe pas."""
-    if name not in _CACHE:
+def _load(path):
+    if path not in _CACHE:
         tex = None
-        for ext in (".png", ".jpg", ".jpeg"):
-            p = os.path.join(TEXTURES_DIR, name + ext)
-            if os.path.isfile(p):
-                try:
-                    tex = CoreImage(p).texture
-                    tex.wrap = "repeat"          # repetition seamless
-                except Exception:
-                    tex = None
-                break
-        _CACHE[name] = tex
-    return _CACHE[name]
+        try:
+            tex = CoreImage(path).texture
+            tex.wrap = "repeat"
+        except Exception:
+            tex = None
+        _CACHE[path] = tex
+    return _CACHE[path]
+
+
+def _find(name, suffix=""):
+    """Texture pour <name><suffix> si un fichier existe, sinon None."""
+    for ext in (".png", ".jpg", ".jpeg"):
+        p = os.path.join(TEXTURES_DIR, name + suffix + ext)
+        if os.path.isfile(p):
+            return _load(p)
+    return None
+
+
+def base_texture(name):
+    """BaseColor : <nom>_B, ou ancien <nom> (compat), sinon None."""
+    return _find(name, SUFFIX_BASE) or _find(name, "")
+
+
+def normal_texture(name):
+    """Carte de normales : <nom>_R, sinon None."""
+    return _find(name, SUFFIX_NORMAL)
+
+
+def packed_texture(name):
+    """Carte packed : <nom>_P, sinon None."""
+    return _find(name, SUFFIX_PACKED)
+
+
+def has_any_normal():
+    """Vrai si AU MOINS une carte de normales existe (active l'eclairage)."""
+    for name in FALLBACKS:
+        if normal_texture(name) is not None:
+            return True
+    return False
 
 
 def fallback(name):
@@ -59,13 +97,12 @@ def fallback(name):
 
 
 def paint(name, alpha=1.0):
-    """A appeler DANS un bloc `with canvas`. Pose la bonne couleur de dessin et
-    renvoie la texture a passer a la forme (ou None s'il n'y a pas de texture).
+    """A appeler DANS un bloc `with canvas`. Pose la couleur de dessin et
+    renvoie la BaseColor a passer a la forme (texture=...), ou None si absente.
 
-    - Texture presente -> Color(1,1,1,alpha) (la texture fournit la couleur).
-    - Sinon            -> Color(couleur de repli) (avec alpha applique).
-    """
-    tex = texture(name)
+    - BaseColor presente -> Color(1,1,1,alpha) (la texture fournit la couleur).
+    - Sinon              -> Color(couleur de repli) (avec alpha)."""
+    tex = base_texture(name)
     if tex is None:
         r, g, b, a = fallback(name)
         Color(r, g, b, a * alpha)
@@ -75,10 +112,8 @@ def paint(name, alpha=1.0):
 
 
 def paint_color(name, color):
-    """Comme paint(), mais la couleur de repli est CELLE fournie (`color`),
-    pas la couleur generique du dico. Utile pour les formes dont la teinte
-    varie selon le contexte (arbres proches/lointains, buissons...)."""
-    tex = texture(name)
+    """Comme paint(), mais la couleur de repli est CELLE fournie (`color`)."""
+    tex = base_texture(name)
     if tex is None:
         Color(*color)
     else:

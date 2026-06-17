@@ -16,8 +16,9 @@ import random
 
 from kivy.uix.widget import Widget
 from kivy.graphics import (Color, Ellipse, Rectangle, Triangle, Line, Quad,
-                           Mesh)
+                           Mesh, RenderContext)
 
+from src.widgets import textures, pbr
 from src.widgets.textures import paint, paint_color, tiled_coords
 
 _ZONE_SEED = {"Foret": 1, "Plaine": 2, "Montagne": 3, "Lac": 4}
@@ -29,7 +30,25 @@ class ZoneScenery(Widget):
         self._zone = "Foret"
         self._seed = 0
         self._mode = "scene"        # "scene" = vue horizon ; "ground" = vue sol
+        # Eclairage par cartes de normales : actif seulement si des cartes
+        # Normal existent (sinon canvas normal, aucun risque, rendu inchange).
+        self._pbr = pbr.LIGHTING and textures.has_any_normal()
+        if self._pbr:
+            self.canvas = RenderContext(use_parent_projection=True,
+                                        use_parent_modelview=True,
+                                        use_parent_frag_modelview=True)
+            pbr.setup(self.canvas)
         self.bind(pos=self._redraw, size=self._redraw)
+
+    # -- liaison des cartes PBR (normal/packed) pour une surface ---------- #
+    def _bind_pbr(self, name):
+        if self._pbr:
+            pbr.bind_maps(textures.normal_texture(name),
+                          textures.packed_texture(name))
+
+    def _reset_pbr(self):
+        if self._pbr:
+            pbr.reset_maps()
 
     def set_scene(self, zone_type, seed=0):
         """Vue a l'horizon (sol en bas + ciel)."""
@@ -52,6 +71,7 @@ class ZoneScenery(Widget):
             return
         rng = random.Random(_ZONE_SEED.get(self._zone, 0) * 100000 + self._seed)
         with self.canvas:
+            self._reset_pbr()        # cartes neutres par defaut (unites 1 et 2)
             if self._mode == "ground":
                 self._ground_view(rng)
             else:
@@ -66,15 +86,18 @@ class ZoneScenery(Widget):
     def _trect(self, name, x, y, w, h, tile_px=256):
         """Rectangle texture (repete) si la texture existe, sinon aplat couleur."""
         tex = paint(name)
+        self._bind_pbr(name)
         if tex is not None:
             Rectangle(pos=(x, y), size=(w, h), texture=tex,
                       tex_coords=tiled_coords(w, h, tile_px))
         else:
             Rectangle(pos=(x, y), size=(w, h))
+        self._reset_pbr()
 
     def _tquad(self, name, points, tile_px=256):
         """Quad texture (repetition basee sur la position monde), sinon aplat."""
         tex = paint(name)
+        self._bind_pbr(name)
         if tex is not None:
             x0, y0 = self.x, self.y
             tc = []
@@ -83,6 +106,7 @@ class ZoneScenery(Widget):
             Quad(points=points, texture=tex, tex_coords=tc)
         else:
             Quad(points=points)
+        self._reset_pbr()
 
     # -- vue VERS LE BAS (sol qui remplit l'ecran) ---------------------- #
     def _ground_view(self, rng):
@@ -172,11 +196,13 @@ class ZoneScenery(Widget):
     # -- helpers -------------------------------------------------------- #
     def _pine(self, cx, base, tw, th, color):
         tex = paint_color("foliage", color)
+        self._bind_pbr("foliage")
         Triangle(points=[cx - tw / 2, base, cx + tw / 2, base,
                          cx, base + th * 0.72], texture=tex)
         Triangle(points=[cx - tw * 0.36, base + th * 0.32,
                          cx + tw * 0.36, base + th * 0.32, cx, base + th],
                  texture=tex)
+        self._reset_pbr()
 
     def _grass_tuft(self, cx, base, height, color, scale=1.0):
         bw = max(1.2, self.width * 0.0035 * scale)
@@ -196,6 +222,7 @@ class ZoneScenery(Widget):
         cr, cg, cb, ca = color
         Color(0, 0, 0, 0.16)                              # ombre au sol
         Ellipse(pos=(cx - r * 1.3, cy - r * 0.4), size=(r * 2.6, r * 0.6))
+        self._bind_pbr("foliage")
         dtex = paint_color("foliage", (cr * 0.7, cg * 0.7, cb * 0.7, 1))  # masse sombre
         Ellipse(pos=(cx - r * 1.4, cy - r * 0.3), size=(r * 1.3, r * 1.0), texture=dtex)
         Ellipse(pos=(cx + r * 0.2, cy - r * 0.3), size=(r * 1.3, r * 1.0), texture=dtex)
@@ -204,14 +231,19 @@ class ZoneScenery(Widget):
         Ellipse(pos=(cx - r * 0.9, cy + r * 0.1), size=(r * 1.8, r * 1.0), texture=ltex)
         Ellipse(pos=(cx - r * 1.2, cy), size=(r * 1.1, r * 0.8), texture=ltex)
         Ellipse(pos=(cx + r * 0.2, cy), size=(r * 1.1, r * 0.8), texture=ltex)
+        self._reset_pbr()
 
     def _tree(self, cx, base, th, leaf, trunk):
         tw = max(2.0, self.width * 0.006)
         btex = paint_color("bark", trunk)
+        self._bind_pbr("bark")
         Rectangle(pos=(cx - tw / 2, base), size=(tw, th * 0.5), texture=btex)
+        self._reset_pbr()
         ftex = paint_color("foliage", leaf)
+        self._bind_pbr("foliage")
         r = th * 0.35
         Ellipse(pos=(cx - r, base + th * 0.32), size=(r * 2, r * 2), texture=ftex)
+        self._reset_pbr()
 
     # -- scenes (plein cadre) ------------------------------------------- #
     def _leaf(self, cx, cy, size, color):
@@ -223,16 +255,20 @@ class ZoneScenery(Widget):
         """Arbre feuillu : tronc conique + amas de feuillage sombre."""
         tw = max(2.0, self.width * 0.012 * scale)
         btex = paint_color("bark", (0.28, 0.19, 0.11, 1))
+        self._bind_pbr("bark")
         Quad(points=[cx - tw, base, cx + tw, base,
                      cx + tw * 0.5, base + th * 0.6, cx - tw * 0.5, base + th * 0.6],
              texture=btex)
+        self._reset_pbr()
         fr = th * 0.32
         fy = base + th * 0.55
         ftex = paint_color("foliage", (0.09, 0.18, 0.11, 1))
+        self._bind_pbr("foliage")
         for dx, dy in ((-0.5, 0.0), (0.5, 0.05), (0.0, 0.35),
                        (-0.3, 0.42), (0.35, 0.40), (0.0, 0.05)):
             Ellipse(pos=(cx + dx * fr - fr * 0.7, fy + dy * fr),
                     size=(fr * 1.4, fr * 1.3), texture=ftex)
+        self._reset_pbr()
         Color(0.14, 0.26, 0.15, 1)                        # reflet de lumiere
         Ellipse(pos=(cx - fr * 0.45, fy + fr * 0.3), size=(fr * 0.9, fr * 0.8))
 
@@ -507,6 +543,7 @@ class ZoneScenery(Widget):
         la couleur de repli correspondante."""
         x0, y0, w = self.x, self.y, self.width
         tex = paint(tex_name)
+        self._bind_pbr(tex_name)
         verts = []
         for i in range(segs + 1):
             fx = i / segs
@@ -516,6 +553,7 @@ class ZoneScenery(Widget):
             verts += [x, y0, u, 0.0, x, top, u, (top - y0) / tile_px]
         idx = list(range(len(verts) // 4))
         Mesh(vertices=verts, indices=idx, mode="triangle_strip", texture=tex)
+        self._reset_pbr()
 
     def _plaine(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
