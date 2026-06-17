@@ -45,6 +45,20 @@ FALLBACKS = {
     "skin":             (0.84, 0.66, 0.50, 1),
 }
 
+# Taille (en pixels ecran) d'UNE repetition de la texture, par surface.
+# Plus la valeur est GRANDE, plus la texture parait ZOOMEE (elle se repete
+# moins souvent, donc ses motifs sont plus gros). 256 = defaut.
+DEFAULT_TILE = 256
+TILE_PX = {
+    "grass": 560,
+    "grass_far": 560,
+}
+
+
+def tile_for(name):
+    return TILE_PX.get(name, DEFAULT_TILE)
+
+
 _CACHE = {}      # chemin -> texture (ou None)
 
 

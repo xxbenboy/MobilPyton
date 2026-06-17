@@ -83,8 +83,10 @@ class ZoneScenery(Widget):
                 }.get(self._zone, self._foret)(rng)
 
     # -- helpers textures (surface plane texturee, sinon couleur de repli) - #
-    def _trect(self, name, x, y, w, h, tile_px=256):
+    def _trect(self, name, x, y, w, h, tile_px=None):
         """Rectangle texture (repete) si la texture existe, sinon aplat couleur."""
+        if tile_px is None:
+            tile_px = textures.tile_for(name)
         tex = paint(name)
         self._bind_pbr(name)
         if tex is not None:
@@ -94,8 +96,10 @@ class ZoneScenery(Widget):
             Rectangle(pos=(x, y), size=(w, h))
         self._reset_pbr()
 
-    def _tquad(self, name, points, tile_px=256):
+    def _tquad(self, name, points, tile_px=None):
         """Quad texture (repetition basee sur la position monde), sinon aplat."""
+        if tile_px is None:
+            tile_px = textures.tile_for(name)
         tex = paint(name)
         self._bind_pbr(name)
         if tex is not None:
@@ -536,11 +540,13 @@ class ZoneScenery(Widget):
             yy = base + height * (0.56 + 0.11 * i)
             Ellipse(pos=(cx - rr, yy), size=(rr * 2, rr * 1.5))
 
-    def _fill_curve(self, top_fn, tex_name, segs=40, tile_px=256):
+    def _fill_curve(self, top_fn, tex_name, segs=40, tile_px=None):
         """Remplit du bas du widget jusqu'a la courbe top_fn(fx) (terrain).
 
         Habille avec la texture `tex_name` (repetee) si elle existe, sinon avec
         la couleur de repli correspondante."""
+        if tile_px is None:
+            tile_px = textures.tile_for(tex_name)
         x0, y0, w = self.x, self.y, self.width
         tex = paint(tex_name)
         self._bind_pbr(tex_name)
