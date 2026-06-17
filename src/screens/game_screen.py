@@ -209,15 +209,19 @@ class GameScreen(Screen):
         # colonnes/lignes et donc REDUIT la taille des boutons (jamais la zone).
         n_btn = len(ACTIONS) + 1                  # actions + Craft
         cols = max(1, int(math.ceil(n_btn ** 0.5)))
-        # Grille resserree : cellules juste assez larges pour le logo, faible
-        # espacement, et plaquee contre le bord gauche -> prend peu de place.
+        # Grille resserree, plaquee a gauche. La LARGEUR n'est pas fixee : chaque
+        # colonne s'ajuste a son contenu le plus large (en general le NOM), et la
+        # grille prend exactement cette largeur -> boutons aussi colles que
+        # possible mais qui ne se chevauchent JAMAIS (les noms non plus).
         grid = GridLayout(cols=cols, spacing=dp(2),
-                          size_hint=(0.15, 0.50),
+                          size_hint=(None, 0.50),
                           pos_hint={"x": 0.004, "top": 0.96})
+        grid.bind(minimum_width=grid.setter("width"))
         self._action_buttons = []   # (bouton, action)
 
         def add_cell(icon, name, on_release):
-            cell = BoxLayout(orientation="vertical", spacing=2)
+            # Largeur de la cellule pilotee par son contenu (jamais d'overlap).
+            cell = BoxLayout(orientation="vertical", spacing=2, size_hint_x=None)
             area = AnchorLayout(size_hint=(1, 0.66))
             btn = IconButton(icon=icon, size_hint=(None, None))
 
@@ -230,8 +234,17 @@ class GameScreen(Screen):
 
             # Nom du bouton : fond noir ajuste a la taille du texte (comme les
             # boutons Carte/Menu). Logo inchange (taille basee sur la hauteur).
+            lbl = _button_label(name)
             cell.add_widget(area)
-            cell.add_widget(_button_label(name))
+            cell.add_widget(lbl)
+
+            # La cellule prend la largeur du plus large entre le logo et le nom,
+            # plus une petite marge -> rien ne deborde sur la cellule voisine.
+            def _fit_cell(*_):
+                cell.width = max(btn.width, lbl.texture_size[0]) + dp(6)
+            btn.bind(size=_fit_cell)
+            lbl.bind(texture_size=_fit_cell)
+
             grid.add_widget(cell)
             return btn
 
