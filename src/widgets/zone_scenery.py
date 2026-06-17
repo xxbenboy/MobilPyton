@@ -16,7 +16,7 @@ import random
 
 from kivy.uix.widget import Widget
 from kivy.graphics import (Color, Ellipse, Rectangle, Triangle, Line, Quad,
-                           Mesh, RenderContext)
+                           Mesh, RenderContext, PushMatrix, PopMatrix, Rotate)
 
 from src.widgets import textures, pbr
 from src.widgets.textures import paint, paint_color, tiled_coords
@@ -167,10 +167,10 @@ class ZoneScenery(Widget):
                 self._stone(gx, gy, rng.uniform(0.015, 0.035) * h)
             for _ in range(rng.randint(16, 26)):       # fleurs
                 gx, gy = rnd()
-                Color(*rng.choice([(1, 1, 0.9, 1), (0.96, 0.85, 0.28, 1),
-                                   (0.9, 0.45, 0.55, 1)]))
-                r = rng.uniform(0.01, 0.02) * h
-                Ellipse(pos=(gx - r, gy - r), size=(r * 2, r * 2))
+                col = rng.choice([(1, 1, 0.9, 1), (0.96, 0.85, 0.28, 1),
+                                  (0.9, 0.45, 0.55, 1), (0.72, 0.52, 0.92, 1)])
+                r = rng.uniform(0.018, 0.032) * h
+                self._flower(gx, gy, r, col, petals=rng.choice((5, 6)))
         elif zone == "Foret":
             leaves = [(0.45, 0.32, 0.14, 1), (0.36, 0.40, 0.16, 1),
                       (0.52, 0.38, 0.18, 1), (0.30, 0.26, 0.12, 1)]
@@ -504,6 +504,32 @@ class ZoneScenery(Widget):
         Line(points=[cx + size * 0.66, cy, cx + size * 0.9, cy],
              width=max(1.0, size * 0.05))
 
+    def _flower(self, cx, cy, size, color, petals=5):
+        """Fleur : petales allonges disposes en etoile + coeur, au lieu d'un
+        simple rond. `size` ~ rayon de la fleur."""
+        r, g, b, a = color
+        pw = size * 0.62                                   # largeur d'un petale
+        pl = size * 1.25                                   # longueur d'un petale
+        for k in range(petals):
+            PushMatrix()
+            Rotate(angle=360.0 * k / petals, origin=(cx, cy))
+            Color(r * 0.78, g * 0.78, b * 0.78, a)         # bord du petale
+            Ellipse(pos=(cx - pw / 2, cy + size * 0.10), size=(pw, pl))
+            Color(r, g, b, a)                              # petale
+            Ellipse(pos=(cx - pw * 0.4, cy + size * 0.16),
+                    size=(pw * 0.8, pl * 0.88))
+            Color(min(1, r + 0.18), min(1, g + 0.18), min(1, b + 0.18), a)
+            Ellipse(pos=(cx - pw * 0.22, cy + size * 0.45),
+                    size=(pw * 0.44, pl * 0.5))            # reflet clair
+            PopMatrix()
+        Color(0.85, 0.62, 0.16, 1)                         # coeur (contour)
+        self._ell_c(cx, cy, size * 0.66, size * 0.66)
+        Color(0.98, 0.82, 0.28, 1)                         # coeur (clair)
+        self._ell_c(cx, cy, size * 0.44, size * 0.44)
+        Color(0.78, 0.55, 0.14, 0.9)                       # grains au centre
+        for dx, dy in ((-0.12, 0.08), (0.12, 0.06), (0.0, -0.12)):
+            self._ell_c(cx + dx * size, cy + dy * size, size * 0.12, size * 0.12)
+
     def _stone(self, cx, cy, r):
         Color(0, 0, 0, 0.18)                              # ombre portee
         Ellipse(pos=(cx - r * 1.05, cy - r * 0.35), size=(r * 2.1, r * 0.6))
@@ -652,8 +678,7 @@ class ZoneScenery(Widget):
             def fn():
                 self._grass_tuft(gx, gb, gh, col, scale=sc)
                 if fcol:
-                    Color(*fcol)
-                    Ellipse(pos=(gx - fr, gb + gh - fr), size=(fr * 2, fr * 2))
+                    self._flower(gx, gb + gh, fr * 2.4, fcol)
             return fn
 
         def f_insect(ix, iy, sz, is_b, col):
