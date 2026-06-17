@@ -73,6 +73,12 @@ class MenuScreen(Screen):
                                                          "current", "load"))
         content.add_widget(self.load_btn)
 
+        settings_btn = scale_font(StyledButton(text="Paramètres",
+                                  font_name=ui_font(), size_hint=(1, 0.16)), 0.026)
+        settings_btn.bind(on_release=lambda *_: setattr(self.manager,
+                                                        "current", "settings"))
+        content.add_widget(settings_btn)
+
         quit_btn = scale_font(StyledButton(text="Quitter",
                               font_name=ui_font(), size_hint=(1, 0.13)), 0.022)
         quit_btn.bind(on_release=lambda *_: App.get_running_app().stop())

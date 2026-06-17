@@ -21,9 +21,11 @@ from kivy.core.window import Window
 from kivy.uix.screenmanager import ScreenManager, FadeTransition
 
 from src.save_manager import SaveManager
+from src.audio_manager import AudioManager
 from src.screens.menu_screen import MenuScreen
 from src.screens.new_game_screen import NewGameScreen
 from src.screens.load_screen import LoadScreen
+from src.screens.settings_screen import SettingsScreen
 from src.screens.game_screen import GameScreen
 from src.screens.map_screen import MapScreen
 from src.screens.craft_screen import CraftScreen
@@ -36,12 +38,15 @@ class MobilPytonApp(App):
         # `user_data_dir` est un dossier accessible en ecriture, propre a
         # l'app (gere correctement sur Android comme sur PC).
         self.save_manager = SaveManager(self.user_data_dir)
+        # Reglages audio (volume, son coupe), sauvegardes dans user_data_dir.
+        self.audio_manager = AudioManager(self.user_data_dir)
         self.game_state = None
 
         sm = ScreenManager(transition=FadeTransition())
         sm.add_widget(MenuScreen(name="menu"))
         sm.add_widget(NewGameScreen(name="newgame"))
         sm.add_widget(LoadScreen(name="load"))
+        sm.add_widget(SettingsScreen(name="settings"))
         sm.add_widget(GameScreen(name="game"))
         sm.add_widget(MapScreen(name="map"))
         sm.add_widget(CraftScreen(name="craft"))
