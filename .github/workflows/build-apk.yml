@@ -62,17 +62,28 @@ jobs:
           pip install buildozer "cython==0.29.36"
 
       # Caches : accelerent fortement les builds suivants (SDK/NDK, etc.).
+      #
+      # `restore-keys` = filet de secours : si la cle EXACTE n'existe pas
+      # (typiquement quand buildozer.spec change, ex. un bump de version), on
+      # recupere quand meme le cache le PLUS RECENT dont le nom commence par le
+      # prefixe. Le SDK/NDK et les compilations ne dependent pas du numero de
+      # version : on evite ainsi une reconstruction complete (~22 min) a chaque
+      # changement de buildozer.spec.
       - name: Cache Buildozer (global)
         uses: actions/cache@v4
         with:
           path: ~/.buildozer
           key: buildozer-global-aidl2-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            buildozer-global-aidl2-
 
       - name: Cache Buildozer (projet)
         uses: actions/cache@v4
         with:
           path: .buildozer
           key: buildozer-project-aidl2-${{ hashFiles('buildozer.spec') }}
+          restore-keys: |
+            buildozer-project-aidl2-
 
       # Estampille la version A CHAQUE build. Fait APRES le cache (la cle du
       # cache est figee a l'etape de cache, donc la modifier ici ne le casse pas).
