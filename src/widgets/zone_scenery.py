@@ -144,13 +144,17 @@ class ZoneScenery(Widget):
             ground_tex = "grass"
 
         self._trect(ground_tex, x0, y0, w, h)
-        for _ in range(14):                            # taches de variation
+        # Legeres taches de variation du sol : APLATIES et discretes (avant
+        # c'etaient de gros ovales verts qui ressemblaient a des buissons vus
+        # de haut). Larges et basses -> lisent comme des nuances de sol.
+        for _ in range(10):
             gx = x0 + rng.uniform(0, 1) * w
             gy = y0 + rng.uniform(0, 1) * h
-            r = rng.uniform(0.08, 0.18) * h
-            Color(min(1, base[0] * 1.15), min(1, base[1] * 1.15),
-                  min(1, base[2] * 1.15), 0.5)
-            Ellipse(pos=(gx - r, gy - r * 0.7), size=(r * 2, r * 1.4))
+            rw = rng.uniform(0.10, 0.20) * w
+            rh = rng.uniform(0.02, 0.05) * h
+            Color(min(1, base[0] * 1.12), min(1, base[1] * 1.12),
+                  min(1, base[2] * 1.12), 0.25)
+            Ellipse(pos=(gx - rw / 2, gy - rh / 2), size=(rw, rh))
 
         def rnd():
             return x0 + rng.uniform(0, 1) * w, y0 + rng.uniform(0, 1) * h
