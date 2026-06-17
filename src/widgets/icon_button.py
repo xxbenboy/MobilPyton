@@ -118,9 +118,32 @@ def _craft(cx, cy, s):                               # marteau
     Rectangle(pos=(cx - s * 0.15, cy + s * 0.28), size=(s * 0.7, s * 0.32))
 
 
+def _heart(cx, cy, s):                               # coeur (vie)
+    Color(0.90, 0.32, 0.34, 1)
+    # Deux lobes ronds en haut + une pointe (triangle) en bas.
+    Ellipse(pos=(cx - s * 0.52, cy), size=(s * 0.54, s * 0.54))
+    Ellipse(pos=(cx - s * 0.02, cy), size=(s * 0.54, s * 0.54))
+    Triangle(points=[cx - s * 0.5, cy + s * 0.27, cx + s * 0.5, cy + s * 0.27,
+                     cx, cy - s * 0.62])
+
+
+def _bolt(cx, cy, s):                                # eclair (energie)
+    Color(0.97, 0.83, 0.32, 1)
+    Line(points=[cx + s * 0.28, cy + s * 0.72,
+                 cx - s * 0.26, cy + s * 0.06,
+                 cx + s * 0.12, cy + s * 0.06,
+                 cx - s * 0.28, cy - s * 0.72],
+         width=max(1.6, s * 0.17), joint="miter")
+
+
 ICONS = {"explore": _explore, "wood": _wood, "food": _food, "drink": _drink,
          "fill": _fill, "rest": _rest, "map": _map, "home": _home,
-         "craft": _craft}
+         "craft": _craft,
+         # Logos des stats (section "Etat"). On reutilise certains logos
+         # existants (pomme=faim, goutte=soif, Zzz=sommeil) et on ajoute le
+         # coeur (vie) et l'eclair (energie).
+         "health": _heart, "energy": _bolt, "sleep": _rest,
+         "hunger": _food, "thirst": _drink}
 
 
 class IconButton(StyledButton):

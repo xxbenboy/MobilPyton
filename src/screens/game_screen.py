@@ -32,7 +32,7 @@ from src import items
 from src.widgets.player_hands import PlayerHands
 from src.widgets.icon_button import IconButton
 from src.widgets.item_icon import ItemIcon
-from src.widgets.stat_bar import StatBar
+from src.widgets.stat_circle import StatCircle
 from src.widgets.responsive import scale_font
 
 AUTOSAVE_SECONDS = 30
@@ -127,27 +127,33 @@ class GameScreen(Screen):
         zone_box.add_widget(self.zone_desc)
         root.add_widget(zone_box)
 
-        # ---- Section ETAT / stats (haut droite) ----
-        stats_box = BoxLayout(orientation="vertical", padding=dp(10),
-                              spacing=dp(5), size_hint=(0.32, 0.56),
-                              pos_hint={"right": 0.98, "top": 0.98})
-        _add_panel(stats_box)
-        stats_box.add_widget(scale_font(Label(text="ETAT", bold=True,
-                             color=(0.96, 0.82, 0.45, 1), size_hint_y=0.7),
-                             0.02))
-        self.bar_health = StatBar("Vie", (0.85, 0.30, 0.30))
-        self.bar_energy = StatBar("Energie", (0.95, 0.80, 0.30))
-        self.bar_sleep = StatBar("Sommeil", (0.45, 0.55, 0.95))
-        self.bar_hunger = StatBar("Faim", (0.85, 0.55, 0.25))
-        self.bar_thirst = StatBar("Soif", (0.30, 0.70, 0.92))
-        for bar in (self.bar_health, self.bar_energy, self.bar_sleep,
-                    self.bar_hunger, self.bar_thirst):
-            stats_box.add_widget(bar)
+        # ---- Section ETAT : cercles de stats colles a droite, empiles ----
+        # Chaque stat = un anneau qui se remplit (logo au centre, nom dessous).
+        # La colonne est plaquee sur le bord droit et n'occupe pas le bas droit
+        # (reserve au bouton "Menu").
+        stats_col = BoxLayout(orientation="vertical", padding=(dp(6), dp(8)),
+                              spacing=dp(8), size_hint=(0.12, 0.82),
+                              pos_hint={"right": 0.995, "top": 0.98})
+        _add_panel(stats_col, alpha=0.28)
+        self.stat_health = StatCircle("Vie", (0.85, 0.30, 0.30), "health")
+        self.stat_energy = StatCircle("Energie", (0.95, 0.80, 0.30), "energy")
+        self.stat_sleep = StatCircle("Sommeil", (0.45, 0.55, 0.95), "sleep")
+        self.stat_hunger = StatCircle("Faim", (0.85, 0.55, 0.25), "hunger")
+        self.stat_thirst = StatCircle("Soif", (0.30, 0.70, 0.92), "thirst")
+        for circle in (self.stat_health, self.stat_energy, self.stat_sleep,
+                       self.stat_hunger, self.stat_thirst):
+            stats_col.add_widget(circle)
+        root.add_widget(stats_col)
+
+        # ---- Ressources (bas centre) ----
+        res_box = BoxLayout(padding=dp(8), size_hint=(0.30, 0.07),
+                            pos_hint={"center_x": 0.5, "y": 0.012})
+        _add_panel(res_box, alpha=0.5)
         self.resources = scale_font(Label(text="", halign="center",
-                                    color=(0.85, 0.88, 0.9, 1), size_hint_y=0.7),
-                                    0.016)
-        stats_box.add_widget(self.resources)
-        root.add_widget(stats_box)
+                                    valign="middle",
+                                    color=(0.85, 0.88, 0.9, 1)), 0.016)
+        res_box.add_widget(self.resources)
+        root.add_widget(res_box)
 
         # ---- Etat d'action (sous la zone) ----
         self.status = scale_font(Label(text="", bold=True,
@@ -410,11 +416,11 @@ class GameScreen(Screen):
         self.zone_desc.text = desc
         self.status.text = f"{self._ff_label}..." if self._ff_active else ""
 
-        self.bar_health.set_value(state.health)
-        self.bar_energy.set_value(state.energy)
-        self.bar_sleep.set_value(state.sleep)
-        self.bar_hunger.set_value(state.hunger)
-        self.bar_thirst.set_value(state.thirst)
+        self.stat_health.set_value(state.health)
+        self.stat_energy.set_value(state.energy)
+        self.stat_sleep.set_value(state.sleep)
+        self.stat_hunger.set_value(state.hunger)
+        self.stat_thirst.set_value(state.thirst)
         self.resources.text = (f"Bois {state.wood}   Nourriture {state.food}"
                                f"   Eau {state.water}")
 
