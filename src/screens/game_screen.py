@@ -218,9 +218,22 @@ class GameScreen(Screen):
                           pos_hint={"x": 0.004, "top": 0.96})
         grid.bind(minimum_width=grid.setter("width"))
         self._action_buttons = []   # (bouton, action)
+        action_cells = []           # (cell, btn, lbl) : pour egaliser les largeurs
+
+        def _fit_cells(*_):
+            if not action_cells:
+                return
+            # Largeur UNIFORME = la cellule la plus large (en general "Explorer",
+            # dont le nom est le plus long). Toutes les cellules identiques -> les
+            # logos (centres) sont tous alignes, et rien ne se chevauche.
+            w = max(max(btn.width, lbl.texture_size[0])
+                    for _c, btn, lbl in action_cells) + dp(6)
+            for cell, _b, _l in action_cells:
+                cell.width = w
 
         def add_cell(icon, name, on_release):
-            # Largeur de la cellule pilotee par son contenu (jamais d'overlap).
+            # Largeur de la cellule pilotee par le contenu (jamais d'overlap),
+            # puis egalisee entre toutes les cellules (voir _fit_cells).
             cell = BoxLayout(orientation="vertical", spacing=2, size_hint_x=None)
             area = AnchorLayout(size_hint=(1, 0.66))
             btn = IconButton(icon=icon, size_hint=(None, None))
@@ -238,12 +251,9 @@ class GameScreen(Screen):
             cell.add_widget(area)
             cell.add_widget(lbl)
 
-            # La cellule prend la largeur du plus large entre le logo et le nom,
-            # plus une petite marge -> rien ne deborde sur la cellule voisine.
-            def _fit_cell(*_):
-                cell.width = max(btn.width, lbl.texture_size[0]) + dp(6)
-            btn.bind(size=_fit_cell)
-            lbl.bind(texture_size=_fit_cell)
+            action_cells.append((cell, btn, lbl))
+            btn.bind(size=_fit_cells)
+            lbl.bind(texture_size=_fit_cells)
 
             grid.add_widget(cell)
             return btn
