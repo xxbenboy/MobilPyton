@@ -209,9 +209,11 @@ class GameScreen(Screen):
         # colonnes/lignes et donc REDUIT la taille des boutons (jamais la zone).
         n_btn = len(ACTIONS) + 1                  # actions + Craft
         cols = max(1, int(math.ceil(n_btn ** 0.5)))
-        grid = GridLayout(cols=cols, spacing=dp(6),
-                          size_hint=(0.42, 0.50),
-                          pos_hint={"x": 0.012, "top": 0.95})
+        # Grille resserree : cellules juste assez larges pour le logo, faible
+        # espacement, et plaquee contre le bord gauche -> prend peu de place.
+        grid = GridLayout(cols=cols, spacing=dp(2),
+                          size_hint=(0.15, 0.50),
+                          pos_hint={"x": 0.004, "top": 0.96})
         self._action_buttons = []   # (bouton, action)
 
         def add_cell(icon, name, on_release):
