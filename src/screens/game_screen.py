@@ -85,9 +85,14 @@ def _add_panel(widget, alpha=0.34):
 def _button_label(text):
     """Etiquette d'un bouton (son nom) avec un fond noir arrondi AJUSTE au texte.
 
-    Le nom reste TOUJOURS entierement visible (jamais coupe) et le fond epouse
-    sa taille, au lieu d'occuper toute la largeur de la cellule. Gere aussi les
-    noms sur deux lignes (ex. "Couper\\ndu bois"), centres.
+    Le nom reste TOUJOURS entierement visible et horizontal, le fond epouse sa
+    taille (au lieu d'occuper toute la cellule), et les noms sur deux lignes
+    (ex. "Couper\\ndu bois") sont centres.
+
+    Methode : a chaque changement de police/taille, on mesure d'abord la largeur
+    NATURELLE du texte (sans contrainte), puis on fige cette largeur pour centrer
+    les lignes. Mesurer sans contrainte a chaque fois evite que le texte reste
+    coince sur une largeur trop petite (ce qui l'afficherait verticalement).
     """
     lbl = Label(text=text, halign="center", valign="middle",
                 size_hint=(1, 0.34), color=(1, 1, 1, 1))
@@ -95,18 +100,26 @@ def _button_label(text):
         Color(0, 0, 0, 0.75)
         bg = RoundedRectangle(radius=[dp(4)])
 
-    def _sync(w, *_):
-        tw, th = w.texture_size
-        # Contraint la largeur a la ligne la plus longue : centre les noms sur
-        # plusieurs lignes sans elargir au-dela du texte. Tolerance de 1 px pour
-        # eviter toute oscillation (la valeur se stabilise apres un passage).
-        if w.text_size[0] is None or abs(w.text_size[0] - tw) > 1:
-            w.text_size = (tw, None)
+    busy = {"v": False}
+
+    def _refit(*_):
+        if busy["v"]:
             return
+        busy["v"] = True
+        # 1) largeur libre -> largeur reelle du texte.
+        lbl.text_size = (None, None)
+        lbl.texture_update()
+        natural_w = lbl.texture_size[0]
+        # 2) on fige cette largeur -> centrage des lignes, sans elargir.
+        lbl.text_size = (natural_w, None)
+        lbl.texture_update()
+        busy["v"] = False
+        tw, th = lbl.texture_size
         bw, bh = tw + dp(10), th + dp(6)
-        bg.pos = (w.center_x - bw / 2.0, w.center_y - bh / 2.0)
+        bg.pos = (lbl.center_x - bw / 2.0, lbl.center_y - bh / 2.0)
         bg.size = (bw, bh)
-    lbl.bind(pos=_sync, size=_sync, texture_size=_sync)
+
+    lbl.bind(pos=_refit, size=_refit, font_size=_refit, text=_refit)
     scale_font(lbl)
     return lbl
 
