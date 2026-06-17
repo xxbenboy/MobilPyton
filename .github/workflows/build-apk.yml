@@ -100,6 +100,10 @@ jobs:
           VERSION="$BASE.$RUN"
           echo ">>> base=$BASE  build=$RUN  =>  version $VERSION (commit $SHA7)"
 
+          # Rend VERSION / RUN disponibles dans les etapes suivantes.
+          echo "APP_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "APP_BUILD=$RUN"       >> "$GITHUB_ENV"
+
           # 1) build_info.py (affiche dans le menu).
           printf 'BUILD = "%s"\nVERSION = "%s"\nSHA = "%s"\n' \
             "$RUN" "$VERSION" "$SHA7" > src/build_info.py
@@ -153,29 +157,44 @@ jobs:
           # 2e passe : build complet (aidl present + Gradle en Java 17).
           buildozer android debug
 
-      # Nom de fichier STABLE pour que le lien "latest" ne change jamais.
+      # On produit DEUX fichiers :
+      # - MobilPyton.apk : nom STABLE (pour le lien "latest" qui ne change jamais)
+      # - MobilPyton-<version>.apk : nom UNIQUE par build. Comme le nom change a
+      #   chaque fois, impossible que le telephone ressorte un ancien fichier en
+      #   cache : c'est le fichier a utiliser pour etre sur d'avoir la bonne version.
       - name: Renommer l'APK
-        run: cp bin/*.apk MobilPyton.apk
+        run: |
+          set -e
+          cp bin/*.apk "MobilPyton.apk"
+          cp bin/*.apk "MobilPyton-${APP_VERSION}.apk"
+          ls -l MobilPyton*.apk
 
       - name: Publier l'APK (artifact telechargeable)
         uses: actions/upload-artifact@v4
         with:
           name: MobilPyton-APK
-          path: MobilPyton.apk
+          path: MobilPyton-${{ env.APP_VERSION }}.apk
           if-no-files-found: error
 
       # Publie une Release a chaque push. Marquee "latest" => le lien
       # .../releases/latest/download/MobilPyton.apk pointe toujours sur la
-      # version la plus recente.
+      # version la plus recente. Le fichier versionne, lui, a un nom unique.
       - name: Publier la Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: build-${{ github.run_number }}
-          name: MobilPyton (build ${{ github.run_number }})
+          name: MobilPyton (build ${{ github.run_number }})  v${{ env.APP_VERSION }}
           body: |
             APK Android genere automatiquement depuis le commit ${{ github.sha }}.
+            Version : ${{ env.APP_VERSION }}
 
-            Lien direct (toujours la derniere version) :
+            >> Telechargement RECOMMANDE (nom unique, jamais de cache) :
+            https://github.com/xxbenboy/MobilPyton/releases/download/build-${{ github.run_number }}/MobilPyton-${{ env.APP_VERSION }}.apk
+
+            Lien "toujours la derniere version" (nom fixe, peut etre mis en cache
+            par le navigateur -- vider le cache si besoin) :
             https://github.com/xxbenboy/MobilPyton/releases/latest/download/MobilPyton.apk
-          files: MobilPyton.apk
+          files: |
+            MobilPyton.apk
+            MobilPyton-${{ env.APP_VERSION }}.apk
           make_latest: true
