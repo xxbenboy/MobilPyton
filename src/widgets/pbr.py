@@ -23,9 +23,20 @@ from kivy.graphics.texture import Texture
 # Mettre False pour desactiver completement l'eclairage (depannage).
 LIGHTING = True
 
-# Direction de la lumiere (x, y, z). z eleve = lumiere de face -> les surfaces
-# planes restent claires ; x/y donnent le relief sur les cartes de normales.
+# Direction de la lumiere (x, y, z). z eleve = lumiere de face.
 LIGHT = (-0.28, 0.34, 0.90)
+
+# Reglages d'eclairage (tu peux les ajuster) :
+# - RELIEF      : force du relief donne par la carte Normal (0 = aucun relief).
+#                 Une surface PLATE reste a la luminosite d'origine (pas
+#                 d'assombrissement global) ; le relief ne fait qu'ajouter des
+#                 zones un peu plus claires / plus sombres autour.
+# - AO_STRENGTH : influence de l'occlusion (canal R de la carte Packed). 0 =
+#                 ignoree (utile si ton Packed ne range pas l'AO dans le rouge).
+# - BRIGHTNESS  : luminosite globale (monte au-dessus de 1 pour eclaircir).
+RELIEF = 0.45
+AO_STRENGTH = 0.30
+BRIGHTNESS = 1.0
 
 # Shader fragment compatible OpenGL ES 2. Utilise les noms de varying/uniform
 # par defaut de Kivy (frag_color, tex_coord0, texture0).
@@ -41,14 +52,21 @@ uniform sampler2D texture0;     /* BaseColor (unite 0, liee par Kivy) */
 uniform sampler2D pbr_normal;   /* Normal   (unite 1) */
 uniform sampler2D pbr_packed;   /* Packed   (unite 2) : R = occlusion */
 uniform vec3 pbr_light;
+uniform float pbr_relief;
+uniform float pbr_ao;
+uniform float pbr_brightness;
 
 void main(void) {
     vec4 base = frag_color * texture2D(texture0, tex_coord0);
-    vec3 n = texture2D(pbr_normal, tex_coord0).xyz * 2.0 - 1.0;
-    n = normalize(n);
-    float diff = max(dot(n, normalize(pbr_light)), 0.0);
-    float ao = texture2D(pbr_packed, tex_coord0).r;
-    float lit = (0.62 + 0.38 * diff) * ao;
+    vec3 L = normalize(pbr_light);
+    vec3 n = normalize(texture2D(pbr_normal, tex_coord0).xyz * 2.0 - 1.0);
+    float diff = max(dot(n, L), 0.0);
+    float ref = max(L.z, 0.001);                 /* eclairage d'une surface plate */
+    /* Relief CENTRE sur 1.0 : une surface plate garde sa luminosite ; seules
+       les bosses/creux varient autour. -> pas d'assombrissement global. */
+    float lit = 1.0 + pbr_relief * (diff - ref);
+    float ao = mix(1.0, texture2D(pbr_packed, tex_coord0).r, pbr_ao);
+    lit = clamp(lit * ao * pbr_brightness, 0.0, 2.0);
     gl_FragColor = vec4(base.rgb * lit, base.a);
 }
 """
@@ -87,6 +105,9 @@ def setup(render_context):
     render_context["pbr_normal"] = 1
     render_context["pbr_packed"] = 2
     render_context["pbr_light"] = [float(v) for v in LIGHT]
+    render_context["pbr_relief"] = float(RELIEF)
+    render_context["pbr_ao"] = float(AO_STRENGTH)
+    render_context["pbr_brightness"] = float(BRIGHTNESS)
 
 
 def bind_maps(normal_tex, packed_tex):
