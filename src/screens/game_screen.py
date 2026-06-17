@@ -187,16 +187,6 @@ class GameScreen(Screen):
             stats_col.add_widget(circle)
         root.add_widget(stats_col)
 
-        # ---- Ressources (bas centre) ----
-        res_box = BoxLayout(padding=dp(8), size_hint=(0.30, 0.07),
-                            pos_hint={"center_x": 0.5, "y": 0.012})
-        _add_panel(res_box, alpha=0.5)
-        self.resources = scale_font(Label(text="", halign="center",
-                                    valign="middle",
-                                    color=(0.85, 0.88, 0.9, 1)), 0.016)
-        res_box.add_widget(self.resources)
-        root.add_widget(res_box)
-
         # ---- Etat d'action (sous la zone) ----
         self.status = scale_font(Label(text="", bold=True,
                                  color=(0.96, 0.82, 0.45, 1),
@@ -457,8 +447,6 @@ class GameScreen(Screen):
         self.stat_sleep.set_value(state.sleep)
         self.stat_hunger.set_value(state.hunger)
         self.stat_thirst.set_value(state.thirst)
-        self.resources.text = (f"Bois {state.wood}   Nourriture {state.food}"
-                               f"   Eau {state.water}")
 
         # Boutons : tout verrouille en avance rapide ; sinon selon la zone /
         # l'etat (dormir, boire, remplir la gourde).
