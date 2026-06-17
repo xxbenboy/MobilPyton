@@ -172,19 +172,31 @@ class CraftScreen(Screen):
 
         # Recettes
         self.recipe_box.clear_widgets()
+        pool = state.craft_pool()
         for recipe in items.RECIPES:
-            ing = ", ".join(f"{items.display_name(k)} x{v}"
-                            for k, v in recipe["ingredients"].items())
+            # Ingredients : ecriture plus FONCEE si l'ingredient manque.
+            parts = []
+            for k, v in recipe["ingredients"].items():
+                label = f"{items.display_name(k)} x{v}"
+                if pool.get(k, 0) >= v:
+                    parts.append(label)
+                else:
+                    parts.append(f"[color=777777]{label}[/color]")
+            ing = ", ".join(parts)
+
             row = BoxLayout(orientation="horizontal", spacing=dp(6),
                             size_hint_y=None, height=dh(70))
+            # Image du resultat a gauche (ou "?" si aucune image n'existe).
+            row.add_widget(ItemIcon(recipe["result"], show_name=False,
+                                    size_hint_x=0.18))
             txt = scale_font(Label(
                 text=f"[b]{items.display_name(recipe['result'])}[/b]\n{ing}",
-                markup=True, halign="left", valign="middle", size_hint_x=0.62),
+                markup=True, halign="left", valign="middle", size_hint_x=0.50),
                 0.016)
             txt.bind(size=lambda w, *_: setattr(w, "text_size",
                                                 (w.width, w.height)))
             row.add_widget(txt)
-            btn = scale_font(StyledButton(text="Fabriquer", size_hint_x=0.38),
+            btn = scale_font(StyledButton(text="Fabriquer", size_hint_x=0.32),
                              0.018)
             btn.disabled = not state.can_craft(recipe)
             btn.bind(on_release=lambda _w, r=recipe: self._craft(r))
