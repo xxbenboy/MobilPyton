@@ -85,9 +85,9 @@ def _add_panel(widget, alpha=0.34):
 def _button_label(text):
     """Etiquette d'un bouton (son nom) avec un fond noir arrondi AJUSTE au texte.
 
-    Le texte n'est pas contraint en largeur : il reste donc TOUJOURS entierement
-    visible, meme si la cellule est etroite, et le fond epouse sa taille (au lieu
-    d'occuper toute la largeur de la cellule).
+    Le nom reste TOUJOURS entierement visible (jamais coupe) et le fond epouse
+    sa taille, au lieu d'occuper toute la largeur de la cellule. Gere aussi les
+    noms sur deux lignes (ex. "Couper\\ndu bois"), centres.
     """
     lbl = Label(text=text, halign="center", valign="middle",
                 size_hint=(1, 0.34), color=(1, 1, 1, 1))
@@ -96,8 +96,14 @@ def _button_label(text):
         bg = RoundedRectangle(radius=[dp(4)])
 
     def _sync(w, *_):
-        bw = w.texture_size[0] + dp(10)
-        bh = w.texture_size[1] + dp(6)
+        tw, th = w.texture_size
+        # Contraint la largeur a la ligne la plus longue : centre les noms sur
+        # plusieurs lignes sans elargir au-dela du texte. Tolerance de 1 px pour
+        # eviter toute oscillation (la valeur se stabilise apres un passage).
+        if w.text_size[0] is None or abs(w.text_size[0] - tw) > 1:
+            w.text_size = (tw, None)
+            return
+        bw, bh = tw + dp(10), th + dp(6)
         bg.pos = (w.center_x - bw / 2.0, w.center_y - bh / 2.0)
         bg.size = (bw, bh)
     lbl.bind(pos=_sync, size=_sync, texture_size=_sync)
@@ -201,27 +207,16 @@ class GameScreen(Screen):
             btn = IconButton(icon=icon, size_hint=(None, None))
 
             def _square(a, *_):                      # bouton carre = taille logo
-                s = min(a.width, a.height) * 0.94
+                s = a.height * 0.94
                 btn.size = (s, s)
             area.bind(size=_square)
             btn.bind(on_release=on_release)
             area.add_widget(btn)
 
-            lbl = Label(text=name, halign="center", valign="middle",
-                        size_hint=(1, 0.34), color=(1, 1, 1, 1))   # texte blanc
-            # Fond noir derriere le nom (lisibilite).
-            with lbl.canvas.before:
-                Color(0, 0, 0, 0.75)
-                lbl_bg = RoundedRectangle(radius=[dp(4)])
-
-            def _bg(w, *_, _r=lbl_bg):
-                _r.pos = w.pos
-                _r.size = w.size
-                w.text_size = (w.width, w.height)
-            lbl.bind(pos=_bg, size=_bg)
-            scale_font(lbl)
+            # Nom du bouton : fond noir ajuste a la taille du texte (comme les
+            # boutons Carte/Menu). Logo inchange (taille basee sur la hauteur).
             cell.add_widget(area)
-            cell.add_widget(lbl)
+            cell.add_widget(_button_label(name))
             grid.add_widget(cell)
             return btn
 
