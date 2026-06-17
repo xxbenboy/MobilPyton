@@ -1,0 +1,46 @@
+TEXTURES SEAMLESS (pour embellir le jeu)
+========================================
+
+Depose ici des images qui se REPETENT sans coupure ("seamless"). Le jeu
+cherche automatiquement un fichier nomme d'apres la surface :
+
+    assets/textures/<nom>.png      (ou .jpg / .jpeg)
+
+- Si la texture existe -> elle habille la surface correspondante.
+- Si elle n'existe pas  -> le jeu utilise une COULEUR PLANE de repli
+  (donc le jeu reste joli meme sans aucune texture ; tu en ajoutes quand
+  tu veux et il s'embellit petit a petit).
+
+----------------------------------------------------------------
+NOMS DE FICHIERS ATTENDUS (exactement, en minuscules)
+----------------------------------------------------------------
+Sols / terrain :
+    grass.png              herbe proche (plaine, sol vu d'en haut)
+    grass_far.png          herbe lointaine (crete a l'horizon)
+    forest_floor.png       sol de foret proche
+    forest_floor_far.png   sol de foret lointain
+    rock.png               roche (pente de montagne)
+    rock_dark.png          roche en bas de pente (plus sombre)
+    water.png              eau (lac)
+    sand.png               rive / terre au premier plan
+
+Vegetation :
+    bark.png               ecorce (troncs d'arbres)
+    foliage.png            feuillage (arbres, buissons)
+
+Personnage :
+    skin.png               peau (mains du joueur)
+
+----------------------------------------------------------------
+CONSEILS IMPORTANTS
+----------------------------------------------------------------
+- Pour une repetition PROPRE (sans coupure), l'image doit etre :
+    * CARREE et en PUISSANCE DE 2 : 256x256 ou 512x512 (important sur
+      telephone : sinon la repetition peut ne pas marcher) ;
+    * "seamless" : les bords gauche/droite et haut/bas se raccordent.
+- Le nom doit correspondre EXACTEMENT (minuscules, sans accents).
+- Apres avoir ajoute des images : pousse le projet (envoyer-sur-github.bat)
+  pour qu'elles soient incluses dans l'APK.
+
+La correspondance noms <-> surfaces et les couleurs de repli sont dans :
+    src/widgets/textures.py

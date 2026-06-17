@@ -8,6 +8,8 @@ Dessine devant le decor. Pour l'instant les mains sont VIDES.
 from kivy.uix.widget import Widget
 from kivy.graphics import Color, Ellipse, Quad, RoundedRectangle
 
+from src.widgets.textures import texture
+
 
 class PlayerHands(Widget):
     SKIN = (0.84, 0.66, 0.50, 1)
@@ -17,6 +19,21 @@ class PlayerHands(Widget):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self.bind(pos=self._redraw, size=self._redraw)
+
+    def _skin(self, shade):
+        """Pose la couleur de la peau et renvoie la texture "skin" (ou None).
+
+        S'il y a une texture, on la TEINTE selon la nuance demandee (clair /
+        moyen / sombre) pour garder le volume des mains ; sinon on utilise la
+        couleur plane comme avant."""
+        tex = texture("skin")
+        if tex is None:
+            Color(*shade)
+        else:
+            base = self.SKIN
+            Color(shade[0] / base[0], shade[1] / base[1], shade[2] / base[2],
+                  shade[3])
+        return tex
 
     def _redraw(self, *_):
         self.canvas.clear()
@@ -37,42 +54,43 @@ class PlayerHands(Widget):
 
         # Avant-bras : cote sombre (volume) puis dessus clair, qui s'affine
         # vers le poignet.
-        Color(*self.SKIN_DK)
+        tex = self._skin(self.SKIN_DK)
         Quad(points=[bx - armw, y0, bx + armw, y0,
-                     hx + wristw, hy, hx - wristw, hy])
-        Color(*self.SKIN)
+                     hx + wristw, hy, hx - wristw, hy], texture=tex)
+        tex = self._skin(self.SKIN)
         Quad(points=[bx - armw * 0.62, y0, bx + armw * 0.78, y0,
                      hx + wristw * 0.7, hy - 0.004 * h,
-                     hx - wristw * 0.55, hy - 0.004 * h])
+                     hx - wristw * 0.55, hy - 0.004 * h], texture=tex)
 
         pw = 0.125 * w        # largeur paume
         ph = 0.085 * h        # hauteur paume
         fw = 0.026 * w        # largeur d'un doigt
 
         # Ombre de la paume (bas), puis paume claire.
-        Color(*self.SKIN_DK)
+        tex = self._skin(self.SKIN_DK)
         RoundedRectangle(pos=(hx - pw / 2, hy - 0.012 * h),
-                         size=(pw, ph * 0.55), radius=[pw * 0.3])
-        Color(*self.SKIN)
+                         size=(pw, ph * 0.55), radius=[pw * 0.3], texture=tex)
+        tex = self._skin(self.SKIN)
         RoundedRectangle(pos=(hx - pw / 2, hy), size=(pw, ph),
-                         radius=[pw * 0.32])
+                         radius=[pw * 0.32], texture=tex)
 
         # 4 doigts, longueurs variees (index, majeur, annulaire, auriculaire),
         # legerement en eventail.
         lengths = (0.080, 0.095, 0.088, 0.068)
         for i, fl in enumerate(lengths):
             fx = hx + (i - 1.5) * (fw + 0.004 * w)
-            Color(*(self.SKIN if i % 2 == 0 else self.SKIN_MID))
+            tex = self._skin(self.SKIN if i % 2 == 0 else self.SKIN_MID)
             RoundedRectangle(pos=(fx - fw / 2, hy + ph * 0.62),
-                             size=(fw, fl * h), radius=[fw * 0.5])
+                             size=(fw, fl * h), radius=[fw * 0.5], texture=tex)
 
         # Pouce (cote interieur, plus court et un peu plus bas).
-        Color(*self.SKIN)
+        tex = self._skin(self.SKIN)
         tw = fw * 1.05
         RoundedRectangle(pos=(hx + thumb_dir * (pw * 0.42) - tw / 2,
                               hy + ph * 0.2),
-                         size=(tw, 0.05 * h), radius=[tw * 0.5])
+                         size=(tw, 0.05 * h), radius=[tw * 0.5], texture=tex)
         # Petite ombre sous les doigts (jointure paume).
-        Color(*self.SKIN_MID)
+        tex = self._skin(self.SKIN_MID)
         RoundedRectangle(pos=(hx - pw * 0.42, hy + ph * 0.55),
-                         size=(pw * 0.84, ph * 0.18), radius=[ph * 0.09])
+                         size=(pw * 0.84, ph * 0.18), radius=[ph * 0.09],
+                         texture=tex)

@@ -18,6 +18,8 @@ from kivy.uix.widget import Widget
 from kivy.graphics import (Color, Ellipse, Rectangle, Triangle, Line, Quad,
                            Mesh)
 
+from src.widgets.textures import paint, paint_color, tiled_coords
+
 _ZONE_SEED = {"Foret": 1, "Plaine": 2, "Montagne": 3, "Lac": 4}
 
 
@@ -60,14 +62,35 @@ class ZoneScenery(Widget):
                     "Lac": self._lac,
                 }.get(self._zone, self._foret)(rng)
 
+    # -- helpers textures (surface plane texturee, sinon couleur de repli) - #
+    def _trect(self, name, x, y, w, h, tile_px=256):
+        """Rectangle texture (repete) si la texture existe, sinon aplat couleur."""
+        tex = paint(name)
+        if tex is not None:
+            Rectangle(pos=(x, y), size=(w, h), texture=tex,
+                      tex_coords=tiled_coords(w, h, tile_px))
+        else:
+            Rectangle(pos=(x, y), size=(w, h))
+
+    def _tquad(self, name, points, tile_px=256):
+        """Quad texture (repetition basee sur la position monde), sinon aplat."""
+        tex = paint(name)
+        if tex is not None:
+            x0, y0 = self.x, self.y
+            tc = []
+            for i in range(0, 8, 2):
+                tc += [(points[i] - x0) / tile_px, (points[i + 1] - y0) / tile_px]
+            Quad(points=points, texture=tex, tex_coords=tc)
+        else:
+            Quad(points=points)
+
     # -- vue VERS LE BAS (sol qui remplit l'ecran) ---------------------- #
     def _ground_view(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
         zone = self._zone
 
         if zone == "Lac":                              # surface de l'eau vue d'en haut
-            Color(0.14, 0.36, 0.55, 1)
-            Rectangle(pos=(x0, y0), size=(w, h))
+            self._trect("water", x0, y0, w, h)
             for _ in range(70):                        # ondulations / reflets
                 ly = y0 + rng.uniform(0, 1) * h
                 lx = x0 + rng.uniform(0, 0.7) * w
@@ -84,13 +107,15 @@ class ZoneScenery(Widget):
 
         if zone == "Montagne":
             base = (0.34, 0.34, 0.38)
+            ground_tex = "rock"
         elif zone == "Foret":
             base = (0.16, 0.18, 0.11)
+            ground_tex = "forest_floor"
         else:                                          # Plaine
             base = (0.24, 0.42, 0.18)
+            ground_tex = "grass"
 
-        Color(*base, 1)
-        Rectangle(pos=(x0, y0), size=(w, h))
+        self._trect(ground_tex, x0, y0, w, h)
         for _ in range(14):                            # taches de variation
             gx = x0 + rng.uniform(0, 1) * w
             gy = y0 + rng.uniform(0, 1) * h
@@ -146,11 +171,12 @@ class ZoneScenery(Widget):
 
     # -- helpers -------------------------------------------------------- #
     def _pine(self, cx, base, tw, th, color):
-        Color(*color)
+        tex = paint_color("foliage", color)
         Triangle(points=[cx - tw / 2, base, cx + tw / 2, base,
-                         cx, base + th * 0.72])
+                         cx, base + th * 0.72], texture=tex)
         Triangle(points=[cx - tw * 0.36, base + th * 0.32,
-                         cx + tw * 0.36, base + th * 0.32, cx, base + th])
+                         cx + tw * 0.36, base + th * 0.32, cx, base + th],
+                 texture=tex)
 
     def _grass_tuft(self, cx, base, height, color, scale=1.0):
         bw = max(1.2, self.width * 0.0035 * scale)
@@ -170,22 +196,22 @@ class ZoneScenery(Widget):
         cr, cg, cb, ca = color
         Color(0, 0, 0, 0.16)                              # ombre au sol
         Ellipse(pos=(cx - r * 1.3, cy - r * 0.4), size=(r * 2.6, r * 0.6))
-        Color(cr * 0.7, cg * 0.7, cb * 0.7, 1)            # masse sombre (bas)
-        Ellipse(pos=(cx - r * 1.4, cy - r * 0.3), size=(r * 1.3, r * 1.0))
-        Ellipse(pos=(cx + r * 0.2, cy - r * 0.3), size=(r * 1.3, r * 1.0))
-        Ellipse(pos=(cx - r, cy - r * 0.4), size=(r * 2, r * 1.2))
-        Color(cr, cg, cb, 1)                              # feuillage clair (haut)
-        Ellipse(pos=(cx - r * 0.9, cy + r * 0.1), size=(r * 1.8, r * 1.0))
-        Ellipse(pos=(cx - r * 1.2, cy), size=(r * 1.1, r * 0.8))
-        Ellipse(pos=(cx + r * 0.2, cy), size=(r * 1.1, r * 0.8))
+        dtex = paint_color("foliage", (cr * 0.7, cg * 0.7, cb * 0.7, 1))  # masse sombre
+        Ellipse(pos=(cx - r * 1.4, cy - r * 0.3), size=(r * 1.3, r * 1.0), texture=dtex)
+        Ellipse(pos=(cx + r * 0.2, cy - r * 0.3), size=(r * 1.3, r * 1.0), texture=dtex)
+        Ellipse(pos=(cx - r, cy - r * 0.4), size=(r * 2, r * 1.2), texture=dtex)
+        ltex = paint_color("foliage", (cr, cg, cb, 1))    # feuillage clair (haut)
+        Ellipse(pos=(cx - r * 0.9, cy + r * 0.1), size=(r * 1.8, r * 1.0), texture=ltex)
+        Ellipse(pos=(cx - r * 1.2, cy), size=(r * 1.1, r * 0.8), texture=ltex)
+        Ellipse(pos=(cx + r * 0.2, cy), size=(r * 1.1, r * 0.8), texture=ltex)
 
     def _tree(self, cx, base, th, leaf, trunk):
         tw = max(2.0, self.width * 0.006)
-        Color(*trunk)
-        Rectangle(pos=(cx - tw / 2, base), size=(tw, th * 0.5))
-        Color(*leaf)
+        btex = paint_color("bark", trunk)
+        Rectangle(pos=(cx - tw / 2, base), size=(tw, th * 0.5), texture=btex)
+        ftex = paint_color("foliage", leaf)
         r = th * 0.35
-        Ellipse(pos=(cx - r, base + th * 0.32), size=(r * 2, r * 2))
+        Ellipse(pos=(cx - r, base + th * 0.32), size=(r * 2, r * 2), texture=ftex)
 
     # -- scenes (plein cadre) ------------------------------------------- #
     def _leaf(self, cx, cy, size, color):
@@ -196,16 +222,17 @@ class ZoneScenery(Widget):
     def _forest_tree(self, cx, base, th, scale):
         """Arbre feuillu : tronc conique + amas de feuillage sombre."""
         tw = max(2.0, self.width * 0.012 * scale)
-        Color(0.28, 0.19, 0.11, 1)
+        btex = paint_color("bark", (0.28, 0.19, 0.11, 1))
         Quad(points=[cx - tw, base, cx + tw, base,
-                     cx + tw * 0.5, base + th * 0.6, cx - tw * 0.5, base + th * 0.6])
+                     cx + tw * 0.5, base + th * 0.6, cx - tw * 0.5, base + th * 0.6],
+             texture=btex)
         fr = th * 0.32
         fy = base + th * 0.55
-        Color(0.09, 0.18, 0.11, 1)
+        ftex = paint_color("foliage", (0.09, 0.18, 0.11, 1))
         for dx, dy in ((-0.5, 0.0), (0.5, 0.05), (0.0, 0.35),
                        (-0.3, 0.42), (0.35, 0.40), (0.0, 0.05)):
             Ellipse(pos=(cx + dx * fr - fr * 0.7, fy + dy * fr),
-                    size=(fr * 1.4, fr * 1.3))
+                    size=(fr * 1.4, fr * 1.3), texture=ftex)
         Color(0.14, 0.26, 0.15, 1)                        # reflet de lumiere
         Ellipse(pos=(cx - fr * 0.45, fy + fr * 0.3), size=(fr * 0.9, fr * 0.8))
 
@@ -244,8 +271,8 @@ class ZoneScenery(Widget):
         mush_pick = clusters(rng.randint(2, 3), 0.05)
 
         # Sol forestier (terre/mousse) ondule, deux tons.
-        self._fill_curve(far_curve, (0.18, 0.22, 0.13, 1))
-        self._fill_curve(floor_curve, (0.12, 0.15, 0.09, 1))
+        self._fill_curve(far_curve, "forest_floor_far")
+        self._fill_curve(floor_curve, "forest_floor")
 
         GREENS = [(0.10, 0.20, 0.12), (0.08, 0.17, 0.10), (0.12, 0.24, 0.14)]
         LEAVES = [(0.45, 0.32, 0.14, 1), (0.36, 0.40, 0.16, 1),
@@ -473,17 +500,22 @@ class ZoneScenery(Widget):
             yy = base + height * (0.56 + 0.11 * i)
             Ellipse(pos=(cx - rr, yy), size=(rr * 2, rr * 1.5))
 
-    def _fill_curve(self, top_fn, color, segs=40):
-        """Remplit du bas du widget jusqu'a la courbe top_fn(fx) (terrain)."""
+    def _fill_curve(self, top_fn, tex_name, segs=40, tile_px=256):
+        """Remplit du bas du widget jusqu'a la courbe top_fn(fx) (terrain).
+
+        Habille avec la texture `tex_name` (repetee) si elle existe, sinon avec
+        la couleur de repli correspondante."""
         x0, y0, w = self.x, self.y, self.width
-        Color(*color)
+        tex = paint(tex_name)
         verts = []
         for i in range(segs + 1):
             fx = i / segs
             x = x0 + fx * w
-            verts += [x, y0, 0, 0, x, top_fn(fx), 0, 0]
+            top = top_fn(fx)
+            u = (x - x0) / tile_px
+            verts += [x, y0, u, 0.0, x, top, u, (top - y0) / tile_px]
         idx = list(range(len(verts) // 4))
-        Mesh(vertices=verts, indices=idx, mode="triangle_strip")
+        Mesh(vertices=verts, indices=idx, mode="triangle_strip", texture=tex)
 
     def _plaine(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
@@ -539,8 +571,8 @@ class ZoneScenery(Widget):
                    (0.92, 0.42, 0.52, 1), (0.72, 0.52, 0.92, 1)]
 
         # Collines : crete lointaine (clair) puis champ proche (fonce) ondules.
-        self._fill_curve(horizon_curve, (0.36, 0.50, 0.26, 1))
-        self._fill_curve(field_curve, (0.26, 0.42, 0.19, 1))
+        self._fill_curve(horizon_curve, "grass_far")
+        self._fill_curve(field_curve, "grass")
 
         # Petites fabriques de "fonctions de dessin" (pour differer le rendu).
         def f_grass(gx, gb, gh, col, sc, fcol, fr):
@@ -652,11 +684,10 @@ class ZoneScenery(Widget):
             return y0 + (0.60 + 0.36 * fx) * h
 
         # Pente principale (remplit le cadre, monte vers la droite).
-        Color(0.42, 0.41, 0.46, 1)
-        Quad(points=[x0, y0, x0 + w, y0, x0 + w, surf(1.0), x0, surf(0.0)])
+        self._tquad("rock", [x0, y0, x0 + w, y0, x0 + w, surf(1.0), x0, surf(0.0)])
         # Bas plus sombre (profondeur).
-        Color(0.33, 0.32, 0.37, 1)
-        Quad(points=[x0, y0, x0 + w, y0, x0 + w, y0 + 0.22 * h, x0, y0 + 0.14 * h])
+        self._tquad("rock_dark",
+                    [x0, y0, x0 + w, y0, x0 + w, y0 + 0.22 * h, x0, y0 + 0.14 * h])
         # Rochers disperses sur la pente.
         for _ in range(42):
             fx = rng.uniform(0, 1)
@@ -695,8 +726,7 @@ class ZoneScenery(Widget):
         Color(0.12, 0.24, 0.15, 1)
         Ellipse(pos=(x0 - 0.30 * w, y0 + 0.54 * h), size=(1.7 * w, 0.14 * h))
         # Grande etendue d'eau (on est au bord) : 0.10h -> 0.60h.
-        Color(0.15, 0.38, 0.58, 1)
-        Rectangle(pos=(x0, y0 + 0.10 * h), size=(w, 0.50 * h))
+        self._trect("water", x0, y0 + 0.10 * h, w, 0.50 * h)
         # Reflets clairs.
         Color(0.32, 0.56, 0.74, 1)
         for _ in range(11):
@@ -705,8 +735,7 @@ class ZoneScenery(Widget):
             Line(points=[lx, ly, lx + rng.uniform(0.2, 0.45) * w, ly],
                  width=1.4)
         # Rive proche (premier plan) + galets.
-        Color(0.32, 0.30, 0.22, 1)
-        Rectangle(pos=(x0, y0), size=(w, 0.12 * h))
+        self._trect("sand", x0, y0, w, 0.12 * h)
         Color(0.42, 0.40, 0.32, 1)
         for _ in range(12):
             rx = x0 + rng.uniform(0, 1) * w
