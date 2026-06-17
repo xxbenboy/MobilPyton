@@ -24,7 +24,7 @@ from src.game_state import HANDS_MAX
 from src.widgets.animated_background import AnimatedBackground
 from src.widgets.item_icon import ItemIcon
 from src.widgets.styled_button import StyledButton
-from src.widgets.responsive import scale_font
+from src.widgets.responsive import scale_font, dh
 
 
 def _panel(widget, alpha=0.45):
@@ -108,7 +108,7 @@ class CraftScreen(Screen):
             for i, item in enumerate(state.hands):
                 # Objet + Label + Bouton sur la même ligne
                 row = BoxLayout(orientation="horizontal", spacing=dp(6),
-                               size_hint_y=None, height=dp(140))
+                               size_hint_y=None, height=dh(140))
                 row.add_widget(ItemIcon(item, size_hint_x=0.22))
                 row.add_widget(Widget(size_hint_x=0.02))
                 lbl = Label(text=hands_names[i], halign="left",
@@ -133,7 +133,7 @@ class CraftScreen(Screen):
         if ground:
             for name, count in sorted(ground.items()):
                 row = BoxLayout(orientation="horizontal", spacing=dp(6),
-                               size_hint_y=None, height=dp(140))
+                               size_hint_y=None, height=dh(140))
                 row.add_widget(ItemIcon(name, count, size_hint_x=0.22))
                 row.add_widget(Widget(size_hint_x=0.02))
                 lbl = Label(text="À Proximité", halign="left",
@@ -156,7 +156,7 @@ class CraftScreen(Screen):
         elif not state.hands:
             lbl = scale_font(Label(text="Rien à proximité.",
                              color=(0.8, 0.8, 0.85, 1), size_hint_y=None,
-                             height=dp(40)), 0.018)
+                             height=dh(40)), 0.018)
             self.inventory_box.add_widget(lbl)
 
         # Recettes
@@ -165,7 +165,7 @@ class CraftScreen(Screen):
             ing = ", ".join(f"{items.display_name(k)} x{v}"
                             for k, v in recipe["ingredients"].items())
             row = BoxLayout(orientation="horizontal", spacing=dp(6),
-                            size_hint_y=None, height=dp(70))
+                            size_hint_y=None, height=dh(70))
             txt = scale_font(Label(
                 text=f"[b]{items.display_name(recipe['result'])}[/b]\n{ing}",
                 markup=True, halign="left", valign="middle", size_hint_x=0.62),

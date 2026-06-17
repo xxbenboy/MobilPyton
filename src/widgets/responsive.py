@@ -12,8 +12,25 @@ HAUTEUR de la fenetre. Exemple : fraction=0.03 => le texte fait toujours
 """
 from kivy.core.window import Window
 
+# Hauteur de la resolution de BASE (cf. main.py : 2340 x 1080 paysage).
+BASE_HEIGHT = 1080
+
 # Multiplicateur global pour les calculs bases sur la fenetre (font_for).
 FONT_SCALE = 1.3
+
+
+def dh(design_px):
+    """Hauteur PROPORTIONNELLE a la fenetre (et INDEPENDANTE de la densite).
+
+    `design_px` est une taille pensee pour la resolution de base (fenetre de
+    1080 de haut). On la met a l'echelle de la fenetre reelle.
+
+    Contrairement a `dp()` (qui multiplie par la densite de l'ecran et donne
+    donc des tailles differentes sur PC et sur telephone), `dh()` ne depend QUE
+    de la taille de la fenetre : a resolution egale, le rendu est IDENTIQUE sur
+    PC et sur telephone. A utiliser pour les hauteurs fixes (lignes de liste...).
+    """
+    return Window.height / BASE_HEIGHT * design_px
 
 # Part de la HAUTEUR DU CONTENEUR occupee par le texte (par ligne). Proche de
 # 1 = le texte remplit au maximum la hauteur de sa boite.
