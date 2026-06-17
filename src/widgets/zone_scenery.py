@@ -165,7 +165,7 @@ class ZoneScenery(Widget):
             for _ in range(rng.randint(8, 14)):        # petites pierres
                 gx, gy = rnd()
                 self._stone(gx, gy, rng.uniform(0.015, 0.035) * h)
-            for _ in range(rng.randint(16, 26)):       # fleurs
+            for _ in range(rng.randint(5, 9)):          # fleurs (peu nombreuses)
                 gx, gy = rnd()
                 col = rng.choice([(1, 1, 0.9, 1), (0.96, 0.85, 0.28, 1),
                                   (0.9, 0.45, 0.55, 1), (0.72, 0.52, 0.92, 1)])
