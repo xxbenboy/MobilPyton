@@ -22,6 +22,7 @@ from kivy.metrics import dp
 from src import items
 from src.game_state import HANDS_MAX
 from src.widgets.animated_background import AnimatedBackground
+from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.item_icon import ItemIcon
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font, dh
@@ -42,6 +43,10 @@ class CraftScreen(Screen):
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         root.add_widget(self.background)
+        # Fond = vue VERS LE BAS du sol de la zone courante (comme la carte).
+        self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.scenery)
+        self._scene_key = None
 
         col = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(8),
                         size_hint=(0.96, 0.96),
@@ -92,6 +97,12 @@ class CraftScreen(Screen):
         state = App.get_running_app().game_state
         if state is not None:
             self.background.set_seconds(state.time_seconds)
+            zone = state.current_zone()
+            key = (zone, state.player_x, state.player_y)
+            if key != self._scene_key:
+                self.scenery.set_ground(zone, state.player_x * 131
+                                        + state.player_y)
+                self._scene_key = key
         self.refresh()
 
     def refresh(self):
