@@ -77,31 +77,36 @@ jobs:
       # Estampille la version A CHAQUE build. Fait APRES le cache (la cle du
       # cache est figee a l'etape de cache, donc la modifier ici ne le casse pas).
       #
-      # Systeme de version coherant et durable :
-      # - versionCode Android = numero de build (RUN), +1 a chaque build, qui ne
-      #   redescend JAMAIS. C'est LUI qu'Android regarde pour accepter une mise a
-      #   jour (un code superieur => "nouvelle version", jamais l'ancienne).
-      # - versionName lisible a 4 segments en base 100, deduite de RUN :
-      #     RUN=1 -> 0.0.0.1 ... RUN=99 -> 0.0.0.99 -> RUN=100 -> 0.0.1.0 ...
-      #   (capacite : 100^4 = 100 millions de builds avant de reboucler).
+      # Version SEMANTIQUE : MAJEUR.MINEUR.CORRECTIF.BUILD
+      # - MAJEUR.MINEUR.CORRECTIF (les 3 premiers) = la "base", choisie A LA MAIN
+      #   par toi dans buildozer.spec (ligne "version = X.Y.Z"). Tu montes :
+      #     * CORRECTIF (3e) pour un petit fix / equilibrage,
+      #     * MINEUR    (2e) pour une nouvelle fonctionnalite (remet le 3e a 0),
+      #     * MAJEUR    (1er) pour un gros cap (remet 2e et 3e a 0).
+      # - BUILD (4e) = numero de build, ajoute AUTOMATIQUEMENT (+1 a chaque build).
+      # - versionCode Android = ce meme numero de build : il ne redescend JAMAIS,
+      #   donc Android voit toujours une mise a jour (jamais une vieille version).
       - name: Estampiller la version
         run: |
           set -e
           RUN=${{ github.run_number }}
-          A=$(( (RUN/1000000) % 100 ))
-          B=$(( (RUN/10000)  % 100 ))
-          C=$(( (RUN/100)    % 100 ))
-          D=$(( RUN          % 100 ))
-          VERSION="$A.$B.$C.$D"
           SHA7=${GITHUB_SHA:0:7}
-          echo ">>> build $RUN -> version $VERSION (commit $SHA7)"
+
+          # Base "X.Y.Z" lue depuis buildozer.spec (ce que TOI tu controles).
+          BASE=$(grep -m1 -E '^version[[:space:]]*=' buildozer.spec | sed -E 's/^version[[:space:]]*=[[:space:]]*//' | tr -d '[:space:]\r')
+          # Normalise a exactement 3 segments (securite si mal saisi : 0 par defaut).
+          BASE=$(printf '%s\n' "$BASE" | awk -F. '{printf "%s.%s.%s", ($1==""?0:$1), ($2==""?0:$2), ($3==""?0:$3)}')
+
+          VERSION="$BASE.$RUN"
+          echo ">>> base=$BASE  build=$RUN  =>  version $VERSION (commit $SHA7)"
 
           # 1) build_info.py (affiche dans le menu).
           printf 'BUILD = "%s"\nVERSION = "%s"\nSHA = "%s"\n' \
             "$RUN" "$VERSION" "$SHA7" > src/build_info.py
 
-          # 2) buildozer.spec : versionName + versionCode (numeric_version).
-          sed -i "s/^version = .*/version = $VERSION/" buildozer.spec
+          # 2) buildozer.spec : versionName complet + versionCode (numeric_version).
+          #    (modification locale au build seulement ; la base reste X.Y.Z dans le depot)
+          sed -i "s/^version[[:space:]]*=.*/version = $VERSION/" buildozer.spec
           if grep -qE '^[[:space:]]*#?[[:space:]]*android\.numeric_version' buildozer.spec; then
             sed -i "s/^[[:space:]]*#\?[[:space:]]*android\.numeric_version.*/android.numeric_version = $RUN/" buildozer.spec
           else

@@ -22,8 +22,13 @@ source.exclude_dirs = tests, bin, .buildozer, .git, .github, .claude, .venv, ven
 # Fichiers a ignorer
 source.exclude_patterns = README.md, *.spec.tmp, *.pyc
 
-# Version de l'application
-version = 0.1
+# Version de l'application : MAJEUR.MINEUR.CORRECTIF (3 nombres que TU choisis).
+# Le 4e nombre (build) est ajoute AUTOMATIQUEMENT a chaque build cloud.
+#   - CORRECTIF (3e) : +1 pour un petit fix / equilibrage.
+#   - MINEUR    (2e) : +1 pour une nouvelle fonctionnalite (remets le 3e a 0).
+#   - MAJEUR    (1er): +1 pour un gros cap (remets 2e et 3e a 0).
+# Pour monter une version : change juste cette ligne, puis pousse sur GitHub.
+version = 0.0.1
 
 # Bibliotheques Python necessaires (ajouter ici : pillow, requests, etc.)
 requirements = python3,kivy
