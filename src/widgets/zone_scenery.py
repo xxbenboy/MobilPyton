@@ -455,25 +455,54 @@ class ZoneScenery(Widget):
             d = r * 0.32
             Ellipse(pos=(cx + dx * r - d / 2, cy + dy * r - d / 2), size=(d, d))
 
+    @staticmethod
+    def _ell_c(ex, ey, w, hh):
+        """Ellipse CENTREE sur (ex, ey)."""
+        Ellipse(pos=(ex - w / 2, ey - hh / 2), size=(w, hh))
+
     def _butterfly(self, cx, cy, size, color):
-        Color(*color)
-        Ellipse(pos=(cx - size, cy - size * 0.45), size=(size, size * 0.9))
-        Ellipse(pos=(cx, cy - size * 0.45), size=(size, size * 0.9))
-        Color(0.1, 0.1, 0.1, 1)
-        Ellipse(pos=(cx - size * 0.12, cy - size * 0.5),
-                size=(size * 0.24, size))
+        r, g, b, a = color
+        # 2 paires d'ailes (superieure grande + inferieure petite) par cote,
+        # avec un liisere sombre, la couleur, puis une tache claire (motif).
+        for sgn in (-1, 1):
+            ux = cx + sgn * size * 0.52
+            lx = cx + sgn * size * 0.44
+            Color(r * 0.5, g * 0.5, b * 0.5, a)                 # liisere sombre
+            self._ell_c(ux, cy + size * 0.20, size * 1.04, size * 1.18)
+            self._ell_c(lx, cy - size * 0.42, size * 0.82, size * 0.82)
+            Color(r, g, b, a)                                   # membrane coloree
+            self._ell_c(ux, cy + size * 0.20, size * 0.9, size * 1.02)
+            self._ell_c(lx, cy - size * 0.42, size * 0.68, size * 0.68)
+            Color(min(1, r + 0.32), min(1, g + 0.32), min(1, b + 0.32), a)
+            self._ell_c(cx + sgn * size * 0.66, cy + size * 0.34,
+                        size * 0.3, size * 0.34)               # tache claire
+        Color(0.12, 0.10, 0.10, 1)                              # corps
+        self._ell_c(cx, cy - size * 0.05, size * 0.18, size * 1.28)
+        self._ell_c(cx, cy + size * 0.58, size * 0.24, size * 0.32)   # tete
+        wd = max(1.0, size * 0.05)                              # antennes
+        Line(points=[cx, cy + size * 0.66, cx - size * 0.24, cy + size * 1.0],
+             width=wd)
+        Line(points=[cx, cy + size * 0.66, cx + size * 0.24, cy + size * 1.0],
+             width=wd)
+        self._ell_c(cx - size * 0.24, cy + size * 1.0, size * 0.1, size * 0.1)
+        self._ell_c(cx + size * 0.24, cy + size * 1.0, size * 0.1, size * 0.1)
 
     def _bee(self, cx, cy, size):
-        Color(1, 1, 1, 0.6)                              # ailes
-        Ellipse(pos=(cx - size * 0.2, cy + size * 0.1),
-                size=(size * 0.5, size * 0.4))
-        Color(0.95, 0.78, 0.15, 1)                       # corps
-        Ellipse(pos=(cx - size * 0.6, cy - size * 0.4),
-                size=(size * 1.2, size * 0.8))
-        Color(0.12, 0.12, 0.12, 1)                       # rayures
-        for dx in (-0.2, 0.2):
-            Rectangle(pos=(cx + dx * size - size * 0.06, cy - size * 0.4),
-                      size=(size * 0.12, size * 0.8))
+        Color(0, 0, 0, 0.14)                              # petite ombre
+        self._ell_c(cx, cy - size * 0.5, size * 1.2, size * 0.3)
+        Color(0.92, 0.95, 1.0, 0.55)                      # 2 ailes translucides
+        self._ell_c(cx - size * 0.16, cy + size * 0.4, size * 0.7, size * 0.46)
+        self._ell_c(cx + size * 0.16, cy + size * 0.4, size * 0.7, size * 0.46)
+        Color(0.96, 0.74, 0.12, 1)                        # corps dore (ovale)
+        self._ell_c(cx, cy, size * 1.32, size * 0.84)
+        Color(0.12, 0.10, 0.08, 1)                        # rayures noires
+        for dx, hsc in ((-0.30, 0.7), (0.02, 0.86), (0.34, 0.66)):
+            self._ell_c(cx + dx * size, cy, size * 0.16, size * 0.84 * hsc)
+        Color(0.16, 0.13, 0.10, 1)                        # tete
+        self._ell_c(cx - size * 0.64, cy, size * 0.36, size * 0.52)
+        Color(0.30, 0.26, 0.20, 1)                        # dard
+        Line(points=[cx + size * 0.66, cy, cx + size * 0.9, cy],
+             width=max(1.0, size * 0.05))
 
     def _stone(self, cx, cy, r):
         Color(0, 0, 0, 0.18)                              # ombre portee

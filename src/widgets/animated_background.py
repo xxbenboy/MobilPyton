@@ -100,26 +100,46 @@ class AnimatedBackground(Widget):
 
             # 4. Nuages : chaque cumulus a sa PROPRE forme aleatoire (aucun
             #    identique). Base plate et grisee (volume) + bouffees blanches.
+            #    4 couches par nuage (de l'arriere vers l'avant) :
+            #    halo doux -> base ombree (dessous plat) -> bouffees blanches
+            #    -> reflets clairs (cote eclaire). Les Color/Ellipse sont crees
+            #    dans cet ORDRE pour respecter la profondeur.
             self._clouds = []
             crng = random.Random(777)
-            for _ in range(5):
-                nb = crng.randint(4, 5)
-                base_shape = [((k / (nb - 1) - 0.5) * 2.6,
-                               crng.uniform(-0.05, 0.05),
-                               crng.uniform(1.0, 1.5),
-                               crng.uniform(0.5, 0.65)) for k in range(nb)]
-                nt = crng.randint(5, 7)
-                top_shape = [(crng.uniform(-1.05, 1.05),
-                              crng.uniform(0.18, 0.62),
-                              crng.uniform(0.85, 1.45),
-                              crng.uniform(0.70, 1.05)) for _ in range(nt)]
+            for _ in range(6):
+                nha = crng.randint(2, 3)
+                halo_shape = [(crng.uniform(-1.2, 1.2),
+                               crng.uniform(0.05, 0.45),
+                               crng.uniform(1.8, 2.6),
+                               crng.uniform(1.0, 1.4)) for _ in range(nha)]
+                nb = crng.randint(4, 6)
+                base_shape = [((k / (nb - 1) - 0.5) * 2.7,
+                               crng.uniform(-0.04, 0.04),
+                               crng.uniform(1.05, 1.55),
+                               crng.uniform(0.45, 0.6)) for k in range(nb)]
+                nt = crng.randint(6, 8)
+                top_shape = [(crng.uniform(-1.1, 1.1),
+                              crng.uniform(0.16, 0.66),
+                              crng.uniform(0.8, 1.5),
+                              crng.uniform(0.7, 1.1)) for _ in range(nt)]
+                nl = crng.randint(3, 4)
+                hi_shape = [(crng.uniform(-0.85, 0.55),
+                             crng.uniform(0.5, 0.92),
+                             crng.uniform(0.5, 0.95),
+                             crng.uniform(0.5, 0.85)) for _ in range(nl)]
                 self._clouds.append({
-                    "c_base": Color(0.85, 0.87, 0.92, 0.0),
+                    "c_halo": Color(0.95, 0.97, 1.0, 0.0),
+                    "halo_ell": [Ellipse() for _ in halo_shape],
+                    "halo_shape": halo_shape,
+                    "c_base": Color(0.74, 0.78, 0.86, 0.0),
                     "base_ell": [Ellipse() for _ in base_shape],
                     "base_shape": base_shape,
-                    "c_top": Color(1, 1, 1, 0.0),
+                    "c_top": Color(0.97, 0.98, 1.0, 0.0),
                     "top_ell": [Ellipse() for _ in top_shape],
                     "top_shape": top_shape,
+                    "c_hi": Color(1, 1, 1, 0.0),
+                    "hi_ell": [Ellipse() for _ in hi_shape],
+                    "hi_shape": hi_shape,
                     "fy": crng.uniform(0.55, 0.90),
                     "scale": crng.uniform(0.10, 0.20),
                     "speed": crng.uniform(0.005, 0.016),
@@ -213,18 +233,25 @@ class AnimatedBackground(Widget):
         self._moon_c.a = night
         self._place_disc(self._moon, mx, my, radius * 0.85)
 
-        # Nuages (cumulus : bouffees grises en bas, blanches bombees au-dessus).
+        # Nuages (cumulus) : halo doux, dessous ombre, bouffees blanches,
+        # reflets clairs du cote eclaire.
         cloud_a = 0.55 * (0.30 + 0.70 * sun_a)
+
+        def place(ellipses, shapes, cx, cy, s):
+            for ell, (dx, dy, sw, sh) in zip(ellipses, shapes):
+                ell.size = (sw * s, sh * s)
+                ell.pos = (cx + dx * s - sw * s / 2, cy + dy * s)
+
         for cl in self._clouds:
             fx = (cl["base"] + self._t * cl["speed"]) % 1.4 - 0.2
             cx = x0 + fx * w
             cy = y0 + cl["fy"] * h
             s = w * cl["scale"]
-            cl["c_base"].a = cloud_a * 0.8
-            for ell, (dx, dy, sw, sh) in zip(cl["base_ell"], cl["base_shape"]):
-                ell.size = (sw * s, sh * s)
-                ell.pos = (cx + dx * s - sw * s / 2, cy + dy * s)
+            cl["c_halo"].a = cloud_a * 0.22
+            place(cl["halo_ell"], cl["halo_shape"], cx, cy, s)
+            cl["c_base"].a = cloud_a * 0.85
+            place(cl["base_ell"], cl["base_shape"], cx, cy, s)
             cl["c_top"].a = cloud_a
-            for ell, (dx, dy, sw, sh) in zip(cl["top_ell"], cl["top_shape"]):
-                ell.size = (sw * s, sh * s)
-                ell.pos = (cx + dx * s - sw * s / 2, cy + dy * s)
+            place(cl["top_ell"], cl["top_shape"], cx, cy, s)
+            cl["c_hi"].a = cloud_a * 0.85
+            place(cl["hi_ell"], cl["hi_shape"], cx, cy, s)

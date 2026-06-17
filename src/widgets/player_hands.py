@@ -6,7 +6,8 @@ des mains ouvertes (paume arrondie + doigts de longueurs variees + pouce).
 Dessine devant le decor. Pour l'instant les mains sont VIDES.
 """
 from kivy.uix.widget import Widget
-from kivy.graphics import Color, Ellipse, Quad, RoundedRectangle, RenderContext
+from kivy.graphics import (Color, Ellipse, Quad, RoundedRectangle, Line,
+                           RenderContext)
 
 from src.widgets import textures, pbr
 
@@ -82,23 +83,52 @@ class PlayerHands(Widget):
         RoundedRectangle(pos=(hx - pw / 2, hy), size=(pw, ph),
                          radius=[pw * 0.32], texture=tex)
 
-        # 4 doigts, longueurs variees (index, majeur, annulaire, auriculaire),
-        # legerement en eventail.
+        # Jointure paume/doigts (ombre douce) sous les doigts.
+        tex = self._skin(self.SKIN_MID)
+        RoundedRectangle(pos=(hx - pw * 0.42, hy + ph * 0.55),
+                         size=(pw * 0.84, ph * 0.20), radius=[ph * 0.10],
+                         texture=tex)
+
+        # 4 doigts FUSELES (base large -> pointe fine), pointe arrondie, ongle
+        # et petite jointure a la base.
+        fb = hy + ph * 0.62
         lengths = (0.080, 0.095, 0.088, 0.068)
         for i, fl in enumerate(lengths):
             fx = hx + (i - 1.5) * (fw + 0.004 * w)
-            tex = self._skin(self.SKIN if i % 2 == 0 else self.SKIN_MID)
-            RoundedRectangle(pos=(fx - fw / 2, hy + ph * 0.62),
-                             size=(fw, fl * h), radius=[fw * 0.5], texture=tex)
+            flh = fl * h
+            tipw = fw * 0.72
+            shade = self.SKIN if i % 2 == 0 else self.SKIN_MID
+            tex = self._skin(shade)                       # corps du doigt (cone)
+            Quad(points=[fx - fw / 2, fb, fx + fw / 2, fb,
+                         fx + tipw / 2, fb + flh, fx - tipw / 2, fb + flh],
+                 texture=tex)
+            tex = self._skin(shade)                       # pointe arrondie
+            RoundedRectangle(pos=(fx - tipw / 2, fb + flh - tipw * 0.5),
+                             size=(tipw, tipw), radius=[tipw * 0.5], texture=tex)
+            Color(0.96, 0.88, 0.82, 0.45)                 # ongle (reflet clair)
+            Ellipse(pos=(fx - tipw * 0.26, fb + flh - tipw * 0.10),
+                    size=(tipw * 0.52, tipw * 0.42))
+            tex = self._skin(self.SKIN)                   # jointure (knuckle)
+            RoundedRectangle(pos=(fx - fw / 2, fb - ph * 0.05),
+                             size=(fw, ph * 0.18), radius=[fw * 0.5], texture=tex)
 
-        # Pouce (cote interieur, plus court et un peu plus bas).
+        # Pouce FUSELE (cote interieur), incline vers l'exterieur.
+        tw = fw * 1.1
+        twt = tw * 0.7
+        tbx = hx + thumb_dir * (pw * 0.40)
+        tby = hy + ph * 0.16
+        tlen = 0.06 * h
+        lean = thumb_dir * tlen * 0.5
         tex = self._skin(self.SKIN)
-        tw = fw * 1.05
-        RoundedRectangle(pos=(hx + thumb_dir * (pw * 0.42) - tw / 2,
-                              hy + ph * 0.2),
-                         size=(tw, 0.05 * h), radius=[tw * 0.5], texture=tex)
-        # Petite ombre sous les doigts (jointure paume).
-        tex = self._skin(self.SKIN_MID)
-        RoundedRectangle(pos=(hx - pw * 0.42, hy + ph * 0.55),
-                         size=(pw * 0.84, ph * 0.18), radius=[ph * 0.09],
-                         texture=tex)
+        Quad(points=[tbx - tw / 2, tby, tbx + tw / 2, tby,
+                     tbx + lean + twt / 2, tby + tlen,
+                     tbx + lean - twt / 2, tby + tlen], texture=tex)
+        tex = self._skin(self.SKIN)
+        RoundedRectangle(pos=(tbx + lean - twt / 2, tby + tlen - twt * 0.5),
+                         size=(twt, twt), radius=[twt * 0.5], texture=tex)
+
+        # Pli de la paume (ligne douce, legerement plus sombre).
+        Color(self.SKIN_DK[0] * 0.8, self.SKIN_DK[1] * 0.8,
+              self.SKIN_DK[2] * 0.8, 0.45)
+        Line(points=[hx - pw * 0.30, hy + ph * 0.46,
+                     hx + pw * 0.26, hy + ph * 0.32], width=max(1.0, pw * 0.03))
