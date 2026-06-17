@@ -115,14 +115,14 @@ class CraftScreen(Screen):
                                 valign="middle", size_hint_x=0.51,
                                 color=(0.96, 0.82, 0.45, 1))
                 def _adjust_lbl_font(w, *_):
-                    w.font_size = f"{max(8, int(w.height * 0.4))}sp"
+                    w.font_size = max(8, w.height * 0.4)
                 lbl.bind(size=_adjust_lbl_font)
                 lbl.bind(size=lambda w, *_: setattr(w, "text_size", (w.width, None)))
                 row.add_widget(lbl)
                 btn = scale_font(StyledButton(text="Deposer", size_hint_x=0.25),
                                 0.008)
                 def _adjust_btn_font(w, *_):
-                    w.font_size = f"{max(10, int(w.height * 0.35))}sp"
+                    w.font_size = max(10, w.height * 0.35)
                 btn.bind(size=_adjust_btn_font)
                 btn.bind(on_release=lambda _w, idx=i: self._drop(idx))
                 row.add_widget(btn)
@@ -140,14 +140,14 @@ class CraftScreen(Screen):
                                 valign="middle", size_hint_x=0.51,
                                 color=(0.96, 0.82, 0.45, 1))
                 def _adjust_lbl_font2(w, *_):
-                    w.font_size = f"{max(8, int(w.height * 0.4))}sp"
+                    w.font_size = max(8, w.height * 0.4)
                 lbl.bind(size=_adjust_lbl_font2)
                 lbl.bind(size=lambda w, *_: setattr(w, "text_size", (w.width, None)))
                 row.add_widget(lbl)
                 take = scale_font(StyledButton(text="Prendre", size_hint_x=0.25),
                                  0.008)
                 def _adjust_take_font(w, *_):
-                    w.font_size = f"{max(10, int(w.height * 0.35))}sp"
+                    w.font_size = max(10, w.height * 0.35)
                 take.bind(size=_adjust_take_font)
                 take.disabled = state.hands_full()
                 take.bind(on_release=lambda _w, n=name: self._take(n))
