@@ -82,6 +82,29 @@ def _add_panel(widget, alpha=0.34):
     widget.bind(pos=_sync, size=_sync)
 
 
+def _button_label(text):
+    """Etiquette d'un bouton (son nom) avec un fond noir arrondi AJUSTE au texte.
+
+    Le texte n'est pas contraint en largeur : il reste donc TOUJOURS entierement
+    visible, meme si la cellule est etroite, et le fond epouse sa taille (au lieu
+    d'occuper toute la largeur de la cellule).
+    """
+    lbl = Label(text=text, halign="center", valign="middle",
+                size_hint=(1, 0.34), color=(1, 1, 1, 1))
+    with lbl.canvas.before:
+        Color(0, 0, 0, 0.75)
+        bg = RoundedRectangle(radius=[dp(4)])
+
+    def _sync(w, *_):
+        bw = w.texture_size[0] + dp(10)
+        bh = w.texture_size[1] + dp(6)
+        bg.pos = (w.center_x - bw / 2.0, w.center_y - bh / 2.0)
+        bg.size = (bw, bh)
+    lbl.bind(pos=_sync, size=_sync, texture_size=_sync)
+    scale_font(lbl)
+    return lbl
+
+
 class GameScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -131,9 +154,9 @@ class GameScreen(Screen):
         # Chaque stat = un anneau qui se remplit (logo au centre, nom dessous).
         # La colonne est plaquee sur le bord droit et n'occupe pas le bas droit
         # (reserve au bouton "Menu").
-        stats_col = BoxLayout(orientation="vertical", padding=(dp(6), dp(8)),
-                              spacing=dp(8), size_hint=(0.12, 0.82),
-                              pos_hint={"right": 0.995, "top": 0.98})
+        stats_col = BoxLayout(orientation="vertical", padding=(dp(2), dp(6)),
+                              spacing=dp(6), size_hint=(0.07, 0.80),
+                              pos_hint={"right": 0.998, "top": 0.99})
         _add_panel(stats_col, alpha=0.28)
         self.stat_health = StatCircle("Vie", (0.85, 0.30, 0.30), "health")
         self.stat_energy = StatCircle("Energie", (0.95, 0.80, 0.30), "energy")
@@ -212,55 +235,35 @@ class GameScreen(Screen):
         root.add_widget(grid)
 
         # ---- Bouton CARTE (bas a gauche) ----
-        map_cell = BoxLayout(orientation="vertical", spacing=2, size_hint=(0.16, 0.16),
-                             pos_hint={"x": 0.012, "y": 0.012})
+        # Cellule ETROITE, plaquee au bord : le logo (taille basee sur la
+        # HAUTEUR) ne change pas, mais se rapproche du bord de l'ecran.
+        map_cell = BoxLayout(orientation="vertical", spacing=2, size_hint=(0.06, 0.16),
+                             pos_hint={"x": 0.006, "y": 0.012})
         map_area = AnchorLayout(size_hint=(1, 0.66))
         self.map_btn = IconButton(icon="map", size_hint=(None, None))
         def _map_square(a, *_):
-            s = min(a.width, a.height) * 0.94
+            s = a.height * 0.94
             self.map_btn.size = (s, s)
         map_area.bind(size=_map_square)
         self.map_btn.bind(on_release=lambda *_: setattr(self.manager, "current", "map"))
         map_area.add_widget(self.map_btn)
-        map_lbl = Label(text="Carte", halign="center", valign="middle",
-                        size_hint=(1, 0.34), color=(1, 1, 1, 1))
-        with map_lbl.canvas.before:
-            Color(0, 0, 0, 0.75)
-            map_lbl_bg = RoundedRectangle(radius=[dp(4)])
-        def _map_bg(w, *_, _r=map_lbl_bg):
-            _r.pos = w.pos
-            _r.size = w.size
-            w.text_size = (w.width, w.height)
-        map_lbl.bind(pos=_map_bg, size=_map_bg)
-        scale_font(map_lbl)
         map_cell.add_widget(map_area)
-        map_cell.add_widget(map_lbl)
+        map_cell.add_widget(_button_label("Carte"))
         root.add_widget(map_cell)
 
         # ---- Bouton MENU (bas a droite) ----
-        menu_cell = BoxLayout(orientation="vertical", spacing=2, size_hint=(0.16, 0.16),
-                              pos_hint={"right": 0.988, "y": 0.012})
+        menu_cell = BoxLayout(orientation="vertical", spacing=2, size_hint=(0.06, 0.16),
+                              pos_hint={"right": 0.994, "y": 0.012})
         menu_area = AnchorLayout(size_hint=(1, 0.66))
         self.back_btn = IconButton(icon="home", size_hint=(None, None))
         def _menu_square(a, *_):
-            s = min(a.width, a.height) * 0.94
+            s = a.height * 0.94
             self.back_btn.size = (s, s)
         menu_area.bind(size=_menu_square)
         self.back_btn.bind(on_release=self.back_to_menu)
         menu_area.add_widget(self.back_btn)
-        menu_lbl = Label(text="Menu", halign="center", valign="middle",
-                         size_hint=(1, 0.34), color=(1, 1, 1, 1))
-        with menu_lbl.canvas.before:
-            Color(0, 0, 0, 0.75)
-            menu_lbl_bg = RoundedRectangle(radius=[dp(4)])
-        def _menu_bg(w, *_, _r=menu_lbl_bg):
-            _r.pos = w.pos
-            _r.size = w.size
-            w.text_size = (w.width, w.height)
-        menu_lbl.bind(pos=_menu_bg, size=_menu_bg)
-        scale_font(menu_lbl)
         menu_cell.add_widget(menu_area)
-        menu_cell.add_widget(menu_lbl)
+        menu_cell.add_widget(_button_label("Menu"))
         root.add_widget(menu_cell)
 
         self.add_widget(root)
