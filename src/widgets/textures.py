@@ -50,8 +50,8 @@ FALLBACKS = {
 # moins souvent, donc ses motifs sont plus gros). 256 = defaut.
 DEFAULT_TILE = 256
 TILE_PX = {
-    "grass": 560,
-    "grass_far": 560,
+    "grass": 448,        # ~1.75x la taille de base (256)
+    "grass_far": 448,
 }
 
 
