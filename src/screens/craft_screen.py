@@ -53,21 +53,15 @@ class CraftScreen(Screen):
         body = BoxLayout(orientation="horizontal", spacing=dp(10),
                          size_hint=(1, 0.82))
 
-        # ---- Gauche : mains + sol ----
+        # ---- Gauche : sol + objets en main ----
         left = BoxLayout(orientation="vertical", spacing=dp(6), size_hint_x=0.5)
-        self.hands_title = scale_font(Label(text="Mains", bold=True,
-                                      size_hint=(1, 0.10)), 0.022)
-        left.add_widget(self.hands_title)
-        self.hands_box = GridLayout(cols=HANDS_MAX, spacing=dp(6),
-                                    size_hint=(1, 0.42))
-        left.add_widget(self.hands_box)
-        left.add_widget(scale_font(Label(text="Au sol (proximite)", bold=True,
+        left.add_widget(scale_font(Label(text="Inventaire", bold=True,
                         size_hint=(1, 0.10)), 0.022))
-        sc1 = ScrollView(size_hint=(1, 0.38))
-        self.ground_box = BoxLayout(orientation="vertical", spacing=dp(4),
-                                    size_hint_y=None)
-        self.ground_box.bind(minimum_height=self.ground_box.setter("height"))
-        sc1.add_widget(self.ground_box)
+        sc1 = ScrollView(size_hint=(1, 0.90))
+        self.inventory_box = BoxLayout(orientation="vertical", spacing=dp(4),
+                                       size_hint_y=None)
+        self.inventory_box.bind(minimum_height=self.inventory_box.setter("height"))
+        sc1.add_widget(self.inventory_box)
         left.add_widget(sc1)
         body.add_widget(left)
 
@@ -105,40 +99,65 @@ class CraftScreen(Screen):
         if state is None:
             return
 
-        # Mains
-        self.hands_title.text = f"Mains ({len(state.hands)}/{HANDS_MAX})"
-        self.hands_box.clear_widgets()
-        for i in range(HANDS_MAX):
-            cell = BoxLayout(orientation="vertical", spacing=dp(2))
-            if i < len(state.hands):
-                cell.add_widget(ItemIcon(state.hands[i], size_hint=(1, 0.72)))
-                btn = scale_font(StyledButton(text="Deposer",
-                                 size_hint=(1, 0.28)), 0.018)
+        # Inventaire (mains + sol)
+        self.inventory_box.clear_widgets()
+        
+        # Afficher les objets en main
+        if state.hands:
+            hands_names = ["Main gauche", "Main droite"]
+            for i, item in enumerate(state.hands):
+                # Objet + Label + Bouton sur la même ligne
+                row = BoxLayout(orientation="horizontal", spacing=dp(6),
+                               size_hint_y=None, height=dp(140))
+                row.add_widget(ItemIcon(item, size_hint_x=0.22))
+                row.add_widget(Widget(size_hint_x=0.02))
+                lbl = Label(text=hands_names[i], halign="left",
+                                valign="middle", size_hint_x=0.51,
+                                color=(0.96, 0.82, 0.45, 1))
+                def _adjust_lbl_font(w, *_):
+                    w.font_size = f"{max(8, int(w.height * 0.4))}sp"
+                lbl.bind(size=_adjust_lbl_font)
+                lbl.bind(size=lambda w, *_: setattr(w, "text_size", (w.width, None)))
+                row.add_widget(lbl)
+                btn = scale_font(StyledButton(text="Deposer", size_hint_x=0.25),
+                                0.008)
+                def _adjust_btn_font(w, *_):
+                    w.font_size = f"{max(10, int(w.height * 0.35))}sp"
+                btn.bind(size=_adjust_btn_font)
                 btn.bind(on_release=lambda _w, idx=i: self._drop(idx))
-                cell.add_widget(btn)
-            else:
-                cell.add_widget(scale_font(Label(text="(vide)",
-                                color=(0.7, 0.7, 0.75, 1)), 0.02))
-            self.hands_box.add_widget(cell)
-
-        # Au sol
-        self.ground_box.clear_widgets()
+                row.add_widget(btn)
+                self.inventory_box.add_widget(row)
+        
+        # Afficher les objets au sol
         ground = state.ground_here()
-        if not ground:
-            lbl = scale_font(Label(text="Rien au sol ici.",
+        if ground:
+            for name, count in sorted(ground.items()):
+                row = BoxLayout(orientation="horizontal", spacing=dp(6),
+                               size_hint_y=None, height=dp(140))
+                row.add_widget(ItemIcon(name, count, size_hint_x=0.22))
+                row.add_widget(Widget(size_hint_x=0.02))
+                lbl = Label(text="À Proximité", halign="left",
+                                valign="middle", size_hint_x=0.51,
+                                color=(0.96, 0.82, 0.45, 1))
+                def _adjust_lbl_font2(w, *_):
+                    w.font_size = f"{max(8, int(w.height * 0.4))}sp"
+                lbl.bind(size=_adjust_lbl_font2)
+                lbl.bind(size=lambda w, *_: setattr(w, "text_size", (w.width, None)))
+                row.add_widget(lbl)
+                take = scale_font(StyledButton(text="Prendre", size_hint_x=0.25),
+                                 0.008)
+                def _adjust_take_font(w, *_):
+                    w.font_size = f"{max(10, int(w.height * 0.35))}sp"
+                take.bind(size=_adjust_take_font)
+                take.disabled = state.hands_full()
+                take.bind(on_release=lambda _w, n=name: self._take(n))
+                row.add_widget(take)
+                self.inventory_box.add_widget(row)
+        elif not state.hands:
+            lbl = scale_font(Label(text="Rien à proximité.",
                              color=(0.8, 0.8, 0.85, 1), size_hint_y=None,
                              height=dp(40)), 0.018)
-            self.ground_box.add_widget(lbl)
-        for name, count in sorted(ground.items()):
-            row = BoxLayout(orientation="horizontal", spacing=dp(6),
-                            size_hint_y=None, height=dp(90))
-            row.add_widget(ItemIcon(name, count, size_hint_x=0.6))
-            take = scale_font(StyledButton(text="Prendre", size_hint_x=0.4),
-                              0.02)
-            take.disabled = state.hands_full()
-            take.bind(on_release=lambda _w, n=name: self._take(n))
-            row.add_widget(take)
-            self.ground_box.add_widget(row)
+            self.inventory_box.add_widget(lbl)
 
         # Recettes
         self.recipe_box.clear_widgets()

@@ -59,7 +59,7 @@ class GameState:
                  health=100, energy=100, sleep=100, hunger=0, thirst=0,
                  wood=0, food=0, water=0, action_count=0,
                  hands=None, ground=None, explores=None,
-                 log=None, player_x=None, player_y=None):
+                 log=None, player_x=None, player_y=None, revealed=None):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
@@ -76,6 +76,7 @@ class GameState:
         self.hands = list(hands) if hands else []
         self.ground = ground if ground else {}      # {"x,y": {objet: nombre}}
         self.explores = explores if explores else {}  # {"x,y": nb trouvailles}
+        self.revealed = set(revealed) if revealed else set()  # {"x,y", ...} zones revelees
         self.action_count = action_count
         self.log = log if log is not None else []
 
@@ -104,6 +105,8 @@ class GameState:
         state.food = start["food"]
         state.wood = start["wood"]
         state.log.append(f"Nouvelle partie ({difficulty}).")
+        # Reveler la zone de depart
+        state.reveal_zone(state.player_x, state.player_y)
         return state
 
     # ------------------------------------------------------------------ #
@@ -197,7 +200,18 @@ class GameState:
             return None
         key = self._cell_key()
         self.explores[key] = self.explores.get(key, 0) + 1
+        # Reveler cette zone et les adjacentes
+        self.reveal_zone(self.player_x, self.player_y)
         return items.random_find(self.current_zone())
+
+    def reveal_zone(self, x, y):
+        """Revele la zone (x,y) et les 8 zones adjacentes (carré 3x3) pour toujours."""
+        # Reveler la zone centrale et les 8 alentours (carré 3x3)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                nx, ny = x + dx, y + dy
+                if 0 <= nx < world.GRID_W and 0 <= ny < world.GRID_H:
+                    self.revealed.add(f"{nx},{ny}")
 
     def hands_full(self):
         return len(self.hands) >= HANDS_MAX
@@ -300,6 +314,7 @@ class GameState:
             "hands": self.hands,
             "ground": self.ground,
             "explores": self.explores,
+            "revealed": list(self.revealed),
             "action_count": self.action_count,
             "log": self.log,
             "player_x": self.player_x,
@@ -329,6 +344,7 @@ class GameState:
             hands=data.get("hands"),
             ground=data.get("ground"),
             explores=data.get("explores"),
+            revealed=data.get("revealed", []),
             action_count=data.get("action_count", 0),
             log=data.get("log", []),
             player_x=data.get("player_x"),

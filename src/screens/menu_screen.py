@@ -20,7 +20,7 @@ from src.widgets.menu_backdrop import MenuBackdrop
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font
 from src.widgets.fonts import title_font, ui_font
-from src.build_info import BUILD, SHA
+from src.build_info import BUILD, VERSION, SHA
 
 
 class MenuScreen(Screen):
@@ -82,7 +82,7 @@ class MenuScreen(Screen):
 
         # Numero de build (coin bas droite) : permet de verifier d'un coup
         # d'oeil quelle version est installee sur le telephone.
-        ver_txt = "build " + BUILD + (("  " + SHA) if SHA else "")
+        ver_txt = "v" + VERSION + "  (build " + BUILD + ")"
         ver = Label(text=ver_txt, halign="right", valign="bottom",
                     color=(1, 1, 1, 0.45), size_hint=(0.4, 0.05),
                     pos_hint={"right": 0.995, "y": 0.008})

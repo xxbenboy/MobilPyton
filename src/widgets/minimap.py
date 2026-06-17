@@ -35,13 +35,20 @@ class MiniMap(Widget):
             Rectangle(pos=(ox, oy), size=(cell * n_w, cell * n_h))
 
             # Les zones. Ligne 0 = Nord => dessinee en HAUT.
+            # D'abord, fond gris pour toutes les zones (brouillard)
+            Color(0.2, 0.2, 0.2, 1)  # Gris fonce = brouillard
+            Rectangle(pos=(ox, oy), size=(cell * n_w, cell * n_h))
+            
+            # Ensuite, dessiner les zones revelees avec leur vraie couleur
             for ry in range(n_h):
                 draw_y = oy + (n_h - 1 - ry) * cell
                 row = state.grid[ry]
                 for rx in range(n_w):
-                    Color(*world.zone_color(row[rx]))
-                    Rectangle(pos=(ox + rx * cell, draw_y),
-                              size=(cell - 1, cell - 1))
+                    key = f"{rx},{ry}"
+                    if key in state.revealed:
+                        Color(*world.zone_color(row[rx]))
+                        Rectangle(pos=(ox + rx * cell, draw_y),
+                                  size=(cell - 1, cell - 1))
 
             # Marqueur du joueur (carre dore).
             px, py = state.player_x, state.player_y

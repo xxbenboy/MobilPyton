@@ -107,10 +107,10 @@ class GameScreen(Screen):
         self.hands = PlayerHands(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.hands)
 
-        # ---- Section ZONE (haut gauche) ----
+        # ---- Section ZONE (haut centre) ----
         zone_box = BoxLayout(orientation="vertical", padding=dp(10), spacing=4,
-                             size_hint=(0.33, 0.18),
-                             pos_hint={"x": 0.30, "top": 0.98})
+                             size_hint=(0.20, 0.16),
+                             pos_hint={"center_x": 0.5, "top": 0.98})
         _add_panel(zone_box)
         zone_box.add_widget(scale_font(Label(text="ZONE", bold=True,
                             color=(0.96, 0.82, 0.45, 1), size_hint=(1, 0.35)),
@@ -152,18 +152,18 @@ class GameScreen(Screen):
         # ---- Etat d'action (sous la zone) ----
         self.status = scale_font(Label(text="", bold=True,
                                  color=(0.96, 0.82, 0.45, 1),
-                                 size_hint=(0.33, 0.07),
-                                 pos_hint={"x": 0.30, "top": 0.78}), 0.022)
+                                 size_hint=(0.20, 0.07),
+                                 pos_hint={"center_x": 0.5, "top": 0.80}), 0.022)
         root.add_widget(self.status)
 
-        # ---- Boutons d'action : icones CARREES, confinees EN BAS A GAUCHE.
+        # ---- Boutons d'action : icones CARREES, confinees EN HAUT A GAUCHE.
         # La zone est fixe ; ajouter des boutons augmente le nombre de
         # colonnes/lignes et donc REDUIT la taille des boutons (jamais la zone).
-        n_btn = len(ACTIONS) + 3                  # actions + Carte + Craft + Menu
+        n_btn = len(ACTIONS) + 1                  # actions + Craft
         cols = max(1, int(math.ceil(n_btn ** 0.5)))
         grid = GridLayout(cols=cols, spacing=dp(6),
                           size_hint=(0.42, 0.50),
-                          pos_hint={"x": 0.012, "y": 0.012})
+                          pos_hint={"x": 0.012, "top": 0.95})
         self._action_buttons = []   # (bouton, action)
 
         def add_cell(icon, name, on_release):
@@ -200,14 +200,62 @@ class GameScreen(Screen):
             btn = add_cell(action["icon"], action["name"],
                            lambda _w, a=action: self.do_action(a))
             self._action_buttons.append((btn, action))
-        self.map_btn = add_cell("map", "Carte",
-                                lambda *_: setattr(self.manager,
-                                                   "current", "map"))
         self.craft_btn = add_cell("craft", "Craft",
                                   lambda *_: setattr(self.manager,
                                                      "current", "craft"))
-        self.back_btn = add_cell("home", "Menu", self.back_to_menu)
         root.add_widget(grid)
+
+        # ---- Bouton CARTE (bas a gauche) ----
+        map_cell = BoxLayout(orientation="vertical", spacing=2, size_hint=(0.16, 0.16),
+                             pos_hint={"x": 0.012, "y": 0.012})
+        map_area = AnchorLayout(size_hint=(1, 0.66))
+        self.map_btn = IconButton(icon="map", size_hint=(None, None))
+        def _map_square(a, *_):
+            s = min(a.width, a.height) * 0.94
+            self.map_btn.size = (s, s)
+        map_area.bind(size=_map_square)
+        self.map_btn.bind(on_release=lambda *_: setattr(self.manager, "current", "map"))
+        map_area.add_widget(self.map_btn)
+        map_lbl = Label(text="Carte", halign="center", valign="middle",
+                        size_hint=(1, 0.34), color=(1, 1, 1, 1))
+        with map_lbl.canvas.before:
+            Color(0, 0, 0, 0.75)
+            map_lbl_bg = RoundedRectangle(radius=[dp(4)])
+        def _map_bg(w, *_, _r=map_lbl_bg):
+            _r.pos = w.pos
+            _r.size = w.size
+            w.text_size = (w.width, w.height)
+        map_lbl.bind(pos=_map_bg, size=_map_bg)
+        scale_font(map_lbl)
+        map_cell.add_widget(map_area)
+        map_cell.add_widget(map_lbl)
+        root.add_widget(map_cell)
+
+        # ---- Bouton MENU (bas a droite) ----
+        menu_cell = BoxLayout(orientation="vertical", spacing=2, size_hint=(0.16, 0.16),
+                              pos_hint={"right": 0.988, "y": 0.012})
+        menu_area = AnchorLayout(size_hint=(1, 0.66))
+        self.back_btn = IconButton(icon="home", size_hint=(None, None))
+        def _menu_square(a, *_):
+            s = min(a.width, a.height) * 0.94
+            self.back_btn.size = (s, s)
+        menu_area.bind(size=_menu_square)
+        self.back_btn.bind(on_release=self.back_to_menu)
+        menu_area.add_widget(self.back_btn)
+        menu_lbl = Label(text="Menu", halign="center", valign="middle",
+                         size_hint=(1, 0.34), color=(1, 1, 1, 1))
+        with menu_lbl.canvas.before:
+            Color(0, 0, 0, 0.75)
+            menu_lbl_bg = RoundedRectangle(radius=[dp(4)])
+        def _menu_bg(w, *_, _r=menu_lbl_bg):
+            _r.pos = w.pos
+            _r.size = w.size
+            w.text_size = (w.width, w.height)
+        menu_lbl.bind(pos=_menu_bg, size=_menu_bg)
+        scale_font(menu_lbl)
+        menu_cell.add_widget(menu_area)
+        menu_cell.add_widget(menu_lbl)
+        root.add_widget(menu_cell)
 
         self.add_widget(root)
 
@@ -256,6 +304,10 @@ class GameScreen(Screen):
         if not _action_available(state, action):
             return
         atype = action.get("type")
+        # Verifier si la zone est epuisee AVANT de lancer l'exploration
+        if atype == "explore" and not state.can_find():
+            self._show_find_toast(None)
+            return
         # Eau : remplir la gourde au ruisseau ; boire consomme la gourde sauf
         # si on boit directement a un ruisseau.
         if atype == "fill":

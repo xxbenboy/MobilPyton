@@ -1,7 +1,7 @@
 """
 Objets, trouvailles par zone, et recettes de craft.
 
-Chaque objet a un NOM court (ex. "branche", "pierre", "couteau"). Son image
+Chaque objet a un NOM court (ex. "Small_Stick", "Pierre", "Couteau"). Son image
 est cherchee dans assets/items/<nom>.png (voir assets/items/LISEZMOI.txt).
 Si l'image n'existe pas encore, l'interface affiche un "?" avec le nom dessous.
 """
@@ -28,17 +28,17 @@ def display_name(name):
 
 # Objets trouvables par type de zone : (nom, poids).
 # Le POIDS = rarete relative. Plus il est grand, plus l'objet est frequent.
-# Ex : une branche ou une pierre (poids eleve) sont communes ; une carcasse
+# Ex : une Small_Stick ou une Pierre (poids eleve) sont communes ; une Carcasse
 # (poids 1) est rare.
 ZONE_FINDS = {
-    "Foret": [("branche", 12), ("feuille", 10), ("pierre", 7),
-              ("champignon", 4), ("baie", 4), ("plume", 2), ("carcasse", 1)],
-    "Plaine": [("herbe", 12), ("fleur", 7), ("branche", 6), ("pierre", 5),
-               ("baie", 3), ("plume", 2), ("carcasse", 1)],
-    "Montagne": [("pierre", 12), ("branche", 4), ("minerai", 3),
-                 ("os", 2), ("carcasse", 1)],
-    "Lac": [("roseau", 9), ("poisson", 7), ("pierre", 4), ("branche", 3),
-            ("coquillage", 2), ("carcasse", 1)],
+    "Foret": [("Small_Stick", 12), ("Long_Stick", 4), ("Loafy_Long_Stick", 4), ("Feuille", 10), ("Pierre", 7),
+              ("Champignon", 4), ("Baie", 4), ("Plume", 2), ("Carcasse", 1)],
+    "Plaine": [("Herbe", 12), ("Fleur", 7), ("Small_Stick", 6), ("Long_Stick", 2), ("Pierre", 5),
+               ("Baie", 3), ("Plume", 2), ("Carcasse", 1)],
+    "Montagne": [("Pierre", 12), ("Small_Stick", 4), ("Long_Stick", 2), ("Pierre_Coupante", 3),
+                 ("Os", 2), ("Carcasse", 1)],
+    "Lac": [("Roseau", 9), ("Poisson", 7), ("Pierre", 4), ("Small_Stick", 3), ("Long_Stick", 1),
+            ("Coquillage", 2), ("Carcasse", 1)],
 }
 
 
@@ -53,8 +53,8 @@ def random_find(zone, rng=None):
 
 # Recettes : resultat <- ingredients (objet: quantite).
 RECIPES = [
-    {"result": "couteau", "ingredients": {"pierre": 1, "branche": 1}},
-    {"result": "hache", "ingredients": {"pierre": 1, "branche": 2}},
-    {"result": "lance", "ingredients": {"branche": 1, "couteau": 1}},
-    {"result": "feu_de_camp", "ingredients": {"branche": 3, "pierre": 2}},
+    {"result": "Couteau", "ingredients": {"Pierre": 1, "Small_Stick": 1}},
+    {"result": "Hache", "ingredients": {"Pierre": 1, "Long_Stick": 1, "Small_Stick": 1}},
+    {"result": "Lance", "ingredients": {"Long_Stick": 1, "Couteau": 1}},
+    {"result": "Feu_de_camp", "ingredients": {"Small_Stick": 3, "Pierre": 2}},
 ]

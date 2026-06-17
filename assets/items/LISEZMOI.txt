@@ -13,31 +13,33 @@ nom dessous. Des que tu ajoutes le bon fichier (meme nom), il s'affiche.
 NOMS DE FICHIERS ATTENDUS (exactement, en minuscules)
 ----------------------------------------------------------------
 Objets trouves :
-    branche.png            (commun)
-    pierre.png             (commun)
-    feuille.png
-    herbe.png
-    champignon.png
-    baie.png
-    fleur.png
-    poisson.png
-    roseau.png
-    minerai.png
-    plume.png
-    os.png
-    coquillage.png
-    carcasse.png           (rare)
+    Small_Stick.png        (commun)
+    Long_Stick.png
+    Loafy_Long_Stick.png   (branche avec feuilles, rare)
+    Pierre.png             (commun)
+    Feuille.png
+    Herbe.png
+    Champignon.png
+    Baie.png
+    Fleur.png
+    Poisson.png
+    Roseau.png
+    Pierre_Coupante.png
+    Plume.png
+    Os.png
+    Coquillage.png
+    Carcasse.png           (rare)
 
 Remarque : chaque objet a une RARETE (poids dans src/items.py). Les objets
-communs (branche, pierre, herbe...) sortent souvent ; les rares (carcasse...)
+communs (Small_Stick, Pierre, Herbe...) sortent souvent ; les rares (Carcasse...)
 sortent peu. De plus, chaque case n'offre qu'un stock limite de trouvailles
 (entre 5 et 15) : une fois epuisee, explorer n'y donne plus rien.
 
 Objets fabriques (craft) :
-    couteau.png
-    hache.png
-    lance.png
-    feu_de_camp.png        (underscore _ a la place des espaces)
+    Couteau.png
+    Hache.png
+    Lance.png
+    Feu_de_camp.png        (underscore _ a la place des espaces)
 
 ----------------------------------------------------------------
 CONSEILS

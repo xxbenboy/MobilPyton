@@ -143,6 +143,8 @@ class MapScreen(Screen):
         state = App.get_running_app().game_state
         if state is None or self._ff_active or not state.move(dx, dy):
             return
+        # Reveler la nouvelle zone et ses adjacentes
+        state.reveal_zone(state.player_x, state.player_y)
         state.energy = _clamp(state.energy + MOVE_ENERGY)
         state.hunger = _clamp(state.hunger + MOVE_HUNGER)
         state.action_count += 1

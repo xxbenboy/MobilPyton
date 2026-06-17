@@ -74,16 +74,42 @@ jobs:
           path: .buildozer
           key: buildozer-project-aidl2-${{ hashFiles('buildozer.spec') }}
 
-      # Estampille le numero de build DANS l'app (visible au menu) et dans la
-      # version Android. Fait APRES le cache (la cle du cache est calculee a
-      # l'etape de cache, donc la modifier ici ne casse pas le cache).
+      # Estampille la version A CHAQUE build. Fait APRES le cache (la cle du
+      # cache est figee a l'etape de cache, donc la modifier ici ne le casse pas).
+      #
+      # Systeme de version coherant et durable :
+      # - versionCode Android = numero de build (RUN), +1 a chaque build, qui ne
+      #   redescend JAMAIS. C'est LUI qu'Android regarde pour accepter une mise a
+      #   jour (un code superieur => "nouvelle version", jamais l'ancienne).
+      # - versionName lisible a 4 segments en base 100, deduite de RUN :
+      #     RUN=1 -> 0.0.0.1 ... RUN=99 -> 0.0.0.99 -> RUN=100 -> 0.0.1.0 ...
+      #   (capacite : 100^4 = 100 millions de builds avant de reboucler).
       - name: Estampiller la version
         run: |
-          printf 'BUILD = "%s"\nSHA = "%s"\n' \
-            "${{ github.run_number }}" "${GITHUB_SHA:0:7}" > src/build_info.py
-          sed -i "s/^version = .*/version = 0.1.${{ github.run_number }}/" buildozer.spec
+          set -e
+          RUN=${{ github.run_number }}
+          A=$(( (RUN/1000000) % 100 ))
+          B=$(( (RUN/10000)  % 100 ))
+          C=$(( (RUN/100)    % 100 ))
+          D=$(( RUN          % 100 ))
+          VERSION="$A.$B.$C.$D"
+          SHA7=${GITHUB_SHA:0:7}
+          echo ">>> build $RUN -> version $VERSION (commit $SHA7)"
+
+          # 1) build_info.py (affiche dans le menu).
+          printf 'BUILD = "%s"\nVERSION = "%s"\nSHA = "%s"\n' \
+            "$RUN" "$VERSION" "$SHA7" > src/build_info.py
+
+          # 2) buildozer.spec : versionName + versionCode (numeric_version).
+          sed -i "s/^version = .*/version = $VERSION/" buildozer.spec
+          if grep -qE '^[[:space:]]*#?[[:space:]]*android\.numeric_version' buildozer.spec; then
+            sed -i "s/^[[:space:]]*#\?[[:space:]]*android\.numeric_version.*/android.numeric_version = $RUN/" buildozer.spec
+          else
+            sed -i "/^version = /a android.numeric_version = $RUN" buildozer.spec
+          fi
+
           echo "----- src/build_info.py -----" && cat src/build_info.py
-          echo "----- version buildozer.spec -----" && grep '^version' buildozer.spec
+          echo "----- buildozer.spec -----" && grep -E '^version|numeric_version' buildozer.spec
 
       - name: Construire l'APK (debug)
         run: |
