@@ -213,7 +213,7 @@ class GameScreen(Screen):
         # colonne s'ajuste a son contenu le plus large (en general le NOM), et la
         # grille prend exactement cette largeur -> boutons aussi colles que
         # possible mais qui ne se chevauchent JAMAIS (les noms non plus).
-        grid = GridLayout(cols=cols, spacing=dp(2),
+        grid = GridLayout(cols=cols, spacing=[dp(2), dp(12)],
                           size_hint=(None, 0.50),
                           pos_hint={"x": 0.004, "top": 0.96})
         grid.bind(minimum_width=grid.setter("width"))
