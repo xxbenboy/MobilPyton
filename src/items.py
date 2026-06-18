@@ -31,6 +31,13 @@ def display_name(name):
 # l'instant : tous les objets sont ramassables. A completer plus tard.)
 GROUND_ONLY = set()
 
+# Objets speciaux (a CRAFTER plus tard, indisponibles pour l'instant) :
+# - CARTE   : necessaire pour ouvrir l'ecran carte.
+# - BOUSSOLE: affiche les directions en points cardinaux (Nord/Sud/Est/Ouest)
+#             au lieu de directions relatives (En face/Derriere/Gauche/Droite).
+MAP_ITEM = "Carte"
+COMPASS_ITEM = "Boussole"
+
 
 def is_hand_collectable(name):
     """Vrai si l'objet peut etre pris en main (faux = reste au sol)."""

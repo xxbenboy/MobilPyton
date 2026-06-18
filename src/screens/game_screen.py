@@ -20,6 +20,7 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.anchorlayout import AnchorLayout
+from kivy.uix.widget import Widget
 from kivy.uix.label import Label
 from kivy.graphics import Color, RoundedRectangle
 from kivy.metrics import dp
@@ -39,6 +40,11 @@ from src.widgets.responsive import scale_font
 AUTOSAVE_SECONDS = 30
 TIME_SCALE = 144              # 24h en 10 min
 FAST_FORWARD_SCALE = 3600     # avance rapide : 1h de jeu / s reelle
+
+# Cout d'un deplacement d'une case (1 km a pied).
+MOVE_MINUTES = 12
+MOVE_ENERGY = -3
+MOVE_HUNGER = 2
 
 # Actions : effets ponctuels (la faim/soif/sommeil derivent en plus avec le
 # temps). "requires_sleep" => possible seulement si on est assez fatigue.
@@ -307,7 +313,7 @@ class GameScreen(Screen):
             s = a.height * 0.94
             self.map_btn.size = (s, s)
         map_area.bind(size=_map_square)
-        self.map_btn.bind(on_release=lambda *_: setattr(self.manager, "current", "map"))
+        self.map_btn.bind(on_release=self._open_map)
         map_area.add_widget(self.map_btn)
         map_cell.add_widget(map_area)
         map_cell.add_widget(_button_label("Carte"))
@@ -339,6 +345,14 @@ class GameScreen(Screen):
             root.add_widget(db)
             self.drop_btns.append(db)
 
+        # ---- Bouton DEPLACER (bas a droite, a gauche du Menu) ----
+        self.move_btn = scale_font(StyledButton(text="Deplacer",
+                        size_hint=(0.12, 0.09),
+                        pos_hint={"right": 0.92, "y": 0.02}), 0.022)
+        self.move_btn.bind(on_release=self._open_move_menu)
+        root.add_widget(self.move_btn)
+        self._move_menu = None      # overlay du menu de deplacement (ou None)
+
         self.add_widget(root)
 
     # ------------------------------------------------------------------ #
@@ -351,6 +365,7 @@ class GameScreen(Screen):
         self._tick_event = Clock.schedule_interval(self._tick, 1 / 60.0)
 
     def on_leave(self):
+        self._close_move_menu()
         for ev in ("_autosave_event", "_tick_event"):
             event = getattr(self, ev)
             if event is not None:
@@ -519,7 +534,94 @@ class GameScreen(Screen):
             App.get_running_app().autosave()
             self.refresh()
 
+    # ------------------------------------------------------------------ #
+    # Carte
+    # ------------------------------------------------------------------ #
+    def _open_map(self, *_):
+        """Ouvre la carte, seulement si le joueur possede une CARTE."""
+        state = App.get_running_app().game_state
+        if state is None or self._ff_active:
+            return
+        if not state.has_item(items.MAP_ITEM):
+            self._show_message("Il te faut une carte\npour l'ouvrir.")
+            return
+        self.manager.current = "map"
+
+    # ------------------------------------------------------------------ #
+    # Deplacement (depuis l'ecran de jeu)
+    # ------------------------------------------------------------------ #
+    def _open_move_menu(self, *_):
+        """Affiche le choix de direction (relatif, ou cardinal avec boussole)."""
+        state = App.get_running_app().game_state
+        if state is None or self._ff_active:
+            return
+        self._close_move_menu()
+
+        # Libelles selon la possession d'une boussole.
+        if state.has_item(items.COMPASS_ITEM):
+            lab = {"N": "Nord", "S": "Sud", "E": "Est", "O": "Ouest"}
+        else:
+            lab = {"N": "En face", "S": "Derriere",
+                   "E": "A droite", "O": "A gauche"}
+
+        overlay = FloatLayout(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        panel = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10),
+                          size_hint=(0.5, 0.52),
+                          pos_hint={"center_x": 0.5, "center_y": 0.5})
+        _add_panel(panel, alpha=0.9)
+        panel.add_widget(scale_font(Label(text="Se deplacer", bold=True,
+                         color=(0.96, 0.82, 0.45, 1), size_hint=(1, 0.16)), 0.03))
+
+        cross = GridLayout(cols=3, spacing=dp(8), size_hint=(1, 0.62))
+
+        def mk(key, dx, dy):
+            b = scale_font(StyledButton(text=lab[key]), 0.024)
+            b.disabled = not state.can_move(dx, dy)
+            b.bind(on_release=lambda _w, ddx=dx, ddy=dy: self._do_move(ddx, ddy))
+            return b
+
+        bn, bs = mk("N", 0, -1), mk("S", 0, 1)
+        be, bo = mk("E", 1, 0), mk("O", -1, 0)
+        for w in (Widget(), bn, Widget(), bo, Widget(), be, Widget(), bs,
+                  Widget()):
+            cross.add_widget(w)
+        panel.add_widget(cross)
+
+        close = scale_font(StyledButton(text="Rester ici", size_hint=(1, 0.18)),
+                           0.022)
+        close.bind(on_release=lambda *_: self._close_move_menu())
+        panel.add_widget(close)
+
+        overlay.add_widget(panel)
+        self.root_layout.add_widget(overlay)
+        self._move_menu = overlay
+
+    def _close_move_menu(self, *_):
+        if self._move_menu is not None:
+            if self._move_menu.parent:
+                self._move_menu.parent.remove_widget(self._move_menu)
+            self._move_menu = None
+
+    def _do_move(self, dx, dy):
+        self._close_move_menu()
+        state = App.get_running_app().game_state
+        if state is None or self._ff_active or not state.move(dx, dy):
+            return
+        state.reveal_zone(state.player_x, state.player_y)
+        state.energy = _clamp100(state.energy + MOVE_ENERGY)
+        state.hunger = _clamp100(state.hunger + MOVE_HUNGER)
+        state.action_count += 1
+        state.add_log(f"{state.current_zone()} "
+                      f"({state.player_x},{state.player_y})")
+        self._ff_active = True
+        self._ff_remaining = MOVE_MINUTES * 60.0
+        self._ff_label = "Deplacement"
+        self._time_accum = 0.0
+        self.refresh()
+        App.get_running_app().autosave()
+
     def back_to_menu(self, *_):
+        self._close_move_menu()
         App.get_running_app().autosave()
         self.manager.current = "menu"
 
@@ -563,9 +665,17 @@ class GameScreen(Screen):
             else:
                 btn.disabled = False
                 btn.opacity = 0.45 if _action_reason(state, action) else 1.0
-        self.map_btn.disabled = self._ff_active
+        # Carte : grisee (mais cliquable) tant que le joueur n'a pas de carte ;
+        # un appui explique alors qu'il en faut une.
+        if self._ff_active:
+            self.map_btn.disabled = True
+            self.map_btn.opacity = 1.0
+        else:
+            self.map_btn.disabled = False
+            self.map_btn.opacity = 1.0 if state.has_item(items.MAP_ITEM) else 0.45
         self.craft_btn.disabled = self._ff_active
         self.back_btn.disabled = self._ff_active
+        self.move_btn.disabled = self._ff_active
 
         self.background.set_seconds(state.time_seconds)
         key = (zone, state.player_x, state.player_y)

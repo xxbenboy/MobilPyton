@@ -285,6 +285,12 @@ class GameState:
         self.add_ground(item)
         return None
 
+    def has_item(self, name):
+        """Possede l'objet (tenu en main OU au sol sur la case actuelle) ?"""
+        if name in self.hands:
+            return True
+        return self.ground_here().get(name, 0) > 0
+
     def craft_pool(self):
         """Objets disponibles pour le craft = mains + sol de la case."""
         pool = {}
