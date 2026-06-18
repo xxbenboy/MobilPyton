@@ -15,6 +15,7 @@ import math
 
 from kivy.app import App
 from kivy.clock import Clock
+from kivy.animation import Animation
 from kivy.uix.screenmanager import Screen
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.boxlayout import BoxLayout
@@ -22,7 +23,7 @@ from kivy.uix.gridlayout import GridLayout
 from kivy.uix.anchorlayout import AnchorLayout
 from kivy.uix.widget import Widget
 from kivy.uix.label import Label
-from kivy.graphics import Color, RoundedRectangle
+from kivy.graphics import Color, Rectangle, RoundedRectangle
 from kivy.metrics import dp
 
 from src.game_state import _clamp100
@@ -35,6 +36,7 @@ from src.widgets.icon_button import IconButton
 from src.widgets.styled_button import StyledButton
 from src.widgets.item_icon import ItemIcon
 from src.widgets.stat_circle import StatCircle
+from src.widgets.clock_face import ClockFace
 from src.widgets.responsive import scale_font
 
 AUTOSAVE_SECONDS = 30
@@ -169,6 +171,18 @@ def _fit_text_to_height(lbl, fill=0.92):
     return lbl
 
 
+class _Fader(FloatLayout):
+    """Voile plein ecran qui absorbe les touches pendant la transition."""
+    def on_touch_down(self, touch):
+        return True
+
+    def on_touch_move(self, touch):
+        return True
+
+    def on_touch_up(self, touch):
+        return True
+
+
 class GameScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -178,6 +192,12 @@ class GameScreen(Screen):
         self._ff_active = False
         self._ff_remaining = 0.0
         self._ff_label = ""
+        # Transition de deplacement (fondu noir + horloge).
+        self._moving = False
+        self._fader = None
+        self._fader_clock = None
+        self._pending_move = None
+        self._move_event = None
         self._found_item = None        # objet decouvert a la fin d'une exploration
         self._did_explore = False      # vient-on d'explorer ? (pour le message)
         self._scene_key = None
@@ -376,6 +396,13 @@ class GameScreen(Screen):
 
     def on_leave(self):
         self._close_move_menu()
+        # Annule une transition de deplacement en cours et nettoie.
+        if self._move_event is not None:
+            self._move_event.cancel()
+            self._move_event = None
+        if self._pending_move is not None:
+            self._move_apply()              # applique le deplacement en attente
+        self._move_done()
         for ev in ("_autosave_event", "_tick_event"):
             event = getattr(self, ev)
             if event is not None:
@@ -384,7 +411,8 @@ class GameScreen(Screen):
 
     def _tick(self, dt):
         state = App.get_running_app().game_state
-        if state is None:
+        if state is None or self._moving:
+            # Pendant la transition (ecran noir), le temps est gere a part.
             return
         dt = min(dt, 0.25)
         scale = FAST_FORWARD_SCALE if self._ff_active else TIME_SCALE
@@ -406,7 +434,7 @@ class GameScreen(Screen):
     # ------------------------------------------------------------------ #
     def do_action(self, action):
         state = App.get_running_app().game_state
-        if state is None or self._ff_active:
+        if state is None or self._ff_active or self._moving:
             return
         reason = _action_reason(state, action)
         if reason is not None:
@@ -538,7 +566,7 @@ class GameScreen(Screen):
     def _drop_hand(self, slot):
         """Depose au sol l'objet tenu dans la main donnee (0=gauche, 1=droite)."""
         state = App.get_running_app().game_state
-        if state is None or self._ff_active:
+        if state is None or self._ff_active or self._moving:
             return
         if state.drop_from_hands(slot):
             App.get_running_app().autosave()
@@ -550,7 +578,7 @@ class GameScreen(Screen):
     def _open_map(self, *_):
         """Ouvre la carte, seulement si le joueur possede une CARTE."""
         state = App.get_running_app().game_state
-        if state is None or self._ff_active:
+        if state is None or self._ff_active or self._moving:
             return
         if not state.has_item(items.MAP_ITEM):
             self._show_message("Il te faut une carte\npour l'ouvrir.")
@@ -563,7 +591,7 @@ class GameScreen(Screen):
     def _open_move_menu(self, *_):
         """Affiche le choix de direction (relatif, ou cardinal avec boussole)."""
         state = App.get_running_app().game_state
-        if state is None or self._ff_active:
+        if state is None or self._ff_active or self._moving:
             return
         self._close_move_menu()
 
@@ -612,23 +640,100 @@ class GameScreen(Screen):
                 self._move_menu.parent.remove_widget(self._move_menu)
             self._move_menu = None
 
+    def _move_message(self, dx, dy, state):
+        """Texte du deplacement : cardinal si boussole, sinon relatif."""
+        if state.has_item(items.COMPASS_ITEM):
+            d = {(0, -1): "vers le Nord", (0, 1): "vers le Sud",
+                 (1, 0): "vers l'Est", (-1, 0): "vers l'Ouest"}[(dx, dy)]
+        else:
+            d = {(0, -1): "en face", (0, 1): "vers l'arriere",
+                 (1, 0): "vers votre droite", (-1, 0): "vers votre gauche"}[(dx, dy)]
+        return "Deplacement\n" + d + "\nen cours..."
+
     def _do_move(self, dx, dy):
-        self._close_move_menu()
         state = App.get_running_app().game_state
-        if state is None or self._ff_active or not state.move(dx, dy):
+        if (state is None or self._ff_active or self._moving
+                or not state.can_move(dx, dy)):
+            return
+        self._close_move_menu()
+        self._moving = True
+        self._pending_move = (dx, dy)
+
+        # Voile noir plein ecran (opacite animee) + horloge + message au centre.
+        fader = _Fader(size_hint=(1, 1), pos_hint={"x": 0, "y": 0}, opacity=0)
+        with fader.canvas.before:
+            Color(0, 0, 0, 1)
+            rect = Rectangle()
+
+        def _sync(*_):
+            rect.pos = fader.pos
+            rect.size = fader.size
+        fader.bind(pos=_sync, size=_sync)
+        _sync()
+
+        box = BoxLayout(orientation="vertical", spacing=dp(12),
+                        size_hint=(0.5, 0.45),
+                        pos_hint={"center_x": 0.5, "center_y": 0.5})
+        clock = ClockFace(size_hint=(1, 0.62))
+        box.add_widget(clock)
+        msg = Label(text=self._move_message(dx, dy, state), halign="center",
+                    valign="middle", color=(1, 1, 1, 1), size_hint=(1, 0.38))
+        msg.bind(size=lambda w, *_: setattr(w, "text_size", (w.width, w.height)))
+        scale_font(msg)
+        box.add_widget(msg)
+        fader.add_widget(box)
+
+        self.root_layout.add_widget(fader)
+        self._fader = fader
+        self._fader_clock = clock
+        clock.start()
+
+        # Fondu vers le noir (1 s) -> a la fin, on effectue le deplacement.
+        a_in = Animation(opacity=1, duration=1.0)
+        a_in.bind(on_complete=lambda *_: self._move_apply())
+        a_in.start(fader)
+        # Au bout de 3 s (fondu inclus) -> fondu retour vers normal.
+        self._move_event = Clock.schedule_once(lambda _dt: self._move_fade_out(),
+                                               3.0)
+
+    def _move_apply(self):
+        """Effectue le deplacement (ecran noir) une fois le fondu termine."""
+        state = App.get_running_app().game_state
+        if state is None or self._pending_move is None:
+            return
+        dx, dy = self._pending_move
+        self._pending_move = None
+        if not state.move(dx, dy):
             return
         state.reveal_zone(state.player_x, state.player_y)
         state.energy = _clamp100(state.energy + MOVE_ENERGY)
         state.hunger = _clamp100(state.hunger + MOVE_HUNGER)
+        state.tick(MOVE_MINUTES * 60)               # le temps du trajet passe
+        state.advance_survival(MOVE_MINUTES * 60)
         state.action_count += 1
         state.add_log(f"{state.current_zone()} "
                       f"({state.player_x},{state.player_y})")
-        self._ff_active = True
-        self._ff_remaining = MOVE_MINUTES * 60.0
-        self._ff_label = "Deplacement"
-        self._time_accum = 0.0
         self.refresh()
         App.get_running_app().autosave()
+
+    def _move_fade_out(self):
+        """Fondu noir -> normal (1 s), puis nettoyage."""
+        self._move_event = None
+        if self._fader is None:
+            return
+        a_out = Animation(opacity=0, duration=1.0)
+        a_out.bind(on_complete=lambda *_: self._move_done())
+        a_out.start(self._fader)
+
+    def _move_done(self):
+        if self._fader_clock is not None:
+            self._fader_clock.stop()
+        if self._fader is not None and self._fader.parent:
+            self._fader.parent.remove_widget(self._fader)
+        self._fader = None
+        self._fader_clock = None
+        self._moving = False
+        self.refresh()
 
     def back_to_menu(self, *_):
         self._close_move_menu()
