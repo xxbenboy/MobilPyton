@@ -58,21 +58,27 @@ ACTIONS = [
 ]
 
 
-def _action_available(state, action):
-    """Une action est-elle realisable dans l'etat / la zone actuels ?"""
+def _action_reason(state, action):
+    """Raison (texte court) pour laquelle l'action est indisponible, ou None.
+
+    Sert a la fois a griser le bouton et a expliquer au joueur, quand il appuie,
+    pourquoi l'action n'est pas possible.
+    """
     if action.get("requires_sleep") and not state.can_sleep():
-        return False
-    if action.get("type") == "drink":
-        # Boire : il faut un ruisseau ici OU de l'eau dans la gourde.
-        return state.has_water_source() or state.water > 0
-    if action.get("type") == "fill":
-        # Remplir la gourde : seulement a un ruisseau.
-        return state.has_water_source()
+        return "Pas assez fatigue\npour te reposer."
+    if action.get("type") == "drink" and not (state.has_water_source()
+                                               or state.water > 0):
+        return "Pas d'eau ici,\nni dans la gourde."
+    if action.get("type") == "fill" and not state.has_water_source():
+        return "Aucun ruisseau ici\npour remplir la gourde."
     if action.get("type") == "explore" and state.hands_full():
-        # Explorer : interdit si les deux mains sont pleines (l'objet trouve
-        # doit pouvoir aller dans une main).
-        return False
-    return True
+        return "Mains occupees.\nVide une main pour explorer."
+    return None
+
+
+def _action_available(state, action):
+    """Une action est-elle realisable ? (raccourci sur _action_reason)"""
+    return _action_reason(state, action) is None
 
 
 def _add_panel(widget, alpha=0.34):
@@ -349,7 +355,10 @@ class GameScreen(Screen):
         state = App.get_running_app().game_state
         if state is None or self._ff_active:
             return
-        if not _action_available(state, action):
+        reason = _action_reason(state, action)
+        if reason is not None:
+            # Bouton grise : on explique pourquoi l'action est impossible.
+            self._show_message(reason)
             return
         atype = action.get("type")
         # Verifier si la zone est epuisee AVANT de lancer l'exploration
@@ -399,6 +408,38 @@ class GameScreen(Screen):
             self._show_find_toast(None)
         self._did_explore = False
         App.get_running_app().autosave()
+
+    def _show_message(self, text):
+        """Petit message d'information bref (1.2 s puis fondu), au centre haut.
+
+        Sert a expliquer pourquoi une action grisee est impossible (ex. mains
+        pleines)."""
+        if self._toast is not None and self._toast.parent:
+            self._toast.parent.remove_widget(self._toast)
+
+        toast = BoxLayout(orientation="vertical", padding=dp(12),
+                          size_hint=(0.30, 0.16),
+                          pos_hint={"center_x": 0.5, "top": 0.97})
+        _add_panel(toast, alpha=0.6)
+        msg = scale_font(Label(text=text, halign="center", valign="middle",
+                         color=(1, 1, 1, 1), size_hint=(1, 1)), 0.02)
+        msg.bind(size=lambda w, *_: setattr(w, "text_size", (w.width, w.height)))
+        toast.add_widget(msg)
+        self.root_layout.add_widget(toast)
+        self._toast = toast
+
+        from kivy.animation import Animation
+
+        def _remove(*_):
+            if toast.parent:
+                toast.parent.remove_widget(toast)
+            if self._toast is toast:
+                self._toast = None
+
+        anim = Animation(opacity=1, duration=1.2) + Animation(opacity=0,
+                                                              duration=0.8)
+        anim.bind(on_complete=_remove)
+        anim.start(toast)
 
     def _show_find_toast(self, item, dest=None):
         """Message bref (1 s puis fondu). Si `item` est fourni : montre l'objet
@@ -484,10 +525,16 @@ class GameScreen(Screen):
             db.opacity = 1 if occupied else 0
             db.disabled = (not occupied) or self._ff_active
 
-        # Boutons : tout verrouille en avance rapide ; sinon selon la zone /
-        # l'etat (dormir, boire, remplir la gourde).
+        # Boutons d'action : verrouilles pendant une avance rapide. Sinon, ils
+        # restent CLIQUABLES mais grises si l'action est indisponible, pour
+        # qu'un appui puisse en expliquer la raison (cf. do_action).
         for btn, action in self._action_buttons:
-            btn.disabled = self._ff_active or not _action_available(state, action)
+            if self._ff_active:
+                btn.disabled = True
+                btn.opacity = 1.0
+            else:
+                btn.disabled = False
+                btn.opacity = 0.45 if _action_reason(state, action) else 1.0
         self.map_btn.disabled = self._ff_active
         self.craft_btn.disabled = self._ff_active
         self.back_btn.disabled = self._ff_active
