@@ -498,9 +498,9 @@ class GameScreen(Screen):
         elif atype == "drink" and not state.has_water_source():
             state.water = max(0, state.water - 1)
         elif atype == "explore":
-            # On recolte un objet VISIBLE au hasard (et on le retire du decor).
+            # La trouvaille et le retrait du decor se font a la FIN du trajet
+            # (cf. _finish_action) ; ici on lance juste l'exploration.
             state.reveal_zone(state.player_x, state.player_y)
-            self._found_item = self._explore_find()
             self._did_explore = True
 
         state.health = _clamp100(state.health + action.get("health", 0))
@@ -522,17 +522,17 @@ class GameScreen(Screen):
     def _finish_action(self):
         self._ff_active = False
         self._ff_label = ""
-        if self._found_item:
-            item = self._found_item
-            self._found_item = None
-            # L'objet trouve va dans une main (droite en priorite) ; s'il n'est
-            # pas ramassable a la main, il reste au sol.
-            dest = App.get_running_app().game_state.auto_take(item)
-            self._show_find_toast(item, dest)
-        elif self._did_explore:
-            # Exploration sans resultat : la case n'a plus rien a offrir.
-            self._show_find_toast(None)
-        self._did_explore = False
+        if self._did_explore:
+            self._did_explore = False
+            # La trouvaille et le RETRAIT de l'objet du decor se font ICI, a la
+            # fin du trajet (et non au moment d'appuyer sur Explorer).
+            item = self._explore_find()
+            if item:
+                # En main (droite en priorite) ; au sol si non ramassable.
+                dest = App.get_running_app().game_state.auto_take(item)
+                self._show_find_toast(item, dest)
+            else:
+                self._show_find_toast(None)
         App.get_running_app().autosave()
 
     def _show_message(self, text):
