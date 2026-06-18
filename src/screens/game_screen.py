@@ -381,10 +381,11 @@ class GameScreen(Screen):
             s = a.height * 0.94
             self.back_btn.size = (s, s)
         menu_area.bind(size=_menu_square)
-        self.back_btn.bind(on_release=self._open_pause_menu)
+        self.back_btn.bind(on_release=self._toggle_pause_menu)
         menu_area.add_widget(self.back_btn)
         menu_cell.add_widget(menu_area)
-        menu_cell.add_widget(_button_label("Menu"))
+        self.menu_label = _button_label("Menu")
+        menu_cell.add_widget(self.menu_label)
         root.add_widget(menu_cell)
 
         # ---- Boutons "Deposer" (bas, vis-a-vis de chaque main) ----
@@ -781,9 +782,16 @@ class GameScreen(Screen):
     # ------------------------------------------------------------------ #
     # Menu pause (bouton "Menu")
     # ------------------------------------------------------------------ #
+    def _toggle_pause_menu(self, *_):
+        """Le bouton Menu ouvre/ferme le panneau (et change de nom)."""
+        if self._pause_menu is not None:
+            self._close_pause_menu()
+        else:
+            self._open_pause_menu()
+
     def _open_pause_menu(self, *_):
-        """Panneau lateral droit : Continuer / Parametres / Statistiques /
-        Quitter."""
+        """Panneau lateral droit : Parametres / Statistiques / Quitter.
+        Le bouton "Menu" devient "Continuer" tant que le panneau est ouvert."""
         if self._ff_active or self._moving:
             return
         self._close_pause_menu()
@@ -808,21 +816,22 @@ class GameScreen(Screen):
             b.bind(on_release=cb)
             return b
 
-        panel.add_widget(mk("Continuer", lambda *_: self._close_pause_menu()))
         panel.add_widget(mk("Parametres", lambda *_: self._go_settings()))
         panel.add_widget(mk("Statistiques", lambda *_: self._go_stats()))
-        panel.add_widget(Widget())                  # pousse "Quitter" en bas
         panel.add_widget(mk("Quitter", self.back_to_menu))
+        panel.add_widget(Widget())                  # espace vide en bas
 
         overlay.add_widget(panel)
         self.root_layout.add_widget(overlay)
         self._pause_menu = overlay
+        self.menu_label.text = "Continuer"
 
     def _close_pause_menu(self, *_):
         if self._pause_menu is not None:
             if self._pause_menu.parent:
                 self._pause_menu.parent.remove_widget(self._pause_menu)
             self._pause_menu = None
+        self.menu_label.text = "Menu"
 
     def _go_settings(self):
         self._close_pause_menu()
