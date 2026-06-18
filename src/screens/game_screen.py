@@ -355,10 +355,18 @@ class GameScreen(Screen):
         root.add_widget(menu_cell)
 
         # ---- Boutons "Deposer" (bas, vis-a-vis de chaque main) ----
-        # Permettent de poser l'objet tenu sans passer par le menu Craft.
-        # Masques quand la main est vide (gere dans refresh()).
+        # Permettent de poser l'objet tenu sans passer par le menu Craft. Au-
+        # dessus, un libelle montre le NOM de l'objet tenu. Masques (bouton +
+        # libelle) quand la main est vide (gere dans refresh()).
         self.drop_btns = []
+        self.drop_labels = []
         for slot, cx in ((0, 0.31), (1, 0.69)):     # 0=gauche, 1=droite
+            name_lbl = _button_label("")
+            name_lbl.size_hint = (0.16, 0.05)
+            name_lbl.pos_hint = {"center_x": cx, "y": 0.092}
+            root.add_widget(name_lbl)
+            self.drop_labels.append(name_lbl)
+
             db = scale_font(StyledButton(text="Deposer", size_hint=(0.13, 0.07),
                             pos_hint={"center_x": cx, "y": 0.015}), 0.02)
             db.bind(on_release=lambda _w, s=slot: self._drop_hand(s))
@@ -763,12 +771,17 @@ class GameScreen(Screen):
         # Objets tenus -> affiches dans les mains du joueur (1re personne).
         self.hands.set_items(state.hands[0], state.hands[1])
 
-        # Boutons "Deposer" : visibles seulement si la main correspondante tient
-        # un objet (et inactifs pendant une avance rapide).
+        # Boutons "Deposer" + nom de l'objet tenu : visibles seulement si la
+        # main correspondante tient un objet (et inactifs pendant une avance).
         for slot, db in enumerate(self.drop_btns):
-            occupied = state.hands[slot] is not None
+            item = state.hands[slot]
+            occupied = item is not None
             db.opacity = 1 if occupied else 0
             db.disabled = (not occupied) or self._ff_active
+            lbl = self.drop_labels[slot]
+            lbl.opacity = 1 if occupied else 0
+            if occupied:
+                lbl.text = items.display_name(item)
 
         # Boutons d'action : verrouilles pendant une avance rapide. Sinon, ils
         # restent CLIQUABLES mais grises si l'action est indisponible, pour
