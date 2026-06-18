@@ -26,6 +26,7 @@ from src.screens.menu_screen import MenuScreen
 from src.screens.new_game_screen import NewGameScreen
 from src.screens.load_screen import LoadScreen
 from src.screens.settings_screen import SettingsScreen
+from src.screens.stats_screen import StatsScreen
 from src.screens.game_screen import GameScreen
 from src.screens.map_screen import MapScreen
 from src.screens.craft_screen import CraftScreen
@@ -47,6 +48,7 @@ class MobilPytonApp(App):
         sm.add_widget(NewGameScreen(name="newgame"))
         sm.add_widget(LoadScreen(name="load"))
         sm.add_widget(SettingsScreen(name="settings"))
+        sm.add_widget(StatsScreen(name="stats"))
         sm.add_widget(GameScreen(name="game"))
         sm.add_widget(MapScreen(name="map"))
         sm.add_widget(CraftScreen(name="craft"))

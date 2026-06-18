@@ -29,6 +29,10 @@ from src.widgets.fonts import title_font, ui_font
 
 
 class SettingsScreen(Screen):
+    # Ecran vers lequel revenir en quittant (defini par l'appelant :
+    # "menu" depuis l'accueil, "game" depuis la pause en jeu).
+    return_to = "menu"
+
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
 
@@ -97,7 +101,7 @@ class SettingsScreen(Screen):
         back_btn = scale_font(StyledButton(text="Retour",
                               font_name=ui_font(), size_hint=(1, 0.16)), 0.024)
         back_btn.bind(on_release=lambda *_: setattr(self.manager, "current",
-                                                    "menu"))
+                                                    self.return_to))
         content.add_widget(back_btn)
 
         root.add_widget(content)

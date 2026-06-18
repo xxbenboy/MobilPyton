@@ -75,8 +75,7 @@ class MenuScreen(Screen):
 
         settings_btn = scale_font(StyledButton(text="Paramètres",
                                   font_name=ui_font(), size_hint=(1, 0.16)), 0.026)
-        settings_btn.bind(on_release=lambda *_: setattr(self.manager,
-                                                        "current", "settings"))
+        settings_btn.bind(on_release=self._open_settings)
         content.add_widget(settings_btn)
 
         quit_btn = scale_font(StyledButton(text="Quitter",
@@ -97,6 +96,11 @@ class MenuScreen(Screen):
         root.add_widget(ver)
 
         self.add_widget(root)
+
+    def _open_settings(self, *_):
+        # Depuis l'accueil, "Retour" des parametres revient a l'accueil.
+        self.manager.get_screen("settings").return_to = "menu"
+        self.manager.current = "settings"
 
     def on_pre_enter(self):
         # Pas de sauvegarde -> bouton "Charger" grise.

@@ -184,6 +184,22 @@ class _Fader(FloatLayout):
         return True
 
 
+class _ModalOverlay(FloatLayout):
+    """Overlay modal : transmet les touches a ses enfants (panneau) mais bloque
+    celles destinees au jeu derriere (renvoie toujours True)."""
+    def on_touch_down(self, touch):
+        super().on_touch_down(touch)
+        return True
+
+    def on_touch_move(self, touch):
+        super().on_touch_move(touch)
+        return True
+
+    def on_touch_up(self, touch):
+        super().on_touch_up(touch)
+        return True
+
+
 class GameScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -365,7 +381,7 @@ class GameScreen(Screen):
             s = a.height * 0.94
             self.back_btn.size = (s, s)
         menu_area.bind(size=_menu_square)
-        self.back_btn.bind(on_release=self.back_to_menu)
+        self.back_btn.bind(on_release=self._open_pause_menu)
         menu_area.add_widget(self.back_btn)
         menu_cell.add_widget(menu_area)
         menu_cell.add_widget(_button_label("Menu"))
@@ -407,6 +423,7 @@ class GameScreen(Screen):
         move_cell.add_widget(_button_label("Deplacer"))
         root.add_widget(move_cell)
         self._move_menu = None      # overlay du menu de deplacement (ou None)
+        self._pause_menu = None     # overlay du menu pause (Menu) (ou None)
 
         self.add_widget(root)
 
@@ -421,6 +438,7 @@ class GameScreen(Screen):
 
     def on_leave(self):
         self._close_move_menu()
+        self._close_pause_menu()
         # Annule une transition de deplacement en cours et nettoie.
         if self._move_event is not None:
             self._move_event.cancel()
@@ -760,8 +778,65 @@ class GameScreen(Screen):
         self._moving = False
         self.refresh()
 
+    # ------------------------------------------------------------------ #
+    # Menu pause (bouton "Menu")
+    # ------------------------------------------------------------------ #
+    def _open_pause_menu(self, *_):
+        """Panneau lateral droit : Continuer / Parametres / Statistiques /
+        Quitter."""
+        if self._ff_active or self._moving:
+            return
+        self._close_pause_menu()
+
+        overlay = _ModalOverlay(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        with overlay.canvas.before:
+            Color(0, 0, 0, 0.35)
+            rect = Rectangle()
+
+        def _sync(*_):
+            rect.pos = overlay.pos
+            rect.size = overlay.size
+        overlay.bind(pos=_sync, size=_sync)
+        _sync()
+
+        panel = BoxLayout(orientation="vertical", padding=dp(18), spacing=dp(14),
+                          size_hint=(0.30, 1), pos_hint={"right": 1, "y": 0})
+        _add_panel(panel, alpha=0.85)
+
+        def mk(text, cb):
+            b = scale_font(StyledButton(text=text, size_hint=(1, 0.13)), 0.026)
+            b.bind(on_release=cb)
+            return b
+
+        panel.add_widget(mk("Continuer", lambda *_: self._close_pause_menu()))
+        panel.add_widget(mk("Parametres", lambda *_: self._go_settings()))
+        panel.add_widget(mk("Statistiques", lambda *_: self._go_stats()))
+        panel.add_widget(Widget())                  # pousse "Quitter" en bas
+        panel.add_widget(mk("Quitter", self.back_to_menu))
+
+        overlay.add_widget(panel)
+        self.root_layout.add_widget(overlay)
+        self._pause_menu = overlay
+
+    def _close_pause_menu(self, *_):
+        if self._pause_menu is not None:
+            if self._pause_menu.parent:
+                self._pause_menu.parent.remove_widget(self._pause_menu)
+            self._pause_menu = None
+
+    def _go_settings(self):
+        self._close_pause_menu()
+        self.manager.get_screen("settings").return_to = "game"
+        self.manager.current = "settings"
+
+    def _go_stats(self):
+        self._close_pause_menu()
+        self.manager.get_screen("stats").return_to = "game"
+        self.manager.current = "stats"
+
     def back_to_menu(self, *_):
         self._close_move_menu()
+        self._close_pause_menu()
         App.get_running_app().autosave()
         self.manager.current = "menu"
 
