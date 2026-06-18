@@ -43,6 +43,10 @@ SLEEP_ENERGY_MAX = 70
 # Le joueur ne peut tenir que 2 objets dans ses mains a la fois.
 HANDS_MAX = 2
 
+# Directions cardinales dans le sens HORAIRE : Nord, Est, Sud, Ouest.
+# (y augmente vers le bas, donc Nord = (0, -1).)
+CARDINALS = [(0, -1), (1, 0), (0, 1), (-1, 0)]
+
 # Chaque case a un "stock" de trouvailles : entre 5 et 15 (tire au hasard,
 # mais STABLE pour une case donnee). Une fois epuise, explorer cette case ne
 # donne plus rien.
@@ -59,7 +63,8 @@ class GameState:
                  health=100, energy=100, sleep=100, hunger=0, thirst=0,
                  wood=0, food=0, water=0, action_count=0,
                  hands=None, ground=None, explores=None, harvested=None,
-                 log=None, player_x=None, player_y=None, revealed=None):
+                 log=None, player_x=None, player_y=None, revealed=None,
+                 facing=0):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
@@ -96,6 +101,9 @@ class GameState:
         else:
             self.player_x = player_x
             self.player_y = player_y
+
+        # Orientation du joueur (indice dans CARDINALS) : Nord par defaut.
+        self.facing = facing % 4
 
     # ------------------------------------------------------------------ #
     # Creation
@@ -134,6 +142,25 @@ class GameState:
         self.player_x += dx
         self.player_y += dy
         return True
+
+    # -- Orientation (le joueur "regarde" dans une direction) ----------- #
+    def dir_vector(self, turn):
+        """(dx, dy) absolu pour une direction RELATIVE a l'orientation :
+        0 = en face, 1 = a droite, 2 = derriere, 3 = a gauche."""
+        return CARDINALS[(self.facing + turn) % 4]
+
+    def turn_of(self, dx, dy):
+        """Direction relative (0=face, 1=droite, 2=arriere, 3=gauche) d'un
+        deplacement absolu (dx, dy) selon l'orientation actuelle."""
+        if (dx, dy) not in CARDINALS:
+            return 0
+        return (CARDINALS.index((dx, dy)) - self.facing) % 4
+
+    def face(self, dx, dy):
+        """Oriente le joueur dans la direction du deplacement -> la case
+        d'origine se retrouve DERRIERE lui."""
+        if (dx, dy) in CARDINALS:
+            self.facing = CARDINALS.index((dx, dy))
 
     # ------------------------------------------------------------------ #
     # Temps
@@ -371,6 +398,7 @@ class GameState:
             "ground": self.ground,
             "explores": self.explores,
             "harvested": self.harvested,
+            "facing": self.facing,
             "revealed": list(self.revealed),
             "action_count": self.action_count,
             "log": self.log,
@@ -402,6 +430,7 @@ class GameState:
             ground=data.get("ground"),
             explores=data.get("explores"),
             harvested=data.get("harvested"),
+            facing=data.get("facing", 0),
             revealed=data.get("revealed", []),
             action_count=data.get("action_count", 0),
             log=data.get("log", []),

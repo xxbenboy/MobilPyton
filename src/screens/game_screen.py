@@ -687,12 +687,17 @@ class GameScreen(Screen):
             return
         self._close_move_menu()
 
-        # Libelles selon la possession d'une boussole.
+        # Slots de la croix : (libelle, vecteur absolu). Avec boussole = points
+        # cardinaux fixes ; sinon RELATIFS a l'orientation du joueur (en face =
+        # direction regardee) -> apres le deplacement, l'origine est derriere.
         if state.has_item(items.COMPASS_ITEM):
-            lab = {"N": "Nord", "S": "Sud", "E": "Est", "O": "Ouest"}
+            top, bottom = ("Nord", (0, -1)), ("Sud", (0, 1))
+            left, right = ("Ouest", (-1, 0)), ("Est", (1, 0))
         else:
-            lab = {"N": "En face", "S": "Derriere",
-                   "E": "A droite", "O": "A gauche"}
+            top = ("En face", state.dir_vector(0))
+            right = ("A droite", state.dir_vector(1))
+            bottom = ("Derriere", state.dir_vector(2))
+            left = ("A gauche", state.dir_vector(3))
 
         overlay = FloatLayout(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         panel = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10),
@@ -704,16 +709,16 @@ class GameScreen(Screen):
 
         cross = GridLayout(cols=3, spacing=dp(8), size_hint=(1, 0.62))
 
-        def mk(key, dx, dy):
-            b = scale_font(StyledButton(text=lab[key]), 0.024)
+        def mk(slot):
+            label, (dx, dy) = slot
+            b = scale_font(StyledButton(text=label), 0.024)
             b.disabled = not state.can_move(dx, dy)
             b.bind(on_release=lambda _w, ddx=dx, ddy=dy: self._do_move(ddx, ddy))
             return b
 
-        bn, bs = mk("N", 0, -1), mk("S", 0, 1)
-        be, bo = mk("E", 1, 0), mk("O", -1, 0)
-        for w in (Widget(), bn, Widget(), bo, Widget(), be, Widget(), bs,
-                  Widget()):
+        for w in (Widget(), mk(top), Widget(),
+                  mk(left), Widget(), mk(right),
+                  Widget(), mk(bottom), Widget()):
             cross.add_widget(w)
         panel.add_widget(cross)
 
@@ -733,13 +738,14 @@ class GameScreen(Screen):
             self._move_menu = None
 
     def _move_message(self, dx, dy, state):
-        """Texte du deplacement : cardinal si boussole, sinon relatif."""
+        """Texte du deplacement : cardinal si boussole, sinon RELATIF a
+        l'orientation actuelle du joueur."""
         if state.has_item(items.COMPASS_ITEM):
             d = {(0, -1): "vers le Nord", (0, 1): "vers le Sud",
                  (1, 0): "vers l'Est", (-1, 0): "vers l'Ouest"}[(dx, dy)]
         else:
-            d = {(0, -1): "en face", (0, 1): "vers l'arriere",
-                 (1, 0): "vers votre droite", (-1, 0): "vers votre gauche"}[(dx, dy)]
+            d = {0: "en face", 1: "vers votre droite",
+                 2: "vers l'arriere", 3: "vers votre gauche"}[state.turn_of(dx, dy)]
         return "Deplacement\n" + d + "\nen cours..."
 
     def _do_move(self, dx, dy):
@@ -797,6 +803,9 @@ class GameScreen(Screen):
         self._pending_move = None
         if not state.move(dx, dy):
             return
+        # On regarde desormais dans la direction du deplacement (l'origine se
+        # retrouve derriere nous).
+        state.face(dx, dy)
         state.reveal_zone(state.player_x, state.player_y)
         state.energy = _clamp100(state.energy + MOVE_ENERGY)
         state.hunger = _clamp100(state.hunger + MOVE_HUNGER)
