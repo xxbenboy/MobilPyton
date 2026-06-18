@@ -349,7 +349,7 @@ class GameScreen(Screen):
         # Meme style que Carte/Menu : un logo + le nom dessous.
         move_cell = BoxLayout(orientation="vertical", spacing=2,
                               size_hint=(0.06, 0.16),
-                              pos_hint={"right": 0.93, "y": 0.012})
+                              pos_hint={"right": 0.90, "y": 0.012})
         move_area = AnchorLayout(size_hint=(1, 0.66))
         self.move_btn = IconButton(icon="move", size_hint=(None, None))
         def _move_square(a, *_):
