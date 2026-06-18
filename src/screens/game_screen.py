@@ -375,6 +375,7 @@ class GameScreen(Screen):
         # ---- Bouton MENU (bas a droite) ----
         menu_cell = BoxLayout(orientation="vertical", spacing=2, size_hint=(0.06, 0.16),
                               pos_hint={"right": 0.994, "y": 0.012})
+        self.menu_cell = menu_cell
         menu_area = AnchorLayout(size_hint=(1, 0.66))
         self.back_btn = IconButton(icon="home", size_hint=(None, None))
         def _menu_square(a, *_):
@@ -825,6 +826,10 @@ class GameScreen(Screen):
         self.root_layout.add_widget(overlay)
         self._pause_menu = overlay
         self.menu_label.text = "Continuer"
+        # Le bouton "Menu" (devenu "Continuer") doit rester AU-DESSUS du panneau
+        # pour rester visible et cliquable -> on le replace au sommet.
+        self.root_layout.remove_widget(self.menu_cell)
+        self.root_layout.add_widget(self.menu_cell)
 
     def _close_pause_menu(self, *_):
         if self._pause_menu is not None:
