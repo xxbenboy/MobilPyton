@@ -32,6 +32,7 @@ from src.widgets.zone_scenery import ZoneScenery
 
 from src import items
 from src.widgets.player_hands import PlayerHands
+from src.widgets.insects import InsectLayer
 from src.widgets.icon_button import IconButton
 from src.widgets.styled_button import StyledButton
 from src.widgets.item_icon import ItemIcon
@@ -210,6 +211,9 @@ class GameScreen(Screen):
         root.add_widget(self.background)
         self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.scenery)
+        # Insectes animes (papillons / abeilles) qui volent dans la scene.
+        self.insects = InsectLayer(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.insects)
         # Mains du joueur (vue 1re personne), devant le decor.
         self.hands = PlayerHands(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.hands)

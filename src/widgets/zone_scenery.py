@@ -416,15 +416,7 @@ class ZoneScenery(Widget):
                 th = rng.uniform(0.12, 0.20) * h
                 items.append((tb, lambda tx=tx, tb=tb, th=th:
                               self._forest_tree(tx, tb, th, 0.4)))
-        # Insectes.
-        for _ in range(rng.randint(4, 7)):
-            ix = x0 + rng.uniform(0.05, 0.95) * w
-            iy = y0 + rng.uniform(0.10, floor + 0.15) * h
-            sz = rng.uniform(0.012, 0.022) * h
-            is_b = rng.random() < 0.5
-            col = rng.choice([(0.85, 0.80, 0.40, 1), (0.70, 0.50, 0.30, 1),
-                              (0.90, 0.90, 0.95, 1)])
-            items.append((iy, f_insect(ix, iy, sz, is_b, col)))
+        # (Les insectes sont desormais une couche ANIMEE separee : InsectLayer.)
 
         items.sort(key=lambda it: it[0], reverse=True)
         for _, fn in items:
@@ -765,14 +757,7 @@ class ZoneScenery(Widget):
                 items.append((by, lambda bx=bx, by=by, r=r:
                               self._berries(bx, by, r)))
 
-        for _ in range(rng.randint(6, 9)):             # insectes
-            ix = x0 + rng.uniform(0.05, 0.95) * w
-            iy = y0 + rng.uniform(0.08, hor) * h
-            sz = rng.uniform(0.014, 0.026) * h
-            is_b = rng.random() < 0.6
-            col = rng.choice([(0.95, 0.6, 0.2, 1), (0.6, 0.42, 0.92, 1),
-                              (0.92, 0.92, 0.96, 1)])
-            items.append((iy, f_insect(ix, iy, sz, is_b, col)))
+        # (Les insectes sont desormais une couche ANIMEE separee : InsectLayer.)
 
         # Rendu trie : plus loin (base haute) d'abord, plus proche par-dessus.
         items.sort(key=lambda it: it[0], reverse=True)
