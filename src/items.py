@@ -38,6 +38,12 @@ GROUND_ONLY = set()
 MAP_ITEM = "Carte"
 COMPASS_ITEM = "Boussole"
 
+# Outils requis pour certaines actions :
+# - une HACHE (en main) pour couper du bois,
+# - une GOURDE (possedee) pour remplir/transporter de l'eau.
+AXE_ITEM = "Hache"
+GOURDE_ITEMS = {"Gourde"}
+
 
 def is_hand_collectable(name):
     """Vrai si l'objet peut etre pris en main (faux = reste au sol)."""

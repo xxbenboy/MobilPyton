@@ -11,8 +11,6 @@ L'heure n'est pas affichee. Une action lance une AVANCE RAPIDE pendant sa
 duree (boutons verrouilles). "Se reposer" est interdit si l'energie est trop
 haute (pas assez fatigue pour dormir).
 """
-import math
-
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.animation import Animation
@@ -55,13 +53,13 @@ ACTIONS = [
     {"label": "Explorer", "icon": "explore", "name": "Explorer",
      "minutes": 90, "energy": -10, "type": "explore"},
     {"label": "Couper du bois", "icon": "wood", "name": "Couper\ndu bois",
-     "minutes": 120, "energy": -15, "wood": 3},
+     "minutes": 120, "energy": -15, "wood": 3, "need_axe": True},
     {"label": "Chercher a manger", "icon": "food", "name": "Chercher\na manger",
      "minutes": 60, "energy": -5, "hunger": -25, "food": 2},
     {"label": "Boire", "icon": "drink", "name": "Boire",
      "minutes": 10, "thirst": -40, "type": "drink"},
     {"label": "Remplir gourde", "icon": "fill", "name": "Remplir\ngourde",
-     "minutes": 15, "type": "fill"},
+     "minutes": 15, "type": "fill", "need_gourde": True},
     {"label": "Se reposer", "icon": "rest", "name": "Se\nreposer",
      "minutes": 240, "energy": 35, "sleep": 50, "requires_sleep": True},
 ]
@@ -292,68 +290,19 @@ class GameScreen(Screen):
                                  pos_hint={"center_x": 0.5, "top": 0.80}), 0.022)
         root.add_widget(self.status)
 
-        # ---- Boutons d'action : icones CARREES, confinees EN HAUT A GAUCHE.
-        # La zone est fixe ; ajouter des boutons augmente le nombre de
-        # colonnes/lignes et donc REDUIT la taille des boutons (jamais la zone).
-        n_btn = len(ACTIONS) + 1                  # actions + Craft
-        cols = max(1, int(math.ceil(n_btn ** 0.5)))
-        # Grille resserree, plaquee a gauche. La LARGEUR n'est pas fixee : chaque
-        # colonne s'ajuste a son contenu le plus large (en general le NOM), et la
-        # grille prend exactement cette largeur -> boutons aussi colles que
-        # possible mais qui ne se chevauchent JAMAIS (les noms non plus).
-        grid = GridLayout(cols=cols, spacing=[dp(2), dp(12)],
-                          size_hint=(None, 0.50),
-                          pos_hint={"x": 0.004, "top": 0.96})
-        grid.bind(minimum_width=grid.setter("width"))
+        # ---- Boutons d'action (haut gauche) ----
+        # Disposition : colonne de gauche = Explorer / Se reposer / Craft, le
+        # reste rempli normalement (remplissage haut->bas puis colonne suivante).
+        # La grille est RECONSTRUITE selon l'etat : "Couper du bois" n'apparait
+        # qu'avec une hache en main, "Remplir gourde" qu'avec une gourde.
+        self.grid = GridLayout(rows=3, orientation="tb-lr",
+                               spacing=[dp(2), dp(12)], size_hint=(None, 0.50),
+                               pos_hint={"x": 0.004, "top": 0.96})
+        self.grid.bind(minimum_width=self.grid.setter("width"))
+        root.add_widget(self.grid)
         self._action_buttons = []   # (bouton, action)
-        action_cells = []           # (cell, btn, lbl) : pour egaliser les largeurs
-
-        def _fit_cells(*_):
-            if not action_cells:
-                return
-            # Largeur UNIFORME = la cellule la plus large (en general "Explorer",
-            # dont le nom est le plus long). Toutes les cellules identiques -> les
-            # logos (centres) sont tous alignes, et rien ne se chevauche.
-            w = max(max(btn.width, lbl.texture_size[0])
-                    for _c, btn, lbl in action_cells) + dp(6)
-            for cell, _b, _l in action_cells:
-                cell.width = w
-
-        def add_cell(icon, name, on_release):
-            # Largeur de la cellule pilotee par le contenu (jamais d'overlap),
-            # puis egalisee entre toutes les cellules (voir _fit_cells).
-            cell = BoxLayout(orientation="vertical", spacing=2, size_hint_x=None)
-            area = AnchorLayout(size_hint=(1, 0.66))
-            btn = IconButton(icon=icon, size_hint=(None, None))
-
-            def _square(a, *_):                      # bouton carre = taille logo
-                s = a.height * 0.94
-                btn.size = (s, s)
-            area.bind(size=_square)
-            btn.bind(on_release=on_release)
-            area.add_widget(btn)
-
-            # Nom du bouton : fond noir ajuste a la taille du texte (comme les
-            # boutons Carte/Menu). Logo inchange (taille basee sur la hauteur).
-            lbl = _button_label(name)
-            cell.add_widget(area)
-            cell.add_widget(lbl)
-
-            action_cells.append((cell, btn, lbl))
-            btn.bind(size=_fit_cells)
-            lbl.bind(texture_size=_fit_cells)
-
-            grid.add_widget(cell)
-            return btn
-
-        for action in ACTIONS:
-            btn = add_cell(action["icon"], action["name"],
-                           lambda _w, a=action: self.do_action(a))
-            self._action_buttons.append((btn, action))
-        self.craft_btn = add_cell("craft", "Craft",
-                                  lambda *_: setattr(self.manager,
-                                                     "current", "craft"))
-        root.add_widget(grid)
+        self.craft_btn = None
+        self._action_visible = None  # cle des actions visibles (pour rebuild)
 
         # ---- Bouton CARTE (bas a gauche) ----
         # Cellule ETROITE, plaquee au bord : le logo (taille basee sur la
@@ -475,6 +424,71 @@ class GameScreen(Screen):
         if self._ff_active and self._ff_remaining <= 0:
             self._finish_action()
         self.refresh()
+
+    # ------------------------------------------------------------------ #
+    # Construction (dynamique) de la grille des boutons d'action
+    # ------------------------------------------------------------------ #
+    def _action_visible_key(self, state):
+        """Cle resumant quels boutons conditionnels sont visibles."""
+        return (items.AXE_ITEM in state.hands,
+                any(state.has_item(g) for g in items.GOURDE_ITEMS))
+
+    def _build_action_grid(self, state):
+        self.grid.clear_widgets()
+        self._action_buttons = []
+        cells = []          # (cell, btn, lbl) -> pour egaliser les largeurs
+
+        def _fit_cells(*_):
+            if not cells:
+                return
+            # Largeur UNIFORME = la cellule la plus large -> logos alignes, et
+            # rien ne se chevauche (les noms non plus).
+            w = max(max(btn.width, lbl.texture_size[0])
+                    for _c, btn, lbl in cells) + dp(6)
+            for cell, _b, _l in cells:
+                cell.width = w
+
+        def add_cell(icon, name, on_release):
+            cell = BoxLayout(orientation="vertical", spacing=2, size_hint_x=None)
+            area = AnchorLayout(size_hint=(1, 0.66))
+            btn = IconButton(icon=icon, size_hint=(None, None))
+
+            def _square(a, *_, _btn=btn):
+                s = a.height * 0.94
+                _btn.size = (s, s)
+            area.bind(size=_square)
+            btn.bind(on_release=on_release)
+            area.add_widget(btn)
+            lbl = _button_label(name)
+            cell.add_widget(area)
+            cell.add_widget(lbl)
+            cells.append((cell, btn, lbl))
+            btn.bind(size=_fit_cells)
+            lbl.bind(texture_size=_fit_cells)
+            self.grid.add_widget(cell)
+            return btn
+
+        has_axe = items.AXE_ITEM in state.hands
+        has_gourde = any(state.has_item(g) for g in items.GOURDE_ITEMS)
+        by_label = {a["label"]: a for a in ACTIONS}
+        # Ordre voulu : colonne gauche = Explorer / Se reposer / Craft (3 lignes),
+        # puis les autres remplissent les colonnes suivantes. None = Craft.
+        order = ["Explorer", "Se reposer", None,
+                 "Couper du bois", "Chercher a manger", "Boire", "Remplir gourde"]
+        for label in order:
+            if label is None:
+                self.craft_btn = add_cell(
+                    "craft", "Craft",
+                    lambda *_: setattr(self.manager, "current", "craft"))
+                continue
+            action = by_label[label]
+            if action.get("need_axe") and not has_axe:
+                continue            # pas de hache -> bouton retire
+            if action.get("need_gourde") and not has_gourde:
+                continue            # pas de gourde -> bouton retire
+            btn = add_cell(action["icon"], action["name"],
+                           lambda _w, a=action: self.do_action(a))
+            self._action_buttons.append((btn, action))
 
     # ------------------------------------------------------------------ #
     def do_action(self, action):
@@ -921,6 +935,13 @@ class GameScreen(Screen):
             lbl.opacity = 1 if occupied else 0
             if occupied:
                 lbl.text = items.display_name(item)
+
+        # (Re)construit la grille des boutons si l'outillage a change (hache /
+        # gourde) : ces boutons apparaissent / disparaissent completement.
+        vk = self._action_visible_key(state)
+        if vk != self._action_visible:
+            self._action_visible = vk
+            self._build_action_grid(state)
 
         # Boutons d'action : verrouilles pendant une avance rapide. Sinon, ils
         # restent CLIQUABLES mais grises si l'action est indisponible, pour
