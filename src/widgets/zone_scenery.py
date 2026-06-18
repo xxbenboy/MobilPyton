@@ -29,11 +29,10 @@ _ZONE_SEED = {"Foret": 1, "Plaine": 2, "Montagne": 3, "Lac": 4}
 _AVAIL_MIN = 2
 _AVAIL_MAX = 5
 
-# Biais VERTICAL des objets recoltables : ils sont repartis du MILIEU jusqu'au
-# HAUT du terrain (vers le centre / haut de l'ecran), en evitant le bas de
-# l'ecran (et jamais dans le ciel, le placement restant sur le sol). 0 = tout
-# en bas possible, 1 = uniquement a l'horizon. ~0.18 -> on exclut juste le bas.
-_HARVEST_MINT = 0.18
+# Plancher VERTICAL des objets recoltables : ils ne sont JAMAIS places sous ce
+# niveau (~ la hauteur des jointures des mains du joueur). Fraction de la
+# hauteur d'ecran. On les repartit donc de cette ligne jusqu'au haut du terrain.
+_HARVEST_FLOOR = 0.18
 
 
 class ZoneScenery(Widget):
@@ -353,12 +352,16 @@ class ZoneScenery(Widget):
             return y0 + (floor + 0.025 * math.sin(fx * 6.28 * 1.1 + p1 + 1.0)
                          + 0.012 * math.sin(fx * 6.28 * 2.4 + p2)) * h
 
-        def place(maxt=1.0, fx=None, mint=0.0):
+        def place(maxt=1.0, fx=None, floor=0.0):
             if fx is None:
                 fx = rng.uniform(0, 1)
             fx = min(0.999, max(0.001, fx))
             surf = (floor_curve(fx) - y0) / h
-            fy = surf * (mint + (maxt - mint) * rng.random())
+            lo = min(floor, surf)              # plancher (jointures des mains)
+            hi = surf * maxt
+            if hi < lo:
+                hi = lo
+            fy = lo + (hi - lo) * rng.random()
             t = (fy / surf) if surf else 0.0
             return (x0 + fx * w, y0 + fy * h, 1.0 - 0.70 * t, t)
 
@@ -396,7 +399,7 @@ class ZoneScenery(Widget):
         # Litiere de feuilles mortes (beaucoup, en plaques). [recoltable: Feuille]
         for _ in range(100):
             fx = leaf_pick() if rng.random() < 0.8 else None
-            lx, ly, sc, t = place(fx=fx, mint=_HARVEST_MINT)
+            lx, ly, sc, t = place(fx=fx, floor=_HARVEST_FLOOR)
             s = rng.uniform(0.010, 0.022) * h * sc
             col = rng.choice(LEAVES)
             if not self._take_or_skip("Feuille"):
@@ -404,14 +407,14 @@ class ZoneScenery(Widget):
                               self._leaf(lx, ly, s, col)))
         # Pierres mousseuses (en tas). [recoltable: Pierre]
         for _ in range(rng.randint(6, 10)):
-            sx, sy, sc, t = place(1.0, fx=stone_pick(), mint=_HARVEST_MINT)
+            sx, sy, sc, t = place(1.0, fx=stone_pick(), floor=_HARVEST_FLOOR)
             r = rng.uniform(0.02, 0.05) * h * sc
             if not self._take_or_skip("Pierre"):
                 items.append((sy, lambda sx=sx, sy=sy, r=r:
                               self._stone(sx, sy, r)))
         # Branches au sol. [recoltable: Small_Stick]
         for _ in range(rng.randint(7, 11)):
-            bx, by, sc, t = place(1.0, mint=_HARVEST_MINT)
+            bx, by, sc, t = place(1.0, floor=_HARVEST_FLOOR)
             ln = rng.uniform(0.06, 0.13) * w * sc
             if not self._take_or_skip("Small_Stick"):
                 items.append((by - 0.12 * h, lambda bx=bx, by=by, ln=ln:
@@ -437,7 +440,7 @@ class ZoneScenery(Widget):
         # Champignons. [recoltable: Champignon]
         if rng.random() < 0.8:
             for _ in range(rng.randint(4, 8)):
-                mx, my, sc, t = place(1.0, fx=mush_pick(), mint=_HARVEST_MINT)
+                mx, my, sc, t = place(1.0, fx=mush_pick(), floor=_HARVEST_FLOOR)
                 s = rng.uniform(0.03, 0.05) * h * sc
                 cap = rng.choice([(0.62, 0.30, 0.18, 1), (0.80, 0.78, 0.62, 1)])
                 if not self._take_or_skip("Champignon"):
@@ -701,12 +704,16 @@ class ZoneScenery(Widget):
                          + 0.030 * math.sin(fx * 6.28 * 1.1 + p1 + 1.0)
                          + 0.014 * math.sin(fx * 6.28 * 2.5 + p2)) * h
 
-        def place(maxt=1.0, fx=None, mint=0.0):
+        def place(maxt=1.0, fx=None, floor=0.0):
             if fx is None:
                 fx = rng.uniform(0, 1)
             fx = min(0.999, max(0.001, fx))
             surf = (field_curve(fx) - y0) / h         # sommet du sol a cet x
-            fy = surf * (mint + (maxt - mint) * rng.random())  # base sur le sol
+            lo = min(floor, surf)              # plancher (jointures des mains)
+            hi = surf * maxt
+            if hi < lo:
+                hi = lo
+            fy = lo + (hi - lo) * rng.random()
             t = (fy / surf) if surf else 0.0
             return (x0 + fx * w, y0 + fy * h, 1.0 - 0.70 * t, t)
 
@@ -754,13 +761,13 @@ class ZoneScenery(Widget):
         items = []   # (y_base, fonction)
 
         for _ in range(rng.randint(9, 13)):            # pierres (en tas) [Pierre]
-            sx, sy, sc, t = place(1.0, fx=stone_pick(), mint=_HARVEST_MINT)
+            sx, sy, sc, t = place(1.0, fx=stone_pick(), floor=_HARVEST_FLOOR)
             r = rng.uniform(0.018, 0.045) * h * sc
             if not self._take_or_skip("Pierre"):
                 items.append((sy, lambda sx=sx, sy=sy, r=r:
                               self._stone(sx, sy, r)))
         for _ in range(rng.randint(6, 9)):             # branches [Small_Stick]
-            bx, by, sc, t = place(1.0, mint=_HARVEST_MINT)
+            bx, by, sc, t = place(1.0, floor=_HARVEST_FLOOR)
             ln = rng.uniform(0.06, 0.12) * w * sc
             # Un baton repose SUR l'herbe locale : on le rapproche (biais) pour
             # qu'il soit dessine par-dessus l'herbe de sa profondeur. Seule
@@ -777,7 +784,7 @@ class ZoneScenery(Widget):
                           self._bush(bx, by, r, col)))
         for _ in range(105):                           # gazon (en touffes) [Herbe]
             fx = grass_pick() if rng.random() < 0.72 else None  # amas + un peu partout
-            gx, gb, sc, t = place(fx=fx, mint=_HARVEST_MINT)
+            gx, gb, sc, t = place(fx=fx, floor=_HARVEST_FLOOR)
             gh = rng.uniform(0.05, 0.16) * h * sc
             fcol = rng.choice(flowers) if rng.random() < 0.10 else None
             fr = max(1.5, w * 0.004 * sc)
@@ -813,7 +820,7 @@ class ZoneScenery(Widget):
                               self._wheat(ex, eb, ht, sc)))
         if rng.random() < 0.6:                         # champignons [Champignon]
             for _ in range(rng.randint(5, 9)):
-                mx, my, sc, t = place(1.0, fx=mush_pick(), mint=_HARVEST_MINT)
+                mx, my, sc, t = place(1.0, fx=mush_pick(), floor=_HARVEST_FLOOR)
                 s = rng.uniform(0.03, 0.05) * h * sc
                 cap = rng.choice([(0.80, 0.22, 0.20, 1), (0.72, 0.50, 0.30, 1)])
                 if not self._take_or_skip("Champignon"):
@@ -821,7 +828,7 @@ class ZoneScenery(Widget):
                                   self._mushroom(mx, my, s, cap)))
         if rng.random() < 0.5:                         # baies (buissons) [Baie]
             for _ in range(rng.randint(3, 6)):
-                bx, by, sc, t = place(1.0, fx=berry_pick(), mint=_HARVEST_MINT)
+                bx, by, sc, t = place(1.0, fx=berry_pick(), floor=_HARVEST_FLOOR)
                 r = rng.uniform(0.03, 0.045) * h * sc
                 if not self._take_or_skip("Baie"):
                     items.append((by, lambda bx=bx, by=by, r=r:
@@ -850,7 +857,7 @@ class ZoneScenery(Widget):
             fx = rng.uniform(0, 1)
             sx = x0 + fx * w
             top = (surf(fx) - y0) / h
-            lo = max(0.05, top * _HARVEST_MINT)
+            lo = min(_HARVEST_FLOOR, top - 0.05)   # plancher (jointures)
             hi = max(lo + 0.02, top - 0.05)
             sy = y0 + rng.uniform(lo, hi) * h
             rr = rng.uniform(0.015, 0.05) * h
@@ -871,11 +878,11 @@ class ZoneScenery(Widget):
             sx = x0 + rng.uniform(0, 1) * w
             self._grass_tuft(sx, y0 + rng.uniform(0.03, 0.18) * h,
                              rng.uniform(0.03, 0.06) * h, (0.22, 0.34, 0.16, 1))
-        # Gros rochers (un peu remontes vers le centre). [recoltable: Pierre]
+        # Gros rochers (a partir des jointures, vers le haut). [recoltable: Pierre]
         for _ in range(5):
             rx = x0 + rng.uniform(0, 1) * w
             rr = rng.uniform(0.05, 0.09) * h
-            ry = y0 + rng.uniform(0.06, 0.18) * h
+            ry = y0 + rng.uniform(_HARVEST_FLOOR, 0.34) * h
             if not self._take_or_skip("Pierre"):
                 Color(0.38, 0.37, 0.43, 1)
                 Ellipse(pos=(rx - rr, ry), size=(rr * 2.4, rr * 1.8))
@@ -896,19 +903,20 @@ class ZoneScenery(Widget):
             lx = x0 + rng.uniform(0, 0.6) * w
             Line(points=[lx, ly, lx + rng.uniform(0.2, 0.45) * w, ly],
                  width=1.4)
-        # Rive proche (premier plan) + galets. [recoltable: Pierre]
+        # Rive proche (premier plan). Les galets recoltables sont remontes a
+        # partir des jointures (rien en bas). [recoltable: Pierre]
         self._trect("sand", x0, y0, w, 0.12 * h)
         for _ in range(12):
             rx = x0 + rng.uniform(0, 1) * w
-            ry = y0 + rng.uniform(0.0, 0.10) * h
+            ry = y0 + rng.uniform(_HARVEST_FLOOR, 0.28) * h
             rr = rng.uniform(0.012, 0.03) * h
             if not self._take_or_skip("Pierre"):
                 Color(0.42, 0.40, 0.32, 1)
                 Ellipse(pos=(rx - rr, ry), size=(rr * 2.4, rr * 1.4))
-        # Roseaux le long du bord (remplissent les bords). [recoltable: Roseau]
+        # Roseaux (remontes a partir des jointures). [recoltable: Roseau]
         for _ in range(34):
             gx = x0 + rng.uniform(0, 1) * w
-            gb = y0 + rng.uniform(0.06, 0.16) * h
+            gb = y0 + rng.uniform(_HARVEST_FLOOR, 0.30) * h
             gh = rng.uniform(0.08, 0.22) * h
             if not self._take_or_skip("Roseau"):
                 self._grass_tuft(gx, gb, gh, (0.18, 0.38, 0.20, 1))
