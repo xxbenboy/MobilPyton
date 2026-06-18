@@ -23,9 +23,11 @@ from src.widgets.textures import paint, paint_color, tiled_coords
 
 _ZONE_SEED = {"Foret": 1, "Plaine": 2, "Montagne": 3, "Lac": 4}
 
-# Objets recoltes par "lots" : se recoltent en N fois, chaque recolte retirant
-# environ 1/N des elements visibles (le reste se retire 1 par 1).
-_HARVEST_BATCH = {"Herbe": 5, "Feuille": 3}
+# Nombre d'objets RECOLTABLES (disponibles) par type et par case : petit nombre
+# aleatoire (comme avant). Chaque recolte retire du DECOR une part egale du
+# nombre d'objets visibles (ex. 9 visibles / 3 disponibles -> 3 retires/recolte).
+_AVAIL_MIN = 2
+_AVAIL_MAX = 5
 
 
 class ZoneScenery(Widget):
@@ -40,6 +42,7 @@ class ZoneScenery(Widget):
         self._taken = {}
         self._ord = {}
         self._harvest_total = {}
+        self._avail = {}            # {nom: nb recoltable} (aleatoire, par case)
         self.harvest_total = {}     # {nom: total visible dans la scene}
         self.harvest_max = {}       # {nom: nombre de recoltes possibles}
         # Eclairage par cartes de normales : actif seulement si des cartes
@@ -77,17 +80,25 @@ class ZoneScenery(Widget):
         self._taken = dict(taken or {})
         self._redraw()
 
+    def _avail_for(self, name):
+        """Nombre d'objets de ce type RECOLTABLES sur la case (petit, aleatoire
+        mais stable pour une case donnee)."""
+        if name not in self._avail:
+            rng = random.Random(f"{self._seed}:{self._zone}:{name}:avail")
+            self._avail[name] = rng.randint(_AVAIL_MIN, _AVAIL_MAX)
+        return self._avail[name]
+
     def _take_or_skip(self, name):
         """Compte un objet recoltable et dit s'il faut le MASQUER (deja recolte).
-        A appeler pour CHAQUE objet recoltable lors de la construction."""
+        A appeler pour CHAQUE objet recoltable lors de la construction.
+
+        Chaque recolte retire une PART EGALE des objets visibles : avec `avail`
+        recoltes possibles, la k-ieme recolte a masque ~k/avail des objets."""
         i = self._ord.get(name, 0)
         self._ord[name] = i + 1
         self._harvest_total[name] = self._ord[name]
         taken = self._taken.get(name, 0)
-        batch = _HARVEST_BATCH.get(name)
-        if batch:
-            return (i % batch) < taken      # retire ~1/batch par recolte
-        return i < taken                    # retire les `taken` premiers
+        return (i % self._avail_for(name)) < taken
 
     def set_ground(self, zone_type, seed=0):
         """Vue VERS LE BAS : on regarde le sol, qui remplit tout l'ecran."""
@@ -104,6 +115,7 @@ class ZoneScenery(Widget):
         # Reinitialise le comptage des objets recoltables pour cette passe.
         self._ord = {}
         self._harvest_total = {}
+        self._avail = {}
         rng = random.Random(_ZONE_SEED.get(self._zone, 0) * 100000 + self._seed)
         with self.canvas:
             self._reset_pbr()        # cartes neutres par defaut (unites 1 et 2)
@@ -116,11 +128,11 @@ class ZoneScenery(Widget):
                     "Montagne": self._montagne,
                     "Lac": self._lac,
                 }.get(self._zone, self._foret)(rng)
-        # Totaux visibles + nombre de recoltes possibles (budget) par objet.
+        # Totaux visibles + nombre de recoltes possibles par objet : on ne peut
+        # pas recolter plus de fois qu'il n'y a d'objets visibles.
         self.harvest_total = dict(self._harvest_total)
-        self.harvest_max = {
-            n: (min(_HARVEST_BATCH[n], t) if n in _HARVEST_BATCH else t)
-            for n, t in self.harvest_total.items() if t > 0}
+        self.harvest_max = {n: min(self._avail_for(n), t)
+                            for n, t in self.harvest_total.items() if t > 0}
 
     # -- helpers textures (surface plane texturee, sinon couleur de repli) - #
     def _trect(self, name, x, y, w, h, tile_px=None):
