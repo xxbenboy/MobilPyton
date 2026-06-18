@@ -54,6 +54,21 @@ def _clamp01(v):
     return max(0.0, min(1.0, v))
 
 
+def sky_luminance(seconds):
+    """Luminosite (0..1) de la couleur du ciel a cette heure."""
+    c = sky_color(seconds)
+    return 0.3 * c[0] + 0.6 * c[1] + 0.1 * c[2]
+
+
+def night_darkness(seconds, max_dark=0.62):
+    """Opacite d'un voile sombre a poser sur le decor selon l'heure.
+
+    0 en plein jour, jusqu'a `max_dark` en pleine nuit. Suit la luminosite du
+    ciel : l'assombrissement est donc progressif au crepuscule et a l'aube."""
+    d = (0.52 - sky_luminance(seconds)) / 0.45
+    return max(0.0, min(max_dark, d * max_dark))
+
+
 class AnimatedBackground(Widget):
     def __init__(self, start_seconds=6 * 3600, time_scale=0.0, stars=28,
                  **kwargs):

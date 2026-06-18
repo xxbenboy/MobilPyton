@@ -27,7 +27,7 @@ from kivy.graphics import Color, Rectangle, RoundedRectangle
 from kivy.metrics import dp
 
 from src.game_state import _clamp100
-from src.widgets.animated_background import AnimatedBackground
+from src.widgets.animated_background import AnimatedBackground, night_darkness
 from src.widgets.zone_scenery import ZoneScenery
 
 from src import items
@@ -213,6 +213,19 @@ class GameScreen(Screen):
         # Mains du joueur (vue 1re personne), devant le decor.
         self.hands = PlayerHands(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.hands)
+
+        # Voile de NUIT : assombrit tout le decor (ciel, sol, mains) selon
+        # l'heure, SANS toucher le HUD (ajoute APRES, donc par-dessus ce voile).
+        self.night = Widget(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        with self.night.canvas:
+            self._night_color = Color(0.03, 0.05, 0.12, 0.0)   # bleu nuit
+            self._night_rect = Rectangle(pos=self.night.pos, size=self.night.size)
+
+        def _sync_night(*_):
+            self._night_rect.pos = self.night.pos
+            self._night_rect.size = self.night.size
+        self.night.bind(pos=_sync_night, size=_sync_night)
+        root.add_widget(self.night)
 
         # ---- Section ZONE (haut centre) ----
         zone_box = BoxLayout(orientation="vertical", padding=dp(10), spacing=4,
@@ -806,6 +819,8 @@ class GameScreen(Screen):
         self.move_btn.disabled = self._ff_active
 
         self.background.set_seconds(state.time_seconds)
+        # Assombrit le decor selon l'heure (voile de nuit).
+        self._night_color.a = night_darkness(state.time_seconds)
         key = (zone, state.player_x, state.player_y)
         if key != self._scene_key:
             self.scenery.set_scene(zone, state.player_x * 131 + state.player_y)
