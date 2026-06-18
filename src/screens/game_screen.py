@@ -346,11 +346,21 @@ class GameScreen(Screen):
             self.drop_btns.append(db)
 
         # ---- Bouton DEPLACER (bas a droite, a gauche du Menu) ----
-        self.move_btn = scale_font(StyledButton(text="Deplacer",
-                        size_hint=(0.12, 0.09),
-                        pos_hint={"right": 0.92, "y": 0.02}), 0.022)
+        # Meme style que Carte/Menu : un logo + le nom dessous.
+        move_cell = BoxLayout(orientation="vertical", spacing=2,
+                              size_hint=(0.06, 0.16),
+                              pos_hint={"right": 0.93, "y": 0.012})
+        move_area = AnchorLayout(size_hint=(1, 0.66))
+        self.move_btn = IconButton(icon="move", size_hint=(None, None))
+        def _move_square(a, *_):
+            s = a.height * 0.94
+            self.move_btn.size = (s, s)
+        move_area.bind(size=_move_square)
         self.move_btn.bind(on_release=self._open_move_menu)
-        root.add_widget(self.move_btn)
+        move_area.add_widget(self.move_btn)
+        move_cell.add_widget(move_area)
+        move_cell.add_widget(_button_label("Deplacer"))
+        root.add_widget(move_cell)
         self._move_menu = None      # overlay du menu de deplacement (ou None)
 
         self.add_widget(root)

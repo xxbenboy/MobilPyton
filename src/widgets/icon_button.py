@@ -136,9 +136,24 @@ def _bolt(cx, cy, s):                                # eclair (energie)
          width=max(1.6, s * 0.17), joint="miter")
 
 
+def _move(cx, cy, s):                                # fleches 4 directions
+    Color(0.90, 0.90, 0.95, 1)
+    t = s * 0.42
+    Triangle(points=[cx, cy + s * 0.92, cx - t, cy + s * 0.42,
+                     cx + t, cy + s * 0.42])          # haut
+    Triangle(points=[cx, cy - s * 0.92, cx - t, cy - s * 0.42,
+                     cx + t, cy - s * 0.42])          # bas
+    Triangle(points=[cx - s * 0.92, cy, cx - s * 0.42, cy - t,
+                     cx - s * 0.42, cy + t])          # gauche
+    Triangle(points=[cx + s * 0.92, cy, cx + s * 0.42, cy - t,
+                     cx + s * 0.42, cy + t])          # droite
+    Rectangle(pos=(cx - s * 0.17, cy - s * 0.17),
+              size=(s * 0.34, s * 0.34))              # moyeu central
+
+
 ICONS = {"explore": _explore, "wood": _wood, "food": _food, "drink": _drink,
          "fill": _fill, "rest": _rest, "map": _map, "home": _home,
-         "craft": _craft,
+         "craft": _craft, "move": _move,
          # Logos des stats (section "Etat"). On reutilise certains logos
          # existants (pomme=faim, goutte=soif, Zzz=sommeil) et on ajoute le
          # coeur (vie) et l'eclair (energie).
