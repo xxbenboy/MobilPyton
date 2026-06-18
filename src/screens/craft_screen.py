@@ -145,12 +145,22 @@ class CraftScreen(Screen):
             row = BoxLayout(orientation="horizontal", spacing=dp(6),
                             size_hint_y=None, height=dh(140))
             row.add_widget(ItemIcon(name, count, size_hint_x=0.24))
+            lbl = Label(text="À proximité", halign="left", valign="middle",
+                        size_hint_x=0.38, color=(0.96, 0.82, 0.45, 1))
+            lbl.bind(size=lambda w, *_: (
+                setattr(w, "font_size", max(8, w.height * 0.4)),
+                setattr(w, "text_size", (w.width, None))))
+            row.add_widget(lbl)
+            # Deux boutons 2x moins larges : ensemble ils occupent la place d'un
+            # seul bouton. Desactives si la main est occupee ou si l'objet ne
+            # peut pas etre tenu en main.
+            hand_ok = items.is_hand_collectable(name)
             for hand_idx, text in ((0, "Prendre\nmain gauche"),
                                    (1, "Prendre\nmain droite")):
-                take = StyledButton(text=text, halign="center", size_hint_x=0.38,
+                take = StyledButton(text=text, halign="center", size_hint_x=0.19,
                                     bold=True)
                 take.bind(size=_btn_font)
-                take.disabled = state.hands[hand_idx] is not None
+                take.disabled = (state.hands[hand_idx] is not None) or not hand_ok
                 take.bind(on_release=lambda _w, n=name, h=hand_idx:
                           self._take(n, h))
                 row.add_widget(take)

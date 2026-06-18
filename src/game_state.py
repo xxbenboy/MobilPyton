@@ -265,6 +265,26 @@ class GameState:
         self.add_ground(item)
         return False
 
+    def auto_take(self, item):
+        """Range un objet trouve apres exploration.
+
+        - Objet non ramassable a la main -> directement AU SOL.
+        - Sinon : main DROITE en priorite, puis main GAUCHE ; si les deux sont
+          pleines (cas limite), au sol.
+        Renvoie l'indice de la main (0=gauche, 1=droite) ou None si pose au sol.
+        """
+        if not items.is_hand_collectable(item):
+            self.add_ground(item)
+            return None
+        if self.hands[1] is None:
+            self.hands[1] = item
+            return 1
+        if self.hands[0] is None:
+            self.hands[0] = item
+            return 0
+        self.add_ground(item)
+        return None
+
     def craft_pool(self):
         """Objets disponibles pour le craft = mains + sol de la case."""
         pool = {}

@@ -31,6 +31,7 @@ from src.widgets.zone_scenery import ZoneScenery
 from src import items
 from src.widgets.player_hands import PlayerHands
 from src.widgets.icon_button import IconButton
+from src.widgets.styled_button import StyledButton
 from src.widgets.item_icon import ItemIcon
 from src.widgets.stat_circle import StatCircle
 from src.widgets.responsive import scale_font
@@ -67,6 +68,10 @@ def _action_available(state, action):
     if action.get("type") == "fill":
         # Remplir la gourde : seulement a un ruisseau.
         return state.has_water_source()
+    if action.get("type") == "explore" and state.hands_full():
+        # Explorer : interdit si les deux mains sont pleines (l'objet trouve
+        # doit pouvoir aller dans une main).
+        return False
     return True
 
 
@@ -289,6 +294,17 @@ class GameScreen(Screen):
         menu_cell.add_widget(_button_label("Menu"))
         root.add_widget(menu_cell)
 
+        # ---- Boutons "Deposer" (bas, vis-a-vis de chaque main) ----
+        # Permettent de poser l'objet tenu sans passer par le menu Craft.
+        # Masques quand la main est vide (gere dans refresh()).
+        self.drop_btns = []
+        for slot, cx in ((0, 0.31), (1, 0.69)):     # 0=gauche, 1=droite
+            db = scale_font(StyledButton(text="Deposer", size_hint=(0.13, 0.07),
+                            pos_hint={"center_x": cx, "y": 0.015}), 0.02)
+            db.bind(on_release=lambda _w, s=slot: self._drop_hand(s))
+            root.add_widget(db)
+            self.drop_btns.append(db)
+
         self.add_widget(root)
 
     # ------------------------------------------------------------------ #
@@ -374,18 +390,19 @@ class GameScreen(Screen):
         if self._found_item:
             item = self._found_item
             self._found_item = None
-            # L'objet trouve est automatiquement depose a proximite (au sol).
-            App.get_running_app().game_state.add_ground(item)
-            self._show_find_toast(item)
+            # L'objet trouve va dans une main (droite en priorite) ; s'il n'est
+            # pas ramassable a la main, il reste au sol.
+            dest = App.get_running_app().game_state.auto_take(item)
+            self._show_find_toast(item, dest)
         elif self._did_explore:
             # Exploration sans resultat : la case n'a plus rien a offrir.
             self._show_find_toast(None)
         self._did_explore = False
         App.get_running_app().autosave()
 
-    def _show_find_toast(self, item):
+    def _show_find_toast(self, item, dest=None):
         """Message bref (1 s puis fondu). Si `item` est fourni : montre l'objet
-        trouve, deja depose a proximite. Si None : la case est epuisee."""
+        trouve (en main si `dest` est 0/1, sinon au sol). Si None : case epuisee."""
         # On enleve un eventuel message precedent.
         if self._toast is not None and self._toast.parent:
             self._toast.parent.remove_widget(self._toast)
@@ -396,8 +413,8 @@ class GameScreen(Screen):
         _add_panel(toast, alpha=0.6)
         if item:
             toast.add_widget(ItemIcon(item, size_hint=(1, 0.66)))
-            text = ("Trouve : " + items.display_name(item)
-                    + "\n(depose a proximite)")
+            place = "(au sol)" if dest is None else "(dans la main)"
+            text = "Trouve : " + items.display_name(item) + "\n" + place
         else:
             text = "Tu ne trouves\nplus rien ici."
         msg = scale_font(Label(
@@ -423,6 +440,15 @@ class GameScreen(Screen):
         anim.bind(on_complete=_remove)
         anim.start(toast)
         self.refresh()
+
+    def _drop_hand(self, slot):
+        """Depose au sol l'objet tenu dans la main donnee (0=gauche, 1=droite)."""
+        state = App.get_running_app().game_state
+        if state is None or self._ff_active:
+            return
+        if state.drop_from_hands(slot):
+            App.get_running_app().autosave()
+            self.refresh()
 
     def back_to_menu(self, *_):
         App.get_running_app().autosave()
@@ -450,6 +476,13 @@ class GameScreen(Screen):
 
         # Objets tenus -> affiches dans les mains du joueur (1re personne).
         self.hands.set_items(state.hands[0], state.hands[1])
+
+        # Boutons "Deposer" : visibles seulement si la main correspondante tient
+        # un objet (et inactifs pendant une avance rapide).
+        for slot, db in enumerate(self.drop_btns):
+            occupied = state.hands[slot] is not None
+            db.opacity = 1 if occupied else 0
+            db.disabled = (not occupied) or self._ff_active
 
         # Boutons : tout verrouille en avance rapide ; sinon selon la zone /
         # l'etat (dormir, boire, remplir la gourde).

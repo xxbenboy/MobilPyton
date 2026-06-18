@@ -26,6 +26,17 @@ def display_name(name):
     return name.replace("_", " ").capitalize()
 
 
+# Objets qui ne peuvent PAS etre tenus en main : quand on les trouve ils
+# restent AU SOL, et on ne peut pas les ramasser dans la main. (Vide pour
+# l'instant : tous les objets sont ramassables. A completer plus tard.)
+GROUND_ONLY = set()
+
+
+def is_hand_collectable(name):
+    """Vrai si l'objet peut etre pris en main (faux = reste au sol)."""
+    return name not in GROUND_ONLY
+
+
 # Objets trouvables par type de zone : (nom, poids).
 # Le POIDS = rarete relative. Plus il est grand, plus l'objet est frequent.
 # Ex : une Small_Stick ou une Pierre (poids eleve) sont communes ; une Carcasse
