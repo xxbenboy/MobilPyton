@@ -20,11 +20,11 @@ class ClockFace(Widget):
         self._anim = None
         self.bind(pos=self._redraw, size=self._redraw, angle=self._redraw)
 
-    def start(self):
-        """Lance la rotation continue de l'aiguille des minutes."""
+    def start(self, duration=2.9):
+        """Fait faire UN tour complet a l'aiguille des minutes sur `duration`
+        secondes (se termine juste avant la fin de la transition)."""
         self.stop()
-        self._anim = Animation(angle=360, duration=1.6)
-        self._anim.repeat = True
+        self._anim = Animation(angle=360, duration=duration)
         self._anim.start(self)
 
     def stop(self):
