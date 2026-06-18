@@ -135,6 +135,34 @@ def _button_label(text):
     return lbl
 
 
+def _fit_text_to_height(lbl, fill=0.92):
+    """Agrandit le texte d'un Label pour REMPLIR la hauteur de son conteneur
+    (selon le nombre de lignes), sans depasser sa largeur. Texte centre.
+
+    Permet d'avoir un texte aussi GROS que possible dans une fenetre de taille
+    fixe (la police est limitee par la hauteur, ou par la largeur si une ligne
+    est trop longue)."""
+    def _fit(*_):
+        if lbl.width <= 1 or lbl.height <= 1:
+            return
+        lines = (lbl.text or "").count("\n") + 1
+        bw, bh = lbl.width, lbl.height
+        # Candidat base sur la hauteur disponible.
+        font = max(8, bh * fill / lines)
+        lbl.text_size = (None, None)
+        lbl.font_size = font
+        lbl.texture_update()
+        tw = lbl.texture_size[0]
+        # Si une ligne deborde en largeur, on reduit pour qu'elle tienne.
+        if tw > bw * 0.98:
+            font = max(8, font * (bw * 0.98) / tw)
+            lbl.font_size = font
+        # Centre les lignes horizontalement (la police tient deja en largeur).
+        lbl.text_size = (bw, None)
+    lbl.bind(size=_fit, text=_fit)
+    return lbl
+
+
 class GameScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -417,13 +445,13 @@ class GameScreen(Screen):
         if self._toast is not None and self._toast.parent:
             self._toast.parent.remove_widget(self._toast)
 
-        toast = BoxLayout(orientation="vertical", padding=dp(12),
+        toast = BoxLayout(orientation="vertical", padding=dp(6),
                           size_hint=(0.30, 0.16),
-                          pos_hint={"center_x": 0.5, "top": 0.97})
+                          pos_hint={"center_x": 0.5, "top": 0.81})
         _add_panel(toast, alpha=0.6)
-        msg = scale_font(Label(text=text, halign="center", valign="middle",
-                         color=(1, 1, 1, 1), size_hint=(1, 1)), 0.02)
-        msg.bind(size=lambda w, *_: setattr(w, "text_size", (w.width, w.height)))
+        msg = Label(text=text, halign="center", valign="middle",
+                    color=(1, 1, 1, 1), size_hint=(1, 1))
+        _fit_text_to_height(msg)
         toast.add_widget(msg)
         self.root_layout.add_widget(toast)
         self._toast = toast
