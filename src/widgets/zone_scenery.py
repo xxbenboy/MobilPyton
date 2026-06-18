@@ -29,10 +29,11 @@ _ZONE_SEED = {"Foret": 1, "Plaine": 2, "Montagne": 3, "Lac": 4}
 _AVAIL_MIN = 2
 _AVAIL_MAX = 5
 
-# Biais VERTICAL des objets recoltables : ils sont places dans la partie HAUTE
-# du sol (vers le centre de l'ecran) plutot que tout en bas. 0 = tout en bas
-# possible, 1 = uniquement a l'horizon. ~0.4 -> moitie haute du sol.
-_HARVEST_MINT = 0.4
+# Biais VERTICAL des objets recoltables : ils sont repartis du MILIEU jusqu'au
+# HAUT du terrain (vers le centre / haut de l'ecran), en evitant le bas de
+# l'ecran (et jamais dans le ciel, le placement restant sur le sol). 0 = tout
+# en bas possible, 1 = uniquement a l'horizon. ~0.18 -> on exclut juste le bas.
+_HARVEST_MINT = 0.18
 
 
 class ZoneScenery(Widget):
