@@ -487,8 +487,8 @@ class GameScreen(Screen):
             self._show_message(reason)
             return
         atype = action.get("type")
-        # Verifier si la zone est epuisee AVANT de lancer l'exploration
-        if atype == "explore" and not state.can_find():
+        # Plus rien a trouver si plus aucun objet recoltable n'est visible.
+        if atype == "explore" and not self._can_find():
             self._show_find_toast(None)
             return
         # Eau : remplir la gourde au ruisseau ; boire consomme la gourde sauf
@@ -498,9 +498,9 @@ class GameScreen(Screen):
         elif atype == "drink" and not state.has_water_source():
             state.water = max(0, state.water - 1)
         elif atype == "explore":
-            # Trouvaille ponderee par la rarete ; None si la case est epuisee
-            # (stock de 5 a 15 trouvailles par case). Affiche a la fin du trajet.
-            self._found_item = state.try_find()
+            # On recolte un objet VISIBLE au hasard (et on le retire du decor).
+            state.reveal_zone(state.player_x, state.player_y)
+            self._found_item = self._explore_find()
             self._did_explore = True
 
         state.health = _clamp100(state.health + action.get("health", 0))
@@ -616,6 +616,39 @@ class GameScreen(Screen):
         if state.drop_from_hands(slot):
             App.get_running_app().autosave()
             self.refresh()
+
+    # ------------------------------------------------------------------ #
+    # Recolte (exploration) : basee sur les objets VISIBLES de la scene
+    # ------------------------------------------------------------------ #
+    def _remaining_harvest(self, state):
+        """{nom: nombre de recoltes restantes} pour la case actuelle."""
+        taken = state.harvested_here()
+        rem = {}
+        for name, mx in self.scenery.harvest_max.items():
+            left = mx - taken.get(name, 0)
+            if left > 0:
+                rem[name] = left
+        return rem
+
+    def _can_find(self):
+        state = App.get_running_app().game_state
+        return bool(self._remaining_harvest(state))
+
+    def _explore_find(self):
+        """Choisit au hasard un objet recoltable visible, le retire de la scene
+        et renvoie son nom (ou None s'il n'y a plus rien)."""
+        import random as _random
+        state = App.get_running_app().game_state
+        rem = self._remaining_harvest(state)
+        if not rem:
+            return None
+        names = list(rem.keys())
+        weights = list(rem.values())
+        name = _random.choices(names, weights=weights, k=1)[0]
+        taken = state.harvested_here()
+        taken[name] = taken.get(name, 0) + 1
+        self.scenery.set_taken(taken)       # retire l'objet du decor
+        return name
 
     # ------------------------------------------------------------------ #
     # Carte
@@ -916,7 +949,9 @@ class GameScreen(Screen):
         self._night_color.a = night_darkness(state.time_seconds)
         key = (zone, state.player_x, state.player_y)
         if key != self._scene_key:
-            self.scenery.set_scene(zone, state.player_x * 131 + state.player_y)
+            # On passe les objets deja recoltes pour masquer ceux pris ici.
+            self.scenery.set_scene(zone, state.player_x * 131 + state.player_y,
+                                   taken=state.harvested_here())
             self._scene_key = key
 
     def _periodic_autosave(self, _dt):

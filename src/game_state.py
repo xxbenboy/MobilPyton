@@ -58,7 +58,7 @@ class GameState:
     def __init__(self, seed, name="Partie", difficulty="Moyen", time_seconds=0,
                  health=100, energy=100, sleep=100, hunger=0, thirst=0,
                  wood=0, food=0, water=0, action_count=0,
-                 hands=None, ground=None, explores=None,
+                 hands=None, ground=None, explores=None, harvested=None,
                  log=None, player_x=None, player_y=None, revealed=None):
         self.seed = seed
         self.name = name
@@ -80,6 +80,9 @@ class GameState:
                       raw[1] if len(raw) > 1 else None]
         self.ground = ground if ground else {}      # {"x,y": {objet: nombre}}
         self.explores = explores if explores else {}  # {"x,y": nb trouvailles}
+        # Objets recoltes par case : {"x,y": {nom: nombre}} -> sert a masquer
+        # les objets recoltes dans la scene (coherence decor/recolte).
+        self.harvested = harvested if harvested else {}
         self.revealed = set(revealed) if revealed else set()  # {"x,y", ...} zones revelees
         self.action_count = action_count
         self.log = log if log is not None else []
@@ -180,6 +183,10 @@ class GameState:
     def ground_here(self):
         """Objets au sol sur la case actuelle : {objet: nombre}."""
         return self.ground.get(self._cell_key(), {})
+
+    def harvested_here(self):
+        """Objets deja recoltes sur la case actuelle : {nom: nombre}."""
+        return self.harvested.setdefault(self._cell_key(), {})
 
     # --- Trouvailles a proximite (stock limite par case) --------------- #
     def find_budget(self, x=None, y=None):
@@ -363,6 +370,7 @@ class GameState:
             "hands": self.hands,
             "ground": self.ground,
             "explores": self.explores,
+            "harvested": self.harvested,
             "revealed": list(self.revealed),
             "action_count": self.action_count,
             "log": self.log,
@@ -393,6 +401,7 @@ class GameState:
             hands=data.get("hands"),
             ground=data.get("ground"),
             explores=data.get("explores"),
+            harvested=data.get("harvested"),
             revealed=data.get("revealed", []),
             action_count=data.get("action_count", 0),
             log=data.get("log", []),
