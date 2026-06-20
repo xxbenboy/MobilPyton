@@ -1,37 +1,71 @@
 IMAGES DU PERSONNAGE (Character)
 ================================
 
-Depose ici les images du joueur en vue 1re personne : les MAINS et les
-AVANT-BRAS visibles en bas de l'ecran. Le jeu cherche automatiquement
-un fichier nomme d'apres l'element :
+Depose ici les images du joueur en vue 1re personne : les MAINS, les DOIGTS,
+les POUCES et les AVANT-BRAS. Le jeu cherche automatiquement un fichier
+nomme d'apres la piece :
 
     assets/Character/<nom>.png      (ou .jpg / .jpeg)
 
-Tant qu'aucune image n'existe, le jeu dessine la main/le bras par defaut
-(au canvas, avec texture de peau).
+Tant qu'aucune image n'existe pour une piece, le jeu la dessine au canvas
+par defaut. Tu peux donc ajouter les images une par une.
+
+----------------------------------------------------------------
+PRINCIPE : UNE SEULE MAIN A FOURNIR (la GAUCHE)
+----------------------------------------------------------------
+Toutes les images sont concues pour la MAIN GAUCHE (avec l'artwork
+positionne a GAUCHE du canvas, le reste transparent). Le code FLIPPE
+automatiquement l'image en horizontal pour faire la main DROITE.
+=> Tu n'as donc qu'a generer 14 images (7 cote main + 7 cote paume),
+   pas 28.
 
 ----------------------------------------------------------------
 NOMS DE FICHIERS ATTENDUS (exactement, en minuscules)
 ----------------------------------------------------------------
-    hand_left.png    -> Main GAUCHE (paume + 4 doigts + pouce a droite)
-    hand_right.png   -> Main DROITE (miroir : pouce a gauche)
-    arm_left.png     -> Avant-bras GAUCHE
-    arm_right.png    -> Avant-bras DROIT
+
+--- COTE MAIN (vue actuelle paume vers le haut) ----------------
+    hand.png            -> Corps de la main (paume + pouce + poignet)
+    avant_hand.png      -> Avant-bras (supination)
+    doigt1.png          -> Phalange PROXIMALE (base) d'un doigt
+    doigt2.png          -> Phalange MOYENNE
+    doigt3.png          -> Phalange DISTALE (bout, avec pulpe)
+    pouce1.png          -> Phalange PROXIMALE du pouce
+    pouce2.png          -> Phalange DISTALE du pouce
+
+--- COTE PAUME (vue dos de main, pour usage futur) -------------
+    backhand.png        -> Dos de la main
+    avant_backhand.png  -> Avant-bras (pronation)
+    backdoigt1.png      -> Phalange proximale (dos)
+    backdoigt2.png      -> Phalange moyenne (dos)
+    backdoigt3.png      -> Phalange distale (dos, avec ongle)
+    backpouce1.png      -> Phalange proximale du pouce (dos)
+    backpouce2.png      -> Phalange distale du pouce (dos, avec ongle)
+
+Pour l'instant le jeu n'affiche que la vue COTE MAIN ; les images
+"back*" sont la pour quand on ajoutera la vue dos de main.
+
+----------------------------------------------------------------
+REUTILISATION DES IMAGES (cote main)
+----------------------------------------------------------------
+- doigt1/2/3 sont les 3 phalanges d'UN doigt et sont REUTILISEES
+  pour les 4 doigts de chaque main : 8 doigts dessines, 3 images.
+  Seule la longueur de chaque doigt change.
+- pouce1/2 sont les 2 phalanges d'UN pouce, reutilisees pour les 2 pouces.
+- hand.png contient TOUTE la paume (corps + thenar + hypothenar + lignes) :
+  une seule image remplace tout le canvas decompose.
 
 ----------------------------------------------------------------
 CONSEILS
 ----------------------------------------------------------------
-- Format conseille :
-    hand_left/right.png  -> PNG ~512x384 (paysage), fond TRANSPARENT.
-    arm_left/right.png   -> PNG ~256x512 (portrait), fond TRANSPARENT.
-- Les mains sont vues d'EN HAUT (le joueur regarde devant lui).
-  Doigts vers le HAUT, poignet vers le BAS.
-- Reflets/ombres conseilles directement dans l'image (pas de relief 3D).
-- ATTENTION : les mains ont une legere ANIMATION (l'index/pouce se replient
-  quand le joueur tient un objet). Passer en image FIGE cette animation :
-  la main reste ouverte ou fermee selon l'image. Si tu veux 2 etats, dis-le
-  et on ajoutera "hand_left_grip.png" / "hand_right_grip.png".
+- Format conseille : PNG carre 256x256 ou 512x512, fond TRANSPARENT.
+  (Puissance de 2 = meilleures perfs sur Android.)
+- L'artwork doit etre POSITIONNE A GAUCHE du canvas (pas centre) : le
+  flip horizontal automatique pour la main droite suppose cette convention.
+- Vue depuis le joueur, paumes vers le haut : pouce vers l'EXTERIEUR de
+  l'ecran, auriculaire vers l'INTERIEUR.
+- Reflets / ombres directement dans l'image (le PBR n'est pas applique
+  aux images chargees).
 - Apres avoir ajoute des images : pousse le projet (envoyer-sur-github.bat)
   pour qu'elles soient incluses dans l'APK.
 
-Les mains sont gerees dans : src/widgets/player_hands.py
+Logique des mains : src/widgets/player_hands.py
