@@ -60,11 +60,16 @@ CHARACTER_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", "assets",
 _CHAR_TEX = {}
 
 # Multiplicateurs pour la TAILLE des images a l'ecran (ajustables a vue).
+# Tout est exprime en multiple de la dimension "naturelle" anatomique.
 HAND_H_MULT = 2.0             # hauteur image / hauteur paume (ph)
 HAND_OFFSET_Y = 0.0           # decalage vertical centre bbox (en x ph)
 FOREARM_H_MULT = 1.0          # hauteur image / hauteur forearm (hy - y0)
-DOIGT_H_MULT = 1.0            # hauteur image / hauteur phalange
-POUCE_H_MULT = 1.0            # hauteur image / hauteur phalange du pouce
+
+# Taille des doigts et pouces (1.0 = anatomique pur, > 1 = plus grand). La
+# valeur affecte AUSSI l'avance verticale entre phalanges (pour que les
+# phalanges ne se chevauchent pas).
+DOIGT_SIZE = 1.4
+POUCE_SIZE = 1.4
 
 
 def _char_texture(name):
@@ -437,12 +442,13 @@ class PlayerHands(Widget):
 
     def _doigt1(self, fx, cy, fw, total_len, side):
         """Phalange PROXIMALE (45 % du doigt, attachee a la paume).
-        Image doigt1.png si dispo, sinon canvas."""
-        seg_h = total_len * 0.45
+        Image doigt1.png si dispo, sinon canvas. La hauteur et l'avance
+        sont mises a l'echelle par DOIGT_SIZE pour eviter le chevauchement."""
+        seg_h = total_len * 0.45 * DOIGT_SIZE
         tex_data = _char_texture("doigt1")
         if tex_data[0] is not None:
-            _draw_char_image(tex_data, fx, cy + seg_h / 2,
-                             seg_h * DOIGT_H_MULT, flip_h=(side == 'R'))
+            _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
+                             flip_h=(side == 'R'))
             return cy + seg_h
         wb = fw * 1.00
         wt = fw * 0.88
@@ -450,13 +456,12 @@ class PlayerHands(Widget):
         return cy + seg_h
 
     def _doigt2(self, fx, cy, fw, total_len, side):
-        """Phalange MOYENNE (32 % du doigt).
-        Image doigt2.png si dispo, sinon canvas."""
-        seg_h = total_len * 0.32
+        """Phalange MOYENNE (32 % du doigt)."""
+        seg_h = total_len * 0.32 * DOIGT_SIZE
         tex_data = _char_texture("doigt2")
         if tex_data[0] is not None:
-            _draw_char_image(tex_data, fx, cy + seg_h / 2,
-                             seg_h * DOIGT_H_MULT, flip_h=(side == 'R'))
+            _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
+                             flip_h=(side == 'R'))
             return cy + seg_h
         wb = fw * 0.88
         wt = fw * 0.74
@@ -464,13 +469,12 @@ class PlayerHands(Widget):
         return cy + seg_h
 
     def _doigt3(self, fx, cy, fw, total_len, side):
-        """Phalange DISTALE (23 % du doigt, avec pointe arrondie + pulpe).
-        Image doigt3.png si dispo, sinon canvas."""
-        seg_h = total_len * 0.23
+        """Phalange DISTALE (23 % du doigt, avec pointe arrondie + pulpe)."""
+        seg_h = total_len * 0.23 * DOIGT_SIZE
         tex_data = _char_texture("doigt3")
         if tex_data[0] is not None:
-            _draw_char_image(tex_data, fx, cy + seg_h / 2,
-                             seg_h * DOIGT_H_MULT, flip_h=(side == 'R'))
+            _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
+                             flip_h=(side == 'R'))
             return cy + seg_h
         wb = fw * 0.74
         wt = fw * 0.55
@@ -515,7 +519,8 @@ class PlayerHands(Widget):
         h = self.height
 
         tw_base = fw * 1.2                   # largeur a la base du pouce
-        tlen_total = 0.07 * h                # longueur totale (les 2 phalanges)
+        # Longueur totale du pouce, scalee par POUCE_SIZE (les 2 phalanges).
+        tlen_total = 0.07 * h * POUCE_SIZE
         prox_ratio = 0.58                    # part de la proximale
         dist_ratio = 0.42                    # part de la distale
 
@@ -541,8 +546,7 @@ class PlayerHands(Widget):
             else:
                 seg_len = dist_len
                 cy = tby + prox_len + seg_len / 2
-            _draw_char_image(tex_data, tbcx, cy,
-                             seg_len * POUCE_H_MULT,
+            _draw_char_image(tex_data, tbcx, cy, seg_len,
                              flip_h=(side == 'R'))
             return
 
