@@ -1,0 +1,37 @@
+IMAGES DU PERSONNAGE (Character)
+================================
+
+Depose ici les images du joueur en vue 1re personne : les MAINS et les
+AVANT-BRAS visibles en bas de l'ecran. Le jeu cherche automatiquement
+un fichier nomme d'apres l'element :
+
+    assets/Character/<nom>.png      (ou .jpg / .jpeg)
+
+Tant qu'aucune image n'existe, le jeu dessine la main/le bras par defaut
+(au canvas, avec texture de peau).
+
+----------------------------------------------------------------
+NOMS DE FICHIERS ATTENDUS (exactement, en minuscules)
+----------------------------------------------------------------
+    hand_left.png    -> Main GAUCHE (paume + 4 doigts + pouce a droite)
+    hand_right.png   -> Main DROITE (miroir : pouce a gauche)
+    arm_left.png     -> Avant-bras GAUCHE
+    arm_right.png    -> Avant-bras DROIT
+
+----------------------------------------------------------------
+CONSEILS
+----------------------------------------------------------------
+- Format conseille :
+    hand_left/right.png  -> PNG ~512x384 (paysage), fond TRANSPARENT.
+    arm_left/right.png   -> PNG ~256x512 (portrait), fond TRANSPARENT.
+- Les mains sont vues d'EN HAUT (le joueur regarde devant lui).
+  Doigts vers le HAUT, poignet vers le BAS.
+- Reflets/ombres conseilles directement dans l'image (pas de relief 3D).
+- ATTENTION : les mains ont une legere ANIMATION (l'index/pouce se replient
+  quand le joueur tient un objet). Passer en image FIGE cette animation :
+  la main reste ouverte ou fermee selon l'image. Si tu veux 2 etats, dis-le
+  et on ajoutera "hand_left_grip.png" / "hand_right_grip.png".
+- Apres avoir ajoute des images : pousse le projet (envoyer-sur-github.bat)
+  pour qu'elles soient incluses dans l'APK.
+
+Les mains sont gerees dans : src/widgets/player_hands.py

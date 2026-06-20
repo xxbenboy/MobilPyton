@@ -1,0 +1,34 @@
+IMAGES DU CIEL ET DES ASTRES (Atmospheres)
+==========================================
+
+Depose ici les images du ciel : soleil, lune, etoiles. Le jeu cherche
+automatiquement un fichier nomme d'apres l'element :
+
+    assets/Atmospheres/<nom>.png      (ou .jpg / .jpeg)
+
+Tant qu'aucune image n'existe, le jeu dessine l'element par defaut (au
+canvas). Des que tu ajoutes le bon fichier (meme nom), il le remplace.
+
+(Le NOM du dossier "Atmospheres" est sans accent volontairement : evite les
+problemes au build Android. Le LISEZMOI peut, lui, parler d'atmospheres.)
+
+----------------------------------------------------------------
+NOMS DE FICHIERS ATTENDUS (exactement, en minuscules)
+----------------------------------------------------------------
+    sun.png      -> Soleil (disque jaune dore)
+    moon.png     -> Lune (disque blanc)
+
+----------------------------------------------------------------
+CONSEILS
+----------------------------------------------------------------
+- Format conseille : PNG CARRE 512x512, fond TRANSPARENT.
+- Centre bien l'astre dans le carre : le jeu prend toute l'image.
+- Le HALO autour du soleil reste anime au canvas (transparence variable
+  selon l'heure) ; ton soleil sera dessine PAR-DESSUS le halo.
+- Les NUAGES et les ETOILES restent animes au canvas pour l'instant
+  (formes procedurales). Si tu veux les remplacer, dis-le et on ajoutera
+  le branchement.
+- Apres avoir ajoute des images : pousse le projet (envoyer-sur-github.bat)
+  pour qu'elles soient incluses dans l'APK.
+
+Le ciel est gere dans : src/widgets/animated_background.py
