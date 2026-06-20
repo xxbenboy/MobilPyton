@@ -164,17 +164,24 @@ class PlayerHands(Widget):
     SKIN_MID = (0.76, 0.58, 0.43, 1)
     SKIN_DK = (0.64, 0.48, 0.35, 1)
 
-    # x du centre de chaque main (gauche, droite), en fraction de la largeur.
-    HAND_FX = (0.31, 0.69)
-
-    # Geometrie d'un bras+main, en fractions de la largeur/hauteur ecran.
-    ARM_BASE_FX = (0.30, 0.70)          # x ou le bras sort du bas (G, D)
-    ARM_HAND_FY = 0.12                   # y du poignet
-    ARM_BASE_W = 0.065                  # demi-largeur a la base du bras
-    WRIST_W = 0.045                     # demi-largeur au poignet
-    PALM_W = 0.125                      # largeur de la paume
-    PALM_H = 0.085                      # hauteur de la paume
-    FINGER_W = 0.026                    # largeur d'un doigt
+    # Geometrie d'un bras+main.
+    # CONVENTION : toutes les TAILLES et tous les Y sont en fractions de
+    # `scale = min(width, height)` (=> proportions FIXES entre les pieces,
+    # peu importe l'aspect de la fenetre). Seuls les X (HAND_FX, ARM_BASE_FX)
+    # restent en fraction de `width` pour que les mains restent ancrees
+    # aux coins gauche et droit de l'ecran.
+    HAND_FX = (0.31, 0.69)              # x centre de chaque main / width
+    ARM_BASE_FX = (0.30, 0.70)          # x base du bras / width
+    ARM_HAND_FY = 0.26                   # y du poignet / scale
+    ARM_BASE_W = 0.065                  # demi-largeur base du bras / scale
+    WRIST_W = 0.045                     # demi-largeur poignet / scale
+    PALM_W = 0.125                      # largeur paume / scale
+    PALM_H = 0.184                      # hauteur paume / scale
+    FINGER_W = 0.026                    # largeur d'un doigt / scale
+    # Longueurs des doigts (index, majeur, annulaire, auriculaire) / scale.
+    FINGER_LENGTHS = (0.173, 0.206, 0.191, 0.147)
+    # Longueur totale du pouce (2 phalanges) / scale.
+    THUMB_LEN = 0.152
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -221,13 +228,23 @@ class PlayerHands(Widget):
         """Direction OUTWARD du pouce : +1 pour main droite, -1 pour gauche."""
         return +1 if side == 'R' else -1
 
+    def _scale_ref(self):
+        """Reference de dimensionnement = min(width, height).
+
+        Toutes les tailles et tous les Y du dessin de la main utilisent
+        cette reference => les pieces gardent leurs positions relatives
+        constantes peu importe l'aspect (proportions) de la fenetre.
+        """
+        return min(self.width, self.height)
+
     def _draw_items(self):
         """Dessine l'image des objets tenus dans les mains (canvas.after)."""
         self.canvas.after.clear()
         if self.width <= 0 or self.height <= 0:
             return
-        w, h, x0, y0 = self.width, self.height, self.x, self.y
-        box = 0.17 * w
+        w, x0, y0 = self.width, self.x, self.y
+        scale = self._scale_ref()
+        box = 0.17 * scale                  # taille de l'objet tenu / scale
         for i, name in enumerate(self._items):
             tex = _item_texture(name)
             if tex is None:
@@ -237,8 +254,8 @@ class PlayerHands(Widget):
                 iw, ih = box, box * th / max(1, tw)
             else:
                 iw, ih = box * tw / max(1, th), box
-            cx = x0 + self.HAND_FX[i] * w
-            cy = y0 + 0.21 * h
+            cx = x0 + self.HAND_FX[i] * w   # X = fraction de width
+            cy = y0 + 0.45 * scale          # Y = fraction de scale
             with self.canvas.after:
                 Color(1, 1, 1, 1)
                 Rectangle(texture=tex, pos=(cx - iw / 2, cy - ih / 2),
@@ -271,12 +288,13 @@ class PlayerHands(Widget):
         self._dessiner_bras(self.ARM_BASE_FX[1], self.HAND_FX[1], 'R')
 
     def _dessiner_bras(self, base_fx, hand_fx, side):
-        w, h, x0, y0 = self.width, self.height, self.x, self.y
-        bx = x0 + base_fx * w
-        hx = x0 + hand_fx * w
-        hy = y0 + self.ARM_HAND_FY * h
-        armw = self.ARM_BASE_W * w
-        wristw = self.WRIST_W * w
+        w, x0, y0 = self.width, self.x, self.y
+        scale = self._scale_ref()
+        bx = x0 + base_fx * w               # X = fraction de width
+        hx = x0 + hand_fx * w               # X = fraction de width
+        hy = y0 + self.ARM_HAND_FY * scale  # Y / sizes = fraction de scale
+        armw = self.ARM_BASE_W * scale
+        wristw = self.WRIST_W * scale
 
         # Image avant_hand.png si dispo, sinon Quads canvas.
         # L'image (juste le bout du poignet) est positionnee avec son
@@ -294,8 +312,8 @@ class PlayerHands(Widget):
                          hx + wristw, hy, hx - wristw, hy], texture=tex)
             tex = self._skin(self.SKIN)
             Quad(points=[bx - armw * 0.62, y0, bx + armw * 0.78, y0,
-                         hx + wristw * 0.7, hy - 0.004 * h,
-                         hx - wristw * 0.55, hy - 0.004 * h], texture=tex)
+                         hx + wristw * 0.7, hy - 0.004 * scale,
+                         hx - wristw * 0.55, hy - 0.004 * scale], texture=tex)
 
         self._main(hx, hy, side)
 
@@ -303,10 +321,10 @@ class PlayerHands(Widget):
 
     def _main(self, hx, hy, side):
         """Paume + 4 doigts (chacun = doigt1+doigt2+doigt3) + pouce."""
-        w, h = self.width, self.height
-        pw = self.PALM_W * w
-        ph = self.PALM_H * h
-        fw = self.FINGER_W * w
+        scale = self._scale_ref()
+        pw = self.PALM_W * scale
+        ph = self.PALM_H * scale
+        fw = self.FINGER_W * scale
         thumb_dir = self._thumb_dir(side)
 
         self._paume(hx, hy, pw, ph, side)
@@ -315,15 +333,15 @@ class PlayerHands(Widget):
         # la LONGUEUR TOTALE change. Ordre anatomique : index, majeur,
         # annulaire, auriculaire. L'auriculaire (le plus court) doit etre
         # du cote OPPOSE au pouce.
-        lengths = (0.080, 0.095, 0.088, 0.068)
+        lengths = self.FINGER_LENGTHS
         if thumb_dir > 0:                          # main droite : on inverse
             lengths = lengths[::-1]                # pour que l'auriculaire
                                                    # soit a gauche
-        spacing = fw + 0.004 * w
+        spacing = fw + 0.004 * scale
         base_y = hy + ph * 0.62                    # base des doigts
         for i, fl in enumerate(lengths):
             fx = hx + (i - 1.5) * spacing
-            total_len = fl * h
+            total_len = fl * scale
             cy = base_y
             cy = self._doigt1(fx, cy, fw, total_len, side)
             cy = self._doigt2(fx, cy, fw, total_len, side)
@@ -364,7 +382,7 @@ class PlayerHands(Widget):
         """SECTION 1 : base de la paume (cote poignet). Bande sombre arrondie
         sous le corps qui forme l'ombre du talon de la main."""
         tex = self._skin(self.SKIN_DK)
-        RoundedRectangle(pos=(hx - pw / 2, hy - 0.012 * self.height),
+        RoundedRectangle(pos=(hx - pw / 2, hy - 0.026 * self._scale_ref()),
                          size=(pw, ph * 0.55), radius=[pw * 0.30],
                          texture=tex)
 
@@ -516,11 +534,11 @@ class PlayerHands(Widget):
         l'exterieur (loin du centre de l'ecran).
         """
         thumb_dir = self._thumb_dir(side)
-        h = self.height
+        scale = self._scale_ref()
 
         tw_base = fw * 1.2                   # largeur a la base du pouce
         # Longueur totale du pouce, scalee par POUCE_SIZE (les 2 phalanges).
-        tlen_total = 0.07 * h * POUCE_SIZE
+        tlen_total = self.THUMB_LEN * scale * POUCE_SIZE
         prox_ratio = 0.58                    # part de la proximale
         dist_ratio = 0.42                    # part de la distale
 
