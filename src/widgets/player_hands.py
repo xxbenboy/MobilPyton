@@ -116,10 +116,11 @@ def _char_texture(name):
     return result
 
 
-def _draw_char_image(tex_data, cx, cy, target_h, flip_h):
+def _draw_char_image(tex_data, cx, cy, target_h, flip_h, target_w=None):
     """Dessine l'ARTWORK (cropped au bbox alpha) centre sur (cx, cy), avec
-    une hauteur target_h. La largeur suit le ratio aspect de l'artwork.
-    flip_h=True mirroirise horizontalement (pour la main droite).
+    une hauteur target_h. La largeur suit le ratio aspect de l'artwork
+    PAR DEFAUT ; passe target_w pour forcer une largeur (l'image est alors
+    etiree). flip_h=True mirroirise horizontalement (main droite).
 
     Important : on passe par texture.get_region() pour extraire le bout de
     texture correspondant au bbox. Kivy a un bug : tex_coords passe en
@@ -130,7 +131,8 @@ def _draw_char_image(tex_data, cx, cy, target_h, flip_h):
     if tex is None:
         return
     u_left, v_bottom, u_right, v_top, aspect = meta
-    target_w = target_h * aspect
+    if target_w is None:
+        target_w = target_h * aspect
     # Sous-texture cropee au bbox alpha (la sous-texture porte ses propres
     # tex_coords correctes, donc le rendu est natif et fiable).
     tw, th = tex.size
@@ -344,7 +346,12 @@ class PlayerHands(Widget):
             lengths = lengths[::-1]                # pour que l'auriculaire
                                                    # soit a gauche
         spacing = fw + 0.004 * scale
-        base_y = hy + ph * 0.62                    # base des doigts
+        # Les doigts demarrent au-dessus de la paume (image hand.png) ou
+        # a l'interieur (canvas decompose) selon ce qui est dispo.
+        if _char_texture("hand")[0] is not None:
+            base_y = hy + ph                       # haut du palm image
+        else:
+            base_y = hy + ph * 0.62                # interieur de la paume canvas
         for i, fl in enumerate(lengths):
             fx = hx + (i - 1.5) * spacing
             total_len = fl * scale
@@ -354,8 +361,11 @@ class PlayerHands(Widget):
             self._doigt3(fx, cy, fw, total_len, side)
 
         # POUCE : 2 phalanges (proximale puis distale).
-        self._pouce_segment(1, hx, hy, pw, ph, fw, side)
-        self._pouce_segment(2, hx, hy, pw, ph, fw, side)
+        # SI hand.png existe, le pouce est DEJA dans l'image de la paume :
+        # on ne le dessine pas en plus (eviterait un double pouce).
+        if _char_texture("hand")[0] is None:
+            self._pouce_segment(1, hx, hy, pw, ph, fw, side)
+            self._pouce_segment(2, hx, hy, pw, ph, fw, side)
 
     # ----- PAUME : 3 sections + 2 muscles + 3 lignes --------------------- #
     #
@@ -467,12 +477,15 @@ class PlayerHands(Widget):
     def _doigt1(self, fx, cy, fw, total_len, side):
         """Phalange PROXIMALE (45 % du doigt, attachee a la paume).
         Image doigt1.png si dispo, sinon canvas. La hauteur et l'avance
-        sont mises a l'echelle par DOIGT_SIZE pour eviter le chevauchement."""
+        sont mises a l'echelle par DOIGT_SIZE. La largeur est forcee a
+        fw * 1.4 pour eviter que les doigts se chevauchent (l'image est
+        etiree verticalement, ce qui est OK : les vraies phalanges sont
+        bien plus longues que larges)."""
         seg_h = total_len * 0.45 * DOIGT_SIZE
         tex_data = _char_texture("doigt1")
         if tex_data[0] is not None:
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
-                             flip_h=(side == 'R'))
+                             flip_h=(side == 'R'), target_w=fw * 1.4)
             return cy + seg_h
         wb = fw * 1.00
         wt = fw * 0.88
@@ -485,7 +498,7 @@ class PlayerHands(Widget):
         tex_data = _char_texture("doigt2")
         if tex_data[0] is not None:
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
-                             flip_h=(side == 'R'))
+                             flip_h=(side == 'R'), target_w=fw * 1.3)
             return cy + seg_h
         wb = fw * 0.88
         wt = fw * 0.74
@@ -498,7 +511,7 @@ class PlayerHands(Widget):
         tex_data = _char_texture("doigt3")
         if tex_data[0] is not None:
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
-                             flip_h=(side == 'R'))
+                             flip_h=(side == 'R'), target_w=fw * 1.2)
             return cy + seg_h
         wb = fw * 0.74
         wt = fw * 0.55
