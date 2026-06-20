@@ -20,3 +20,6 @@ bin/
 # OS
 Thumbs.db
 .DS_Store
+
+# Textures PBR de l'herbe : trop lourdes (~47 Mo), gardees en local
+assets/textures/grass_*.png
