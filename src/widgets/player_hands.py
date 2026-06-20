@@ -61,15 +61,20 @@ _CHAR_TEX = {}
 
 # Multiplicateurs pour la TAILLE des images a l'ecran (ajustables a vue).
 # Tout est exprime en multiple de la dimension "naturelle" anatomique.
+
+# MAITRE : echelle globale de toute la main+bras. 1.0 = taille de reference,
+# < 1 = plus petit. Pratique pour reduire ou agrandir d'un coup tout le
+# rendu sans toucher aux proportions internes.
+HAND_SCALE = 0.65
+
 HAND_H_MULT = 2.0             # hauteur image / hauteur paume (ph)
 HAND_OFFSET_Y = 0.0           # decalage vertical centre bbox (en x ph)
 FOREARM_H_MULT = 1.0          # hauteur image / hauteur forearm (hy - y0)
 
-# Taille des doigts et pouces (1.0 = anatomique pur, > 1 = plus grand). La
-# valeur affecte AUSSI l'avance verticale entre phalanges (pour que les
-# phalanges ne se chevauchent pas).
-DOIGT_SIZE = 1.4
-POUCE_SIZE = 1.4
+# Taille des doigts et pouces (1.0 = doigt anatomique). 1.2 = doigt aussi
+# long que la paume (comme une vraie main, voir image de reference).
+DOIGT_SIZE = 1.2
+POUCE_SIZE = 1.2
 
 
 def _char_texture(name):
@@ -229,13 +234,14 @@ class PlayerHands(Widget):
         return +1 if side == 'R' else -1
 
     def _scale_ref(self):
-        """Reference de dimensionnement = min(width, height).
+        """Reference de dimensionnement = min(width, height) * HAND_SCALE.
 
         Toutes les tailles et tous les Y du dessin de la main utilisent
         cette reference => les pieces gardent leurs positions relatives
         constantes peu importe l'aspect (proportions) de la fenetre.
+        HAND_SCALE permet de reduire/agrandir la main en bloc.
         """
-        return min(self.width, self.height)
+        return min(self.width, self.height) * HAND_SCALE
 
     def _draw_items(self):
         """Dessine l'image des objets tenus dans les mains (canvas.after)."""
