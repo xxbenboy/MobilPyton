@@ -133,33 +133,43 @@ def _char_texture(name):
     return result
 
 
-def _draw_char_image(tex_data, cx, cy, target_h, flip_h, target_w=None):
-    """Dessine l'ARTWORK (cropped au bbox alpha) centre sur (cx, cy), avec
-    une hauteur target_h. La largeur suit le ratio aspect de l'artwork
-    PAR DEFAUT ; passe target_w pour forcer une largeur (l'image est alors
-    etiree). flip_h=True mirroirise horizontalement (main droite).
+def _draw_char_image(tex_data, cx, cy, target_h, flip_h, target_w=None,
+                     raw=False):
+    """Dessine l'image centree sur (cx, cy), avec une hauteur target_h. La
+    largeur suit le ratio aspect de l'artwork PAR DEFAUT ; passe target_w
+    pour forcer une largeur. flip_h=True mirroirise (main droite).
 
-    Important : on passe par texture.get_region() pour extraire le bout de
-    texture correspondant au bbox. Kivy a un bug : tex_coords passe en
-    kwarg du Rectangle est ECRASE par les uv du texture. Avec get_region,
-    on cree une sous-texture independante qui s'affiche normalement.
+    raw=False (defaut) : crop au bbox alpha (zone non-transparente),
+                         puis affichage. L'artwork visible remplit la zone.
+    raw=True            : pas de crop -> on dessine l'IMAGE ENTIERE
+                         (avec ses bords transparents inclus). Utile quand
+                         l'artwork est deja positionne au bon endroit dans
+                         son canvas et qu'on veut juste afficher l'image
+                         brute a une position/taille donnee.
+
+    Important : on passe par texture.get_region() en mode crop. Kivy a un
+    bug : tex_coords passe en kwarg du Rectangle est ECRASE par les uv du
+    texture. get_region cree une sous-texture independante qui s'affiche
+    correctement.
     """
     tex, meta = tex_data
     if tex is None:
         return
     u_left, v_bottom, u_right, v_top, aspect = meta
     if target_w is None:
-        target_w = target_h * aspect
-    # Sous-texture cropee au bbox alpha (la sous-texture porte ses propres
-    # tex_coords correctes, donc le rendu est natif et fiable).
-    tw, th = tex.size
-    rx = u_left * tw
-    ry = v_bottom * th       # bbox bottom en Kivy y (0 = bas)
-    rw = (u_right - u_left) * tw
-    rh = (v_top - v_bottom) * th
-    sub = tex.get_region(rx, ry, rw, rh)
-    # Flip horizontal pour la main droite : flip_horizontal() de Kivy
-    # echange les uv proprement (au niveau de la sous-texture).
+        target_w = target_h * (1.0 if raw else aspect)
+    if raw:
+        # Image entiere (canvas complet, bords transparents inclus).
+        sub = tex
+    else:
+        # Sous-texture cropee au bbox alpha.
+        tw, th = tex.size
+        rx = u_left * tw
+        ry = v_bottom * th       # bbox bottom en Kivy y (0 = bas)
+        rw = (u_right - u_left) * tw
+        rh = (v_top - v_bottom) * th
+        sub = tex.get_region(rx, ry, rw, rh)
+    # Flip horizontal pour la main droite.
     if flip_h:
         sub.flip_horizontal()
     Color(1, 1, 1, 1)
@@ -321,17 +331,25 @@ class PlayerHands(Widget):
         wristw = self.WRIST_W * scale
 
         # Image avant_hand.png si dispo, sinon Quads canvas.
-        # L'image (juste le bout du poignet) est positionnee avec son
-        # HAUT a la hauteur du poignet (hy).
         forearm_h = (hy - y0) * FOREARM_H_MULT
         forearm_cy = hy - forearm_h / 2
-        # On memorise les parametres de l'avant-bras pour TEST_AVANT_BRAS :
-        # les autres images (hand, doigts, pouces) pourront s'aligner dessus.
-        self._test_params = (hx, forearm_cy, forearm_h, side == 'R')
+        # MODE TEST_AVANT_BRAS : on stocke un cadre CARRE (taille = scale)
+        # centre au-dessus du poignet, donc visible a l'ecran. Toutes les
+        # images (hand, doigts, pouces ET avant_hand) seront dessinees en
+        # mode raw (canvas COMPLET, bords transparents inclus) dans ce
+        # meme cadre carre => leurs artworks s'alignent naturellement.
+        test_size = scale
+        test_cy = y0 + test_size / 2          # cadre touche le bas du widget
+        self._test_params = (hx, test_cy, test_size, side == 'R')
         tex_data = _char_texture("avant_hand")
         if tex_data[0] is not None:
-            _draw_char_image(tex_data, hx, forearm_cy, forearm_h,
-                             flip_h=(side == 'R'))
+            if TEST_AVANT_BRAS:
+                _draw_char_image(tex_data, hx, test_cy, test_size,
+                                 flip_h=(side == 'R'),
+                                 target_w=test_size, raw=True)
+            else:
+                _draw_char_image(tex_data, hx, forearm_cy, forearm_h,
+                                 flip_h=(side == 'R'))
         else:
             # Cote sombre (volume) puis dessus clair vers le poignet.
             tex = self._skin(self.SKIN_DK)
@@ -410,9 +428,11 @@ class PlayerHands(Widget):
         tex_data = _char_texture("hand")
         if tex_data[0] is not None:
             if TEST_AVANT_BRAS:
-                # MODE TEST : meme position/taille que l'avant-bras.
+                # MODE TEST : image ENTIERE, carree, au meme endroit que
+                # l'avant-bras (raw=True : pas de crop sur le bbox).
                 tcx, tcy, tth, tflip = self._test_params
-                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip)
+                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip,
+                                 target_w=tth, raw=True)
                 return
             target_h = ph * HAND_H_MULT
             cy = hy + ph * HAND_OFFSET_Y
@@ -518,7 +538,8 @@ class PlayerHands(Widget):
         if tex_data[0] is not None:
             if TEST_AVANT_BRAS:
                 tcx, tcy, tth, tflip = self._test_params
-                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip)
+                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip,
+                                 target_w=tth, raw=True)
                 return cy + seg_h * 0.80
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
                              flip_h=(side == 'R'), target_w=fw * 2.0)
@@ -536,7 +557,8 @@ class PlayerHands(Widget):
         if tex_data[0] is not None:
             if TEST_AVANT_BRAS:
                 tcx, tcy, tth, tflip = self._test_params
-                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip)
+                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip,
+                                 target_w=tth, raw=True)
                 return cy + seg_h * 0.80
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
                              flip_h=(side == 'R'), target_w=fw * 1.8)
@@ -553,7 +575,8 @@ class PlayerHands(Widget):
         if tex_data[0] is not None:
             if TEST_AVANT_BRAS:
                 tcx, tcy, tth, tflip = self._test_params
-                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip)
+                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip,
+                                 target_w=tth, raw=True)
                 return cy + seg_h
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
                              flip_h=(side == 'R'), target_w=fw * 1.6)
@@ -624,7 +647,8 @@ class PlayerHands(Widget):
         if tex_data[0] is not None:
             if TEST_AVANT_BRAS:
                 tcx, tcy, tth, tflip = self._test_params
-                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip)
+                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip,
+                                 target_w=tth, raw=True)
                 return
             tbcx = tbx                          # meme x que origine
             if num == 1:
