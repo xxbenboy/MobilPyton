@@ -437,10 +437,10 @@ class ZoneScenery(Widget):
             r = rng.uniform(0.06, 0.13) * h * sc
             items.append((by, lambda bx=bx, by=by, r=r, g=g:
                           self._bush(bx, by, r, (0.06 + g, 0.16 + g, 0.09, 1))))
-        # Champignons : tres peu dans la foret (uniquement bruns pour
-        # l'instant). [recoltable: Brown_Mushroom]
-        if rng.random() < 0.25:
-            for _ in range(rng.randint(1, 3)):
+        # Champignons (uniquement bruns pour l'instant).
+        # [recoltable: Brown_Mushroom]
+        if rng.random() < 0.8:
+            for _ in range(rng.randint(4, 8)):
                 mx, my, sc, t = place(1.0, fx=mush_pick(), floor=_HARVEST_FLOOR)
                 s = rng.uniform(0.03, 0.05) * h * sc
                 cap = (0.62, 0.30, 0.18, 1)
@@ -819,14 +819,7 @@ class ZoneScenery(Widget):
                 ht = rng.uniform(0.10, 0.18) * h * sc
                 items.append((eb, lambda ex=ex, eb=eb, ht=ht, sc=sc:
                               self._wheat(ex, eb, ht, sc)))
-        if rng.random() < 0.6:                         # champignons [Brown]
-            for _ in range(rng.randint(5, 9)):
-                mx, my, sc, t = place(1.0, fx=mush_pick(), floor=_HARVEST_FLOOR)
-                s = rng.uniform(0.03, 0.05) * h * sc
-                cap = (0.72, 0.50, 0.30, 1)
-                if not self._take_or_skip("Brown_Mushroom"):
-                    items.append((my, lambda mx=mx, my=my, s=s, cap=cap:
-                                  self._mushroom(mx, my, s, cap)))
+        # Pas de champignons en plaine (uniquement en foret pour l'instant).
         if rng.random() < 0.5:                         # baies (buissons) [Baie]
             for _ in range(rng.randint(3, 6)):
                 bx, by, sc, t = place(1.0, fx=berry_pick(), floor=_HARVEST_FLOOR)
