@@ -206,6 +206,7 @@ class GameScreen(Screen):
         self._time_accum = 0.0
         self._ff_active = False
         self._ff_remaining = 0.0
+        self._ff_total = 0.0          # duree initiale (pour l'animation)
         self._ff_label = ""
         # Transition de deplacement (fondu noir + horloge).
         self._moving = False
@@ -431,6 +432,16 @@ class GameScreen(Screen):
         if whole:
             state.tick(whole)
             state.advance_survival(whole)   # faim/soif/sommeil/vie derivent
+        # Animation des mains pendant l'exploration : on alterne entre
+        # HandEx1 (1/3 debut), HandEx2 (1/3 milieu), HandEx1 (1/3 fin).
+        if self._ff_active and self._ff_label == "Explorer":
+            frac = 1.0 - (self._ff_remaining / max(0.01, self._ff_total))
+            if frac < 1.0 / 3.0 or frac >= 2.0 / 3.0:
+                self.hands.set_state('ex1')
+            else:
+                self.hands.set_state('ex2')
+        else:
+            self.hands.set_state('haut')
         if self._ff_active and self._ff_remaining <= 0:
             self._finish_action()
         self.refresh()
@@ -537,7 +548,8 @@ class GameScreen(Screen):
         state.action_count += 1
         state.add_log(action["label"])
         self._ff_active = True
-        self._ff_remaining = action["minutes"] * 60.0
+        self._ff_total = action["minutes"] * 60.0
+        self._ff_remaining = self._ff_total
         self._ff_label = action["label"]
         self._time_accum = 0.0
         self.refresh()
@@ -546,6 +558,7 @@ class GameScreen(Screen):
     def _finish_action(self):
         self._ff_active = False
         self._ff_label = ""
+        self.hands.set_state('haut')
         if self._did_explore:
             self._did_explore = False
             # La trouvaille et le RETRAIT de l'objet du decor se font ICI, a la

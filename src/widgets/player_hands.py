@@ -28,7 +28,9 @@ CHARACTER_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", "assets",
 # les mains deja positionnees en bas. Le HUD est etire pour remplir
 # la totalite du widget.
 HUD_IMAGES = {
-    'haut': 'HandHUD.png',
+    'haut': 'HandHUD.png',     # par defaut (paumes vers le haut)
+    'ex1': 'HandEx1.png',      # exploration : phases 1 et 3 (debut et fin)
+    'ex2': 'HandEx2.png',      # exploration : phase 2 (milieu)
 }
 
 _TEX_CACHE = {}
