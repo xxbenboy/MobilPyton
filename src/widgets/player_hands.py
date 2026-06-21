@@ -41,7 +41,7 @@ import os
 from kivy.uix.widget import Widget
 from kivy.core.image import Image as CoreImage
 from kivy.graphics import (Color, Ellipse, Quad, Rectangle, RoundedRectangle,
-                           Line, RenderContext)
+                           Line, RenderContext, PushMatrix, PopMatrix, Rotate)
 
 from src import items
 from src.widgets import textures, pbr
@@ -80,10 +80,12 @@ DOIGT_SIZE = 1.7
 # - POUCE2 = section SUPERIEURE (distale, bout du pouce)
 # - LEN = longueur (en fraction de scale)
 # - W   = largeur (en multiple de fw = largeur d'un doigt)
-POUCE1_LEN = 0.141          # longueur de la section INFERIEURE
-POUCE1_W = 7.0              # largeur de la section INFERIEURE
+POUCE1_LEN = 0.18          # longueur de la section INFERIEURE
+POUCE1_W = 13.0         # largeur de la section INFERIEURE
+POUCE1_ROT = 0              # rotation de la section INFERIEURE (degres)
 POUCE2_LEN = 0.102          # longueur de la section SUPERIEURE
-POUCE2_W = 7.0              # largeur de la section SUPERIEURE
+POUCE2_W = 3.5              # largeur de la section SUPERIEURE
+POUCE2_ROT = 0              # rotation de la section SUPERIEURE (degres)
 
 
 def _char_texture(name):
@@ -581,15 +583,17 @@ class PlayerHands(Widget):
         # y = sous le poignet (hy - 15 % de ph) pour abaisser le pouce
         # en entier (parties inferieure ET superieure descendues).
         tbx = hx + thumb_dir * (ph * 0.80)
-        tby = hy - ph * 0.15
+        tby = hy - ph * 0.65
 
         # Largeurs (canvas fallback).
         wb_prox = tw_base                    # largeur bas de la proximale
         wt_prox = tw_base * 0.85             # largeur haut de la proximale
         wt_dist = tw_base * 0.70             # largeur haut de la distale
 
-        # Image pouce<num>.png si dispo : largeur INDEPENDANTE par phalange
-        # (POUCE1_W / POUCE2_W). Le flip H se charge du cote pour la main D.
+        # Image pouce<num>.png si dispo : largeur ET rotation INDEPENDANTE
+        # par phalange (POUCE1_W/ROT et POUCE2_W/ROT). La rotation se fait
+        # AUTOUR DU CENTRE de la phalange (origin=cx,cy) pour que la
+        # position ne bouge pas. Le flip H se charge du cote pour la main D.
         tex_data = _char_texture("pouce%d" % num)
         if tex_data[0] is not None:
             tbcx = tbx                          # meme x que origine
@@ -597,14 +601,21 @@ class PlayerHands(Widget):
                 seg_len = prox_len
                 target_w_pouce = fw * POUCE1_W
                 cy = tby + seg_len / 2
+                angle = POUCE1_ROT
             else:
                 # pouce2 chevauche pouce1 par 30 % pour cacher la jointure
                 seg_len = dist_len
                 target_w_pouce = fw * POUCE2_W
                 cy = tby + prox_len * 0.70 + seg_len / 2
+                angle = POUCE2_ROT
+            if angle:
+                PushMatrix()
+                Rotate(angle=angle, origin=(tbcx, cy))
             _draw_char_image(tex_data, tbcx, cy, seg_len,
                              flip_h=(side == 'R'),
                              target_w=target_w_pouce)
+            if angle:
+                PopMatrix()
             return
 
         # Inclinaison vers l'exterieur (le pouce s'evase loin du centre).
