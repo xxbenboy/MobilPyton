@@ -573,10 +573,10 @@ class PlayerHands(Widget):
         dist_ratio = 0.42                    # part de la distale
 
         # Origine du pouce : x = bord lateral exterieur de hand.png (notch),
-        # y = AU NIVEAU du poignet (bas de la paume) pour que le bas du
-        # pouce s'aligne avec le bas de la paume.
+        # y = sous le poignet (hy - 15 % de ph) pour abaisser le pouce
+        # en entier (parties inferieure ET superieure descendues).
         tbx = hx + thumb_dir * (ph * 0.80)
-        tby = hy
+        tby = hy - ph * 0.15
 
         # Longueurs et largeurs caracteristiques.
         prox_len = tlen_total * prox_ratio
@@ -590,15 +590,13 @@ class PlayerHands(Widget):
         tex_data = _char_texture("pouce%d" % num)
         if tex_data[0] is not None:
             tbcx = tbx                          # meme x que origine
-            # Largeur EXPLICITE par phalange. Le pouce s'effile vers le
-            # bout : la distale (pouce2) est plus etroite que la proximale
-            # (pouce1).
+            # Largeur EXPLICITE : pouce1 et pouce2 ont la MEME largeur
+            # (le bout du pouce n'est pas effile, tous deux fw * 7.0).
+            target_w_pouce = fw * 7.0
             if num == 1:
-                target_w_pouce = fw * 7.0       # base epaisse
                 seg_len = prox_len
                 cy = tby + seg_len / 2
             else:
-                target_w_pouce = fw * 4.5       # tip plus etroit
                 # pouce2 chevauche pouce1 par 30 % pour cacher la jointure
                 seg_len = dist_len
                 cy = tby + prox_len * 0.70 + seg_len / 2
