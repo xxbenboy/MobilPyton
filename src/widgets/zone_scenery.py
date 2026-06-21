@@ -437,13 +437,17 @@ class ZoneScenery(Widget):
             r = rng.uniform(0.06, 0.13) * h * sc
             items.append((by, lambda bx=bx, by=by, r=r, g=g:
                           self._bush(bx, by, r, (0.06 + g, 0.16 + g, 0.09, 1))))
-        # Champignons. [recoltable: Champignon]
+        # Champignons : ~75 % bruns (commun), ~25 % rouges (rare).
+        # [recoltables: Brown_Mushroom / Red_Mushroom]
         if rng.random() < 0.8:
             for _ in range(rng.randint(4, 8)):
                 mx, my, sc, t = place(1.0, fx=mush_pick(), floor=_HARVEST_FLOOR)
                 s = rng.uniform(0.03, 0.05) * h * sc
-                cap = rng.choice([(0.62, 0.30, 0.18, 1), (0.80, 0.78, 0.62, 1)])
-                if not self._take_or_skip("Champignon"):
+                if rng.random() < 0.75:
+                    name, cap = "Brown_Mushroom", (0.62, 0.30, 0.18, 1)
+                else:
+                    name, cap = "Red_Mushroom", (0.85, 0.20, 0.18, 1)
+                if not self._take_or_skip(name):
                     items.append((my, lambda mx=mx, my=my, s=s, cap=cap:
                                   self._mushroom(mx, my, s, cap)))
         # Arbres : coniferes + feuillus. Ce sont leurs feuillages qui
@@ -818,12 +822,15 @@ class ZoneScenery(Widget):
                 ht = rng.uniform(0.10, 0.18) * h * sc
                 items.append((eb, lambda ex=ex, eb=eb, ht=ht, sc=sc:
                               self._wheat(ex, eb, ht, sc)))
-        if rng.random() < 0.6:                         # champignons [Champignon]
+        if rng.random() < 0.6:                         # champignons [Brown/Red]
             for _ in range(rng.randint(5, 9)):
                 mx, my, sc, t = place(1.0, fx=mush_pick(), floor=_HARVEST_FLOOR)
                 s = rng.uniform(0.03, 0.05) * h * sc
-                cap = rng.choice([(0.80, 0.22, 0.20, 1), (0.72, 0.50, 0.30, 1)])
-                if not self._take_or_skip("Champignon"):
+                if rng.random() < 0.75:
+                    name, cap = "Brown_Mushroom", (0.72, 0.50, 0.30, 1)
+                else:
+                    name, cap = "Red_Mushroom", (0.85, 0.20, 0.18, 1)
+                if not self._take_or_skip(name):
                     items.append((my, lambda mx=mx, my=my, s=s, cap=cap:
                                   self._mushroom(mx, my, s, cap)))
         if rng.random() < 0.5:                         # baies (buissons) [Baie]
