@@ -56,7 +56,7 @@ def is_hand_collectable(name):
 # (poids 1) est rare.
 ZONE_FINDS = {
     "Foret": [("Small_Stick", 12), ("Long_Stick", 4), ("Loafy_Long_Stick", 4), ("Feuille", 10), ("Pierre", 7),
-              ("Brown_Mushroom", 3), ("Red_Mushroom", 1), ("Baie", 4), ("Plume", 2), ("Carcasse", 1)],
+              ("Brown_Mushroom", 1), ("Baie", 4), ("Plume", 2), ("Carcasse", 1)],
     "Plaine": [("Herbe", 12), ("Fleur", 7), ("Small_Stick", 6), ("Long_Stick", 2), ("Pierre", 5),
                ("Baie", 3), ("Plume", 2), ("Carcasse", 1)],
     "Montagne": [("Pierre", 12), ("Small_Stick", 4), ("Long_Stick", 2), ("Pierre_Coupante", 3),

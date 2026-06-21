@@ -19,8 +19,9 @@ Objets trouves :
     Pierre.png             (commun)
     Feuille.png
     Herbe.png
-    Brown_Mushroom.png     (champignon brun, commun en foret)
-    Red_Mushroom.png       (champignon rouge, rare en foret)
+    Brown_Mushroom.png     (champignon brun, rare en foret)
+    Red_Mushroom.png       (champignon rouge, image en banque - PAS encore
+                            utilise dans le jeu)
     Baie.png
     Fleur.png
     Poisson.png
