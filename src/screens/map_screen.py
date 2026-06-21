@@ -11,9 +11,11 @@ from kivy.uix.screenmanager import Screen
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
+from kivy.uix.widget import Widget
+from kivy.graphics import Color, Rectangle
 
 from src import world
-from src.widgets.animated_background import AnimatedBackground
+from src.widgets.animated_background import AnimatedBackground, night_darkness
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.minimap import MiniMap
 from src.widgets.styled_button import StyledButton
@@ -38,6 +40,21 @@ class MapScreen(Screen):
         self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.scenery)
         self._scene_key = None
+
+        # Voile de NUIT : assombrit le ciel + le sol selon l'heure (comme
+        # dans l'ecran de jeu). Ajoute APRES decor, AVANT le HUD : le HUD
+        # (minimap, labels, boutons) reste lisible meme la nuit.
+        self.night = Widget(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        with self.night.canvas:
+            self._night_color = Color(0.03, 0.05, 0.12, 0.0)
+            self._night_rect = Rectangle(pos=self.night.pos,
+                                         size=self.night.size)
+
+        def _sync_night(*_):
+            self._night_rect.pos = self.night.pos
+            self._night_rect.size = self.night.size
+        self.night.bind(pos=_sync_night, size=_sync_night)
+        root.add_widget(self.night)
 
         # Carte + infos seulement (le deplacement est dans l'ecran de jeu).
         col = BoxLayout(orientation="vertical", padding=12, spacing=12,
@@ -104,6 +121,8 @@ class MapScreen(Screen):
             f"Case ({state.player_x},{state.player_y}) - 1x1 km"
         )
         self.background.set_seconds(state.time_seconds)
+        # Voile de nuit synchronise sur l'heure (alpha 0 le jour, max nuit).
+        self._night_color.a = night_darkness(state.time_seconds)
         # Fond = vue VERS LE BAS du sol de la zone (on regarde la carte/le sol).
         key = (zone, state.player_x, state.player_y)
         if key != self._scene_key:

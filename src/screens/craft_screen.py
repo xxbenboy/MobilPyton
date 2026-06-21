@@ -15,11 +15,12 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.gridlayout import GridLayout
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.label import Label
-from kivy.graphics import Color, RoundedRectangle
+from kivy.uix.widget import Widget
+from kivy.graphics import Color, RoundedRectangle, Rectangle
 from kivy.metrics import dp
 
 from src import items
-from src.widgets.animated_background import AnimatedBackground
+from src.widgets.animated_background import AnimatedBackground, night_darkness
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.item_icon import ItemIcon
 from src.widgets.styled_button import StyledButton
@@ -51,6 +52,21 @@ class CraftScreen(Screen):
         self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.scenery)
         self._scene_key = None
+
+        # Voile de NUIT : assombrit ciel + sol selon l'heure, comme dans
+        # l'ecran de jeu et la carte. Ajoute AVANT le HUD (col) qui reste
+        # lisible.
+        self.night = Widget(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        with self.night.canvas:
+            self._night_color = Color(0.03, 0.05, 0.12, 0.0)
+            self._night_rect = Rectangle(pos=self.night.pos,
+                                         size=self.night.size)
+
+        def _sync_night(*_):
+            self._night_rect.pos = self.night.pos
+            self._night_rect.size = self.night.size
+        self.night.bind(pos=_sync_night, size=_sync_night)
+        root.add_widget(self.night)
 
         col = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(8),
                         size_hint=(0.96, 0.96),
@@ -101,6 +117,8 @@ class CraftScreen(Screen):
         state = App.get_running_app().game_state
         if state is not None:
             self.background.set_seconds(state.time_seconds)
+            # Voile de nuit synchronise sur l'heure.
+            self._night_color.a = night_darkness(state.time_seconds)
             zone = state.current_zone()
             key = (zone, state.player_x, state.player_y)
             if key != self._scene_key:
