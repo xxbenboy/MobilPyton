@@ -151,9 +151,16 @@ def _move(cx, cy, s):                                # fleches 4 directions
               size=(s * 0.34, s * 0.34))              # moyeu central
 
 
+def _actions(cx, cy, s):                             # 3 points (sous-menu)
+    Color(0.95, 0.96, 1, 1)
+    r = s * 0.16
+    for dx in (-s * 0.50, 0, s * 0.50):
+        Ellipse(pos=(cx + dx - r, cy - r), size=(r * 2, r * 2))
+
+
 ICONS = {"explore": _explore, "wood": _wood, "food": _food, "drink": _drink,
          "fill": _fill, "rest": _rest, "map": _map, "home": _home,
-         "craft": _craft, "move": _move,
+         "craft": _craft, "move": _move, "actions": _actions,
          # Logos des stats (section "Etat"). On reutilise certains logos
          # existants (pomme=faim, goutte=soif, Zzz=sommeil) et on ajoute le
          # coeur (vie) et l'eclair (energie).

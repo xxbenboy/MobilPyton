@@ -307,6 +307,9 @@ class GameScreen(Screen):
         self._action_buttons = []   # (bouton, action)
         self.craft_btn = None
         self._action_visible = None  # cle des actions visibles (pour rebuild)
+        # Sous-menu "Action" : quand True, "Chercher a manger" et "Boire"
+        # sont affiches en plus dans la grille. Toggle via le bouton Action.
+        self._action_submenu_visible = False
 
         # ---- Bouton CARTE (bas a gauche) ----
         # Cellule ETROITE, plaquee au bord : le logo (taille basee sur la
@@ -455,7 +458,16 @@ class GameScreen(Screen):
     def _action_visible_key(self, state):
         """Cle resumant quels boutons conditionnels sont visibles."""
         return (items.AXE_ITEM in state.hands,
-                any(state.has_item(g) for g in items.GOURDE_ITEMS))
+                any(state.has_item(g) for g in items.GOURDE_ITEMS),
+                self._action_submenu_visible)
+
+    def _toggle_action_submenu(self, *_):
+        """Bouton 'Action' : affiche/cache les boutons Manger et Boire."""
+        self._action_submenu_visible = not self._action_submenu_visible
+        state = App.get_running_app().game_state
+        if state is not None:
+            self._action_visible = self._action_visible_key(state)
+            self._build_action_grid(state)
 
     def _build_action_grid(self, state):
         self.grid.clear_widgets()
@@ -495,15 +507,28 @@ class GameScreen(Screen):
         has_axe = items.AXE_ITEM in state.hands
         has_gourde = any(state.has_item(g) for g in items.GOURDE_ITEMS)
         by_label = {a["label"]: a for a in ACTIONS}
-        # Ordre voulu : colonne gauche = Explorer / Se reposer / Craft (3 lignes),
-        # puis les autres remplissent les colonnes suivantes. None = Craft.
-        order = ["Explorer", "Se reposer", None,
-                 "Couper du bois", "Chercher a manger", "Boire", "Remplir gourde"]
+        # Ordre voulu : colonne gauche = Explorer / Se reposer / Action
+        # (3 lignes), puis Craft + actions conditionnelles dans les colonnes
+        # suivantes. "ACTION" = bouton sous-menu (toggle Manger/Boire),
+        # None = bouton Craft.
+        order = ["Explorer", "Se reposer", "ACTION",
+                 "Couper du bois", None, "Remplir gourde"]
+        # Si le sous-menu Action est ouvert, on insere Manger et Boire
+        # juste apres Couper du bois (col 2).
+        if self._action_submenu_visible:
+            order = ["Explorer", "Se reposer", "ACTION",
+                     "Couper du bois", "Chercher a manger", "Boire",
+                     None, "Remplir gourde"]
         for label in order:
             if label is None:
                 self.craft_btn = add_cell(
                     "craft", "Craft",
                     lambda *_: setattr(self.manager, "current", "craft"))
+                continue
+            if label == "ACTION":
+                # Bouton special : toggle sous-menu Manger/Boire.
+                add_cell("actions", "Action",
+                         lambda *_: self._toggle_action_submenu())
                 continue
             action = by_label[label]
             if action.get("need_axe") and not has_axe:
