@@ -440,7 +440,7 @@ class ZoneScenery(Widget):
         # Champignons (uniquement bruns pour l'instant).
         # [recoltable: Brown_Mushroom]
         if rng.random() < 0.8:
-            for _ in range(rng.randint(4, 8)):
+            for _ in range(rng.randint(2, 4)):
                 mx, my, sc, t = place(1.0, fx=mush_pick(), floor=_HARVEST_FLOOR)
                 s = rng.uniform(0.03, 0.05) * h * sc
                 cap = (0.62, 0.30, 0.18, 1)
