@@ -346,12 +346,12 @@ class PlayerHands(Widget):
             lengths = lengths[::-1]                # pour que l'auriculaire
                                                    # soit a gauche
         spacing = fw + 0.004 * scale
-        # Les doigts demarrent au-dessus de la paume (image hand.png) ou
-        # a l'interieur (canvas decompose) selon ce qui est dispo.
+        # Les doigts attachent legerement DANS la paume (base_y < top palm)
+        # pour qu'ils paraissent connectes au lieu de flotter au-dessus.
         if _char_texture("hand")[0] is not None:
-            base_y = hy + ph                       # haut du palm image
+            base_y = hy + ph * 0.85            # 15% dans la paume image
         else:
-            base_y = hy + ph * 0.62                # interieur de la paume canvas
+            base_y = hy + ph * 0.62            # interieur paume canvas
         for i, fl in enumerate(lengths):
             fx = hx + (i - 1.5) * spacing
             total_len = fl * scale
@@ -360,12 +360,9 @@ class PlayerHands(Widget):
             cy = self._doigt2(fx, cy, fw, total_len, side)
             self._doigt3(fx, cy, fw, total_len, side)
 
-        # POUCE : 2 phalanges (proximale puis distale).
-        # SI hand.png existe, le pouce est DEJA dans l'image de la paume :
-        # on ne le dessine pas en plus (eviterait un double pouce).
-        if _char_texture("hand")[0] is None:
-            self._pouce_segment(1, hx, hy, pw, ph, fw, side)
-            self._pouce_segment(2, hx, hy, pw, ph, fw, side)
+        # POUCE : 2 phalanges (proximale puis distale), toujours dessinees.
+        self._pouce_segment(1, hx, hy, pw, ph, fw, side)
+        self._pouce_segment(2, hx, hy, pw, ph, fw, side)
 
     # ----- PAUME : 3 sections + 2 muscles + 3 lignes --------------------- #
     #
@@ -476,30 +473,30 @@ class PlayerHands(Widget):
 
     def _doigt1(self, fx, cy, fw, total_len, side):
         """Phalange PROXIMALE (45 % du doigt, attachee a la paume).
-        Image doigt1.png si dispo, sinon canvas. La hauteur et l'avance
-        sont mises a l'echelle par DOIGT_SIZE. La largeur est forcee a
-        fw * 1.4 pour eviter que les doigts se chevauchent (l'image est
-        etiree verticalement, ce qui est OK : les vraies phalanges sont
-        bien plus longues que larges)."""
+        Image doigt1.png si dispo, sinon canvas. Largeur fixe a fw * 1.4
+        (les vraies phalanges sont longues et fines, pas chunky). On
+        AVANCE de 90 % seulement pour que la phalange suivante chevauche
+        legerement et cache la jointure visible entre les images."""
         seg_h = total_len * 0.45 * DOIGT_SIZE
         tex_data = _char_texture("doigt1")
         if tex_data[0] is not None:
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
                              flip_h=(side == 'R'), target_w=fw * 1.4)
-            return cy + seg_h
+            return cy + seg_h * 0.90
         wb = fw * 1.00
         wt = fw * 0.88
         self._phalange(fx, cy, seg_h, wb, wt, shade_clair=True, joint=False)
         return cy + seg_h
 
     def _doigt2(self, fx, cy, fw, total_len, side):
-        """Phalange MOYENNE (32 % du doigt)."""
+        """Phalange MOYENNE (32 % du doigt). Avance reduite (chevauchement
+        avec la suivante pour cacher la jointure)."""
         seg_h = total_len * 0.32 * DOIGT_SIZE
         tex_data = _char_texture("doigt2")
         if tex_data[0] is not None:
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
                              flip_h=(side == 'R'), target_w=fw * 1.3)
-            return cy + seg_h
+            return cy + seg_h * 0.90
         wb = fw * 0.88
         wt = fw * 0.74
         self._phalange(fx, cy, seg_h, wb, wt, shade_clair=False, joint=True)
