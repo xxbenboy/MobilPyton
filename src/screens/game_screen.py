@@ -338,21 +338,24 @@ class GameScreen(Screen):
         menu_cell.add_widget(self.menu_label)
         root.add_widget(menu_cell)
 
-        # ---- Boutons "Deposer" (bas, vis-a-vis de chaque main) ----
+        # ---- Boutons "Deposer" (vis-a-vis de chaque main, au-dessus) ----
         # Permettent de poser l'objet tenu sans passer par le menu Craft. Au-
         # dessus, un libelle montre le NOM de l'objet tenu. Masques (bouton +
         # libelle) quand la main est vide (gere dans refresh()).
+        # X (cx) : aligne sur les centres des mains dans HandHUD.png.
+        # Y : place AU-DESSUS de la zone des mains (qui occupe le bas ~8 %
+        # de l'ecran) pour ne pas chevaucher les mains visuellement.
         self.drop_btns = []
         self.drop_labels = []
-        for slot, cx in ((0, 0.31), (1, 0.69)):     # 0=gauche, 1=droite
+        for slot, cx in enumerate(PlayerHands.HAND_FX):
             name_lbl = _button_label("")
             name_lbl.size_hint = (0.16, 0.05)
-            name_lbl.pos_hint = {"center_x": cx, "y": 0.092}
+            name_lbl.pos_hint = {"center_x": cx, "y": 0.165}
             root.add_widget(name_lbl)
             self.drop_labels.append(name_lbl)
 
             db = scale_font(StyledButton(text="Deposer", size_hint=(0.13, 0.07),
-                            pos_hint={"center_x": cx, "y": 0.015}), 0.02)
+                            pos_hint={"center_x": cx, "y": 0.090}), 0.02)
             db.bind(on_release=lambda _w, s=slot: self._drop_hand(s))
             root.add_widget(db)
             self.drop_btns.append(db)

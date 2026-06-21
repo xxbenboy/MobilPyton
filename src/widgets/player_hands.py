@@ -69,11 +69,13 @@ def _item_texture(name):
 
 
 class PlayerHands(Widget):
-    # x du centre de chaque main (gauche, droite) en fraction de la largeur.
-    # Sert UNIQUEMENT a positionner les objets tenus AU-DESSUS du HUD.
-    HAND_FX = (0.31, 0.69)
-    # y des objets tenus, en fraction de la hauteur du widget (depuis le bas).
-    ITEM_FY = 0.20
+    # x du centre de chaque main (gauche, droite) en fraction de la largeur
+    # du widget. Mesures depuis HandHUD.png (mains a 34 % et 65 %).
+    HAND_FX = (0.346, 0.654)
+    # y des objets tenus (creux de la paume), en fraction de la hauteur du
+    # widget depuis le bas. Mesures depuis HandHUD.png : palm center a
+    # 21 % du bas de l'image, image affichee sur 21 % de la hauteur ecran.
+    ITEM_FY = 0.045
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -106,10 +108,17 @@ class PlayerHands(Widget):
             return
         tex = _hud_texture(self._state)
         if tex is not None:
-            # HUD plein ecran : on remplit toute la surface du widget.
+            # HUD : on PRESERVE l'aspect ratio de l'image (sinon les mains
+            # se deforment quand l'image est landscape et l'ecran portrait).
+            # Largeur = celle du widget, hauteur derivee, aligne en bas.
+            tw, th = max(1, tex.width), max(1, tex.height)
+            target_w = self.width
+            target_h = target_w * th / tw
+            x = self.x
+            y = self.y
             with self.canvas:
                 Color(1, 1, 1, 1)
-                Rectangle(texture=tex, pos=self.pos, size=self.size)
+                Rectangle(texture=tex, pos=(x, y), size=(target_w, target_h))
         self._draw_items()
 
     def _draw_items(self):
