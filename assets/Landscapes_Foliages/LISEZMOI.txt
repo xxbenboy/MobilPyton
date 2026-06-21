@@ -1,24 +1,23 @@
 IMAGES DU DECOR (Landscapes & Foliages)
 =======================================
 
-Depose ici les images des elements de DECOR du jeu : arbres, plantes,
-fleurs, pierres, etc. Le jeu cherche automatiquement un fichier nomme
-d'apres l'element :
+⚠️  STATUT : DOSSIER RESERVE, BRANCHEMENT CODE PAS ENCORE FAIT.
+Ce dossier existe pour accueillir les futures images du decor (arbres,
+plantes, fleurs, pierres, etc.). Le code de chargement n'est PAS encore
+en place : ajouter une image ici ne fait RIEN pour l'instant.
 
-    assets/Landscapes_Foliages/<nom>.png      (ou .jpg / .jpeg)
-
-Tant qu'aucune image n'existe, le jeu dessine l'element par defaut
-(au canvas). Des que tu ajoutes le bon fichier (meme nom), il le remplace.
+Quand tu seras pret(e) a ajouter des images, dis-le moi et j'ajouterai
+le branchement dans src/widgets/zone_scenery.py et nature_silhouette.py.
 
 (Le NOM du dossier utilise un underscore "_" a la place de l'espace :
 evite les problemes au build Android.)
 
 ----------------------------------------------------------------
-NOMS DE FICHIERS ATTENDUS (exactement, en minuscules)
+IMAGES PREVUES (a generer / fournir quand demande)
 ----------------------------------------------------------------
 
 --- FORET --------------------------------------------------------
-    pine_tree.png         -> Sapin (vu en entier, 12-22% hauteur ecran)
+    pine_tree.png         -> Sapin (vu en entier, 12-22 % hauteur ecran)
     forest_tree.png       -> Arbre feuillu (tronc conique + boule de feuilles)
     fern.png              -> Fougere (arbuste decoupe)
     bush_forest.png       -> Buisson de foret (2 lobes vert fonce)
@@ -42,7 +41,7 @@ NOMS DE FICHIERS ATTENDUS (exactement, en minuscules)
     plant_leafy.png       -> Plante feuillue (tige verticale + feuilles)
 
 --- MONTAGNE -----------------------------------------------------
-    boulder.png           -> Gros rocher (5-9% hauteur ecran)
+    boulder.png           -> Gros rocher (5-9 % hauteur ecran)
     stone_mountain.png    -> Pierre de montagne
     snow_patch.png        -> Plaque de neige (ovale blanc)
 
@@ -56,19 +55,17 @@ NOMS DE FICHIERS ATTENDUS (exactement, en minuscules)
     pine_silhouette_far.png   -> Sapin tres lointain (silhouette plus claire)
 
 ----------------------------------------------------------------
-CONSEILS
+CONSEILS DE FORMAT (pour anticiper)
 ----------------------------------------------------------------
-- Format conseille : PNG CARRE 256x256, fond TRANSPARENT.
-  Les sapins/arbres peuvent etre PORTRAIT (256x512) si tu veux plus de
-  hauteur ; le jeu adapte les proportions.
-- Centre bien l'element dans le carre (le jeu place le "bas" de l'image
-  au niveau du sol).
+- Format conseille : PNG CARRE 256 x 256, fond TRANSPARENT.
+  Les sapins/arbres peuvent etre PORTRAIT (256 x 512) si tu veux plus de
+  hauteur ; le jeu adaptera les proportions.
+- Centre bien l'element dans le carre (le jeu placera le "bas" de
+  l'image au niveau du sol).
 - Vue depuis le SOL (1re personne) : les pierres/fleurs sont vues du
   dessus-cote, les arbres vus en entier.
-- Les TOUFFES D'HERBE (grass_tuft) restent procedurales (130+ a l'ecran)
-  car remplacer chacune coute trop cher en perf. Idem pour les ONDULATIONS
-  D'EAU et les INSECTES animes.
-- Apres avoir ajoute des images : pousse le projet (envoyer-sur-github.bat)
-  pour qu'elles soient incluses dans l'APK.
+- Les TOUFFES D'HERBE (grass_tuft) resteront procedurales (130+ a
+  l'ecran) car remplacer chacune coute trop cher en perf. Idem pour les
+  ONDULATIONS D'EAU et les INSECTES animes.
 
 Le decor est gere dans : src/widgets/zone_scenery.py et nature_silhouette.py

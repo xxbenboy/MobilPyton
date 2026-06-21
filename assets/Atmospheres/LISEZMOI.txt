@@ -1,34 +1,33 @@
 IMAGES DU CIEL ET DES ASTRES (Atmospheres)
 ==========================================
 
-Depose ici les images du ciel : soleil, lune, etoiles. Le jeu cherche
-automatiquement un fichier nomme d'apres l'element :
+⚠️  STATUT : DOSSIER RESERVE, BRANCHEMENT CODE PAS ENCORE FAIT.
+Ce dossier existe pour accueillir les futures images du ciel (soleil,
+lune, etoiles, nuages). Le code de chargement n'est PAS encore en
+place : ajouter une image ici ne fait RIEN pour l'instant.
 
-    assets/Atmospheres/<nom>.png      (ou .jpg / .jpeg)
+Quand tu seras pret a ajouter des images, dis-le moi et j'ajouterai
+le branchement dans src/widgets/animated_background.py.
 
-Tant qu'aucune image n'existe, le jeu dessine l'element par defaut (au
-canvas). Des que tu ajoutes le bon fichier (meme nom), il le remplace.
-
-(Le NOM du dossier "Atmospheres" est sans accent volontairement : evite les
-problemes au build Android. Le LISEZMOI peut, lui, parler d'atmospheres.)
+(Le NOM du dossier "Atmospheres" est sans accent volontairement : evite
+les problemes au build Android.)
 
 ----------------------------------------------------------------
-NOMS DE FICHIERS ATTENDUS (exactement, en minuscules)
+IMAGES PREVUES (a generer / fournir quand demande)
 ----------------------------------------------------------------
     sun.png      -> Soleil (disque jaune dore)
     moon.png     -> Lune (disque blanc)
 
+Possible extensions futures : nuages anims (cloud_*.png), etoiles, etc.
+
 ----------------------------------------------------------------
-CONSEILS
+CONSEILS DE FORMAT (pour anticiper)
 ----------------------------------------------------------------
 - Format conseille : PNG CARRE 512x512, fond TRANSPARENT.
-- Centre bien l'astre dans le carre : le jeu prend toute l'image.
-- Le HALO autour du soleil reste anime au canvas (transparence variable
-  selon l'heure) ; ton soleil sera dessine PAR-DESSUS le halo.
-- Les NUAGES et les ETOILES restent animes au canvas pour l'instant
-  (formes procedurales). Si tu veux les remplacer, dis-le et on ajoutera
-  le branchement.
-- Apres avoir ajoute des images : pousse le projet (envoyer-sur-github.bat)
-  pour qu'elles soient incluses dans l'APK.
+- Centre bien l'astre dans le carre : le jeu prendra toute l'image.
+- Le HALO du soleil restera anime au canvas (transparence variable
+  selon l'heure) ; le soleil sera dessine PAR-DESSUS le halo.
+- Les NUAGES et les ETOILES sont animes procedurellement (canvas) ;
+  pas de remplacement par image prevu pour l'instant.
 
 Le ciel est gere dans : src/widgets/animated_background.py

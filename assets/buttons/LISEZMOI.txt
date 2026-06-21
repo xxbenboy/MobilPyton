@@ -23,6 +23,7 @@ NOMS DE FICHIERS ATTENDUS (exactement, en minuscules)
     map.png            -> bouton "Carte"           (carte)
     craft.png          -> bouton "Craft"           (marteau)
     home.png           -> bouton "Menu"            (maison)
+    move.png           -> bouton "Deplacer"        (4 fleches)
 
 ----------------------------------------------------------------
 CONSEILS

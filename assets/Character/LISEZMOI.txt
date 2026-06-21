@@ -1,32 +1,60 @@
 IMAGES DU PERSONNAGE (Character)
 ================================
 
-SYSTEME HUD : UNE SEULE IMAGE PLEIN ECRAN par etat du joueur. L'image
-contient les mains (et tout ce qui va avec : bras, pouces, doigts)
-positionnees au bon endroit dans le bas de l'ecran. Le reste de
-l'image est TRANSPARENT.
+SYSTEME HUD : UNE IMAGE PAR ETAT du joueur. Chaque image est un PNG
+plein ecran (les mains sont deja positionnees au bon endroit dans
+l'image, le reste est TRANSPARENT).
 
-Le HUD est etire pour remplir toute la zone du widget (== plein ecran).
+L'image est affichee en PRESERVANT son aspect ratio et alignee au BAS
+du widget (la largeur prend toute la largeur d'ecran, la hauteur est
+derivee de l'aspect de l'image).
 
 ----------------------------------------------------------------
-IMAGES ATTENDUES (une par etat)
+ETATS et IMAGES ATTENDUES
 ----------------------------------------------------------------
-    HandHUD.png        -> Etat 'haut' (paumes vers le haut, par defaut)
+    HandHUD.png    -> Etat 'haut' : paumes vers le haut (defaut)
+    HandEx1.png    -> Etat 'ex1' : exploration phase 1 et 3 (debut/fin)
+    HandEx2.png    -> Etat 'ex2' : exploration phase 2 (milieu)
+
+PENDANT UNE EXPLORATION, le jeu CYCLE entre les 3 images :
+- 1/3 du temps au debut    -> HandEx1
+- 1/3 du temps au milieu   -> HandEx2
+- 1/3 du temps a la fin    -> HandEx1
+Apres l'exploration, retour automatique a 'haut'.
+
+PENDANT L'EXPLORATION : les OBJETS TENUS, le bouton "Deposer" et le
+LABEL nom-de-l-objet sont CACHES (animation propre, sans distractions).
+Ils reapparaissent une fois l'action terminee.
 
 D'autres etats peuvent etre ajoutes dans HUD_IMAGES de
-src/widgets/player_hands.py (ex. main qui tient un outil, etc.).
+src/widgets/player_hands.py (ex. 'craft' pour la fabrication, etc.).
 
 ----------------------------------------------------------------
-CONSEILS
+CONSEILS POUR LES IMAGES
 ----------------------------------------------------------------
 - Format : PNG, fond TRANSPARENT.
-- Taille de REFERENCE : 1080 x 2340 (resolution telephone portrait),
-  ou 2340 x 1080 si tu prefers travailler en "tall x wide". L'image est
-  etiree pour remplir le widget : assure-toi qu'elle a le bon aspect
-  ratio (~ 9 : 19.5).
-- Les mains sont positionnees dans le BAS de l'image (le reste est
-  transparent : ciel/decor visibles a travers).
+- Taille de reference : 2340 x 1080 (landscape) ou un autre format,
+  peu importe : l'aspect ratio est PRESERVE a l'affichage.
+- Les MAINS doivent etre dessinees dans le BAS de l'image.
+- COHERENCE entre images d'un meme groupe (ex. HandEx1/Ex2) : les
+  mains au MEME endroit dans toutes les images, sinon l'animation
+  saute. Recommande : meme dimensions + positions identiques.
 - Apres ajout : pousse le projet (envoyer-sur-github.bat) pour que
-  l'image soit incluse dans l'APK.
+  les images soient incluses dans l'APK.
 
-Logique des mains : src/widgets/player_hands.py
+----------------------------------------------------------------
+POSITIONNEMENT DES OBJETS TENUS
+----------------------------------------------------------------
+Quand le joueur tient un objet (ex. une pierre), il est dessine
+AU-DESSUS du HUD a la position des mains. Les valeurs par defaut
+(mesurees sur HandHUD.png) sont en haut de player_hands.py :
+
+    HAND_FX = (0.346, 0.654)  -> X des centres des paumes gauche/droite
+                                  (fraction de la LARGEUR du widget)
+    ITEM_FY = 0.185            -> Y du creux des paumes (fraction de la
+                                  HAUTEUR du widget depuis le bas)
+
+Si les nouvelles images placent les mains a un endroit different,
+ajuste ces 2 constantes dans src/widgets/player_hands.py.
+
+Logique : src/widgets/player_hands.py
