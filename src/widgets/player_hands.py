@@ -71,10 +71,10 @@ HAND_H_MULT = 2.0             # hauteur image / hauteur paume (ph)
 HAND_OFFSET_Y = 0.0           # decalage vertical centre bbox (en x ph)
 FOREARM_H_MULT = 1.0          # hauteur image / hauteur forearm (hy - y0)
 
-# Taille des doigts et pouces (1.0 = doigt anatomique). 1.2 = doigt aussi
-# long que la paume (comme une vraie main, voir image de reference).
-DOIGT_SIZE = 1.2
-POUCE_SIZE = 1.2
+# Taille des doigts et pouces (1.0 = doigt anatomique). 1.5 = doigt
+# legerement plus long que la paume (plus visible).
+DOIGT_SIZE = 1.5
+POUCE_SIZE = 1.3
 
 
 def _char_texture(name):
@@ -345,7 +345,9 @@ class PlayerHands(Widget):
         if thumb_dir > 0:                          # main droite : on inverse
             lengths = lengths[::-1]                # pour que l'auriculaire
                                                    # soit a gauche
-        spacing = fw + 0.004 * scale
+        # Espacement entre doigts base sur la largeur de paume (pour qu'ils
+        # se repartissent sur ~70 % de la largeur de la paume).
+        spacing = pw * 0.50
         # Les doigts attachent legerement DANS la paume (base_y < top palm)
         # pour qu'ils paraissent connectes au lieu de flotter au-dessus.
         if _char_texture("hand")[0] is not None:
@@ -481,7 +483,7 @@ class PlayerHands(Widget):
         tex_data = _char_texture("doigt1")
         if tex_data[0] is not None:
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
-                             flip_h=(side == 'R'), target_w=fw * 1.4)
+                             flip_h=(side == 'R'), target_w=fw * 1.8)
             return cy + seg_h * 0.80
         wb = fw * 1.00
         wt = fw * 0.88
@@ -495,7 +497,7 @@ class PlayerHands(Widget):
         tex_data = _char_texture("doigt2")
         if tex_data[0] is not None:
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
-                             flip_h=(side == 'R'), target_w=fw * 1.3)
+                             flip_h=(side == 'R'), target_w=fw * 1.6)
             return cy + seg_h * 0.80
         wb = fw * 0.88
         wt = fw * 0.74
@@ -508,7 +510,7 @@ class PlayerHands(Widget):
         tex_data = _char_texture("doigt3")
         if tex_data[0] is not None:
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
-                             flip_h=(side == 'R'), target_w=fw * 1.2)
+                             flip_h=(side == 'R'), target_w=fw * 1.4)
             return cy + seg_h
         wb = fw * 0.74
         wt = fw * 0.55
@@ -558,11 +560,12 @@ class PlayerHands(Widget):
         prox_ratio = 0.58                    # part de la proximale
         dist_ratio = 0.42                    # part de la distale
 
-        # Origine du pouce (base de la proximale). Attache au MILIEU de la
-        # paume (thenar), pas au poignet : tby = hy + 35 % de la hauteur de
-        # paume au lieu de 18 %.
-        tbx = hx + thumb_dir * (pw * 0.42)
-        tby = hy + ph * 0.35
+        # Origine du pouce : on s'attache au NOTCH (creux) sur le COTE de
+        # l'image hand.png, qui se trouve au bord exterieur du dessin
+        # (0.8 * ph du centre) et a ~44 % de la hauteur depuis le haut,
+        # donc tres pres du poignet en y.
+        tbx = hx + thumb_dir * (ph * 0.80)
+        tby = hy + ph * 0.12
 
         # Longueurs et largeurs caracteristiques.
         prox_len = tlen_total * prox_ratio
@@ -575,13 +578,14 @@ class PlayerHands(Widget):
         # phalange (le flip H se charge du cote pour la main droite).
         tex_data = _char_texture("pouce%d" % num)
         if tex_data[0] is not None:
-            tbcx = hx + thumb_dir * (pw * 0.42)
+            tbcx = tbx                          # meme x que origine
             if num == 1:
                 seg_len = prox_len
                 cy = tby + seg_len / 2
             else:
+                # pouce2 chevauche pouce1 par 15 % pour cacher la jointure
                 seg_len = dist_len
-                cy = tby + prox_len + seg_len / 2
+                cy = tby + prox_len * 0.85 + seg_len / 2
             _draw_char_image(tex_data, tbcx, cy, seg_len,
                              flip_h=(side == 'R'))
             return
