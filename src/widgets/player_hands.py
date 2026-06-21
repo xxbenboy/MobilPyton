@@ -65,7 +65,7 @@ _CHAR_TEX = {}
 # MAITRE : echelle globale de toute la main+bras. 1.0 = taille de reference,
 # < 1 = plus petit. Pratique pour reduire ou agrandir d'un coup tout le
 # rendu sans toucher aux proportions internes.
-HAND_SCALE = 0.65
+HAND_SCALE = 0.50
 
 HAND_H_MULT = 2.0             # hauteur image / hauteur paume (ph)
 HAND_OFFSET_Y = 0.0           # decalage vertical centre bbox (en x ph)
@@ -475,14 +475,14 @@ class PlayerHands(Widget):
         """Phalange PROXIMALE (45 % du doigt, attachee a la paume).
         Image doigt1.png si dispo, sinon canvas. Largeur fixe a fw * 1.4
         (les vraies phalanges sont longues et fines, pas chunky). On
-        AVANCE de 90 % seulement pour que la phalange suivante chevauche
-        legerement et cache la jointure visible entre les images."""
+        AVANCE de 80 % seulement pour que la phalange suivante chevauche
+        et cache la jointure visible entre les images."""
         seg_h = total_len * 0.45 * DOIGT_SIZE
         tex_data = _char_texture("doigt1")
         if tex_data[0] is not None:
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
                              flip_h=(side == 'R'), target_w=fw * 1.4)
-            return cy + seg_h * 0.90
+            return cy + seg_h * 0.80
         wb = fw * 1.00
         wt = fw * 0.88
         self._phalange(fx, cy, seg_h, wb, wt, shade_clair=True, joint=False)
@@ -496,7 +496,7 @@ class PlayerHands(Widget):
         if tex_data[0] is not None:
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
                              flip_h=(side == 'R'), target_w=fw * 1.3)
-            return cy + seg_h * 0.90
+            return cy + seg_h * 0.80
         wb = fw * 0.88
         wt = fw * 0.74
         self._phalange(fx, cy, seg_h, wb, wt, shade_clair=False, joint=True)
@@ -558,9 +558,11 @@ class PlayerHands(Widget):
         prox_ratio = 0.58                    # part de la proximale
         dist_ratio = 0.42                    # part de la distale
 
-        # Origine du pouce (base de la proximale).
+        # Origine du pouce (base de la proximale). Attache au MILIEU de la
+        # paume (thenar), pas au poignet : tby = hy + 35 % de la hauteur de
+        # paume au lieu de 18 %.
         tbx = hx + thumb_dir * (pw * 0.42)
-        tby = hy + ph * 0.18
+        tby = hy + ph * 0.35
 
         # Longueurs et largeurs caracteristiques.
         prox_len = tlen_total * prox_ratio
