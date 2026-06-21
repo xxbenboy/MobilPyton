@@ -299,7 +299,7 @@ class GameScreen(Screen):
         # reste rempli normalement (remplissage haut->bas puis colonne suivante).
         # La grille est RECONSTRUITE selon l'etat : "Couper du bois" n'apparait
         # qu'avec une hache en main, "Remplir gourde" qu'avec une gourde.
-        self.grid = GridLayout(rows=3, orientation="tb-lr",
+        self.grid = GridLayout(rows=4, orientation="tb-lr",
                                spacing=[dp(2), dp(12)], size_hint=(None, 0.50),
                                pos_hint={"x": 0.004, "top": 0.96})
         self.grid.bind(minimum_width=self.grid.setter("width"))
@@ -310,6 +310,9 @@ class GameScreen(Screen):
         # Sous-menu "Action" : quand True, "Chercher a manger" et "Boire"
         # sont affiches en plus dans la grille. Toggle via le bouton Action.
         self._action_submenu_visible = False
+        # References utilisees par on_touch_down pour detecter "click ailleurs".
+        self._action_btn_widget = None     # bouton Action (toggle)
+        self._action_submenu_btns = []     # boutons Manger / Boire
 
         # ---- Bouton CARTE (bas a gauche) ----
         # Cellule ETROITE, plaquee au bord : le logo (taille basee sur la
@@ -469,9 +472,43 @@ class GameScreen(Screen):
             self._action_visible = self._action_visible_key(state)
             self._build_action_grid(state)
 
+    def _close_action_submenu(self, *_):
+        """Ferme le sous-menu Action (si ouvert) et reconstruit la grille."""
+        if not self._action_submenu_visible:
+            return
+        self._action_submenu_visible = False
+        state = App.get_running_app().game_state
+        if state is not None:
+            self._action_visible = self._action_visible_key(state)
+            self._build_action_grid(state)
+
+    @staticmethod
+    def _touch_on_widget(widget, touch):
+        """True si touch.pos (window coords) est dans la bbox du widget."""
+        if widget is None or widget.parent is None:
+            return False
+        x, y = widget.to_window(0, 0)
+        return (x <= touch.x <= x + widget.width
+                and y <= touch.y <= y + widget.height)
+
+    def on_touch_down(self, touch):
+        # Quand le sous-menu Action est ouvert, un clic AILLEURS que sur
+        # Action / Manger / Boire le ferme. La fermeture est differee a la
+        # frame suivante pour laisser le widget cible recevoir le touch
+        # avant qu'on reconstruise la grille.
+        if self._action_submenu_visible:
+            on_relevant = (self._touch_on_widget(self._action_btn_widget, touch)
+                           or any(self._touch_on_widget(b, touch)
+                                  for b in self._action_submenu_btns))
+            if not on_relevant:
+                Clock.schedule_once(self._close_action_submenu, 0)
+        return super().on_touch_down(touch)
+
     def _build_action_grid(self, state):
         self.grid.clear_widgets()
         self._action_buttons = []
+        self._action_btn_widget = None
+        self._action_submenu_btns = []
         cells = []          # (cell, btn, lbl) -> pour egaliser les largeurs
 
         def _fit_cells(*_):
@@ -507,18 +544,17 @@ class GameScreen(Screen):
         has_axe = items.AXE_ITEM in state.hands
         has_gourde = any(state.has_item(g) for g in items.GOURDE_ITEMS)
         by_label = {a["label"]: a for a in ACTIONS}
-        # Ordre voulu : colonne gauche = Explorer / Se reposer / Action
-        # (3 lignes), puis Craft + actions conditionnelles dans les colonnes
-        # suivantes. "ACTION" = bouton sous-menu (toggle Manger/Boire),
-        # None = bouton Craft.
-        order = ["Explorer", "Se reposer", "ACTION",
-                 "Couper du bois", None, "Remplir gourde"]
+        # Ordre voulu : colonne gauche = Explorer / Se reposer / Action /
+        # Craft (4 lignes), puis actions conditionnelles dans les colonnes
+        # suivantes. "ACTION" = bouton sous-menu, None = bouton Craft.
+        order = ["Explorer", "Se reposer", "ACTION", None,
+                 "Couper du bois", "Remplir gourde"]
         # Si le sous-menu Action est ouvert, on insere Manger et Boire
         # juste apres Couper du bois (col 2).
         if self._action_submenu_visible:
-            order = ["Explorer", "Se reposer", "ACTION",
+            order = ["Explorer", "Se reposer", "ACTION", None,
                      "Couper du bois", "Chercher a manger", "Boire",
-                     None, "Remplir gourde"]
+                     "Remplir gourde"]
         for label in order:
             if label is None:
                 self.craft_btn = add_cell(
@@ -527,8 +563,9 @@ class GameScreen(Screen):
                 continue
             if label == "ACTION":
                 # Bouton special : toggle sous-menu Manger/Boire.
-                add_cell("actions", "Action",
-                         lambda *_: self._toggle_action_submenu())
+                self._action_btn_widget = add_cell(
+                    "actions", "Action",
+                    lambda *_: self._toggle_action_submenu())
                 continue
             action = by_label[label]
             if action.get("need_axe") and not has_axe:
@@ -538,9 +575,15 @@ class GameScreen(Screen):
             btn = add_cell(action["icon"], action["name"],
                            lambda _w, a=action: self.do_action(a))
             self._action_buttons.append((btn, action))
+            if action["label"] in ("Chercher a manger", "Boire"):
+                self._action_submenu_btns.append(btn)
 
     # ------------------------------------------------------------------ #
     def do_action(self, action):
+        # Si l'action vient du sous-menu (Manger ou Boire), on ferme le
+        # sous-menu juste apres le clic (qu'elle reussisse ou non).
+        if action["label"] in ("Chercher a manger", "Boire"):
+            Clock.schedule_once(self._close_action_submenu, 0)
         state = App.get_running_app().game_state
         if state is None or self._ff_active or self._moving:
             return
