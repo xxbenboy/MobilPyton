@@ -904,7 +904,10 @@ class GameScreen(Screen):
         self.root_layout.add_widget(fader)
         self._rest_fader = fader
         self._rest_fader_clock = clock
-        clock.start()
+        # L'horloge fait UN tour complet sur toute la duree REELLE du repos
+        # (pas 2.9 s par defaut), pour finir exactement avec le repos.
+        rest_real_seconds = self._ff_total / FAST_FORWARD_SCALE
+        clock.start(duration=rest_real_seconds)
         # Fondu vers le noir (1 s).
         Animation(opacity=1, duration=1.0).start(fader)
 
