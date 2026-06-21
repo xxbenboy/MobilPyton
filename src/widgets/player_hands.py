@@ -71,10 +71,11 @@ HAND_H_MULT = 2.0             # hauteur image / hauteur paume (ph)
 HAND_OFFSET_Y = 0.0           # decalage vertical centre bbox (en x ph)
 FOREARM_H_MULT = 1.0          # hauteur image / hauteur forearm (hy - y0)
 
-# Taille des doigts et pouces (1.0 = doigt anatomique). 1.5 = doigt
-# legerement plus long que la paume (plus visible).
-DOIGT_SIZE = 1.5
-POUCE_SIZE = 1.3
+# Taille des doigts et pouces (1.0 = anatomique). DOIGT_SIZE plus grand
+# = doigts plus longs et plus visibles. POUCE_SIZE plus petit = pouce qui
+# ne depasse pas le haut de la paume (sinon il flotte).
+DOIGT_SIZE = 1.7
+POUCE_SIZE = 0.95
 
 
 def _char_texture(name):
@@ -351,7 +352,7 @@ class PlayerHands(Widget):
         # Les doigts attachent legerement DANS la paume (base_y < top palm)
         # pour qu'ils paraissent connectes au lieu de flotter au-dessus.
         if _char_texture("hand")[0] is not None:
-            base_y = hy + ph * 0.85            # 15% dans la paume image
+            base_y = hy + ph * 0.70            # 30% dans la paume image
         else:
             base_y = hy + ph * 0.62            # interieur paume canvas
         for i, fl in enumerate(lengths):
@@ -483,7 +484,7 @@ class PlayerHands(Widget):
         tex_data = _char_texture("doigt1")
         if tex_data[0] is not None:
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
-                             flip_h=(side == 'R'), target_w=fw * 1.8)
+                             flip_h=(side == 'R'), target_w=fw * 2.0)
             return cy + seg_h * 0.80
         wb = fw * 1.00
         wt = fw * 0.88
@@ -497,7 +498,7 @@ class PlayerHands(Widget):
         tex_data = _char_texture("doigt2")
         if tex_data[0] is not None:
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
-                             flip_h=(side == 'R'), target_w=fw * 1.6)
+                             flip_h=(side == 'R'), target_w=fw * 1.8)
             return cy + seg_h * 0.80
         wb = fw * 0.88
         wt = fw * 0.74
@@ -510,7 +511,7 @@ class PlayerHands(Widget):
         tex_data = _char_texture("doigt3")
         if tex_data[0] is not None:
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
-                             flip_h=(side == 'R'), target_w=fw * 1.4)
+                             flip_h=(side == 'R'), target_w=fw * 1.6)
             return cy + seg_h
         wb = fw * 0.74
         wt = fw * 0.55
@@ -579,15 +580,19 @@ class PlayerHands(Widget):
         tex_data = _char_texture("pouce%d" % num)
         if tex_data[0] is not None:
             tbcx = tbx                          # meme x que origine
+            # Largeur explicite : pouce plus large visuellement (au lieu
+            # de seg_len * aspect qui le faisait fin).
+            target_w_pouce = fw * 2.5
             if num == 1:
                 seg_len = prox_len
                 cy = tby + seg_len / 2
             else:
-                # pouce2 chevauche pouce1 par 15 % pour cacher la jointure
+                # pouce2 chevauche pouce1 par 30 % pour cacher la jointure
                 seg_len = dist_len
-                cy = tby + prox_len * 0.85 + seg_len / 2
+                cy = tby + prox_len * 0.70 + seg_len / 2
             _draw_char_image(tex_data, tbcx, cy, seg_len,
-                             flip_h=(side == 'R'))
+                             flip_h=(side == 'R'),
+                             target_w=target_w_pouce)
             return
 
         # Inclinaison vers l'exterieur (le pouce s'evase loin du centre).
