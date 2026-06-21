@@ -953,19 +953,27 @@ class GameScreen(Screen):
         self.stat_hunger.set_value(state.hunger)
         self.stat_thirst.set_value(state.thirst)
 
-        # Objets tenus -> affiches dans les mains du joueur (1re personne).
-        self.hands.set_items(state.hands[0], state.hands[1])
+        # Pendant l'exploration, on CACHE l'objet tenu, le bouton Deposer
+        # et le label (animation des mains uniquement, sans distractions).
+        exploring = self._ff_active and self._ff_label == "Explorer"
+
+        # Objets tenus -> affiches dans les mains, sauf pendant l'exploration.
+        if exploring:
+            self.hands.set_items(None, None)
+        else:
+            self.hands.set_items(state.hands[0], state.hands[1])
 
         # Boutons "Deposer" + nom de l'objet tenu : visibles seulement si la
-        # main correspondante tient un objet (et inactifs pendant une avance).
+        # main correspondante tient un objet, et NON pendant l'exploration.
         for slot, db in enumerate(self.drop_btns):
             item = state.hands[slot]
             occupied = item is not None
-            db.opacity = 1 if occupied else 0
+            visible = occupied and not exploring
+            db.opacity = 1 if visible else 0
             db.disabled = (not occupied) or self._ff_active
             lbl = self.drop_labels[slot]
-            lbl.opacity = 1 if occupied else 0
-            if occupied:
+            lbl.opacity = 1 if visible else 0
+            if visible:
                 lbl.text = items.display_name(item)
 
         # (Re)construit la grille des boutons si l'outillage a change (hache /
