@@ -357,6 +357,12 @@ class GameScreen(Screen):
 
             db = scale_font(StyledButton(text="Deposer", size_hint=(0.13, 0.07),
                             pos_hint={"center_x": cx, "y": 0.005}), 0.02)
+            # Fond plus transparent (alpha 0.40 au lieu de 0.92) pour ne pas
+            # masquer les mains/decor derriere.
+            db.set_palette(idle=(0.13, 0.24, 0.18, 0.40),
+                           down=(0.22, 0.40, 0.28, 0.55),
+                           off=(0.12, 0.14, 0.12, 0.30),
+                           border=(0.55, 0.85, 0.60, 0.45))
             db.bind(on_release=lambda _w, s=slot: self._drop_hand(s))
             root.add_widget(db)
             self.drop_btns.append(db)
