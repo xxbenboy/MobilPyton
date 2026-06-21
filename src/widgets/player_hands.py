@@ -71,12 +71,19 @@ HAND_H_MULT = 2.0             # hauteur image / hauteur paume (ph)
 HAND_OFFSET_Y = 0.0           # decalage vertical centre bbox (en x ph)
 FOREARM_H_MULT = 1.0          # hauteur image / hauteur forearm (hy - y0)
 
-# Taille des doigts et pouces (1.0 = anatomique). DOIGT_SIZE plus grand
-# = doigts plus longs et plus visibles. POUCE_SIZE = longueur du pouce.
-# La LARGEUR du pouce est forcee separement (target_w_pouce dans
-# _pouce_segment) ; le pouce est naturellement le plus epais.
+# Taille des doigts (1.0 = anatomique). DOIGT_SIZE plus grand = doigts
+# plus longs et plus visibles.
 DOIGT_SIZE = 1.7
-POUCE_SIZE = 1.6
+
+# Pouce : taille INDEPENDANTE pour chaque phalange.
+# - POUCE1 = section INFERIEURE (proximale, attachee a la paume)
+# - POUCE2 = section SUPERIEURE (distale, bout du pouce)
+# - LEN = longueur (en fraction de scale)
+# - W   = largeur (en multiple de fw = largeur d'un doigt)
+POUCE1_LEN = 0.141          # longueur de la section INFERIEURE
+POUCE1_W = 7.0              # largeur de la section INFERIEURE
+POUCE2_LEN = 0.102          # longueur de la section SUPERIEURE
+POUCE2_W = 7.0              # largeur de la section SUPERIEURE
 
 
 def _char_texture(name):
@@ -189,8 +196,7 @@ class PlayerHands(Widget):
     FINGER_W = 0.026                    # largeur d'un doigt / scale
     # Longueurs des doigts (index, majeur, annulaire, auriculaire) / scale.
     FINGER_LENGTHS = (0.173, 0.206, 0.191, 0.147)
-    # Longueur totale du pouce (2 phalanges) / scale.
-    THUMB_LEN = 0.152
+    # (Pour le pouce, voir POUCE1_LEN / POUCE2_LEN au niveau module.)
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -566,11 +572,10 @@ class PlayerHands(Widget):
         thumb_dir = self._thumb_dir(side)
         scale = self._scale_ref()
 
-        tw_base = fw * 1.2                   # largeur a la base du pouce
-        # Longueur totale du pouce, scalee par POUCE_SIZE (les 2 phalanges).
-        tlen_total = self.THUMB_LEN * scale * POUCE_SIZE
-        prox_ratio = 0.58                    # part de la proximale
-        dist_ratio = 0.42                    # part de la distale
+        tw_base = fw * 1.2                   # largeur a la base (canvas)
+        # Longueurs des 2 phalanges, INDEPENDANTES (POUCE1_LEN / POUCE2_LEN).
+        prox_len = POUCE1_LEN * scale
+        dist_len = POUCE2_LEN * scale
 
         # Origine du pouce : x = bord lateral exterieur de hand.png (notch),
         # y = sous le poignet (hy - 15 % de ph) pour abaisser le pouce
@@ -578,27 +583,24 @@ class PlayerHands(Widget):
         tbx = hx + thumb_dir * (ph * 0.80)
         tby = hy - ph * 0.15
 
-        # Longueurs et largeurs caracteristiques.
-        prox_len = tlen_total * prox_ratio
-        dist_len = tlen_total * dist_ratio
+        # Largeurs (canvas fallback).
         wb_prox = tw_base                    # largeur bas de la proximale
         wt_prox = tw_base * 0.85             # largeur haut de la proximale
         wt_dist = tw_base * 0.70             # largeur haut de la distale
 
-        # Image pouce<num>.png si dispo : on dessine l'image au centre de la
-        # phalange (le flip H se charge du cote pour la main droite).
+        # Image pouce<num>.png si dispo : largeur INDEPENDANTE par phalange
+        # (POUCE1_W / POUCE2_W). Le flip H se charge du cote pour la main D.
         tex_data = _char_texture("pouce%d" % num)
         if tex_data[0] is not None:
             tbcx = tbx                          # meme x que origine
-            # Largeur EXPLICITE : pouce1 et pouce2 ont la MEME largeur
-            # (le bout du pouce n'est pas effile, tous deux fw * 7.0).
-            target_w_pouce = fw * 7.0
             if num == 1:
                 seg_len = prox_len
+                target_w_pouce = fw * POUCE1_W
                 cy = tby + seg_len / 2
             else:
                 # pouce2 chevauche pouce1 par 30 % pour cacher la jointure
                 seg_len = dist_len
+                target_w_pouce = fw * POUCE2_W
                 cy = tby + prox_len * 0.70 + seg_len / 2
             _draw_char_image(tex_data, tbcx, cy, seg_len,
                              flip_h=(side == 'R'),
