@@ -214,6 +214,9 @@ class GameScreen(Screen):
         self._fader_clock = None
         self._pending_move = None
         self._move_event = None
+        # Transition de repos (fondu noir + horloge, comme le deplacement).
+        self._rest_fader = None
+        self._rest_fader_clock = None
         self._found_item = None        # objet decouvert a la fin d'une exploration
         self._did_explore = False      # vient-on d'explorer ? (pour le message)
         self._scene_key = None
@@ -553,12 +556,18 @@ class GameScreen(Screen):
         self._ff_label = action["label"]
         self._time_accum = 0.0
         self.refresh()
+        # Repos : voile noir + horloge + message (comme le deplacement).
+        if action["label"] == "Se reposer":
+            self._start_rest_overlay()
         App.get_running_app().autosave()
 
     def _finish_action(self):
+        was_resting = (self._ff_label == "Se reposer")
         self._ff_active = False
         self._ff_label = ""
         self.hands.set_state('haut')
+        if was_resting:
+            self._end_rest_overlay()
         if self._did_explore:
             self._did_explore = False
             # La trouvaille et le RETRAIT de l'objet du decor se font ICI, a la
@@ -857,6 +866,64 @@ class GameScreen(Screen):
         self._fader = None
         self._fader_clock = None
         self._moving = False
+        self.refresh()
+
+    # ------------------------------------------------------------------ #
+    # Transition de REPOS (meme visuel que le deplacement : voile noir +
+    # horloge animee + message). La duree de visibilite suit celle du
+    # fast-forward (_ff_active) du repos.
+    # ------------------------------------------------------------------ #
+    def _start_rest_overlay(self):
+        """Affiche le voile noir + horloge + message au debut du repos."""
+        fader = _Fader(size_hint=(1, 1), pos_hint={"x": 0, "y": 0},
+                       opacity=0)
+        with fader.canvas.before:
+            Color(0, 0, 0, 1)
+            rect = Rectangle()
+
+        def _sync(*_):
+            rect.pos = fader.pos
+            rect.size = fader.size
+        fader.bind(pos=_sync, size=_sync)
+        _sync()
+
+        box = BoxLayout(orientation="vertical", spacing=dp(12),
+                        size_hint=(0.5, 0.45),
+                        pos_hint={"center_x": 0.5, "center_y": 0.5})
+        clock = ClockFace(size_hint=(1, 0.62))
+        box.add_widget(clock)
+        msg = Label(text="Repos\nen cours...", halign="center",
+                    valign="middle", color=(1, 1, 1, 1),
+                    size_hint=(1, 0.38))
+        msg.bind(size=lambda w, *_:
+                 setattr(w, "text_size", (w.width, w.height)))
+        scale_font(msg)
+        box.add_widget(msg)
+        fader.add_widget(box)
+
+        self.root_layout.add_widget(fader)
+        self._rest_fader = fader
+        self._rest_fader_clock = clock
+        clock.start()
+        # Fondu vers le noir (1 s).
+        Animation(opacity=1, duration=1.0).start(fader)
+
+    def _end_rest_overlay(self):
+        """Fondu noir -> normal (1 s) puis nettoyage. Appelle a la fin
+        du repos (quand _ff_active devient False)."""
+        if self._rest_fader is None:
+            return
+        a_out = Animation(opacity=0, duration=1.0)
+        a_out.bind(on_complete=lambda *_: self._rest_overlay_done())
+        a_out.start(self._rest_fader)
+
+    def _rest_overlay_done(self):
+        if self._rest_fader_clock is not None:
+            self._rest_fader_clock.stop()
+        if self._rest_fader is not None and self._rest_fader.parent:
+            self._rest_fader.parent.remove_widget(self._rest_fader)
+        self._rest_fader = None
+        self._rest_fader_clock = None
         self.refresh()
 
     # ------------------------------------------------------------------ #
