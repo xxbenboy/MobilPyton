@@ -80,12 +80,18 @@ DOIGT_SIZE = 1.7
 # - POUCE2 = section SUPERIEURE (distale, bout du pouce)
 # - LEN = longueur (en fraction de scale)
 # - W   = largeur (en multiple de fw = largeur d'un doigt)
-POUCE1_LEN = 0.18          # longueur de la section INFERIEURE
-POUCE1_W = 13.0         # largeur de la section INFERIEURE
+POUCE1_LEN = 0.21          # longueur de la section INFERIEURE
+POUCE1_W = 14.0         # largeur de la section INFERIEURE
 POUCE1_ROT = -15              # rotation de la section INFERIEURE (degres)
 POUCE2_LEN = 0.102          # longueur de la section SUPERIEURE
 POUCE2_W = 3.5              # largeur de la section SUPERIEURE
 POUCE2_ROT = 15              # rotation de la section SUPERIEURE (degres)
+
+# MODE TEST : si True, toutes les images (hand, doigts, pouces) sont
+# dessinees a la MEME position, taille et rotation (= 0) que l'avant-bras.
+# Permet de comparer visuellement les images les unes par rapport aux autres.
+# Mettre a False pour revenir au rendu normal.
+TEST_AVANT_BRAS = True
 
 
 def _char_texture(name):
@@ -317,11 +323,14 @@ class PlayerHands(Widget):
         # Image avant_hand.png si dispo, sinon Quads canvas.
         # L'image (juste le bout du poignet) est positionnee avec son
         # HAUT a la hauteur du poignet (hy).
+        forearm_h = (hy - y0) * FOREARM_H_MULT
+        forearm_cy = hy - forearm_h / 2
+        # On memorise les parametres de l'avant-bras pour TEST_AVANT_BRAS :
+        # les autres images (hand, doigts, pouces) pourront s'aligner dessus.
+        self._test_params = (hx, forearm_cy, forearm_h, side == 'R')
         tex_data = _char_texture("avant_hand")
         if tex_data[0] is not None:
-            forearm_h = (hy - y0) * FOREARM_H_MULT
-            cy = hy - forearm_h / 2          # haut de l'image au poignet
-            _draw_char_image(tex_data, hx, cy, forearm_h,
+            _draw_char_image(tex_data, hx, forearm_cy, forearm_h,
                              flip_h=(side == 'R'))
         else:
             # Cote sombre (volume) puis dessus clair vers le poignet.
@@ -400,6 +409,11 @@ class PlayerHands(Widget):
         """
         tex_data = _char_texture("hand")
         if tex_data[0] is not None:
+            if TEST_AVANT_BRAS:
+                # MODE TEST : meme position/taille que l'avant-bras.
+                tcx, tcy, tth, tflip = self._test_params
+                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip)
+                return
             target_h = ph * HAND_H_MULT
             cy = hy + ph * HAND_OFFSET_Y
             _draw_char_image(tex_data, hx, cy, target_h,
@@ -502,6 +516,10 @@ class PlayerHands(Widget):
         seg_h = total_len * 0.45 * DOIGT_SIZE
         tex_data = _char_texture("doigt1")
         if tex_data[0] is not None:
+            if TEST_AVANT_BRAS:
+                tcx, tcy, tth, tflip = self._test_params
+                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip)
+                return cy + seg_h * 0.80
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
                              flip_h=(side == 'R'), target_w=fw * 2.0)
             return cy + seg_h * 0.80
@@ -516,6 +534,10 @@ class PlayerHands(Widget):
         seg_h = total_len * 0.32 * DOIGT_SIZE
         tex_data = _char_texture("doigt2")
         if tex_data[0] is not None:
+            if TEST_AVANT_BRAS:
+                tcx, tcy, tth, tflip = self._test_params
+                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip)
+                return cy + seg_h * 0.80
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
                              flip_h=(side == 'R'), target_w=fw * 1.8)
             return cy + seg_h * 0.80
@@ -529,6 +551,10 @@ class PlayerHands(Widget):
         seg_h = total_len * 0.23 * DOIGT_SIZE
         tex_data = _char_texture("doigt3")
         if tex_data[0] is not None:
+            if TEST_AVANT_BRAS:
+                tcx, tcy, tth, tflip = self._test_params
+                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip)
+                return cy + seg_h
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
                              flip_h=(side == 'R'), target_w=fw * 1.6)
             return cy + seg_h
@@ -596,6 +622,10 @@ class PlayerHands(Widget):
         # position ne bouge pas. Le flip H se charge du cote pour la main D.
         tex_data = _char_texture("pouce%d" % num)
         if tex_data[0] is not None:
+            if TEST_AVANT_BRAS:
+                tcx, tcy, tth, tflip = self._test_params
+                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip)
+                return
             tbcx = tbx                          # meme x que origine
             if num == 1:
                 seg_len = prox_len
