@@ -158,12 +158,17 @@ def _draw_char_image(tex_data, cx, cy, target_h, flip_h, target_w=None,
     u_left, v_bottom, u_right, v_top, aspect = meta
     if target_w is None:
         target_w = target_h * (1.0 if raw else aspect)
+    # On passe TOUJOURS par get_region (meme en mode raw avec la zone
+    # entiere) pour creer une SOUS-TEXTURE independante. Sinon, en mode
+    # raw on utiliserait la texture en cache directement et flip_horizontal()
+    # muterait son UV de facon persistante -> "doigt fantome" au prochain
+    # rendu de l'autre main.
+    tw, th = tex.size
     if raw:
-        # Image entiere (canvas complet, bords transparents inclus).
-        sub = tex
+        # Zone entiere (canvas complet, bords transparents inclus).
+        sub = tex.get_region(0, 0, tw, th)
     else:
         # Sous-texture cropee au bbox alpha.
-        tw, th = tex.size
         rx = u_left * tw
         ry = v_bottom * th       # bbox bottom en Kivy y (0 = bas)
         rw = (u_right - u_left) * tw
