@@ -1,46 +1,32 @@
 IMAGES DU PERSONNAGE (Character)
 ================================
 
-NOUVEAU SYSTEME (simple) : UNE SEULE IMAGE PNG par etat du joueur.
-L'image contient les 2 mains (gauche + droite) en un seul fichier.
+SYSTEME HUD : UNE SEULE IMAGE PLEIN ECRAN par etat du joueur. L'image
+contient les mains (et tout ce qui va avec : bras, pouces, doigts)
+positionnees au bon endroit dans le bas de l'ecran. Le reste de
+l'image est TRANSPARENT.
 
-Pour chaque etat, le jeu cherche l'image au nom correspondant :
-
-    assets/Character/<nom_de_l_image>.png
+Le HUD est etire pour remplir toute la zone du widget (== plein ecran).
 
 ----------------------------------------------------------------
-IMAGES ATTENDUES (un fichier par etat)
+IMAGES ATTENDUES (une par etat)
 ----------------------------------------------------------------
-    mains_haut.png     -> Paumes vers le haut (etat par defaut)
+    HandHUD.png        -> Etat 'haut' (paumes vers le haut, par defaut)
 
-D'autres etats peuvent etre ajoutes dans le futur (ex. main qui tient
-un outil, main en train de saisir, etc.) en ajoutant des entrees dans
-le dictionnaire HAND_IMAGES de src/widgets/player_hands.py.
+D'autres etats peuvent etre ajoutes dans HUD_IMAGES de
+src/widgets/player_hands.py (ex. main qui tient un outil, etc.).
 
 ----------------------------------------------------------------
 CONSEILS
 ----------------------------------------------------------------
-- L'image affiche les DEUX mains ensemble (gauche + droite + bras),
-  PAUMES VERS LE JOUEUR, fond TRANSPARENT.
-- Format : PNG, idealement 1024 x 1024 ou 2048 x 2048 (carre).
-- Au rendu, l'image est centree horizontalement et alignee au bas du
-  widget. La hauteur affichee = 30 % de la hauteur d'ecran (variable
-  HAND_HEIGHT_FRAC dans player_hands.py).
+- Format : PNG, fond TRANSPARENT.
+- Taille de REFERENCE : 1080 x 2340 (resolution telephone portrait),
+  ou 2340 x 1080 si tu prefers travailler en "tall x wide". L'image est
+  etiree pour remplir le widget : assure-toi qu'elle a le bon aspect
+  ratio (~ 9 : 19.5).
+- Les mains sont positionnees dans le BAS de l'image (le reste est
+  transparent : ciel/decor visibles a travers).
 - Apres ajout : pousse le projet (envoyer-sur-github.bat) pour que
   l'image soit incluse dans l'APK.
-
-----------------------------------------------------------------
-ANCIEN SYSTEME (a supprimer)
-----------------------------------------------------------------
-Les fichiers suivants etaient utilises par l'ancien systeme decompose
-en pieces separees (hand + doigts + pouces + avant-bras). Ils ne sont
-PLUS UTILISES par le nouveau code et peuvent etre supprimes :
-
-    hand.png            avant_hand.png
-    doigt1.png          backhand.png
-    doigt2.png          avant_backhand.png
-    doigt3.png          backdoigt1/2/3.png
-    pouce1.png          backpouce1.png
-    pouce2.png          backpouce2.png
 
 Logique des mains : src/widgets/player_hands.py

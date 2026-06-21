@@ -1,16 +1,15 @@
 """
-Mains du joueur (vue 1re personne).
+Mains du joueur (vue 1re personne) - APPROCHE HUD plein ecran.
 
-APPROCHE SIMPLE : UNE SEULE IMAGE par etat du joueur. L'image contient
-les 2 mains (gauche + droite) en un seul fichier, affichee au bas de
-l'ecran. On peut definir plusieurs etats (paumes vers le haut, main qui
-tient un outil, etc.) ; pour l'instant un seul etat : 'haut'.
+UNE SEULE IMAGE par etat du joueur : un HUD plein ecran dans lequel les
+mains sont deja positionnees au bon endroit (en bas). Le HUD est dessine
+sur toute la surface du widget (== plein ecran).
 
-L'image va dans `assets/Character/<nom>.png`, le nom etant donne par
-le dictionnaire HAND_IMAGES ci-dessous.
+Plusieurs etats possibles via HUD_IMAGES (par ex. paumes vers le haut,
+main qui tient un outil, etc.) ; pour l'instant un seul etat : 'haut'.
 
-Les objets tenus (set_items) sont dessines au-dessus de l'image, dans
-le creux de la paume correspondante.
+Les objets tenus (set_items) sont dessines AU-DESSUS du HUD, aux
+positions correspondant aux mains dans l'image (HAND_FX / ITEM_FY).
 """
 import os
 
@@ -24,22 +23,21 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 CHARACTER_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", "assets",
                                              "Character"))
 
-# Fichier image par ETAT du joueur. Etat 'haut' = paumes vers le haut.
-# (D'autres etats peuvent etre ajoutes plus tard : 'craft', 'grip', etc.)
-HAND_IMAGES = {
-    'haut': 'mains_haut.png',
+# Fichier image par ETAT du joueur. L'image est un HUD PLEIN ECRAN
+# (taille de reference : 2340 x 1080 pour un telephone portrait) avec
+# les mains deja positionnees en bas. Le HUD est etire pour remplir
+# la totalite du widget.
+HUD_IMAGES = {
+    'haut': 'HandHUD.png',
 }
-
-# Hauteur de l'image en fraction de la hauteur du widget.
-HAND_HEIGHT_FRAC = 0.30
 
 _TEX_CACHE = {}
 _ITEM_TEX = {}
 
 
-def _hand_texture(state):
-    """Charge (ou recupere en cache) l'image de mains pour un etat."""
-    fname = HAND_IMAGES.get(state)
+def _hud_texture(state):
+    """Charge (ou recupere en cache) le HUD pour un etat donne."""
+    fname = HUD_IMAGES.get(state)
     if not fname:
         return None
     if fname in _TEX_CACHE:
@@ -72,7 +70,7 @@ def _item_texture(name):
 
 class PlayerHands(Widget):
     # x du centre de chaque main (gauche, droite) en fraction de la largeur.
-    # Sert UNIQUEMENT a positionner les objets tenus.
+    # Sert UNIQUEMENT a positionner les objets tenus AU-DESSUS du HUD.
     HAND_FX = (0.31, 0.69)
     # y des objets tenus, en fraction de la hauteur du widget (depuis le bas).
     ITEM_FY = 0.20
@@ -94,7 +92,7 @@ class PlayerHands(Widget):
         self._draw_items()
 
     def set_state(self, state):
-        """Change l'etat des mains (voir HAND_IMAGES). Redessine."""
+        """Change l'etat des mains (voir HUD_IMAGES). Redessine."""
         if state == self._state:
             return
         self._state = state
@@ -106,20 +104,16 @@ class PlayerHands(Widget):
         self.canvas.clear()
         if self.width <= 0 or self.height <= 0:
             return
-        tex = _hand_texture(self._state)
+        tex = _hud_texture(self._state)
         if tex is not None:
-            # Image affichee centree horizontalement, alignee en bas.
-            target_h = self.height * HAND_HEIGHT_FRAC
-            target_w = target_h * (tex.width / max(1, tex.height))
-            x = self.x + (self.width - target_w) / 2
-            y = self.y
+            # HUD plein ecran : on remplit toute la surface du widget.
             with self.canvas:
                 Color(1, 1, 1, 1)
-                Rectangle(texture=tex, pos=(x, y), size=(target_w, target_h))
+                Rectangle(texture=tex, pos=self.pos, size=self.size)
         self._draw_items()
 
     def _draw_items(self):
-        """Dessine les objets tenus au-dessus des mains."""
+        """Dessine les objets tenus au-dessus du HUD."""
         self.canvas.after.clear()
         if self.width <= 0 or self.height <= 0:
             return
