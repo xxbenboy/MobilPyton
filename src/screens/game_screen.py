@@ -348,14 +348,15 @@ class GameScreen(Screen):
         self.drop_btns = []
         self.drop_labels = []
         for slot, cx in enumerate(PlayerHands.HAND_FX):
+            # Bouton Deposer COLLE en bas. Label juste au-dessus.
             name_lbl = _button_label("")
             name_lbl.size_hint = (0.16, 0.05)
-            name_lbl.pos_hint = {"center_x": cx, "y": 0.165}
+            name_lbl.pos_hint = {"center_x": cx, "y": 0.080}
             root.add_widget(name_lbl)
             self.drop_labels.append(name_lbl)
 
             db = scale_font(StyledButton(text="Deposer", size_hint=(0.13, 0.07),
-                            pos_hint={"center_x": cx, "y": 0.090}), 0.02)
+                            pos_hint={"center_x": cx, "y": 0.005}), 0.02)
             db.bind(on_release=lambda _w, s=slot: self._drop_hand(s))
             root.add_widget(db)
             self.drop_btns.append(db)

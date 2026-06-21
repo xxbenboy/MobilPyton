@@ -75,7 +75,7 @@ class PlayerHands(Widget):
     # y des objets tenus (creux de la paume), en fraction de la hauteur du
     # widget depuis le bas. Mesures depuis HandHUD.png : palm center a
     # 21 % du bas de l'image, image affichee sur 21 % de la hauteur ecran.
-    ITEM_FY = 0.045
+    ITEM_FY = 0.185
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
