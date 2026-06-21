@@ -82,10 +82,10 @@ DOIGT_SIZE = 1.7
 # - W   = largeur (en multiple de fw = largeur d'un doigt)
 POUCE1_LEN = 0.18          # longueur de la section INFERIEURE
 POUCE1_W = 13.0         # largeur de la section INFERIEURE
-POUCE1_ROT = 0              # rotation de la section INFERIEURE (degres)
+POUCE1_ROT = -15              # rotation de la section INFERIEURE (degres)
 POUCE2_LEN = 0.102          # longueur de la section SUPERIEURE
 POUCE2_W = 3.5              # largeur de la section SUPERIEURE
-POUCE2_ROT = 0              # rotation de la section SUPERIEURE (degres)
+POUCE2_ROT = 15              # rotation de la section SUPERIEURE (degres)
 
 
 def _char_texture(name):
@@ -608,6 +608,10 @@ class PlayerHands(Widget):
                 target_w_pouce = fw * POUCE2_W
                 cy = tby + prox_len * 0.70 + seg_len / 2
                 angle = POUCE2_ROT
+            # Main DROITE : on inverse l'angle pour que la rotation soit
+            # en MIROIR de la main gauche (cote oppose du corps).
+            if side == 'R':
+                angle = -angle
             if angle:
                 PushMatrix()
                 Rotate(angle=angle, origin=(tbcx, cy))
