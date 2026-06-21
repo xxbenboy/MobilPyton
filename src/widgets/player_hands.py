@@ -72,10 +72,11 @@ HAND_OFFSET_Y = 0.0           # decalage vertical centre bbox (en x ph)
 FOREARM_H_MULT = 1.0          # hauteur image / hauteur forearm (hy - y0)
 
 # Taille des doigts et pouces (1.0 = anatomique). DOIGT_SIZE plus grand
-# = doigts plus longs et plus visibles. POUCE_SIZE plus petit = pouce qui
-# ne depasse pas le haut de la paume (sinon il flotte).
+# = doigts plus longs et plus visibles. POUCE_SIZE = longueur du pouce.
+# La LARGEUR du pouce est forcee separement (target_w_pouce dans
+# _pouce_segment) ; le pouce est naturellement le plus epais.
 DOIGT_SIZE = 1.7
-POUCE_SIZE = 0.95
+POUCE_SIZE = 1.6
 
 
 def _char_texture(name):
@@ -355,13 +356,23 @@ class PlayerHands(Widget):
             base_y = hy + ph * 0.70            # 30% dans la paume image
         else:
             base_y = hy + ph * 0.62            # interieur paume canvas
+        # Flip PAR DOIGT : pour chaque main, le doigt extreme cote pouce
+        # garde l'orientation "naturelle" de la main ; les 3 autres sont
+        # mirroitises (mirror H). Ca corrige l'aspect des doigts qui sinon
+        # ont tous la meme inclinaison cote pouce.
+        # - LEFT hand (side='L') : i=0 = plus a gauche (index) reste; 1,2,3 flippes.
+        # - RIGHT hand (side='R') : i=3 = plus a droite (index) reste; 0,1,2 flippes.
         for i, fl in enumerate(lengths):
             fx = hx + (i - 1.5) * spacing
             total_len = fl * scale
             cy = base_y
-            cy = self._doigt1(fx, cy, fw, total_len, side)
-            cy = self._doigt2(fx, cy, fw, total_len, side)
-            self._doigt3(fx, cy, fw, total_len, side)
+            if side == 'L':
+                finger_side = 'L' if i == 0 else 'R'
+            else:
+                finger_side = 'R' if i == 3 else 'L'
+            cy = self._doigt1(fx, cy, fw, total_len, finger_side)
+            cy = self._doigt2(fx, cy, fw, total_len, finger_side)
+            self._doigt3(fx, cy, fw, total_len, finger_side)
 
         # POUCE : 2 phalanges (proximale puis distale), toujours dessinees.
         self._pouce_segment(1, hx, hy, pw, ph, fw, side)
@@ -580,9 +591,10 @@ class PlayerHands(Widget):
         tex_data = _char_texture("pouce%d" % num)
         if tex_data[0] is not None:
             tbcx = tbx                          # meme x que origine
-            # Largeur explicite : pouce plus large visuellement (au lieu
-            # de seg_len * aspect qui le faisait fin).
-            target_w_pouce = fw * 2.5
+            # Largeur explicite : pouce BEAUCOUP plus large visuellement
+            # (au lieu de seg_len * aspect qui le faisait fin). Le pouce
+            # est naturellement plus epais que les autres doigts.
+            target_w_pouce = fw * 7.0
             if num == 1:
                 seg_len = prox_len
                 cy = tby + seg_len / 2
