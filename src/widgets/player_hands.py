@@ -88,12 +88,17 @@ class PlayerHands(Widget):
     # ---- API publique ----------------------------------------------------
 
     def set_items(self, left, right):
-        """Definit les objets tenus (None = main vide)."""
+        """Definit les objets tenus (None = main vide).
+
+        Comme la VISIBILITE des mains depend maintenant des items en main
+        (main vide cachee en etat 'haut'), on redessine TOUT le widget
+        (pas seulement les items).
+        """
         new = [left, right]
         if new == self._items:
             return
         self._items = new
-        self._draw_items()
+        self._redraw()
 
     def set_state(self, state):
         """Change l'etat des mains (voir HUD_IMAGES). Redessine."""
@@ -110,17 +115,43 @@ class PlayerHands(Widget):
             return
         tex = _hud_texture(self._state)
         if tex is not None:
-            # HUD : on PRESERVE l'aspect ratio de l'image (sinon les mains
-            # se deforment quand l'image est landscape et l'ecran portrait).
-            # Largeur = celle du widget, hauteur derivee, aligne en bas.
-            tw, th = max(1, tex.width), max(1, tex.height)
-            target_w = self.width
-            target_h = target_w * th / tw
-            x = self.x
-            y = self.y
-            with self.canvas:
-                Color(1, 1, 1, 1)
-                Rectangle(texture=tex, pos=(x, y), size=(target_w, target_h))
+            # En etat 'haut' (repos), on n'affiche QUE les mains qui
+            # tiennent un objet (les mains vides sont cachees).
+            # Dans tout autre etat (= animation, ex. 'ex1'/'ex2'), on
+            # dessine TOUJOURS les 2 mains (l'animation montre les mains
+            # en action, independamment des objets).
+            animating = self._state != 'haut'
+            if animating:
+                show_left, show_right = True, True
+            else:
+                show_left = self._items[0] is not None
+                show_right = self._items[1] is not None
+
+            if show_left or show_right:
+                tw, th = max(1, tex.width), max(1, tex.height)
+                total_w = self.width
+                total_h = total_w * th / tw
+                with self.canvas:
+                    Color(1, 1, 1, 1)
+                    if show_left and show_right:
+                        # 2 mains : on dessine l'image entiere.
+                        Rectangle(texture=tex, pos=self.pos,
+                                  size=(total_w, total_h))
+                    else:
+                        # Une seule main : on dessine LA MOITIE
+                        # correspondante au bon endroit a l'ecran
+                        # (gauche ou droite). Le HUD reste a la meme
+                        # echelle, juste la moitie est masquee.
+                        half_tw = tw // 2
+                        if show_left:
+                            sub = tex.get_region(0, 0, half_tw, th)
+                            Rectangle(texture=sub, pos=self.pos,
+                                      size=(total_w / 2, total_h))
+                        else:
+                            sub = tex.get_region(half_tw, 0, half_tw, th)
+                            Rectangle(texture=sub,
+                                      pos=(self.x + total_w / 2, self.y),
+                                      size=(total_w / 2, total_h))
         self._draw_items()
 
     def _draw_items(self):
