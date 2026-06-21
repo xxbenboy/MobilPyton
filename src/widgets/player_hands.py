@@ -542,8 +542,11 @@ class PlayerHands(Widget):
         tex_data = _char_texture("doigt1")
         if tex_data[0] is not None:
             if TEST_AVANT_BRAS:
-                tcx, tcy, tth, tflip = self._test_params
-                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip,
+                # En mode test, on utilise fx (variable par doigt) pour x
+                # mais tcy/tth/tflip de test_params pour y/taille/flip :
+                # ainsi le MEME doigt est duplique aux 4 positions.
+                _, tcy, tth, tflip = self._test_params
+                _draw_char_image(tex_data, fx, tcy, tth, flip_h=tflip,
                                  target_w=tth, raw=True)
                 return cy + seg_h * 0.80
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
@@ -561,8 +564,8 @@ class PlayerHands(Widget):
         tex_data = _char_texture("doigt2")
         if tex_data[0] is not None:
             if TEST_AVANT_BRAS:
-                tcx, tcy, tth, tflip = self._test_params
-                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip,
+                _, tcy, tth, tflip = self._test_params
+                _draw_char_image(tex_data, fx, tcy, tth, flip_h=tflip,
                                  target_w=tth, raw=True)
                 return cy + seg_h * 0.80
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
@@ -579,8 +582,8 @@ class PlayerHands(Widget):
         tex_data = _char_texture("doigt3")
         if tex_data[0] is not None:
             if TEST_AVANT_BRAS:
-                tcx, tcy, tth, tflip = self._test_params
-                _draw_char_image(tex_data, tcx, tcy, tth, flip_h=tflip,
+                _, tcy, tth, tflip = self._test_params
+                _draw_char_image(tex_data, fx, tcy, tth, flip_h=tflip,
                                  target_w=tth, raw=True)
                 return cy + seg_h
             _draw_char_image(tex_data, fx, cy + seg_h / 2, seg_h,
