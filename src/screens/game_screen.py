@@ -300,7 +300,7 @@ class GameScreen(Screen):
         # La grille est RECONSTRUITE selon l'etat : "Couper du bois" n'apparait
         # qu'avec une hache en main, "Remplir gourde" qu'avec une gourde.
         self.grid = GridLayout(rows=4, orientation="tb-lr",
-                               spacing=[dp(2), dp(12)], size_hint=(None, 0.50),
+                               spacing=[dp(2), dp(12)], size_hint=(None, 0.75),
                                pos_hint={"x": 0.004, "top": 0.96})
         self.grid.bind(minimum_width=self.grid.setter("width"))
         root.add_widget(self.grid)
