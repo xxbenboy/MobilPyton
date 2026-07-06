@@ -33,6 +33,23 @@ class ItemIcon(BoxLayout):
             text += f"  x{count}"
         lbl = Label(text=text, halign="center", valign="middle",
                     color=(1, 1, 1, 1), size_hint=(1, 0.28))
-        lbl.bind(size=lambda w, *_: setattr(w, "text_size", (w.width, w.height)))
-        scale_font(lbl)
+
+        def _fit_name(*_):
+            """Reduit la police pour que TOUT le nom tienne dans la boite, meme
+            sur 2 lignes : un nom long n'est plus coupe (il retrecit au besoin)."""
+            if lbl.width <= 1 or lbl.height <= 1:
+                return
+            # Retour a la ligne autorise dans la largeur dispo...
+            lbl.text_size = (lbl.width, None)
+            f = lbl.height * 0.72
+            lbl.font_size = f
+            lbl.texture_update()
+            # ...puis on reduit si le texte (eventuellement sur 2 lignes) depasse
+            # la hauteur.
+            if lbl.texture_size[1] > lbl.height:
+                lbl.font_size = max(8, f * lbl.height / lbl.texture_size[1])
+            lbl.text_size = (lbl.width, lbl.height)
+
+        lbl.bind(size=_fit_name, text=_fit_name)
+        _fit_name()
         self.add_widget(lbl)

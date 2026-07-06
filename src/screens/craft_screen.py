@@ -41,6 +41,54 @@ def _btn_font(w, *_):
     w.font_size = max(9, w.height * 0.34 / lines)
 
 
+def _recipe_text_font(w, *_):
+    """Police du texte d'une recette : 1.5x sa taille d'origine.
+
+    A l'origine le texte remplissait une ligne haute de dh(70). On garde cette
+    reference (independante de la hauteur AGRANDIE de la rangee, sinon le texte
+    grossirait bien plus que voulu) et on la multiplie par 1.5. dh(70) est relu
+    a chaque appel -> le texte reste responsive au redimensionnement.
+    """
+    lines = (w.text or "").count("\n") + 1
+    w.font_size = max(10, dh(70) * 0.78 / lines * 1.5)
+
+
+def _fit_button_font(btn, *_):
+    """Police d'un bouton aussi grande que possible SANS deborder sa boite,
+    limitee a la fois par la hauteur ET par la largeur du texte.
+
+    Necessaire car la rangee des recettes est plus haute : un calcul base
+    seulement sur la hauteur ferait deborder le texte en largeur."""
+    if btn.width <= 1 or btn.height <= 1:
+        return
+    f = btn.height * 0.42
+    btn.text_size = (None, None)
+    btn.font_size = f
+    btn.texture_update()
+    if btn.texture_size[0] > btn.width * 0.90:
+        f = f * (btn.width * 0.90) / btn.texture_size[0]
+    btn.font_size = max(10, f)
+
+
+def _inv_label_font(w, *_):
+    """Police d'un libelle d'inventaire (nom de main / "A proximite") : 1.5x sa
+    taille d'origine (0.4 d'une rangee de dh(140), ancree sur dh(140) pour rester
+    a 1.5x malgre la rangee plus haute), MAIS reduite si besoin pour tenir sur
+    UNE seule ligne dans sa largeur (sinon un libelle long deborde sur 2 lignes)."""
+    if w.width <= 1:
+        return
+    target = dh(140) * 0.4 * 1.5
+    # Mesure la largeur naturelle du texte a la taille cible, sans contrainte.
+    w.text_size = (None, None)
+    w.font_size = target
+    w.texture_update()
+    if w.texture_size[0] > w.width:
+        target = target * w.width / w.texture_size[0]
+        w.font_size = max(10, target)
+    # Largeur figee -> alignement a gauche, centre verticalement, 1 ligne.
+    w.text_size = (w.width, w.height)
+
+
 class CraftScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -141,16 +189,16 @@ class CraftScreen(Screen):
         for i, item in enumerate(state.hands):
             if item is None:
                 continue
+            # Rangee plus HAUTE + icone plus large -> image agrandie au maximum.
             row = BoxLayout(orientation="horizontal", spacing=dp(6),
-                            size_hint_y=None, height=dh(140))
-            row.add_widget(ItemIcon(item, size_hint_x=0.24))
+                            size_hint_y=None, height=dh(200))
+            row.add_widget(ItemIcon(item, size_hint_x=0.30))
             lbl = Label(text=hand_names[i], halign="left", valign="middle",
-                        size_hint_x=0.38, color=(0.96, 0.82, 0.45, 1))
-            lbl.bind(size=lambda w, *_: (
-                setattr(w, "font_size", max(8, w.height * 0.4)),
-                setattr(w, "text_size", (w.width, None))))
+                        size_hint_x=0.33, color=(0.96, 0.82, 0.45, 1))
+            lbl.bind(size=_inv_label_font)
+            _inv_label_font(lbl)
             row.add_widget(lbl)
-            drop = StyledButton(text="Deposer", size_hint_x=0.38, bold=True)
+            drop = StyledButton(text="Deposer", size_hint_x=0.37, bold=True)
             drop.bind(size=_btn_font)
             drop.bind(on_release=lambda _w, idx=i: self._drop(idx))
             row.add_widget(drop)
@@ -160,14 +208,14 @@ class CraftScreen(Screen):
         # (desactives si la main visee est deja occupee).
         ground = state.ground_here()
         for name, count in sorted(ground.items()):
+            # Rangee plus HAUTE + icone plus large -> image agrandie au maximum.
             row = BoxLayout(orientation="horizontal", spacing=dp(6),
-                            size_hint_y=None, height=dh(140))
-            row.add_widget(ItemIcon(name, count, size_hint_x=0.24))
+                            size_hint_y=None, height=dh(200))
+            row.add_widget(ItemIcon(name, count, size_hint_x=0.30))
             lbl = Label(text="À proximité", halign="left", valign="middle",
-                        size_hint_x=0.38, color=(0.96, 0.82, 0.45, 1))
-            lbl.bind(size=lambda w, *_: (
-                setattr(w, "font_size", max(8, w.height * 0.4)),
-                setattr(w, "text_size", (w.width, None))))
+                        size_hint_x=0.30, color=(0.96, 0.82, 0.45, 1))
+            lbl.bind(size=_inv_label_font)
+            _inv_label_font(lbl)
             row.add_widget(lbl)
             # Deux boutons 2x moins larges : ensemble ils occupent la place d'un
             # seul bouton. Desactives si la main est occupee ou si l'objet ne
@@ -175,7 +223,7 @@ class CraftScreen(Screen):
             hand_ok = items.is_hand_collectable(name)
             for hand_idx, text in ((0, "Prendre\nmain gauche"),
                                    (1, "Prendre\nmain droite")):
-                take = StyledButton(text=text, halign="center", size_hint_x=0.19,
+                take = StyledButton(text=text, halign="center", size_hint_x=0.20,
                                     bold=True)
                 take.bind(size=_btn_font)
                 take.disabled = (state.hands[hand_idx] is not None) or not hand_ok
@@ -205,20 +253,24 @@ class CraftScreen(Screen):
                     parts.append(f"[color=777777]{label}[/color]")
             ing = ", ".join(parts)
 
+            # Rangee bien plus HAUTE qu'avant : l'image (qui garde son ratio)
+            # etait limitee par la hauteur de la rangee -> on la fait grandir.
             row = BoxLayout(orientation="horizontal", spacing=dp(6),
-                            size_hint_y=None, height=dh(70))
-            # Image du resultat a gauche (ou "?" si aucune image n'existe).
+                            size_hint_y=None, height=dh(200))
+            # Image du resultat a gauche, AGRANDIE au maximum : rangee plus
+            # haute + boite plus large (ou "?" si aucune image n'existe).
             row.add_widget(ItemIcon(recipe["result"], show_name=False,
-                                    size_hint_x=0.18))
-            txt = scale_font(Label(
+                                    size_hint_x=0.30))
+            txt = Label(
                 text=f"[b]{items.display_name(recipe['result'])}[/b]\n{ing}",
-                markup=True, halign="left", valign="middle", size_hint_x=0.50),
-                0.016)
-            txt.bind(size=lambda w, *_: setattr(w, "text_size",
-                                                (w.width, w.height)))
+                markup=True, halign="left", valign="middle", size_hint_x=0.44)
+            txt.bind(size=lambda w, *_: (
+                setattr(w, "text_size", (w.width, w.height)),
+                _recipe_text_font(w)))
+            _recipe_text_font(txt)
             row.add_widget(txt)
-            btn = scale_font(StyledButton(text="Fabriquer", size_hint_x=0.32),
-                             0.018)
+            btn = StyledButton(text="Fabriquer", size_hint_x=0.26)
+            btn.bind(size=_fit_button_font, text=_fit_button_font)
             btn.disabled = not state.can_craft(recipe)
             btn.bind(on_release=lambda _w, r=recipe: self._craft(r))
             row.add_widget(btn)
