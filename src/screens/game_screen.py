@@ -31,6 +31,7 @@ from src.widgets.zone_scenery import ZoneScenery
 from src import items
 from src.widgets.player_hands import PlayerHands
 from src.widgets.insects import InsectLayer
+from src.widgets.installed_layer import InstalledLayer
 from src.widgets.icon_button import IconButton
 from src.widgets.styled_button import StyledButton
 from src.widgets.item_icon import ItemIcon
@@ -229,6 +230,11 @@ class GameScreen(Screen):
         root.add_widget(self.background)
         self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.scenery)
+        # Objets INSTALLES (feu de camp, etc.) au sol de la case courante,
+        # projetes en perspective. Entre le decor et les insectes.
+        self.installed_layer = InstalledLayer(size_hint=(1, 1),
+                                              pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.installed_layer)
         # Insectes animes (papillons / abeilles) qui volent dans la scene.
         self.insects = InsectLayer(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.insects)
@@ -771,14 +777,18 @@ class GameScreen(Screen):
             self.refresh()
 
     def _use_hand(self, slot):
-        """Installe (monte) l'objet tenu dans la main donnee sur la case
-        courante. Utilise pour, ex., un feu de camp qui devient interactif."""
+        """Ouvre l'ecran PLACEMENT (vue de dessus + grille 5x5) pour choisir
+        ou installer l'objet tenu dans la main donnee. L'installation se fait
+        depuis PlaceScreen (irreversible)."""
         state = App.get_running_app().game_state
         if state is None or self._ff_active or self._moving:
             return
-        if state.install_from_hand(slot):
-            App.get_running_app().autosave()
-            self.refresh()
+        name = state.hands[slot]
+        if name is None or name not in items.INSTALLABLE_ITEMS:
+            return
+        place = self.manager.get_screen("place")
+        place._slot = slot
+        self.manager.current = "place"
 
     # ------------------------------------------------------------------ #
     # Recolte (exploration) : basee sur les objets VISIBLES de la scene
@@ -1197,11 +1207,17 @@ class GameScreen(Screen):
         self.craft_btn.disabled = self._ff_active
         self.back_btn.disabled = self._ff_active
         self.move_btn.disabled = self._ff_active
+        # Objets INSTALLES : projetes dans la scene 1re personne. Masques
+        # pendant l'exploration (l'anim des mains recouvre tout).
+        if exploring:
+            self.installed_layer.set_objects([])
+        else:
+            self.installed_layer.set_objects(state.installed_objects_here())
         # Proximite : grise + inactif tant qu'il n'y a AUCUN objet interactif
         # (voir items.INTERACTIVE_ITEMS) INSTALLE sur la case courante. Un
         # simple "Deposer" n'active pas Proximite, seul "Utiliser" le fait.
-        has_interactive = any(state.installed_here().get(n, 0) > 0
-                              for n in items.INTERACTIVE_ITEMS)
+        has_interactive = any(obj[0] in items.INTERACTIVE_ITEMS
+                              for obj in state.installed_objects_here())
         if self._ff_active or not has_interactive:
             self.prox_btn.disabled = True
             self.prox_btn.opacity = 0.45

@@ -88,9 +88,11 @@ class GameState:
         # Objets recoltes par case : {"x,y": {nom: nombre}} -> sert a masquer
         # les objets recoltes dans la scene (coherence decor/recolte).
         self.harvested = harvested if harvested else {}
-        # Objets INSTALLES par case : {"x,y": {nom: nombre}}. Different de
-        # ground : un objet installe est "monte" (ex. feu de camp allume) et
-        # rend le bouton Proximite actif.
+        # Objets INSTALLES par case, avec leur position dans la grille 5x5.
+        # {"x,y": [(nom, gx, gy), ...]} avec gx et gy dans [0..4] (gx =
+        # colonne gauche->droite, gy = ligne bas->haut/proche->loin). Un
+        # objet installe est irreversible (ne peut plus etre ramasse ni
+        # deplace) et rend le bouton Proximite actif s'il est interactif.
         self.installed = installed if installed else {}
         self.revealed = set(revealed) if revealed else set()  # {"x,y", ...} zones revelees
         self.action_count = action_count
@@ -294,21 +296,27 @@ class GameState:
             return True
         return False
 
-    def installed_here(self):
-        """Objets INSTALLES sur la case actuelle : {objet: nombre}."""
-        return self.installed.get(self._cell_key(), {})
+    def installed_objects_here(self):
+        """Liste des objets INSTALLES sur la case actuelle : [(nom, gx, gy), ...].
+        Les elements peuvent etre tuples ou listes (JSON serialize en liste)."""
+        return self.installed.get(self._cell_key(), [])
 
-    def install_from_hand(self, index):
-        """Installe (monte) l'objet tenu dans la main donnee sur la case.
-        Ne fait rien si la main est vide ou si l'objet n'est pas installable."""
+    def install_from_hand(self, index, gx, gy):
+        """Installe l'objet tenu dans la main donnee sur la case courante a
+        la position grille (gx, gy). Echoue si la main est vide, si l'objet
+        n'est pas installable, ou si la position est deja prise."""
         if index not in (0, 1):
             return False
         name = self.hands[index]
         if name is None or name not in items.INSTALLABLE_ITEMS:
             return False
         key = self._cell_key()
-        cell = self.installed.setdefault(key, {})
-        cell[name] = cell.get(name, 0) + 1
+        lst = self.installed.setdefault(key, [])
+        # Refuse une position deja occupee.
+        for obj in lst:
+            if int(obj[1]) == int(gx) and int(obj[2]) == int(gy):
+                return False
+        lst.append((name, int(gx), int(gy)))
         self.hands[index] = None
         return True
 
