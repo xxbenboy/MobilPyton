@@ -30,7 +30,8 @@ class _GridOverlay(Widget):
     def __init__(self, on_cell_pick, **kwargs):
         super().__init__(**kwargs)
         self.on_cell_pick = on_cell_pick
-        self.taken = set()               # {(gx, gy), ...}
+        self.taken = set()               # {(gx, gy), ...} objets installes
+        self.nature = set()              # {(gx, gy), ...} arbre/buisson/rocher
         self.bind(pos=self._redraw, size=self._redraw)
 
     def _grid_geom(self):
@@ -75,6 +76,13 @@ class _GridOverlay(Widget):
             Line(points=[acx, ay0, acx, ay1], width=2.2)
             Line(points=[acx - aw / 2, ay1 - aw * 0.55, acx, ay1,
                          acx + aw / 2, ay1 - aw * 0.55], width=2.2)
+            # Cases occupees par la NATURE (arbre, buisson, gros rocher) :
+            # surlignees vertes, non cliquables.
+            Color(0.25, 0.55, 0.30, 0.45)
+            for (gx, gy) in self.nature:
+                tx = ox + gx * cs
+                ty = oy + gy * cs
+                Rectangle(pos=(tx, ty), size=(cs, cs))
             # Cases deja prises (installees) : surlignees rouge.
             Color(0.90, 0.35, 0.30, 0.35)
             for (gx, gy) in self.taken:
@@ -94,8 +102,8 @@ class _GridOverlay(Widget):
         gy = max(0, min(4, gy))
         if (gx, gy) == (2, 0):
             return True                  # case joueur : ignoree
-        if (gx, gy) in self.taken:
-            return True                  # deja prise
+        if (gx, gy) in self.taken or (gx, gy) in self.nature:
+            return True                  # deja prise ou occupee par la nature
         self.on_cell_pick(gx, gy)
         return True
 
@@ -166,9 +174,11 @@ class PlaceScreen(Screen):
             self.scenery.set_ground(zone,
                                     state.player_x * 131 + state.player_y)
             self._scene_key = key
-        # Marque les positions deja installees comme non cliquables.
+        # Marque les positions deja installees comme non cliquables, et les
+        # cases occupees par un GROS element du decor (arbre, buisson, rocher).
         self.grid_overlay.taken = {(int(o[1]), int(o[2]))
                                    for o in state.installed_objects_here()}
+        self.grid_overlay.nature = set(state.nature_cells_here().keys())
         self.grid_overlay._redraw()
         # Titre : quel objet on est en train de placer ?
         if self._slot is not None and self._slot in (0, 1):

@@ -18,6 +18,7 @@ from kivy.uix.widget import Widget
 from kivy.graphics import (Color, Ellipse, Rectangle, Triangle, Line, Quad,
                            Mesh, RenderContext, PushMatrix, PopMatrix, Rotate)
 
+from src import world
 from src.widgets import textures, pbr
 from src.widgets.textures import paint, paint_color, tiled_coords
 from src.widgets.installed_layer import grid_to_screen
@@ -141,6 +142,27 @@ class ZoneScenery(Widget):
             if abs(x - cx) < hw and abs(y - cy) < hh:
                 return True
         return False
+
+    def _iter_nature_big(self):
+        """Itere les GROS elements du decor de la case, positionnes sur la
+        GRILLE 5x5 (les memes cases sont refusees a l'installation d'objets).
+
+        Genere (kind, depth, tx, tb, jit) : type ("tree"/"bush"/"rock"),
+        profondeur 0..1, position ecran de la base, et un rng stable pour les
+        variations (taille...). Les cases occupees par un objet INSTALLE sont
+        sautees (l'objet installe a la priorite d'affichage)."""
+        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        for (ggx, ggy), kind in sorted(
+                world.nature_blocked_cells(self._zone, self._seed).items()):
+            if (ggx, ggy) in self._blocked_grid:
+                continue
+            gfx, gfy, _gs = grid_to_screen(ggx, ggy)
+            jit = random.Random(f"{self._seed}:{ggx}:{ggy}:big")
+            depth = ggy / 4.0
+            # Leger decalage DANS la case (aspect naturel, jamais mecanique).
+            tx = x0 + (gfx + jit.uniform(-0.02, 0.02)) * w
+            tb = y0 + gfy * h
+            yield kind, depth, tx, tb, jit
 
     def set_ground(self, zone_type, seed=0):
         """Vue VERS LE BAS : on regarde le sol, qui remplit tout l'ecran."""
@@ -470,13 +492,8 @@ class ZoneScenery(Widget):
             px, py, sc, t = place(fx=fern_pick())
             s = rng.uniform(0.05, 0.10) * h * sc
             items.append((py, lambda px=px, py=py, s=s: self._plant(px, py, s)))
-        # Buissons de sous-bois.
-        for _ in range(rng.randint(5, 8)):
-            bx, by, sc, t = place(0.85)
-            g = rng.uniform(0.0, 0.06)
-            r = rng.uniform(0.06, 0.13) * h * sc
-            items.append((by, lambda bx=bx, by=by, r=r, g=g:
-                          self._bush(bx, by, r, (0.06 + g, 0.16 + g, 0.09, 1))))
+        # (Les buissons de sous-bois sont desormais des GROS elements places
+        #  sur la grille 5x5, voir plus bas.)
         # Champignons (uniquement bruns pour l'instant).
         # [recoltable: Brown_Mushroom]
         if rng.random() < 0.8:
@@ -488,28 +505,29 @@ class ZoneScenery(Widget):
                         and not self._is_blocked(mx, my)):
                     items.append((my, lambda mx=mx, my=my, s=s, cap=cap:
                                   self._mushroom(mx, my, s, cap)))
-        # Arbres : coniferes + feuillus. Ce sont leurs feuillages qui
-        # remplissent le haut (plus de fausse canopee).
-        def add_tree(tx, tb, sc, big=False):
-            th = (rng.uniform(0.85, 1.15) if big
-                  else rng.uniform(0.45, 1.05) * (0.5 + 0.5 * sc)) * h
-            if rng.random() < 0.5:
-                tw = rng.uniform(0.07, 0.14) * w * (0.55 + 0.45 * sc)
-                items.append((tb, lambda tx=tx, tb=tb, tw=tw, th=th:
-                              self._pine(tx, tb, tw, th, (0.06, 0.15, 0.09, 1))))
-            else:
-                items.append((tb, lambda tx=tx, tb=tb, th=th, sc=sc:
-                              self._forest_tree(tx, tb, th, sc)))
-
-        # Toujours des arbres AUTOUR du joueur : gros, proches, gauche/droite.
-        for fxc in (0.05, 0.18, 0.82, 0.95):
-            tx, tb, sc, t = place(0.40, fx=fxc + rng.uniform(-0.04, 0.04))
-            add_tree(tx, tb, sc, big=True)
-        # Beaucoup d'arbres repartis sur toute la profondeur.
-        for _ in range(rng.randint(16, 22)):
-            tx, tb, sc, t = place(0.97)
-            add_tree(tx, tb, sc)
-        # Ligne d'arbres DENSE a l'horizon (lointains et petits).
+        # Arbres + buissons PROCHES : GROS elements positionnes sur la GRILLE
+        # 5x5 (les memes cases sont interdites a l'installation d'un objet :
+        # impossible de mettre un feu de camp sous un arbre).
+        for kind, depth, tx, tb, jit in self._iter_nature_big():
+            if kind == "tree":
+                th = (1.00 - 0.58 * depth) * jit.uniform(0.85, 1.10) * h
+                if jit.random() < 0.5:
+                    tw = (0.11 - 0.05 * depth) * jit.uniform(0.85, 1.15) * w
+                    items.append((tb, lambda tx=tx, tb=tb, tw=tw, th=th:
+                                  self._pine(tx, tb, tw, th,
+                                             (0.06, 0.15, 0.09, 1))))
+                else:
+                    sc = 1.0 - 0.6 * depth
+                    items.append((tb, lambda tx=tx, tb=tb, th=th, sc=sc:
+                                  self._forest_tree(tx, tb, th, sc)))
+            else:                                     # buisson de sous-bois
+                g2 = jit.uniform(0.0, 0.06)
+                r = (0.13 - 0.06 * depth) * jit.uniform(0.85, 1.15) * h
+                items.append((tb, lambda bx=tx, by=tb, r=r, g2=g2:
+                              self._bush(bx, by, r,
+                                         (0.06 + g2, 0.16 + g2, 0.09, 1))))
+        # Ligne d'arbres DENSE a l'horizon (lointains et petits) : HORS grille
+        # (au-dela de la zone d'installation), purement decorative.
         m = rng.randint(24, 32)
         for i in range(m):
             fx = min(0.999, max(0.001, i / (m - 1) + rng.uniform(-0.02, 0.02)))
@@ -817,10 +835,11 @@ class ZoneScenery(Widget):
             if not self._take_or_skip("Small_Stick") and not self._is_blocked(bx, by):
                 items.append((by - 0.12 * h, lambda bx=bx, by=by, ln=ln:
                               self._branch(bx, by, ln)))
-        for _ in range(rng.randint(4, 6)):             # buissons (taille humaine)
-            bx, by, sc, t = place(0.85)
-            g = rng.uniform(0.0, 0.10)
-            r = rng.uniform(0.11, 0.20) * h * sc
+        # Buissons (taille humaine) : GROS elements positionnes sur la GRILLE
+        # 5x5 (cases interdites a l'installation d'un objet).
+        for kind, depth, bx, by, jit in self._iter_nature_big():
+            g = jit.uniform(0.0, 0.10)
+            r = (0.17 - 0.09 * depth) * jit.uniform(0.85, 1.15) * h
             col = (0.12 + g, 0.30 + g, 0.15, 1)
             items.append((by, lambda bx=bx, by=by, r=r, col=col:
                           self._bush(bx, by, r, col)))
@@ -913,14 +932,13 @@ class ZoneScenery(Widget):
             sx = x0 + rng.uniform(0, 1) * w
             self._grass_tuft(sx, y0 + rng.uniform(0.03, 0.18) * h,
                              rng.uniform(0.03, 0.06) * h, (0.22, 0.34, 0.16, 1))
-        # Gros rochers (a partir des jointures, vers le haut). [recoltable: Pierre]
-        for _ in range(5):
-            rx = x0 + rng.uniform(0, 1) * w
-            rr = rng.uniform(0.05, 0.09) * h
-            ry = y0 + rng.uniform(_HARVEST_FLOOR, 0.34) * h
-            if not self._take_or_skip("Pierre") and not self._is_blocked(rx, ry):
-                Color(0.38, 0.37, 0.43, 1)
-                Ellipse(pos=(rx - rr, ry), size=(rr * 2.4, rr * 1.8))
+        # GROS rochers : elements FIXES positionnes sur la GRILLE 5x5 (cases
+        # interdites a l'installation d'un objet). Non recoltables : la Pierre
+        # se recolte sur les petits rochers de la pente.
+        for kind, depth, rx, ry, jit in self._iter_nature_big():
+            rr = (0.085 - 0.045 * depth) * jit.uniform(0.85, 1.15) * h
+            Color(0.38, 0.37, 0.43, 1)
+            Ellipse(pos=(rx - rr, ry), size=(rr * 2.4, rr * 1.8))
 
     def _lac(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y

@@ -301,14 +301,26 @@ class GameState:
         Les elements peuvent etre tuples ou listes (JSON serialize en liste)."""
         return self.installed.get(self._cell_key(), [])
 
+    def nature_cells_here(self):
+        """Cellules 5x5 de la case occupees par un GROS element du decor
+        (arbre, buisson, gros rocher) : {(gx, gy): type}. On ne peut pas y
+        installer d'objet."""
+        return world.nature_blocked_cells(
+            self.current_zone(),
+            world.scene_seed(self.player_x, self.player_y))
+
     def install_from_hand(self, index, gx, gy):
         """Installe l'objet tenu dans la main donnee sur la case courante a
         la position grille (gx, gy). Echoue si la main est vide, si l'objet
-        n'est pas installable, ou si la position est deja prise."""
+        n'est pas installable, ou si la position est deja prise (par un objet
+        installe OU par un gros element du decor : arbre, buisson, rocher)."""
         if index not in (0, 1):
             return False
         name = self.hands[index]
         if name is None or name not in items.INSTALLABLE_ITEMS:
+            return False
+        # Refuse une case occupee par la nature (arbre, buisson, rocher).
+        if (int(gx), int(gy)) in self.nature_cells_here():
             return False
         key = self._cell_key()
         lst = self.installed.setdefault(key, [])

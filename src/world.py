@@ -103,3 +103,39 @@ def random_center_cell(seed):
     x = cx + rng.randint(-CENTER_RADIUS, CENTER_RADIUS)
     y = cy + rng.randint(-CENTER_RADIUS, CENTER_RADIUS)
     return x, y
+
+
+# --------------------------------------------------------------------- #
+# Gros elements du decor (arbres, buissons, gros rochers) sur la grille
+# --------------------------------------------------------------------- #
+# Chaque case du monde a une scene avec une grille 5x5 (voir PlaceScreen).
+# Les GROS elements du decor occupent des cellules de cette grille : le
+# decor les dessine A CES POSITIONS, et on ne peut PAS y installer d'objet
+# (feu de camp...). Stable par case (deduit de la graine de scene).
+
+# Par zone : (nb min, nb max) de cellules occupees, et types possibles
+# (tires au hasard, avec repetition -> "tree" 3x = 75 % d'arbres en foret).
+NATURE_BIG = {
+    "Foret": ((6, 9), ("tree", "tree", "tree", "bush")),
+    "Plaine": ((3, 5), ("bush",)),
+    "Montagne": ((3, 5), ("rock",)),
+}
+
+
+def scene_seed(x, y):
+    """Graine de la scene d'une case (partagee decor <-> logique de jeu)."""
+    return x * 131 + y
+
+
+def nature_blocked_cells(zone_type, cell_seed):
+    """Cellules 5x5 occupees par un GROS element du decor pour cette case :
+    {(gx, gy): "tree" | "bush" | "rock"}. La case joueur (2, 0) reste libre."""
+    spec = NATURE_BIG.get(zone_type)
+    if not spec:
+        return {}
+    (lo, hi), kinds = spec
+    rng = random.Random(f"{cell_seed}:{zone_type}:bigcells")
+    cells = [(gx, gy) for gy in range(5) for gx in range(5)
+             if (gx, gy) != (2, 0)]
+    return {cell: rng.choice(kinds)
+            for cell in rng.sample(cells, rng.randint(lo, hi))}
