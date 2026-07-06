@@ -158,9 +158,25 @@ def _actions(cx, cy, s):                             # 3 points (sous-menu)
         Ellipse(pos=(cx + dx - r, cy - r), size=(r * 2, r * 2))
 
 
+def _hand(cx, cy, s):                                # main (paume + doigts)
+    Color(0.94, 0.79, 0.62, 1)
+    # Paume : rectangle arrondi.
+    RoundedRectangle(pos=(cx - s * 0.40, cy - s * 0.60),
+                     size=(s * 0.80, s * 0.75), radius=[s * 0.14])
+    # 4 doigts au-dessus de la paume (majeur/index un peu plus longs).
+    fw = s * 0.16
+    for i, dx in enumerate((-s * 0.30, -s * 0.10, s * 0.10, s * 0.30)):
+        fh = s * (0.42 if i in (1, 2) else 0.36)
+        RoundedRectangle(pos=(cx + dx - fw / 2, cy + s * 0.12),
+                         size=(fw, fh), radius=[fw / 2])
+    # Pouce : sur le cote gauche, plus court.
+    RoundedRectangle(pos=(cx - s * 0.62, cy - s * 0.20),
+                     size=(fw, s * 0.32), radius=[fw / 2])
+
+
 ICONS = {"explore": _explore, "wood": _wood, "food": _food, "drink": _drink,
          "fill": _fill, "rest": _rest, "map": _map, "home": _home,
-         "craft": _craft, "move": _move, "actions": _actions,
+         "craft": _craft, "move": _move, "actions": _actions, "hand": _hand,
          # Logos des stats (section "Etat"). On reutilise certains logos
          # existants (pomme=faim, goutte=soif, Zzz=sommeil) et on ajoute le
          # coeur (vie) et l'eclair (energie).

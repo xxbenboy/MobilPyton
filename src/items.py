@@ -44,6 +44,10 @@ COMPASS_ITEM = "Boussole"
 AXE_ITEM = "Hache"
 GOURDE_ITEMS = {"Gourde"}
 
+# Objets INTERACTIFS : quand ils sont au sol sur la case courante, le bouton
+# "Proximite" s'active. Actuellement seul le feu de camp est interactif.
+INTERACTIVE_ITEMS = {"Feu_de_camp"}
+
 
 def is_hand_collectable(name):
     """Vrai si l'objet peut etre pris en main (faux = reste au sol)."""

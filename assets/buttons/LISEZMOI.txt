@@ -24,6 +24,8 @@ NOMS DE FICHIERS ATTENDUS (exactement, en minuscules)
     craft.png          -> bouton "Craft"           (marteau)
     home.png           -> bouton "Menu"            (maison)
     move.png           -> bouton "Deplacer"        (4 fleches)
+    hand.png           -> bouton "Proximite"       (main - grise si aucun
+                                                    objet interactif au sol)
 
 ----------------------------------------------------------------
 CONSEILS

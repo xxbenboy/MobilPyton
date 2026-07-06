@@ -331,6 +331,24 @@ class GameScreen(Screen):
         map_cell.add_widget(_button_label("Carte"))
         root.add_widget(map_cell)
 
+        # ---- Bouton PROXIMITE (a droite de Carte) ----
+        # Grise et inactif quand aucun objet interactif (voir INTERACTIVE_ITEMS
+        # ci-dessous) n'est au sol sur la case courante. Pas d'action pour
+        # l'instant (la logique d'interaction viendra plus tard).
+        prox_cell = BoxLayout(orientation="vertical", spacing=2,
+                              size_hint=(0.06, 0.16),
+                              pos_hint={"x": 0.070, "y": 0.012})
+        prox_area = AnchorLayout(size_hint=(1, 0.66))
+        self.prox_btn = IconButton(icon="hand", size_hint=(None, None))
+        def _prox_square(a, *_):
+            s = a.height * 0.94
+            self.prox_btn.size = (s, s)
+        prox_area.bind(size=_prox_square)
+        prox_area.add_widget(self.prox_btn)
+        prox_cell.add_widget(prox_area)
+        prox_cell.add_widget(_button_label("Proximite"))
+        root.add_widget(prox_cell)
+
         # ---- Bouton MENU (bas a droite) ----
         menu_cell = BoxLayout(orientation="vertical", spacing=2, size_hint=(0.06, 0.16),
                               pos_hint={"right": 0.994, "y": 0.012})
@@ -1142,6 +1160,16 @@ class GameScreen(Screen):
         self.craft_btn.disabled = self._ff_active
         self.back_btn.disabled = self._ff_active
         self.move_btn.disabled = self._ff_active
+        # Proximite : grise + inactif tant qu'il n'y a AUCUN objet interactif
+        # (voir items.INTERACTIVE_ITEMS) au sol sur la case courante.
+        has_interactive = any(state.ground_here().get(n, 0) > 0
+                              for n in items.INTERACTIVE_ITEMS)
+        if self._ff_active or not has_interactive:
+            self.prox_btn.disabled = True
+            self.prox_btn.opacity = 0.45
+        else:
+            self.prox_btn.disabled = False
+            self.prox_btn.opacity = 1.0
 
         self.background.set_seconds(state.time_seconds)
         # Assombrit le decor selon l'heure (voile de nuit).
