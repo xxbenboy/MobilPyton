@@ -44,7 +44,12 @@ COMPASS_ITEM = "Boussole"
 AXE_ITEM = "Hache"
 GOURDE_ITEMS = {"Gourde"}
 
-# Objets INTERACTIFS : quand ils sont au sol sur la case courante, le bouton
+# Objets INSTALLABLES : peuvent etre "utilises" (montes/installes) depuis la
+# main via un bouton Utiliser dedie. Une fois installes, ils passent dans
+# game_state.installed (pas dans ground) et rendent le bouton Proximite actif.
+INSTALLABLE_ITEMS = {"Feu_de_camp"}
+
+# Objets INTERACTIFS : quand ils sont INSTALLES sur la case courante, le bouton
 # "Proximite" s'active. Actuellement seul le feu de camp est interactif.
 INTERACTIVE_ITEMS = {"Feu_de_camp"}
 

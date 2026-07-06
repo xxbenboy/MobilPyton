@@ -64,7 +64,7 @@ class GameState:
                  wood=0, food=0, water=0, action_count=0,
                  hands=None, ground=None, explores=None, harvested=None,
                  log=None, player_x=None, player_y=None, revealed=None,
-                 facing=0):
+                 facing=0, installed=None):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
@@ -88,6 +88,10 @@ class GameState:
         # Objets recoltes par case : {"x,y": {nom: nombre}} -> sert a masquer
         # les objets recoltes dans la scene (coherence decor/recolte).
         self.harvested = harvested if harvested else {}
+        # Objets INSTALLES par case : {"x,y": {nom: nombre}}. Different de
+        # ground : un objet installe est "monte" (ex. feu de camp allume) et
+        # rend le bouton Proximite actif.
+        self.installed = installed if installed else {}
         self.revealed = set(revealed) if revealed else set()  # {"x,y", ...} zones revelees
         self.action_count = action_count
         self.log = log if log is not None else []
@@ -290,6 +294,24 @@ class GameState:
             return True
         return False
 
+    def installed_here(self):
+        """Objets INSTALLES sur la case actuelle : {objet: nombre}."""
+        return self.installed.get(self._cell_key(), {})
+
+    def install_from_hand(self, index):
+        """Installe (monte) l'objet tenu dans la main donnee sur la case.
+        Ne fait rien si la main est vide ou si l'objet n'est pas installable."""
+        if index not in (0, 1):
+            return False
+        name = self.hands[index]
+        if name is None or name not in items.INSTALLABLE_ITEMS:
+            return False
+        key = self._cell_key()
+        cell = self.installed.setdefault(key, {})
+        cell[name] = cell.get(name, 0) + 1
+        self.hands[index] = None
+        return True
+
     def take_found(self, item):
         """Prend un objet trouve : dans une main libre si possible, sinon au sol."""
         hand = self.free_hand()
@@ -396,6 +418,7 @@ class GameState:
             "water": self.water,
             "hands": self.hands,
             "ground": self.ground,
+            "installed": self.installed,
             "explores": self.explores,
             "harvested": self.harvested,
             "facing": self.facing,
@@ -428,6 +451,7 @@ class GameState:
             water=data.get("water", 0),
             hands=data.get("hands"),
             ground=data.get("ground"),
+            installed=data.get("installed"),
             explores=data.get("explores"),
             harvested=data.get("harvested"),
             facing=data.get("facing", 0),

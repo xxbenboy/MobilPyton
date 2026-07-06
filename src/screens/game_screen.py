@@ -335,9 +335,11 @@ class GameScreen(Screen):
         # Grise et inactif quand aucun objet interactif (voir INTERACTIVE_ITEMS
         # ci-dessous) n'est au sol sur la case courante. Pas d'action pour
         # l'instant (la logique d'interaction viendra plus tard).
+        # Ecart Carte<->Proximite = ecart Deplacer<->Menu (0.034 en fraction
+        # de largeur d'ecran) : Carte finit a x=0.066, +0.034 = 0.100.
         prox_cell = BoxLayout(orientation="vertical", spacing=2,
                               size_hint=(0.06, 0.16),
-                              pos_hint={"x": 0.070, "y": 0.012})
+                              pos_hint={"x": 0.100, "y": 0.012})
         prox_area = AnchorLayout(size_hint=(1, 0.66))
         self.prox_btn = IconButton(icon="hand", size_hint=(None, None))
         def _prox_square(a, *_):
@@ -375,11 +377,19 @@ class GameScreen(Screen):
         # de l'ecran) pour ne pas chevaucher les mains visuellement.
         self.drop_btns = []
         self.drop_labels = []
+        # Bouton "Utiliser" (un par main) : monte AU-DESSUS de "Deposer"
+        # UNIQUEMENT quand la main tient un objet installable (voir
+        # items.INSTALLABLE_ITEMS, ex. Feu_de_camp). Sinon masque et
+        # inactif. Un objet installe passe dans state.installed (pas dans
+        # ground) => c'est ce qui active le bouton Proximite.
+        self.use_btns = []
         for slot, cx in enumerate(PlayerHands.HAND_FX):
-            # Bouton Deposer COLLE en bas. Label juste au-dessus.
+            # Bas -> haut : Deposer (y=0.005), Utiliser (y=0.080), Label.
+            # Le label est plus haut qu'avant pour laisser la place au bouton
+            # Utiliser meme quand il est masque (layout stable).
             name_lbl = _button_label("")
             name_lbl.size_hint = (0.16, 0.05)
-            name_lbl.pos_hint = {"center_x": cx, "y": 0.080}
+            name_lbl.pos_hint = {"center_x": cx, "y": 0.155}
             root.add_widget(name_lbl)
             self.drop_labels.append(name_lbl)
 
@@ -394,6 +404,17 @@ class GameScreen(Screen):
             db.bind(on_release=lambda _w, s=slot: self._drop_hand(s))
             root.add_widget(db)
             self.drop_btns.append(db)
+
+            ub = scale_font(StyledButton(text="Utiliser", size_hint=(0.13, 0.07),
+                            pos_hint={"center_x": cx, "y": 0.080}), 0.02)
+            # Palette bleutee pour distinguer d'un simple depot.
+            ub.set_palette(idle=(0.18, 0.24, 0.38, 0.40),
+                           down=(0.28, 0.36, 0.55, 0.55),
+                           off=(0.12, 0.12, 0.14, 0.30),
+                           border=(0.55, 0.70, 0.90, 0.45))
+            ub.bind(on_release=lambda _w, s=slot: self._use_hand(s))
+            root.add_widget(ub)
+            self.use_btns.append(ub)
 
         # ---- Bouton DEPLACER (bas a droite, a gauche du Menu) ----
         # Meme style que Carte/Menu : un logo + le nom dessous.
@@ -746,6 +767,16 @@ class GameScreen(Screen):
         if state is None or self._ff_active or self._moving:
             return
         if state.drop_from_hands(slot):
+            App.get_running_app().autosave()
+            self.refresh()
+
+    def _use_hand(self, slot):
+        """Installe (monte) l'objet tenu dans la main donnee sur la case
+        courante. Utilise pour, ex., un feu de camp qui devient interactif."""
+        state = App.get_running_app().game_state
+        if state is None or self._ff_active or self._moving:
+            return
+        if state.install_from_hand(slot):
             App.get_running_app().autosave()
             self.refresh()
 
@@ -1119,8 +1150,9 @@ class GameScreen(Screen):
         else:
             self.hands.set_items(state.hands[0], state.hands[1])
 
-        # Boutons "Deposer" + nom de l'objet tenu : visibles seulement si la
-        # main correspondante tient un objet, et NON pendant l'exploration.
+        # Boutons "Deposer" + "Utiliser" + nom de l'objet tenu : visibles
+        # seulement si la main correspondante tient un objet, et NON pendant
+        # l'exploration. "Utiliser" n'apparait qu'avec un objet installable.
         for slot, db in enumerate(self.drop_btns):
             item = state.hands[slot]
             occupied = item is not None
@@ -1131,6 +1163,11 @@ class GameScreen(Screen):
             lbl.opacity = 1 if visible else 0
             if visible:
                 lbl.text = items.display_name(item)
+            ub = self.use_btns[slot]
+            installable = occupied and item in items.INSTALLABLE_ITEMS
+            use_visible = installable and not exploring
+            ub.opacity = 1 if use_visible else 0
+            ub.disabled = (not installable) or self._ff_active
 
         # (Re)construit la grille des boutons si l'outillage a change (hache /
         # gourde) : ces boutons apparaissent / disparaissent completement.
@@ -1161,8 +1198,9 @@ class GameScreen(Screen):
         self.back_btn.disabled = self._ff_active
         self.move_btn.disabled = self._ff_active
         # Proximite : grise + inactif tant qu'il n'y a AUCUN objet interactif
-        # (voir items.INTERACTIVE_ITEMS) au sol sur la case courante.
-        has_interactive = any(state.ground_here().get(n, 0) > 0
+        # (voir items.INTERACTIVE_ITEMS) INSTALLE sur la case courante. Un
+        # simple "Deposer" n'active pas Proximite, seul "Utiliser" le fait.
+        has_interactive = any(state.installed_here().get(n, 0) > 0
                               for n in items.INTERACTIVE_ITEMS)
         if self._ff_active or not has_interactive:
             self.prox_btn.disabled = True
