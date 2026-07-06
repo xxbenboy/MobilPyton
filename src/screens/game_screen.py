@@ -1228,11 +1228,17 @@ class GameScreen(Screen):
         self.background.set_seconds(state.time_seconds)
         # Assombrit le decor selon l'heure (voile de nuit).
         self._night_color.a = night_darkness(state.time_seconds)
-        key = (zone, state.player_x, state.player_y)
+        # Les cases occupees par un objet installe (feu de camp, ...) : le
+        # scenery masquera les elements du decor qui tomberaient dedans.
+        blocked_grid = tuple(sorted((int(o[1]), int(o[2]))
+                                    for o in state.installed_objects_here()))
+        key = (zone, state.player_x, state.player_y, blocked_grid)
         if key != self._scene_key:
-            # On passe les objets deja recoltes pour masquer ceux pris ici.
+            # On passe les objets deja recoltes pour masquer ceux pris ici,
+            # et les cases bloquees pour ne pas dessiner d'objets dedans.
             self.scenery.set_scene(zone, state.player_x * 131 + state.player_y,
-                                   taken=state.harvested_here())
+                                   taken=state.harvested_here(),
+                                   blocked_grid=blocked_grid)
             self._scene_key = key
 
     def _periodic_autosave(self, _dt):

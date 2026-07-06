@@ -20,6 +20,7 @@ from kivy.graphics import (Color, Ellipse, Rectangle, Triangle, Line, Quad,
 
 from src.widgets import textures, pbr
 from src.widgets.textures import paint, paint_color, tiled_coords
+from src.widgets.installed_layer import grid_to_screen
 
 _ZONE_SEED = {"Foret": 1, "Plaine": 2, "Montagne": 3, "Lac": 4}
 
@@ -50,6 +51,11 @@ class ZoneScenery(Widget):
         self._avail = {}            # {nom: nb recoltable} (aleatoire, par case)
         self.harvest_total = {}     # {nom: total visible dans la scene}
         self.harvest_max = {}       # {nom: nombre de recoltes possibles}
+        # Cellules 5x5 occupees par un objet INSTALLE (fire pit, ...) :
+        # les objets du decor qui tombent dans la zone visuelle de ces
+        # cellules ne sont PAS dessines. Recalcule en debut de _redraw.
+        self._blocked_grid = set()
+        self._blocked_bboxes = []
         # Eclairage par cartes de normales : actif seulement si des cartes
         # Normal existent (sinon canvas normal, aucun risque, rendu inchange).
         self._pbr = pbr.LIGHTING and textures.has_any_normal()
@@ -70,14 +76,20 @@ class ZoneScenery(Widget):
         if self._pbr:
             pbr.reset_maps()
 
-    def set_scene(self, zone_type, seed=0, taken=None):
+    def set_scene(self, zone_type, seed=0, taken=None, blocked_grid=None):
         """Vue a l'horizon (sol en bas + ciel).
 
-        `taken` = {nom: nombre deja recolte} pour masquer les objets recoltes."""
+        `taken` = {nom: nombre deja recolte} pour masquer les objets recoltes.
+        `blocked_grid` = iterable de (gx, gy) : cellules occupees par un objet
+        INSTALLE (feu de camp, ...). Les objets du decor qui tombent dans la
+        zone visuelle d'une case bloquee ne sont PAS dessines (mais restent
+        collectables via explorer : le budget de recolte est preserve)."""
         self._zone = zone_type
         self._seed = seed
         self._mode = "scene"
         self._taken = dict(taken or {})
+        self._blocked_grid = set((int(g[0]), int(g[1]))
+                                 for g in (blocked_grid or []))
         self._redraw()
 
     def set_taken(self, taken):
@@ -105,6 +117,31 @@ class ZoneScenery(Widget):
         taken = self._taken.get(name, 0)
         return (i % self._avail_for(name)) < taken
 
+    def _compute_blocked_bboxes(self):
+        """Reconstruit les rectangles d'ecran couverts par les objets installes
+        (feu de camp, ...) a partir des cellules 5x5 (_blocked_grid)."""
+        self._blocked_bboxes = []
+        if not self._blocked_grid or self.width <= 0 or self.height <= 0:
+            return
+        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        for (gx, gy) in self._blocked_grid:
+            fx, fy, size = grid_to_screen(gx, gy)
+            cx = x0 + fx * w
+            cy = y0 + fy * h
+            # Meme forme aplatie que le cercle de roche (h = w * 0.55) +
+            # petite marge (15 %) pour bien couvrir les objets qui debordent.
+            hw = size * w * 0.5 * 1.15
+            hh = size * w * 0.55 * 0.5 * 1.15
+            self._blocked_bboxes.append((cx, cy, hw, hh))
+
+    def _is_blocked(self, x, y):
+        """True si le point (x, y) tombe dans la zone visuelle d'un objet
+        installe (feu de camp) sur cette case."""
+        for cx, cy, hw, hh in self._blocked_bboxes:
+            if abs(x - cx) < hw and abs(y - cy) < hh:
+                return True
+        return False
+
     def set_ground(self, zone_type, seed=0):
         """Vue VERS LE BAS : on regarde le sol, qui remplit tout l'ecran."""
         self._zone = zone_type
@@ -121,6 +158,9 @@ class ZoneScenery(Widget):
         self._ord = {}
         self._harvest_total = {}
         self._avail = {}
+        # Recalcule les bboxes des cases bloquees (objets installes) au cas ou
+        # la taille du widget a change depuis le dernier set_scene.
+        self._compute_blocked_bboxes()
         rng = random.Random(_ZONE_SEED.get(self._zone, 0) * 100000 + self._seed)
         with self.canvas:
             self._reset_pbr()        # cartes neutres par defaut (unites 1 et 2)
@@ -402,21 +442,21 @@ class ZoneScenery(Widget):
             lx, ly, sc, t = place(fx=fx, floor=_HARVEST_FLOOR)
             s = rng.uniform(0.010, 0.022) * h * sc
             col = rng.choice(LEAVES)
-            if not self._take_or_skip("Feuille"):
+            if not self._take_or_skip("Feuille") and not self._is_blocked(lx, ly):
                 items.append((ly, lambda lx=lx, ly=ly, s=s, col=col:
                               self._leaf(lx, ly, s, col)))
         # Pierres mousseuses (en tas). [recoltable: Pierre]
         for _ in range(rng.randint(6, 10)):
             sx, sy, sc, t = place(1.0, fx=stone_pick(), floor=_HARVEST_FLOOR)
             r = rng.uniform(0.02, 0.05) * h * sc
-            if not self._take_or_skip("Pierre"):
+            if not self._take_or_skip("Pierre") and not self._is_blocked(sx, sy):
                 items.append((sy, lambda sx=sx, sy=sy, r=r:
                               self._stone(sx, sy, r)))
         # Branches au sol. [recoltable: Small_Stick]
         for _ in range(rng.randint(7, 11)):
             bx, by, sc, t = place(1.0, floor=_HARVEST_FLOOR)
             ln = rng.uniform(0.06, 0.13) * w * sc
-            if not self._take_or_skip("Small_Stick"):
+            if not self._take_or_skip("Small_Stick") and not self._is_blocked(bx, by):
                 items.append((by - 0.12 * h, lambda bx=bx, by=by, ln=ln:
                               self._branch(bx, by, ln)))
         # Herbe de sous-bois (sombre), en touffes (dense).
@@ -444,7 +484,8 @@ class ZoneScenery(Widget):
                 mx, my, sc, t = place(1.0, fx=mush_pick(), floor=_HARVEST_FLOOR)
                 s = rng.uniform(0.03, 0.05) * h * sc
                 cap = (0.62, 0.30, 0.18, 1)
-                if not self._take_or_skip("Brown_Mushroom"):
+                if (not self._take_or_skip("Brown_Mushroom")
+                        and not self._is_blocked(mx, my)):
                     items.append((my, lambda mx=mx, my=my, s=s, cap=cap:
                                   self._mushroom(mx, my, s, cap)))
         # Arbres : coniferes + feuillus. Ce sont leurs feuillages qui
@@ -764,7 +805,7 @@ class ZoneScenery(Widget):
         for _ in range(rng.randint(9, 13)):            # pierres (en tas) [Pierre]
             sx, sy, sc, t = place(1.0, fx=stone_pick(), floor=_HARVEST_FLOOR)
             r = rng.uniform(0.018, 0.045) * h * sc
-            if not self._take_or_skip("Pierre"):
+            if not self._take_or_skip("Pierre") and not self._is_blocked(sx, sy):
                 items.append((sy, lambda sx=sx, sy=sy, r=r:
                               self._stone(sx, sy, r)))
         for _ in range(rng.randint(6, 9)):             # branches [Small_Stick]
@@ -773,7 +814,7 @@ class ZoneScenery(Widget):
             # Un baton repose SUR l'herbe locale : on le rapproche (biais) pour
             # qu'il soit dessine par-dessus l'herbe de sa profondeur. Seule
             # l'herbe nettement plus proche (plus bas) passe devant.
-            if not self._take_or_skip("Small_Stick"):
+            if not self._take_or_skip("Small_Stick") and not self._is_blocked(bx, by):
                 items.append((by - 0.12 * h, lambda bx=bx, by=by, ln=ln:
                               self._branch(bx, by, ln)))
         for _ in range(rng.randint(4, 6)):             # buissons (taille humaine)
@@ -789,7 +830,7 @@ class ZoneScenery(Widget):
             gh = rng.uniform(0.05, 0.16) * h * sc
             fcol = rng.choice(flowers) if rng.random() < 0.10 else None
             fr = max(1.5, w * 0.004 * sc)
-            if not self._take_or_skip("Herbe"):
+            if not self._take_or_skip("Herbe") and not self._is_blocked(gx, gb):
                 items.append((gb, f_grass(gx, gb, gh, green_at(t), sc, fcol, fr)))
         n = 125                                        # herbe d'horizon [Herbe]
         for i in range(n):
@@ -797,7 +838,7 @@ class ZoneScenery(Widget):
             gx = x0 + fx * w + rng.uniform(-0.006, 0.006) * w
             gb = horizon_curve(fx) - rng.uniform(0.0, 0.03) * h  # sur la crete
             gh = rng.uniform(0.05, 0.11) * h
-            if not self._take_or_skip("Herbe"):
+            if not self._take_or_skip("Herbe") and not self._is_blocked(gx, gb):
                 items.append((gb, f_grass(gx, gb, gh,
                                           green_at(rng.uniform(0.85, 1.0)),
                                           0.5, None, 0)))
@@ -824,7 +865,7 @@ class ZoneScenery(Widget):
             for _ in range(rng.randint(3, 6)):
                 bx, by, sc, t = place(1.0, fx=berry_pick(), floor=_HARVEST_FLOOR)
                 r = rng.uniform(0.03, 0.045) * h * sc
-                if not self._take_or_skip("Baie"):
+                if not self._take_or_skip("Baie") and not self._is_blocked(bx, by):
                     items.append((by, lambda bx=bx, by=by, r=r:
                                   self._berries(bx, by, r)))
 
@@ -856,7 +897,7 @@ class ZoneScenery(Widget):
             sy = y0 + rng.uniform(lo, hi) * h
             rr = rng.uniform(0.015, 0.05) * h
             s = rng.uniform(-0.06, 0.06)
-            if not self._take_or_skip("Pierre"):
+            if not self._take_or_skip("Pierre") and not self._is_blocked(sx, sy):
                 Color(0.45 + s, 0.44 + s, 0.49 + s, 1)
                 Ellipse(pos=(sx - rr, sy), size=(rr * 2.2, rr * 1.5))
         # Plaques de neige en haut de la pente.
@@ -877,7 +918,7 @@ class ZoneScenery(Widget):
             rx = x0 + rng.uniform(0, 1) * w
             rr = rng.uniform(0.05, 0.09) * h
             ry = y0 + rng.uniform(_HARVEST_FLOOR, 0.34) * h
-            if not self._take_or_skip("Pierre"):
+            if not self._take_or_skip("Pierre") and not self._is_blocked(rx, ry):
                 Color(0.38, 0.37, 0.43, 1)
                 Ellipse(pos=(rx - rr, ry), size=(rr * 2.4, rr * 1.8))
 
@@ -904,7 +945,7 @@ class ZoneScenery(Widget):
             rx = x0 + rng.uniform(0, 1) * w
             ry = y0 + rng.uniform(_HARVEST_FLOOR, 0.28) * h
             rr = rng.uniform(0.012, 0.03) * h
-            if not self._take_or_skip("Pierre"):
+            if not self._take_or_skip("Pierre") and not self._is_blocked(rx, ry):
                 Color(0.42, 0.40, 0.32, 1)
                 Ellipse(pos=(rx - rr, ry), size=(rr * 2.4, rr * 1.4))
         # Roseaux (remontes a partir des jointures). [recoltable: Roseau]
@@ -912,5 +953,5 @@ class ZoneScenery(Widget):
             gx = x0 + rng.uniform(0, 1) * w
             gb = y0 + rng.uniform(_HARVEST_FLOOR, 0.30) * h
             gh = rng.uniform(0.08, 0.22) * h
-            if not self._take_or_skip("Roseau"):
+            if not self._take_or_skip("Roseau") and not self._is_blocked(gx, gb):
                 self._grass_tuft(gx, gb, gh, (0.18, 0.38, 0.20, 1))
