@@ -64,7 +64,7 @@ class GameState:
                  wood=0, food=0, water=0, action_count=0,
                  hands=None, ground=None, explores=None, harvested=None,
                  log=None, player_x=None, player_y=None, revealed=None,
-                 facing=0, installed=None):
+                 facing=0, installed=None, debug=False):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
@@ -111,16 +111,20 @@ class GameState:
         # Orientation du joueur (indice dans CARDINALS) : Nord par defaut.
         self.facing = facing % 4
 
+        # Mode DEBUG (partie "Partie D" lancee depuis le bouton du menu) :
+        # carte toujours utilisable, craft illimite sans ingredients.
+        self.debug = bool(debug)
+
     # ------------------------------------------------------------------ #
     # Creation
     # ------------------------------------------------------------------ #
     @classmethod
-    def new_random(cls, name, difficulty="Moyen", seed=None):
+    def new_random(cls, name, difficulty="Moyen", seed=None, debug=False):
         if seed is None:
             seed = random.randrange(1_000_000)
         if difficulty not in DIFFICULTIES:
             difficulty = "Moyen"
-        state = cls(seed=seed, name=name, difficulty=difficulty)
+        state = cls(seed=seed, name=name, difficulty=difficulty, debug=debug)
         state.time_seconds = START_HOUR * 3600        # debut a 6h
         start = START_RESOURCES[difficulty]
         state.food = start["food"]
@@ -378,14 +382,17 @@ class GameState:
         return pool
 
     def can_craft(self, recipe):
+        if self.debug:
+            return True            # debug : tout craftable, sans ingredients
         pool = self.craft_pool()
         return all(pool.get(k, 0) >= v for k, v in recipe["ingredients"].items())
 
     def do_craft(self, recipe):
-        """Fabrique : consomme les ingredients (sol d'abord, puis mains)."""
+        """Fabrique : consomme les ingredients (sol d'abord, puis mains).
+        En mode DEBUG, rien n'est consomme (craft illimite)."""
         if not self.can_craft(recipe):
             return False
-        for item, qty in recipe["ingredients"].items():
+        for item, qty in (() if self.debug else recipe["ingredients"].items()):
             need = qty
             g = self.ground.get(self._cell_key(), {})
             take = min(need, g.get(item, 0))
@@ -439,6 +446,7 @@ class GameState:
             "hands": self.hands,
             "ground": self.ground,
             "installed": self.installed,
+            "debug": self.debug,
             "explores": self.explores,
             "harvested": self.harvested,
             "facing": self.facing,
@@ -472,6 +480,7 @@ class GameState:
             hands=data.get("hands"),
             ground=data.get("ground"),
             installed=data.get("installed"),
+            debug=data.get("debug", False),
             explores=data.get("explores"),
             harvested=data.get("harvested"),
             facing=data.get("facing", 0),

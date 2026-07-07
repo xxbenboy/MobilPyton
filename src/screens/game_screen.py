@@ -827,11 +827,12 @@ class GameScreen(Screen):
     # Carte
     # ------------------------------------------------------------------ #
     def _open_map(self, *_):
-        """Ouvre la carte, seulement si le joueur possede une CARTE."""
+        """Ouvre la carte, seulement si le joueur possede une CARTE
+        (toujours utilisable en mode debug)."""
         state = App.get_running_app().game_state
         if state is None or self._ff_active or self._moving:
             return
-        if not state.has_item(items.MAP_ITEM):
+        if not (state.debug or state.has_item(items.MAP_ITEM)):
             self._show_message("Il te faut une carte\npour l'ouvrir.")
             return
         self.manager.current = "map"
@@ -1203,7 +1204,8 @@ class GameScreen(Screen):
             self.map_btn.opacity = 1.0
         else:
             self.map_btn.disabled = False
-            self.map_btn.opacity = 1.0 if state.has_item(items.MAP_ITEM) else 0.45
+            self.map_btn.opacity = (1.0 if state.debug
+                                    or state.has_item(items.MAP_ITEM) else 0.45)
         self.craft_btn.disabled = self._ff_active
         self.back_btn.disabled = self._ff_active
         self.move_btn.disabled = self._ff_active

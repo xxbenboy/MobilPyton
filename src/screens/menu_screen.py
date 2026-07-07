@@ -16,6 +16,7 @@ from kivy.uix.label import Label
 from kivy.graphics import Color, RoundedRectangle
 from kivy.metrics import dp
 
+from src.game_state import GameState
 from src.widgets.menu_backdrop import MenuBackdrop
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font
@@ -95,12 +96,28 @@ class MenuScreen(Screen):
         scale_font(ver, 0.013)
         root.add_widget(ver)
 
+        # Bouton DEBUG (bas droite, au-dessus du numero de build) : lance
+        # directement une partie de test "Partie D" (craft illimite, carte
+        # toujours dispo), sans passer par la creation de partie.
+        debug_btn = scale_font(StyledButton(text="Debug",
+                               font_name=ui_font(), size_hint=(0.10, 0.07),
+                               pos_hint={"right": 0.99, "y": 0.06}), 0.018)
+        debug_btn.bind(on_release=self._start_debug)
+        root.add_widget(debug_btn)
+
         self.add_widget(root)
 
     def _open_settings(self, *_):
         # Depuis l'accueil, "Retour" des parametres revient a l'accueil.
         self.manager.get_screen("settings").return_to = "menu"
         self.manager.current = "settings"
+
+    def _start_debug(self, *_):
+        """Lance (et sauvegarde) directement la partie de test "Partie D"."""
+        app = App.get_running_app()
+        app.game_state = GameState.new_random("Partie D", debug=True)
+        app.autosave()
+        self.manager.current = "game"
 
     def on_pre_enter(self):
         # Pas de sauvegarde -> bouton "Charger" grise.
