@@ -42,6 +42,10 @@ _PRECIP = {
 _RAIN_COLOR = (0.78, 0.86, 0.98, 0.55)
 _SNOW_COLOR = (1.0, 1.0, 1.0, 0.90)
 
+# Duree du fondu d'une meteo a l'autre (secondes reelles) : on eteint d'abord
+# la meteo en cours, puis on allume la nouvelle -> aucun changement brutal.
+FADE_SECONDS = 2.5
+
 # Meteos ou l'on voit des eclairs.
 _STORMY = ("orage", "blizzard")
 
@@ -54,6 +58,11 @@ class WeatherLayer(Widget):
         self._t = 0.0
         self._kind = "clair"
         self._fog = False
+        # Fondu : intensite affichee (0 a 1) et meteo en attente. On descend
+        # a 0 avant de basculer sur la nouvelle meteo, puis on remonte.
+        self._intensity = 1.0
+        self._pending = None
+        self._alphas = []             # [(Color, opacite de base), ...]
         self._built = None            # (meteo, brouillard, largeur, hauteur)
         self._veil_rect = None
         self._fog_bands = []          # [(Ellipse, fx, fy, fw, fh, vitesse)]
@@ -66,11 +75,15 @@ class WeatherLayer(Widget):
 
     # ---- API ---------------------------------------------------------- #
     def set_weather(self, kind, fog=False):
-        """Definit la meteo affichee et la presence de brouillard."""
-        if kind == self._kind and bool(fog) == self._fog:
-            return
-        self._kind = kind
-        self._fog = bool(fog)
+        """Definit la meteo affichee et la presence de brouillard.
+
+        Le changement est PROGRESSIF : la meteo en cours s'efface d'abord,
+        puis la nouvelle apparait (voir _tick). Appelable a chaque frame."""
+        target = (kind, bool(fog))
+        if self._pending is not None:
+            self._pending = target        # la cible a encore change
+        elif target != (self._kind, self._fog):
+            self._pending = target
 
     def stop(self):
         if self._event is not None:
@@ -87,6 +100,7 @@ class WeatherLayer(Widget):
         self._fog_bands = []
         self._drops = []
         self._flakes = []
+        self._alphas = []
         rng = self._rng
         w, h = self.width, self.height
         kind = self._kind
@@ -95,14 +109,14 @@ class WeatherLayer(Widget):
             # 1) Voile general de la meteo.
             veil = _VEIL.get(kind)
             if veil:
-                Color(*veil)
+                self._alphas.append((Color(*veil), veil[3]))
                 self._veil_rect = Rectangle(pos=self.pos, size=self.size)
 
             # 2) Brouillard : voile clair + larges bandes qui derivent.
             if self._fog:
-                Color(0.82, 0.85, 0.88, 0.30)
+                self._alphas.append((Color(0.82, 0.85, 0.88, 0.30), 0.30))
                 Rectangle(pos=self.pos, size=self.size)
-                Color(0.90, 0.92, 0.95, 0.16)
+                self._alphas.append((Color(0.90, 0.92, 0.95, 0.16), 0.16))
                 for _ in range(4):
                     fy = rng.uniform(0.10, 0.70)
                     fw = rng.uniform(0.7, 1.3)
@@ -118,7 +132,7 @@ class WeatherLayer(Widget):
                 ptype, count, vfac, sfac, wind = spec
                 self._wind = wind
                 if ptype == "rain":
-                    Color(*_RAIN_COLOR)
+                    self._alphas.append((Color(*_RAIN_COLOR), _RAIN_COLOR[3]))
                     for _ in range(count):
                         self._drops.append([
                             Line(width=1.1),
@@ -129,7 +143,7 @@ class WeatherLayer(Widget):
                             rng.uniform(0.10, 0.22),           # biais lateral
                         ])
                 else:
-                    Color(*_SNOW_COLOR)
+                    self._alphas.append((Color(*_SNOW_COLOR), _SNOW_COLOR[3]))
                     for _ in range(count):
                         self._flakes.append([
                             Ellipse(),
@@ -148,10 +162,26 @@ class WeatherLayer(Widget):
         w, h = self.width, self.height
         if w <= 0 or h <= 0:
             return
+        # Fondu progressif : on eteint la meteo en cours (intensite -> 0),
+        # on bascule alors sur la nouvelle, puis on la rallume (-> 1).
+        step = min(dt, 0.1) / FADE_SECONDS
+        if self._pending is not None:
+            self._intensity -= step
+            if self._intensity <= 0.0:
+                self._intensity = 0.0
+                self._kind, self._fog = self._pending
+                self._pending = None
+        elif self._intensity < 1.0:
+            self._intensity = min(1.0, self._intensity + step)
+
         if self._built != (self._kind, self._fog, w, h):
             self._build()
         self._t += min(dt, 0.1)
         t, x0, y0 = self._t, self.x, self.y
+
+        # Opacites suivant le fondu en cours.
+        for col, base in self._alphas:
+            col.a = base * self._intensity
 
         if self._veil_rect is not None:
             self._veil_rect.pos = self.pos

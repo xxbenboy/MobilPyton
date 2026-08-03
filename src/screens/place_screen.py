@@ -167,6 +167,7 @@ class PlaceScreen(Screen):
         if state is None:
             return
         self.background.set_seconds(state.time_seconds)
+        self.background.set_weather(state.effective_weather())
         self._night_color.a = night_darkness(state.time_seconds)
         zone = state.current_zone()
         key = (zone, state.player_x, state.player_y)

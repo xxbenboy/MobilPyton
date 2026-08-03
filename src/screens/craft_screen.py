@@ -165,6 +165,7 @@ class CraftScreen(Screen):
         state = App.get_running_app().game_state
         if state is not None:
             self.background.set_seconds(state.time_seconds)
+            self.background.set_weather(state.effective_weather())
             # Voile de nuit synchronise sur l'heure.
             self._night_color.a = night_darkness(state.time_seconds)
             zone = state.current_zone()

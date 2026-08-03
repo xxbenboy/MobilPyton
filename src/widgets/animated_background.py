@@ -61,6 +61,41 @@ def sky_luminance(seconds):
 
 
 # --------------------------------------------------------------------- #
+# ASPECT DU CIEL SELON LA METEO
+# --------------------------------------------------------------------- #
+# Par meteo : presence des NUAGES (0 = aucun), GRISAILLE du ciel (fondu vers
+# un gris) et ASSOMBRISSEMENT. Les astres (soleil, lune, etoiles) sont
+# masques par les nuages : avec "cloud" a 1, plus de soleil visible.
+_SKY_WEATHER = {
+    "clair":    {"cloud": 0.00, "grey": 0.00, "dark": 0.00},
+    "nuageux":  {"cloud": 1.00, "grey": 0.75, "dark": 0.16},
+    "pluie":    {"cloud": 1.00, "grey": 0.85, "dark": 0.32},
+    "orage":    {"cloud": 1.00, "grey": 0.95, "dark": 0.58},
+    "neige":    {"cloud": 1.00, "grey": 0.80, "dark": 0.26},
+    "blizzard": {"cloud": 1.00, "grey": 0.95, "dark": 0.52},
+}
+_WX_KEYS = ("cloud", "grey", "dark")
+
+# Etat par defaut, utilise par les ecrans SANS systeme meteo (menu, craft) :
+# nuages presents et ciel normal, exactement comme avant l'ajout de la meteo.
+# La meteo ne prend la main que si `set_weather()` est appele.
+_SKY_DEFAULT = {"cloud": 1.00, "grey": 0.00, "dark": 0.00}
+
+# Duree caracteristique du fondu d'une meteo a l'autre (secondes reelles) :
+# le ciel se couvre ou se degage progressivement, jamais d'un coup.
+WEATHER_FADE = 4.0
+
+# Couleurs de base des 4 couches d'un nuage. Elles sont assombries par gros
+# temps (voir "dark"), d'ou le besoin de les connaitre.
+_CLOUD_RGB = {
+    "c_halo": (0.95, 0.97, 1.00),
+    "c_base": (0.74, 0.78, 0.86),
+    "c_top":  (0.97, 0.98, 1.00),
+    "c_hi":   (1.00, 1.00, 1.00),
+}
+
+
+# --------------------------------------------------------------------- #
 # LUNE
 # --------------------------------------------------------------------- #
 # Mois SYNODIQUE reel : duree moyenne d'un cycle complet, d'une nouvelle lune
@@ -140,6 +175,9 @@ class AnimatedBackground(Widget):
         # s'etale sur ~29,5 jours, il lui faut le compte des jours.
         self._abs_seconds = float(start_seconds)
         self.time_scale = float(time_scale)
+        # Meteo du ciel : valeurs AFFICHEES (lissees) et valeurs VISEES.
+        self._wx = dict(_SKY_DEFAULT)
+        self._wx_target = dict(_SKY_DEFAULT)
         self._current = sky_color(self._seconds)
         self._t = 0.0
         self._grad_accum = 0.0
@@ -242,6 +280,25 @@ class AnimatedBackground(Widget):
         Clock.schedule_interval(self._tick, 1 / 60.0)
 
     # ------------------------------------------------------------------ #
+    def set_weather(self, kind):
+        """Definit la meteo du CIEL (nuages, grisaille, assombrissement).
+
+        Le passage d'une meteo a l'autre est PROGRESSIF : on ne change que la
+        cible, que `_tick` rejoint doucement."""
+        self._wx_target = dict(_SKY_WEATHER.get(kind, _SKY_DEFAULT))
+
+    def _weather_sky(self, c):
+        """Applique la grisaille et l'assombrissement de la meteo a une
+        couleur de ciel."""
+        g, d = self._wx["grey"], self._wx["dark"]
+        if g <= 0.001 and d <= 0.001:
+            return list(c)
+        lum = 0.3 * c[0] + 0.6 * c[1] + 0.1 * c[2]
+        # Gris legerement bleute : plus naturel qu'un gris neutre.
+        grey = (lum * 0.98, lum, lum * 1.06)
+        out = [c[i] + (grey[i] - c[i]) * g for i in range(3)]
+        return [v * (1.0 - d) for v in out]
+
     def set_seconds(self, seconds):
         self._seconds = float(seconds) % SECONDS_PER_DAY
         self._abs_seconds = float(seconds)
@@ -270,8 +327,11 @@ class AnimatedBackground(Widget):
                                    bufferfmt="ubyte")
 
     def _lum(self):
-        c = self._current
-        return 0.3 * c[0] + 0.6 * c[1] + 0.1 * c[2]
+        """Luminosite du ciel due au SEUL cycle du jour.
+
+        Volontairement independante de la meteo : un ciel d'orage assombri ne
+        doit pas faire sortir les etoiles en plein midi."""
+        return sky_luminance(self._seconds)
 
     def _place_disc(self, ellipse, cx, cy, r):
         ellipse.size = (r * 2, r * 2)
@@ -332,7 +392,11 @@ class AnimatedBackground(Widget):
             self._seconds = (self._seconds + dt * self.time_scale) \
                 % SECONDS_PER_DAY
             self._abs_seconds += dt * self.time_scale
-        self._current = sky_color(self._seconds)
+        # Fondu PROGRESSIF vers la meteo visee (jamais de bascule brutale).
+        k = _clamp01(dt / WEATHER_FADE)
+        for key in _WX_KEYS:
+            self._wx[key] += (self._wx_target[key] - self._wx[key]) * k
+        self._current = self._weather_sky(sky_color(self._seconds))
 
         # Redessin du degrade a cadence fixe (~20/s), quel que soit le fps.
         self._grad_accum += dt
@@ -347,12 +411,15 @@ class AnimatedBackground(Widget):
         lum = self._lum()
         sun_a = _clamp01((lum - 0.10) / 0.25)     # 1 en plein jour
         night = _clamp01((0.20 - lum) / 0.18)     # 1 la nuit
+        # Les nuages cachent les astres : couvert => plus de soleil, ni de
+        # lune, ni d'etoiles.
+        astro = 1.0 - self._wx["cloud"]
 
         # Etoiles.
         for s in self._stars:
             twinkle = 0.35 + 0.65 * abs(math.sin(self._t * s["tw"] + s["phase"]))
             # Le clair de lune efface une partie des etoiles (comme en vrai).
-            s["col"].a = (s["base"] * twinkle * night
+            s["col"].a = (s["base"] * twinkle * night * astro
                           * (1.0 - 0.45 * moon_illumination(self._abs_seconds)))
 
         radius = min(w, h) * 0.055
@@ -361,9 +428,9 @@ class AnimatedBackground(Widget):
         sp = _clamp01((hour - 5.0) / 14.0)
         sx = x0 + w * (0.12 + 0.76 * sp)
         sy = y0 + h * (0.45 + 0.42 * math.sin(math.pi * sp))
-        self._sun_c.a = sun_a
+        self._sun_c.a = sun_a * astro
         self._place_disc(self._sun, sx, sy, radius)
-        self._sun_glow_c.a = sun_a * 0.35
+        self._sun_glow_c.a = sun_a * 0.35 * astro
         self._place_disc(self._sun_glow, sx, sy, radius * 2.1)
 
         # Lune : arc de 19h a 5h (la nuit).
@@ -371,11 +438,13 @@ class AnimatedBackground(Widget):
         mp = _clamp01(nh / 10.0)
         mx = x0 + w * (0.12 + 0.76 * mp)
         my = y0 + h * (0.45 + 0.42 * math.sin(math.pi * mp))
-        self._place_moon(mx, my, radius * 0.85, night)
+        self._place_moon(mx, my, radius * 0.85, night * astro)
 
         # Nuages (cumulus) : halo doux, dessous ombre, bouffees blanches,
         # reflets clairs du cote eclaire.
-        cloud_a = 0.55 * (0.30 + 0.70 * sun_a)
+        cloud_a = 0.55 * (0.30 + 0.70 * sun_a) * self._wx["cloud"]
+        # Par gros temps, les nuages sont nettement plus sombres.
+        shade = 1.0 - 0.55 * self._wx["dark"]
 
         def place(ellipses, shapes, cx, cy, s):
             for ell, (dx, dy, sw, sh) in zip(ellipses, shapes):
@@ -387,11 +456,12 @@ class AnimatedBackground(Widget):
             cx = x0 + fx * w
             cy = y0 + cl["fy"] * h
             s = w * cl["scale"]
-            cl["c_halo"].a = cloud_a * 0.22
-            place(cl["halo_ell"], cl["halo_shape"], cx, cy, s)
-            cl["c_base"].a = cloud_a * 0.85
-            place(cl["base_ell"], cl["base_shape"], cx, cy, s)
-            cl["c_top"].a = cloud_a
-            place(cl["top_ell"], cl["top_shape"], cx, cy, s)
-            cl["c_hi"].a = cloud_a * 0.85
-            place(cl["hi_ell"], cl["hi_shape"], cx, cy, s)
+            for key, ells, shapes, mult in (
+                    ("c_halo", "halo_ell", "halo_shape", 0.22),
+                    ("c_base", "base_ell", "base_shape", 0.85),
+                    ("c_top", "top_ell", "top_shape", 1.00),
+                    ("c_hi", "hi_ell", "hi_shape", 0.85)):
+                cr, cg, cb = _CLOUD_RGB[key]
+                cl[key].rgba = (cr * shade, cg * shade, cb * shade,
+                                cloud_a * mult)
+                place(cl[ells], cl[shapes], cx, cy, s)

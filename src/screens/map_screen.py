@@ -121,6 +121,7 @@ class MapScreen(Screen):
             f"Case ({state.player_x},{state.player_y}) - 1x1 km"
         )
         self.background.set_seconds(state.time_seconds)
+        self.background.set_weather(state.effective_weather())
         # Voile de nuit synchronise sur l'heure (alpha 0 le jour, max nuit).
         self._night_color.a = night_darkness(state.time_seconds)
         # Fond = vue VERS LE BAS du sol de la zone (on regarde la carte/le sol).

@@ -1283,6 +1283,9 @@ class GameScreen(Screen):
         weather = state.effective_weather()
         self.weather_layer.set_weather(weather, state.fog_active())
         self.lightning.set_weather(weather)
+        # Le CIEL aussi : nuages, grisaille, disparition du soleil (le fond
+        # gere lui-meme la transition progressive).
+        self.background.set_weather(weather)
         # Les cases occupees par un objet installe (feu de camp, ...) : le
         # scenery masquera les elements du decor qui tomberaient dedans.
         blocked_grid = tuple(sorted((int(o[1]), int(o[2]))
