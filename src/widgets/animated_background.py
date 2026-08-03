@@ -69,6 +69,14 @@ def night_darkness(seconds, max_dark=0.62):
     return max(0.0, min(max_dark, d * max_dark))
 
 
+def night_factor(seconds):
+    """Avancement de la NUIT : 0 en plein jour, 1 en pleine nuit.
+
+    Meme courbe (progressive) que l'assombrissement, mais normalisee : sert a
+    faire disparaitre les insectes de jour et apparaitre les lucioles."""
+    return night_darkness(seconds, max_dark=1.0)
+
+
 class AnimatedBackground(Widget):
     def __init__(self, start_seconds=6 * 3600, time_scale=0.0, stars=28,
                  **kwargs):

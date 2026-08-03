@@ -25,12 +25,13 @@ from kivy.graphics import Color, Rectangle, RoundedRectangle
 from kivy.metrics import dp
 
 from src.game_state import _clamp100
-from src.widgets.animated_background import AnimatedBackground, night_darkness
+from src.widgets.animated_background import (AnimatedBackground,
+                                            night_darkness, night_factor)
 from src.widgets.zone_scenery import ZoneScenery
 
 from src import items
 from src.widgets.player_hands import PlayerHands
-from src.widgets.insects import InsectLayer
+from src.widgets.insects import InsectLayer, FireflyLayer
 from src.widgets.installed_layer import InstalledLayer
 from src.widgets.icon_button import IconButton
 from src.widgets.styled_button import StyledButton
@@ -265,6 +266,14 @@ class GameScreen(Screen):
             self._night_rect.size = self.night.size
         self.night.bind(pos=_sync_night, size=_sync_night)
         root.add_widget(self.night)
+
+        # Lucioles : ajoutees APRES le voile de nuit (donc PAR-DESSUS) pour
+        # qu'elles eclairent vraiment au lieu d'etre assombries. Elles restent
+        # sous le HUD, ajoute plus bas. Elles remplacent progressivement les
+        # insectes de jour a la tombee de la nuit (voir refresh()).
+        self.fireflies = FireflyLayer(size_hint=(1, 1),
+                                      pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.fireflies)
 
         # ---- Section ZONE (haut centre) ----
         zone_box = BoxLayout(orientation="vertical", padding=dp(10), spacing=4,
@@ -1247,6 +1256,12 @@ class GameScreen(Screen):
         self.background.set_seconds(state.time_seconds)
         # Assombrit le decor selon l'heure (voile de nuit).
         self._night_color.a = night_darkness(state.time_seconds)
+        # Releve jour/nuit de la petite faune : les insectes de jour s'effacent
+        # a mesure que la nuit tombe, les lucioles apparaissent (et l'inverse
+        # au lever du jour).
+        nf = night_factor(state.time_seconds)
+        self.insects.set_night(nf)
+        self.fireflies.set_night(nf)
         # Les cases occupees par un objet installe (feu de camp, ...) : le
         # scenery masquera les elements du decor qui tomberaient dedans.
         blocked_grid = tuple(sorted((int(o[1]), int(o[2]))
