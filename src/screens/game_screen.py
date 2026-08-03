@@ -75,7 +75,8 @@ EFFECT_DISPLAY = {
 # temps). "requires_sleep" => possible seulement si on est assez fatigue.
 ACTIONS = [
     {"label": "Explorer", "icon": "explore", "name": "Explorer",
-     "minutes_range": (5, 15), "energy": -10, "type": "explore"},
+     "minutes_range": (5, 15), "real_seconds": 1.5,
+     "energy": -10, "type": "explore"},
     {"label": "Couper du bois", "icon": "wood", "name": "Couper\ndu bois",
      "minutes": 120, "energy": -15, "wood": 3, "need_axe": True},
     {"label": "Chercher a manger", "icon": "food", "name": "Chercher\na manger",
@@ -99,6 +100,19 @@ def _action_minutes(action):
     if span:
         return random.uniform(span[0], span[1])
     return action["minutes"]
+
+
+def _action_real_seconds(action, minutes):
+    """Duree REELLE (en secondes) que dure l'avance rapide a l'ecran.
+
+    Par defaut elle decoule du temps de jeu (FAST_FORWARD_SCALE), mais une
+    action peut la FIXER avec "real_seconds" : l'animation garde alors
+    toujours la meme duree a l'ecran, quel que soit le temps de jeu ecoule
+    (ex. explorer dure 1,5 s a l'ecran mais 5 a 15 min dans le jeu)."""
+    fixed = action.get("real_seconds")
+    if fixed is not None:
+        return max(0.05, float(fixed))
+    return max(0.05, minutes * 60.0 / FAST_FORWARD_SCALE)
 
 
 def _action_reason(state, action):
@@ -243,6 +257,8 @@ class GameScreen(Screen):
         self._ff_active = False
         self._ff_remaining = 0.0
         self._ff_total = 0.0          # duree initiale (pour l'animation)
+        self._ff_scale = FAST_FORWARD_SCALE   # s de jeu / s reelle en cours
+        self._ff_real = 0.0           # duree reelle de l'action, en secondes
         self._ff_label = ""
         # Transition de deplacement (fondu noir + horloge).
         self._moving = False
@@ -553,7 +569,7 @@ class GameScreen(Screen):
             # Pendant la transition (ecran noir), le temps est gere a part.
             return
         dt = min(dt, 0.25)
-        scale = FAST_FORWARD_SCALE if self._ff_active else TIME_SCALE
+        scale = self._ff_scale if self._ff_active else TIME_SCALE
         self._time_accum += dt * scale
         whole = int(self._time_accum)
         self._time_accum -= whole
@@ -803,8 +819,16 @@ class GameScreen(Screen):
         state.action_count += 1
         state.add_log(action["label"])
         self._ff_active = True
-        self._ff_total = _action_minutes(action) * 60.0
+        minutes = _action_minutes(action)
+        # ENTIER de secondes de jeu : le compte a rebours ne retire que des
+        # secondes entieres, un reste fractionnaire ne tomberait jamais a 0.
+        self._ff_total = float(max(1, round(minutes * 60.0)))
         self._ff_remaining = self._ff_total
+        # Le temps de JEU et la duree a l'ECRAN sont independants : on regle
+        # la vitesse de l'avance rapide pour que l'action prenne toujours
+        # _ff_real secondes reelles.
+        self._ff_real = _action_real_seconds(action, minutes)
+        self._ff_scale = self._ff_total / self._ff_real
         self._ff_label = action["label"]
         self._time_accum = 0.0
         self.refresh()
@@ -1175,8 +1199,7 @@ class GameScreen(Screen):
         self._rest_fader_clock = clock
         # L'horloge fait UN tour complet sur toute la duree REELLE du repos
         # (pas 2.9 s par defaut), pour finir exactement avec le repos.
-        rest_real_seconds = self._ff_total / FAST_FORWARD_SCALE
-        clock.start(duration=rest_real_seconds)
+        clock.start(duration=max(0.05, self._ff_real))
         # Fondu vers le noir (1 s).
         Animation(opacity=1, duration=1.0).start(fader)
 
