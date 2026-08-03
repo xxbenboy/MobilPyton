@@ -255,19 +255,25 @@ class GameState:
 
         Appelable a chaque frame : ne fait rien tant que l'episode dure."""
         if self.weather in WEATHERS and self.time_seconds < self.weather_until:
+            self._apply_wet()
             return
-        previous = self.weather
         self.weather = random.choices(WEATHERS, weights=WEATHER_WEIGHTS, k=1)[0]
-        # On sort d'une averse : on reste MOUILLE un moment (plus longtemps
-        # apres un orage qu'apres une simple pluie).
-        wet_hours = WET_HOURS.get(previous)
-        if wet_hours:
-            self.start_effect("Mouille", hours=wet_hours)
         # Brouillard : seulement par temps nuageux, une fois sur deux.
         self.fog = (self.weather == "nuageux"
                     and random.random() < FOG_CHANCE)
         hours = random.uniform(WEATHER_MIN_HOURS, WEATHER_MAX_HOURS)
         self.weather_until = int(self.time_seconds + hours * 3600)
+        self._apply_wet()
+
+    def _apply_wet(self):
+        """Le joueur est MOUILLE des que l'averse commence.
+
+        Tant qu'il pleut, l'effet est maintenu au maximum (il est relance a
+        chaque appel) ; il ne commence donc a decroitre qu'a la FIN de
+        l'averse, pour 30 min apres une pluie ou 1 h apres un orage."""
+        hours = WET_HOURS.get(self.weather)
+        if hours:
+            self.start_effect("Mouille", hours=hours)
 
     # ------------------------------------------------------------------ #
     # Effets temporaires
