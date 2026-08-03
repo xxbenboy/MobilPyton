@@ -61,6 +61,13 @@ USE_BTN_Y = 0.080
 NAME_Y_LOW = USE_BTN_Y          # "Utiliser" masque -> on descend a sa place
 NAME_Y_HIGH = 0.155             # "Utiliser" affiche -> juste au-dessus
 
+# Affichage des EFFETS temporaires (voir game_state.EFFECT_HOURS) :
+# nom affiche, couleur de l'anneau, logo au centre.
+EFFECT_DISPLAY = {
+    "Feu_de_camp": ("Feu", (0.95, 0.50, 0.18), "fire"),
+    "Repos": ("Repos", (0.55, 0.70, 0.95), "rest"),
+}
+
 # Actions : effets ponctuels (la faim/soif/sommeil derivent en plus avec le
 # temps). "requires_sleep" => possible seulement si on est assez fatigue.
 ACTIONS = [
@@ -234,6 +241,10 @@ class GameScreen(Screen):
         self._found_item = None        # objet decouvert a la fin d'une exploration
         self._did_explore = False      # vient-on d'explorer ? (pour le message)
         self._scene_key = None
+        # Panneau lateral escamotable : None (masque), "stats" ou "effects".
+        self._panel_mode = None
+        self._effect_names = None
+        self._effect_circles = {}
 
         root = FloatLayout()
         self.root_layout = root
@@ -309,23 +320,42 @@ class GameScreen(Screen):
         zone_box.add_widget(self.zone_desc)
         root.add_widget(zone_box)
 
-        # ---- Section ETAT : cercles de stats colles a droite, empiles ----
-        # Chaque stat = un anneau qui se remplit (logo au centre, nom dessous).
-        # La colonne est plaquee sur le bord droit et n'occupe pas le bas droit
-        # (reserve au bouton "Menu").
-        stats_col = BoxLayout(orientation="vertical", padding=(dp(2), dp(6)),
-                              spacing=dp(6), size_hint=(0.07, 0.80),
-                              pos_hint={"right": 0.998, "top": 0.99})
-        _add_panel(stats_col, alpha=0.28)
+        # ---- Panneau lateral ESCAMOTABLE (masque par defaut) ----
+        # Il accueille soit l'ETAT (les cercles de stats), soit les EFFETS en
+        # cours. On l'ouvre avec les boutons de la colonne de droite ; il se
+        # referme en reappuyant, ou en touchant ailleurs sur l'ecran.
+        self.side_panel = BoxLayout(orientation="vertical",
+                                    padding=(dp(2), dp(6)), spacing=dp(6),
+                                    size_hint=(0.07, 0.80),
+                                    pos_hint={"right": 0.925, "top": 0.99})
+        _add_panel(self.side_panel, alpha=0.34)
+        root.add_widget(self.side_panel)
+        self.side_panel.opacity = 0
+        self.side_panel.disabled = True
+
+        # Cercles d'ETAT : crees une fois, ranges dans le panneau a l'ouverture.
         self.stat_health = StatCircle("Vie", (0.85, 0.30, 0.30), "health")
         self.stat_energy = StatCircle("Energie", (0.95, 0.80, 0.30), "energy")
         self.stat_sleep = StatCircle("Sommeil", (0.45, 0.55, 0.95), "sleep")
         self.stat_hunger = StatCircle("Faim", (0.85, 0.55, 0.25), "hunger")
         self.stat_thirst = StatCircle("Soif", (0.30, 0.70, 0.92), "thirst")
-        for circle in (self.stat_health, self.stat_energy, self.stat_sleep,
-                       self.stat_hunger, self.stat_thirst):
-            stats_col.add_widget(circle)
-        root.add_widget(stats_col)
+        self._stat_circles = (self.stat_health, self.stat_energy,
+                              self.stat_sleep, self.stat_hunger,
+                              self.stat_thirst)
+
+        # ---- Colonne des BOUTONS du panneau (bord droit) ----
+        self.panel_btns = BoxLayout(orientation="vertical",
+                                    padding=(dp(2), dp(4)), spacing=dp(6),
+                                    size_hint=(0.07, 0.24),
+                                    pos_hint={"right": 0.998, "top": 0.99})
+        _add_panel(self.panel_btns, alpha=0.28)
+        self.status_btn = scale_font(StyledButton(text="Statut"), 0.02)
+        self.status_btn.bind(on_release=lambda *_: self._toggle_panel("stats"))
+        self.panel_btns.add_widget(self.status_btn)
+        self.effect_btn = scale_font(StyledButton(text="Effet"), 0.02)
+        self.effect_btn.bind(on_release=lambda *_: self._toggle_panel("effects"))
+        self.panel_btns.add_widget(self.effect_btn)
+        root.add_widget(self.panel_btns)
 
         # ---- Etat d'action (sous la zone) ----
         self.status = scale_font(Label(text="", bold=True,
@@ -658,6 +688,66 @@ class GameScreen(Screen):
                 self._action_submenu_btns.append(btn)
 
     # ------------------------------------------------------------------ #
+    # Panneau lateral (Statut / Effet)
+    # ------------------------------------------------------------------ #
+    def _toggle_panel(self, mode):
+        """Ouvre le panneau sur ce contenu, ou le referme si deja ouvert."""
+        self._set_panel(None if self._panel_mode == mode else mode)
+
+    def _set_panel(self, mode):
+        """Affiche le panneau ("stats" / "effects") ou le masque (None)."""
+        if mode == self._panel_mode:
+            return
+        self._panel_mode = mode
+        self.side_panel.clear_widgets()
+        self._effect_names = None          # force la reconstruction des effets
+        self._effect_circles = {}
+        if mode == "stats":
+            for circle in self._stat_circles:
+                self.side_panel.add_widget(circle)
+        self.side_panel.opacity = 0 if mode is None else 1
+        self.side_panel.disabled = mode is None
+        self.refresh()
+
+    def _refresh_effects_panel(self, state):
+        """Remplit le panneau avec les effets en cours et leur temps restant."""
+        active = state.active_effects()
+        names = tuple(n for n, _ in active)
+        if names != self._effect_names:
+            self._effect_names = names
+            self.side_panel.clear_widgets()
+            self._effect_circles = {}
+            if not active:
+                self.side_panel.add_widget(scale_font(Label(
+                    text="Aucun\neffet", halign="center", valign="middle",
+                    color=(0.85, 0.88, 0.92, 1), size_hint_y=0.16), 0.016))
+            for name, _frac in active:
+                label, color, icon = EFFECT_DISPLAY.get(
+                    name, (name, (0.80, 0.80, 0.85), "rest"))
+                circle = StatCircle(label, color, icon)
+                circle.size_hint_y = 0.22
+                self._effect_circles[name] = circle
+                self.side_panel.add_widget(circle)
+            # Espace en bas : les cercles gardent une taille raisonnable meme
+            # s'il n'y a qu'un seul effet.
+            self.side_panel.add_widget(Widget())
+        # Anneau = part de temps restante.
+        for name, frac in active:
+            circle = self._effect_circles.get(name)
+            if circle is not None:
+                circle.set_value(frac * 100.0)
+
+    def on_touch_down(self, touch):
+        """Un appui AILLEURS que sur le panneau ou ses boutons le referme."""
+        if (self._panel_mode is not None and self._pause_menu is None
+                and self._move_menu is None and not self._moving):
+            if not (self.side_panel.collide_point(*touch.pos)
+                    or self.panel_btns.collide_point(*touch.pos)):
+                self._set_panel(None)
+                return True                # l'appui sert juste a refermer
+        return super().on_touch_down(touch)
+
+    # ------------------------------------------------------------------ #
     def do_action(self, action):
         # Si l'action vient du sous-menu (Manger ou Boire), on ferme le
         # sous-menu juste apres le clic (qu'elle reussisse ou non).
@@ -715,6 +805,8 @@ class GameScreen(Screen):
         self.hands.set_state('haut')
         if was_resting:
             self._end_rest_overlay()
+            # Sommeil complet : on reste "bien repose" quelques heures.
+            App.get_running_app().game_state.start_effect("Repos")
         if self._did_explore:
             self._did_explore = False
             # La trouvaille et le RETRAIT de l'objet du decor se font ICI, a la
@@ -876,6 +968,7 @@ class GameScreen(Screen):
     # ------------------------------------------------------------------ #
     def _open_move_menu(self, *_):
         """Affiche le choix de direction (relatif, ou cardinal avec boussole)."""
+        self._set_panel(None)
         state = App.get_running_app().game_state
         if state is None or self._ff_active or self._moving:
             return
@@ -1104,6 +1197,7 @@ class GameScreen(Screen):
     def _open_pause_menu(self, *_):
         """Panneau lateral droit : Parametres / Statistiques / Quitter.
         Le bouton "Menu" devient "Continuer" tant que le panneau est ouvert."""
+        self._set_panel(None)
         if self._ff_active or self._moving:
             return
         self._close_pause_menu()
@@ -1184,6 +1278,9 @@ class GameScreen(Screen):
         self.stat_sleep.set_value(state.sleep)
         self.stat_hunger.set_value(state.hunger)
         self.stat_thirst.set_value(state.thirst)
+        # Panneau des EFFETS : contenu et anneaux de temps restant.
+        if self._panel_mode == "effects":
+            self._refresh_effects_panel(state)
 
         # Pendant l'exploration, on CACHE l'objet tenu, le bouton Deposer
         # et le label (animation des mains uniquement, sans distractions).

@@ -174,9 +174,25 @@ def _hand(cx, cy, s):                                # main (paume + doigts)
                      size=(fw, s * 0.32), radius=[fw / 2])
 
 
+def _fire(cx, cy, s):                                # flamme (feu de camp)
+    Color(0.38, 0.24, 0.14, 1)                       # buches croisees
+    Line(points=[cx - s * 0.6, cy - s * 0.62, cx + s * 0.6, cy - s * 0.40],
+         width=max(1.6, s * 0.14))
+    Line(points=[cx - s * 0.6, cy - s * 0.40, cx + s * 0.6, cy - s * 0.62],
+         width=max(1.6, s * 0.14))
+    Color(0.88, 0.30, 0.10, 1)                       # flamme exterieure
+    Triangle(points=[cx - s * 0.52, cy - s * 0.30, cx + s * 0.52, cy - s * 0.30,
+                     cx, cy + s * 0.92])
+    Color(0.97, 0.62, 0.14, 1)                       # flamme interieure
+    Triangle(points=[cx - s * 0.30, cy - s * 0.30, cx + s * 0.30, cy - s * 0.30,
+                     cx, cy + s * 0.40])
+    Color(1.0, 0.90, 0.50, 1)                        # coeur clair
+    Ellipse(pos=(cx - s * 0.13, cy - s * 0.26), size=(s * 0.26, s * 0.40))
+
+
 ICONS = {"explore": _explore, "wood": _wood, "food": _food, "drink": _drink,
          "fill": _fill, "rest": _rest, "map": _map, "home": _home,
-         "craft": _craft, "move": _move, "actions": _actions, "hand": _hand,
+         "craft": _craft, "move": _move, "fire": _fire, "actions": _actions, "hand": _hand,
          # Logos des stats (section "Etat"). On reutilise certains logos
          # existants (pomme=faim, goutte=soif, Zzz=sommeil) et on ajoute le
          # coeur (vie) et l'eclair (energie).

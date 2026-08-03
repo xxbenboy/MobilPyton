@@ -77,6 +77,17 @@ FOG_ZONES = ("Foret", "Plaine", "Lac")
 MOUNTAIN_WEATHER = {"pluie": "neige", "orage": "blizzard"}
 
 
+# --------------------------------------------------------------------- #
+# EFFETS TEMPORAIRES
+# --------------------------------------------------------------------- #
+# Effets en cours sur le joueur, avec leur duree en HEURES DE JEU. Chacun
+# s'affiche dans le panneau "Effet" avec un anneau montrant le temps restant.
+EFFECT_HOURS = {
+    "Feu_de_camp": 6.0,     # duree pendant laquelle le feu reste allume
+    "Repos": 2.0,           # bien repose, apres un sommeil complet
+}
+
+
 def _clamp100(v):
     return max(0, min(100, v))
 
@@ -88,7 +99,8 @@ class GameState:
                  hands=None, ground=None, explores=None, harvested=None,
                  log=None, player_x=None, player_y=None, revealed=None,
                  facing=0, installed=None, debug=False,
-                 weather=None, fog=False, weather_until=0):
+                 weather=None, fog=False, weather_until=0,
+                 effects=None):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
@@ -145,6 +157,12 @@ class GameState:
         self.fog = bool(fog)
         self.weather_until = int(weather_until)
         self.update_weather()
+
+        # Effets temporaires : {nom: [debut, fin]} en secondes de jeu.
+        self.effects = {}
+        for name, span in (effects or {}).items():
+            if name in EFFECT_HOURS and len(span) == 2:
+                self.effects[name] = [int(span[0]), int(span[1])]
 
     # ------------------------------------------------------------------ #
     # Creation
@@ -239,6 +257,32 @@ class GameState:
                     and random.random() < FOG_CHANCE)
         hours = random.uniform(WEATHER_MIN_HOURS, WEATHER_MAX_HOURS)
         self.weather_until = int(self.time_seconds + hours * 3600)
+
+    # ------------------------------------------------------------------ #
+    # Effets temporaires
+    # ------------------------------------------------------------------ #
+    def start_effect(self, name):
+        """Declenche (ou relance) un effet pour toute sa duree."""
+        hours = EFFECT_HOURS.get(name)
+        if hours is None:
+            return False
+        self.effects[name] = [self.time_seconds,
+                              int(self.time_seconds + hours * 3600)]
+        return True
+
+    def active_effects(self):
+        """Effets en cours : [(nom, part de temps restante 0..1), ...].
+
+        Les effets termines sont oublies au passage."""
+        out = []
+        for name in list(self.effects):
+            start, end = self.effects[name]
+            if self.time_seconds >= end:
+                del self.effects[name]        # effet termine
+                continue
+            total = max(1, end - start)
+            out.append((name, (end - self.time_seconds) / total))
+        return out
 
     def effective_weather(self):
         """Meteo telle qu'elle se manifeste DANS LA ZONE actuelle : en
@@ -397,6 +441,8 @@ class GameState:
                 return False
         lst.append((name, int(gx), int(gy)))
         self.hands[index] = None
+        # Un feu de camp installe s'allume : l'effet demarre pour sa duree.
+        self.start_effect(name)
         return True
 
     def take_found(self, item):
@@ -513,6 +559,7 @@ class GameState:
             "weather": self.weather,
             "fog": self.fog,
             "weather_until": self.weather_until,
+            "effects": self.effects,
             "explores": self.explores,
             "harvested": self.harvested,
             "facing": self.facing,
@@ -550,6 +597,7 @@ class GameState:
             weather=data.get("weather"),
             fog=data.get("fog", False),
             weather_until=data.get("weather_until", 0),
+            effects=data.get("effects"),
             explores=data.get("explores"),
             harvested=data.get("harvested"),
             facing=data.get("facing", 0),
