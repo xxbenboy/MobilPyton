@@ -11,6 +11,8 @@ L'heure n'est pas affichee. Une action lance une AVANCE RAPIDE pendant sa
 duree (boutons verrouilles). "Se reposer" est interdit si l'energie est trop
 haute (pas assez fatigue pour dormir).
 """
+import random
+
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.animation import Animation
@@ -73,7 +75,7 @@ EFFECT_DISPLAY = {
 # temps). "requires_sleep" => possible seulement si on est assez fatigue.
 ACTIONS = [
     {"label": "Explorer", "icon": "explore", "name": "Explorer",
-     "minutes": 90, "energy": -10, "type": "explore"},
+     "minutes_range": (5, 15), "energy": -10, "type": "explore"},
     {"label": "Couper du bois", "icon": "wood", "name": "Couper\ndu bois",
      "minutes": 120, "energy": -15, "wood": 3, "need_axe": True},
     {"label": "Chercher a manger", "icon": "food", "name": "Chercher\na manger",
@@ -85,6 +87,18 @@ ACTIONS = [
     {"label": "Se reposer", "icon": "rest", "name": "Se\nreposer",
      "minutes": 240, "energy": 35, "sleep": 50, "requires_sleep": True},
 ]
+
+
+def _action_minutes(action):
+    """Duree d'une action, en minutes de jeu.
+
+    Certaines actions durent un temps VARIABLE : "minutes_range" donne alors
+    l'intervalle, et la duree est tiree au hasard a chaque fois (ex. explorer
+    les alentours prend entre 5 et 15 min)."""
+    span = action.get("minutes_range")
+    if span:
+        return random.uniform(span[0], span[1])
+    return action["minutes"]
 
 
 def _action_reason(state, action):
@@ -789,7 +803,7 @@ class GameScreen(Screen):
         state.action_count += 1
         state.add_log(action["label"])
         self._ff_active = True
-        self._ff_total = action["minutes"] * 60.0
+        self._ff_total = _action_minutes(action) * 60.0
         self._ff_remaining = self._ff_total
         self._ff_label = action["label"]
         self._time_accum = 0.0
@@ -937,14 +951,13 @@ class GameScreen(Screen):
     def _explore_find(self):
         """Choisit au hasard un objet recoltable visible, le retire de la scene
         et renvoie son nom (ou None s'il n'y a plus rien)."""
-        import random as _random
         state = App.get_running_app().game_state
         rem = self._remaining_harvest(state)
         if not rem:
             return None
         names = list(rem.keys())
         weights = list(rem.values())
-        name = _random.choices(names, weights=weights, k=1)[0]
+        name = random.choices(names, weights=weights, k=1)[0]
         taken = state.harvested_here()
         taken[name] = taken.get(name, 0) + 1
         self.scenery.set_taken(taken)       # retire l'objet du decor
