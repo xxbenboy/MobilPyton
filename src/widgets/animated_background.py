@@ -60,21 +60,67 @@ def sky_luminance(seconds):
     return 0.3 * c[0] + 0.6 * c[1] + 0.1 * c[2]
 
 
+# --------------------------------------------------------------------- #
+# LUNE
+# --------------------------------------------------------------------- #
+# Mois SYNODIQUE reel : duree moyenne d'un cycle complet, d'une nouvelle lune
+# a la suivante. C'est ce qui rend le cycle du jeu coherent avec la realite.
+SYNODIC_DAYS = 29.53
+
+# Phase au temps 0 : 0.5 = PLEINE lune. Les premieres nuits d'une partie sont
+# donc bien eclairees, puis le cycle suit son cours naturellement.
+MOON_EPOCH_PHASE = 0.5
+
+# Part de l'assombrissement nocturne que la PLEINE lune vient compenser.
+MOON_LIGHT = 0.22
+
+# Noms des 8 phases, dans l'ordre du cycle (une case = 1/8 de cycle).
+_PHASE_NAMES = ("Nouvelle lune", "Premier croissant", "Premier quartier",
+                "Gibbeuse croissante", "Pleine lune", "Gibbeuse decroissante",
+                "Dernier quartier", "Dernier croissant")
+
+
+def moon_phase(seconds):
+    """Avancement du cycle lunaire : 0 = nouvelle lune, 0.5 = pleine lune."""
+    return (MOON_EPOCH_PHASE + seconds / SECONDS_PER_DAY / SYNODIC_DAYS) % 1.0
+
+
+def moon_illumination(seconds):
+    """Part ECLAIREE du disque : 0 (nouvelle lune) a 1 (pleine lune)."""
+    return (1.0 - math.cos(2.0 * math.pi * moon_phase(seconds))) / 2.0
+
+
+def moon_phase_name(seconds):
+    """Nom de la phase lunaire en cours (parmi les 8 phases usuelles)."""
+    idx = int((moon_phase(seconds) + 1.0 / 16.0) % 1.0 * 8) % 8
+    return _PHASE_NAMES[idx]
+
+
+def _astro_darkness(seconds, max_dark):
+    """Obscurite due au SEUL cycle du jour (sans tenir compte de la lune)."""
+    d = (0.52 - sky_luminance(seconds)) / 0.45
+    return max(0.0, min(max_dark, d * max_dark))
+
+
 def night_darkness(seconds, max_dark=0.62):
     """Opacite d'un voile sombre a poser sur le decor selon l'heure.
 
     0 en plein jour, jusqu'a `max_dark` en pleine nuit. Suit la luminosite du
-    ciel : l'assombrissement est donc progressif au crepuscule et a l'aube."""
-    d = (0.52 - sky_luminance(seconds)) / 0.45
-    return max(0.0, min(max_dark, d * max_dark))
+    ciel : l'assombrissement est donc progressif au crepuscule et a l'aube.
+
+    La LUNE eclaire la nuit : plus elle est pleine, moins la nuit est noire
+    (aucun effet le jour, ou l'assombrissement est deja nul)."""
+    return _astro_darkness(seconds, max_dark) * (
+        1.0 - MOON_LIGHT * moon_illumination(seconds))
 
 
 def night_factor(seconds):
     """Avancement de la NUIT : 0 en plein jour, 1 en pleine nuit.
 
-    Meme courbe (progressive) que l'assombrissement, mais normalisee : sert a
-    faire disparaitre les insectes de jour et apparaitre les lucioles."""
-    return night_darkness(seconds, max_dark=1.0)
+    Meme courbe (progressive) que l'assombrissement, mais normalisee. Ne
+    depend PAS de la lune : une pleine lune ne fait pas revenir les papillons.
+    Sert a faire disparaitre les insectes de jour et apparaitre les lucioles."""
+    return _astro_darkness(seconds, 1.0)
 
 
 class AnimatedBackground(Widget):
@@ -82,6 +128,9 @@ class AnimatedBackground(Widget):
                  **kwargs):
         super().__init__(**kwargs)
         self._seconds = float(start_seconds) % SECONDS_PER_DAY
+        # Temps ABSOLU (non ramene a la journee) : le cycle lunaire
+        # s'etale sur ~29,5 jours, il lui faut le compte des jours.
+        self._abs_seconds = float(start_seconds)
         self.time_scale = float(time_scale)
         self._current = sky_color(self._seconds)
         self._t = 0.0
@@ -118,8 +167,16 @@ class AnimatedBackground(Widget):
             self._sun_glow = Ellipse()
             self._sun_c = Color(1.0, 0.95, 0.6, 0.0)
             self._sun = Ellipse()
+            # Lune dessinee en 3 temps (voir _place_moon) : le disque
+            # sombre (couleur du ciel nocturne, donc invisible), la moitie
+            # eclairee, puis le "terminateur" qui creuse le croissant ou
+            # remplit la gibbeuse.
+            self._moon_dark_c = Color(0.04, 0.05, 0.09, 0.0)
+            self._moon_dark = Ellipse()
             self._moon_c = Color(0.92, 0.94, 1.0, 0.0)
             self._moon = Ellipse()
+            self._moon_term_c = Color(0.92, 0.94, 1.0, 0.0)
+            self._moon_term = Ellipse()
 
             # 4. Nuages : chaque cumulus a sa PROPRE forme aleatoire (aucun
             #    identique). Base plate et grisee (volume) + bouffees blanches.
@@ -176,6 +233,7 @@ class AnimatedBackground(Widget):
     # ------------------------------------------------------------------ #
     def set_seconds(self, seconds):
         self._seconds = float(seconds) % SECONDS_PER_DAY
+        self._abs_seconds = float(seconds)
 
     def _update_layout(self, *_):
         self._rect.pos = self.pos
@@ -208,6 +266,45 @@ class AnimatedBackground(Widget):
         ellipse.size = (r * 2, r * 2)
         ellipse.pos = (cx - r, cy - r)
 
+    def _place_moon(self, cx, cy, r, night):
+        """Dessine la lune a sa PHASE reelle.
+
+        Principe classique : on pose d'abord le disque entier dans la couleur
+        du CIEL NOCTURNE (donc invisible = face non eclairee), puis on peint
+        par-dessus la partie eclairee, composee de :
+        - une MOITIE de disque, du cote eclaire (droite si la lune croit) ;
+        - le TERMINATEUR, une ellipse centree de demi-largeur |k| * r, avec
+          k = cos(2*pi*phase) :
+            k > 0 (moins d'une moitie eclairee) -> ellipse SOMBRE, qui creuse
+                  le disque et laisse un croissant ;
+            k < 0 (plus d'une moitie) -> ellipse CLAIRE, qui deborde de l'autre
+                  cote et donne une gibbeuse.
+        Aux quartiers (k = 0), l'ellipse est plate : on voit exactement une
+        demi-lune. A la nouvelle lune (k = 1), tout est sombre : plus de lune.
+        """
+        phase = moon_phase(self._abs_seconds)
+        k = math.cos(2.0 * math.pi * phase)     # +1 nouvelle -> -1 pleine
+        waxing = phase < 0.5                    # lune croissante
+
+        dark = (0.04, 0.05, 0.09, night)        # ~ couleur du ciel nocturne
+        lit = (0.92, 0.94, 1.0, night)
+
+        # 1) Disque entier "eteint".
+        self._moon_dark_c.rgba = dark
+        self._place_disc(self._moon_dark, cx, cy, r)
+
+        # 2) Moitie eclairee (Kivy : 0 deg = haut, sens horaire).
+        self._moon_c.rgba = lit
+        self._place_disc(self._moon, cx, cy, r)
+        self._moon.angle_start = 0 if waxing else 180
+        self._moon.angle_end = 180 if waxing else 360
+
+        # 3) Terminateur.
+        self._moon_term_c.rgba = dark if k >= 0 else lit
+        half_w = abs(k) * r
+        self._moon_term.size = (half_w * 2, r * 2)
+        self._moon_term.pos = (cx - half_w, cy - r)
+
     def _tick(self, dt):
         # Independant du framerate : tout se base sur dt (temps reel), avec un
         # plafond pour eviter un bond apres un ralentissement / reveil.
@@ -216,6 +313,7 @@ class AnimatedBackground(Widget):
         if self.time_scale:
             self._seconds = (self._seconds + dt * self.time_scale) \
                 % SECONDS_PER_DAY
+            self._abs_seconds += dt * self.time_scale
         self._current = sky_color(self._seconds)
 
         # Redessin du degrade a cadence fixe (~20/s), quel que soit le fps.
@@ -235,7 +333,9 @@ class AnimatedBackground(Widget):
         # Etoiles.
         for s in self._stars:
             twinkle = 0.35 + 0.65 * abs(math.sin(self._t * s["tw"] + s["phase"]))
-            s["col"].a = s["base"] * twinkle * night
+            # Le clair de lune efface une partie des etoiles (comme en vrai).
+            s["col"].a = (s["base"] * twinkle * night
+                          * (1.0 - 0.45 * moon_illumination(self._abs_seconds)))
 
         radius = min(w, h) * 0.055
 
@@ -253,8 +353,7 @@ class AnimatedBackground(Widget):
         mp = _clamp01(nh / 10.0)
         mx = x0 + w * (0.12 + 0.76 * mp)
         my = y0 + h * (0.45 + 0.42 * math.sin(math.pi * mp))
-        self._moon_c.a = night
-        self._place_disc(self._moon, mx, my, radius * 0.85)
+        self._place_moon(mx, my, radius * 0.85, night)
 
         # Nuages (cumulus) : halo doux, dessous ombre, bouffees blanches,
         # reflets clairs du cote eclaire.
