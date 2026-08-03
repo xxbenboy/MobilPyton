@@ -107,12 +107,21 @@ SYNODIC_DAYS = 29.53
 MOON_EPOCH_PHASE = 0.5
 
 # Part de l'assombrissement nocturne que la PLEINE lune vient compenser.
-MOON_LIGHT = 0.22
+# Une nuit de pleine lune est donc nettement plus claire qu'une nuit noire.
+MOON_LIGHT = 0.50
+
+# La lumiere de la lune n'est PAS proportionnelle a la part eclairee : dans la
+# realite un premier quartier (moitie du disque) n'eclaire pas la moitie d'une
+# pleine lune, mais environ un dixieme. On garde cette progression rapide, un
+# peu adoucie pour que les quatre etats restent bien distincts en jeu :
+#   pleine 1.00 | demi 0.33 | quart 0.11 | nouvelle 0.00
+MOON_LIGHT_EXPONENT = 1.6
 
 # Halo lumineux de la lune : (rayon x le rayon du disque, opacite de base).
 # Du plus large et diffus au plus serre. L'intensite suit la part eclairee :
 # une pleine lune brille fort, une nouvelle lune pas du tout.
-_MOON_HALO = ((3.4, 0.045), (2.4, 0.075), (1.6, 0.13))
+_MOON_HALO = ((5.0, 0.05), (3.6, 0.085), (2.6, 0.14),
+              (1.8, 0.24), (1.25, 0.34))
 
 # Finesse du contour de la lune (nombre de tranches horizontales).
 _MOON_STEPS = 32
@@ -131,6 +140,13 @@ def moon_phase(seconds):
 def moon_illumination(seconds):
     """Part ECLAIREE du disque : 0 (nouvelle lune) a 1 (pleine lune)."""
     return (1.0 - math.cos(2.0 * math.pi * moon_phase(seconds))) / 2.0
+
+
+def moon_light(seconds):
+    """LUMIERE reellement apportee par la lune : 0 (nouvelle) a 1 (pleine).
+
+    Ce n'est pas la part eclairee du disque : voir MOON_LIGHT_EXPONENT."""
+    return moon_illumination(seconds) ** MOON_LIGHT_EXPONENT
 
 
 def moon_phase_name(seconds):
@@ -152,9 +168,11 @@ def night_darkness(seconds, max_dark=0.62):
     ciel : l'assombrissement est donc progressif au crepuscule et a l'aube.
 
     La LUNE eclaire la nuit : plus elle est pleine, moins la nuit est noire
-    (aucun effet le jour, ou l'assombrissement est deja nul)."""
+    (aucun effet le jour, ou l'assombrissement est deja nul). L'ecart entre
+    les phases est net : une nuit de pleine lune est deux fois moins sombre
+    qu'une nuit sans lune, un quartier n'apporte lui qu'un mince gain."""
     return _astro_darkness(seconds, max_dark) * (
-        1.0 - MOON_LIGHT * moon_illumination(seconds))
+        1.0 - MOON_LIGHT * moon_light(seconds))
 
 
 def night_factor(seconds):
@@ -193,17 +211,24 @@ class AnimatedBackground(Widget):
             self._rect = Rectangle(texture=self._grad_tex,
                                    pos=self.pos, size=self.size)
 
-            # 2. Etoiles.
+            # 2. Etoiles : un halo diffus D'ABORD (donc dessous), puis le
+            #    point lumineux par-dessus. Le halo est ce qui donne
+            #    l'impression que l'etoile BRILLE plutot qu'elle n'est un
+            #    simple pixel blanc.
             self._stars = []
             rng = random.Random(20240601)
             for _ in range(stars):
+                glow = Color(0.85, 0.92, 1.0, 0.0)
+                glow_e = Ellipse()
                 col = Color(1, 1, 1, 0.0)
                 self._stars.append({
                     "col": col, "e": Ellipse(),
+                    "glow": glow, "ge": glow_e,
                     "fx": rng.uniform(0.02, 0.98),
                     "fy": rng.uniform(0.40, 0.98),
-                    "size": dp(rng.uniform(1.5, 3.5)),
-                    "base": rng.uniform(0.25, 0.75),
+                    "size": dp(rng.uniform(1.8, 4.2)),
+                    "halo": rng.uniform(2.8, 4.0),
+                    "base": rng.uniform(0.45, 1.0),
                     "phase": rng.uniform(0.0, 6.28),
                     "tw": rng.uniform(0.6, 1.8),
                 })
@@ -307,10 +332,14 @@ class AnimatedBackground(Widget):
         self._rect.pos = self.pos
         self._rect.size = self.size
         for s in self._stars:
+            cx = self.x + s["fx"] * self.width
+            cy = self.y + s["fy"] * self.height
             sz = s["size"]
             s["e"].size = (sz, sz)
-            s["e"].pos = (self.x + s["fx"] * self.width - sz / 2,
-                          self.y + s["fy"] * self.height - sz / 2)
+            s["e"].pos = (cx - sz / 2, cy - sz / 2)
+            gz = sz * s["halo"]
+            s["ge"].size = (gz, gz)
+            s["ge"].pos = (cx - gz / 2, cy - gz / 2)
 
     def _build_gradient(self):
         h = 64
@@ -416,11 +445,14 @@ class AnimatedBackground(Widget):
         astro = 1.0 - self._wx["cloud"]
 
         # Etoiles.
+        # Le clair de lune efface une partie des etoiles (comme en vrai) :
+        # seule une lune bien pleine les fait vraiment palir.
+        wash = 1.0 - 0.40 * moon_light(self._abs_seconds)
         for s in self._stars:
             twinkle = 0.35 + 0.65 * abs(math.sin(self._t * s["tw"] + s["phase"]))
-            # Le clair de lune efface une partie des etoiles (comme en vrai).
-            s["col"].a = (s["base"] * twinkle * night * astro
-                          * (1.0 - 0.45 * moon_illumination(self._abs_seconds)))
+            a = s["base"] * twinkle * night * astro * wash
+            s["col"].a = a
+            s["glow"].a = a * 0.30
 
         radius = min(w, h) * 0.055
 
