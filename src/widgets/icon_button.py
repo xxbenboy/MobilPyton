@@ -190,9 +190,22 @@ def _fire(cx, cy, s):                                # flamme (feu de camp)
     Ellipse(pos=(cx - s * 0.13, cy - s * 0.26), size=(s * 0.26, s * 0.40))
 
 
+def _wet(cx, cy, s):                                 # gouttes (mouille)
+    Color(0.35, 0.60, 0.88, 0.85)                    # flaque au sol
+    Ellipse(pos=(cx - s * 0.72, cy - s * 0.88), size=(s * 1.44, s * 0.34))
+    Color(0.45, 0.74, 0.96, 1)                       # 3 gouttes qui tombent
+    for dx, dy, sc in ((-0.46, 0.10, 0.85), (0.06, 0.46, 1.0),
+                       (0.50, -0.12, 0.75)):
+        bx, by = cx + dx * s, cy + dy * s
+        r = s * 0.26 * sc
+        Ellipse(pos=(bx - r, by - r), size=(r * 2, r * 2))
+        Triangle(points=[bx - r * 0.9, by + r * 0.25, bx + r * 0.9, by + r * 0.25,
+                         bx, by + r * 1.75])
+
+
 ICONS = {"explore": _explore, "wood": _wood, "food": _food, "drink": _drink,
          "fill": _fill, "rest": _rest, "map": _map, "home": _home,
-         "craft": _craft, "move": _move, "fire": _fire, "actions": _actions, "hand": _hand,
+         "craft": _craft, "move": _move, "fire": _fire, "wet": _wet, "actions": _actions, "hand": _hand,
          # Logos des stats (section "Etat"). On reutilise certains logos
          # existants (pomme=faim, goutte=soif, Zzz=sommeil) et on ajoute le
          # coeur (vie) et l'eclair (energie).

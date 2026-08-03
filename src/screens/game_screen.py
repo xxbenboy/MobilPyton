@@ -66,6 +66,7 @@ NAME_Y_HIGH = 0.155             # "Utiliser" affiche -> juste au-dessus
 EFFECT_DISPLAY = {
     "Feu_de_camp": ("Feu", (0.95, 0.50, 0.18), "fire"),
     "Repos": ("Repos", (0.55, 0.70, 0.95), "rest"),
+    "Mouille": ("Mouille", (0.35, 0.68, 0.95), "wet"),
 }
 
 # Actions : effets ponctuels (la faim/soif/sommeil derivent en plus avec le

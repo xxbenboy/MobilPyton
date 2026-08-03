@@ -60,7 +60,7 @@ FIND_BUDGET_MAX = 15
 # depend de la zone : en MONTAGNE la pluie devient de la neige et l'orage un
 # blizzard (voir effective_weather()).
 WEATHERS = ["clair", "nuageux", "pluie", "orage"]
-WEATHER_WEIGHTS = [35, 35, 15, 15]          # en % du temps
+WEATHER_WEIGHTS = [45, 40, 10, 5]           # en % du temps
 
 # Duree d'un episode meteo (heures de jeu). Comme toutes les meteos tirent
 # leur duree dans le meme intervalle, la part de TEMPS de chacune correspond
@@ -85,7 +85,11 @@ MOUNTAIN_WEATHER = {"pluie": "neige", "orage": "blizzard"}
 EFFECT_HOURS = {
     "Feu_de_camp": 6.0,     # duree pendant laquelle le feu reste allume
     "Repos": 2.0,           # bien repose, apres un sommeil complet
+    "Mouille": 1.0,         # duree par defaut (voir WET_HOURS)
 }
+
+# Combien de temps on reste MOUILLE, selon l'averse qui vient de se terminer.
+WET_HOURS = {"pluie": 0.5, "orage": 1.0}
 
 
 def _clamp100(v):
@@ -151,18 +155,19 @@ class GameState:
         # carte toujours utilisable, craft illimite sans ingredients.
         self.debug = bool(debug)
 
+        # Effets temporaires : {nom: [debut, fin]} en secondes de jeu.
+        # Initialises AVANT la meteo, qui peut declencher l'effet "Mouille".
+        self.effects = {}
+        for name, span in (effects or {}).items():
+            if name in EFFECT_HOURS and len(span) == 2:
+                self.effects[name] = [int(span[0]), int(span[1])]
+
         # Meteo en cours (voir WEATHERS) : globale, avec brouillard eventuel,
         # renouvelee quand `time_seconds` depasse `weather_until`.
         self.weather = weather
         self.fog = bool(fog)
         self.weather_until = int(weather_until)
         self.update_weather()
-
-        # Effets temporaires : {nom: [debut, fin]} en secondes de jeu.
-        self.effects = {}
-        for name, span in (effects or {}).items():
-            if name in EFFECT_HOURS and len(span) == 2:
-                self.effects[name] = [int(span[0]), int(span[1])]
 
     # ------------------------------------------------------------------ #
     # Creation
@@ -251,7 +256,13 @@ class GameState:
         Appelable a chaque frame : ne fait rien tant que l'episode dure."""
         if self.weather in WEATHERS and self.time_seconds < self.weather_until:
             return
+        previous = self.weather
         self.weather = random.choices(WEATHERS, weights=WEATHER_WEIGHTS, k=1)[0]
+        # On sort d'une averse : on reste MOUILLE un moment (plus longtemps
+        # apres un orage qu'apres une simple pluie).
+        wet_hours = WET_HOURS.get(previous)
+        if wet_hours:
+            self.start_effect("Mouille", hours=wet_hours)
         # Brouillard : seulement par temps nuageux, une fois sur deux.
         self.fog = (self.weather == "nuageux"
                     and random.random() < FOG_CHANCE)
@@ -261,9 +272,13 @@ class GameState:
     # ------------------------------------------------------------------ #
     # Effets temporaires
     # ------------------------------------------------------------------ #
-    def start_effect(self, name):
-        """Declenche (ou relance) un effet pour toute sa duree."""
-        hours = EFFECT_HOURS.get(name)
+    def start_effect(self, name, hours=None):
+        """Declenche (ou relance) un effet.
+
+        `hours` permet une duree particuliere (ex. "Mouille", plus long apres
+        un orage qu'apres une simple pluie) ; sinon on prend EFFECT_HOURS."""
+        if hours is None:
+            hours = EFFECT_HOURS.get(name)
         if hours is None:
             return False
         self.effects[name] = [self.time_seconds,
