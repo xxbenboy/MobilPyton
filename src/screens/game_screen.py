@@ -48,6 +48,17 @@ MOVE_MINUTES = 12
 MOVE_ENERGY = -3
 MOVE_HUNGER = 2
 
+# Pile du bas de l'ecran, sous chaque main (fractions de la hauteur) :
+# "Deposer" tout en bas, "Utiliser" au-dessus (seulement pour un objet
+# installable), puis le NOM de l'objet tenu.
+DROP_BTN_Y = 0.005
+USE_BTN_Y = 0.080
+# Le nom se place le plus BAS possible ENTRE l'objet tenu (dessine dans la
+# main, a partir de ~0.15) et le bas de l'ecran : juste au-dessus du bouton
+# le plus haut reellement affiche. Il ne recouvre donc jamais l'objet.
+NAME_Y_LOW = USE_BTN_Y          # "Utiliser" masque -> on descend a sa place
+NAME_Y_HIGH = 0.155             # "Utiliser" affiche -> juste au-dessus
+
 # Actions : effets ponctuels (la faim/soif/sommeil derivent en plus avec le
 # temps). "requires_sleep" => possible seulement si on est assez fatigue.
 ACTIONS = [
@@ -395,12 +406,12 @@ class GameScreen(Screen):
             # Utiliser meme quand il est masque (layout stable).
             name_lbl = _button_label("")
             name_lbl.size_hint = (0.16, 0.05)
-            name_lbl.pos_hint = {"center_x": cx, "y": 0.155}
+            name_lbl.pos_hint = {"center_x": cx, "y": NAME_Y_LOW}
             root.add_widget(name_lbl)
             self.drop_labels.append(name_lbl)
 
             db = scale_font(StyledButton(text="Deposer", size_hint=(0.13, 0.07),
-                            pos_hint={"center_x": cx, "y": 0.005}), 0.02)
+                            pos_hint={"center_x": cx, "y": DROP_BTN_Y}), 0.02)
             # Fond plus transparent (alpha 0.40 au lieu de 0.92) pour ne pas
             # masquer les mains/decor derriere.
             db.set_palette(idle=(0.13, 0.24, 0.18, 0.40),
@@ -412,7 +423,7 @@ class GameScreen(Screen):
             self.drop_btns.append(db)
 
             ub = scale_font(StyledButton(text="Utiliser", size_hint=(0.13, 0.07),
-                            pos_hint={"center_x": cx, "y": 0.080}), 0.02)
+                            pos_hint={"center_x": cx, "y": USE_BTN_Y}), 0.02)
             # Palette bleutee pour distinguer d'un simple depot.
             ub.set_palette(idle=(0.18, 0.24, 0.38, 0.40),
                            down=(0.28, 0.36, 0.55, 0.55),
@@ -1179,6 +1190,12 @@ class GameScreen(Screen):
             use_visible = installable and not exploring
             ub.opacity = 1 if use_visible else 0
             ub.disabled = (not installable) or self._ff_active
+            # Nom de l'objet : toujours le plus BAS possible entre l'objet
+            # tenu et le bas de l'ecran -> il descend a la place du bouton
+            # "Utiliser" quand celui-ci est masque.
+            y = NAME_Y_HIGH if use_visible else NAME_Y_LOW
+            if lbl.pos_hint.get("y") != y:
+                lbl.pos_hint = {"center_x": PlayerHands.HAND_FX[slot], "y": y}
 
         # (Re)construit la grille des boutons si l'outillage a change (hache /
         # gourde) : ces boutons apparaissent / disparaissent completement.
