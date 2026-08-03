@@ -32,6 +32,7 @@ from src.widgets.zone_scenery import ZoneScenery
 from src import items
 from src.widgets.player_hands import PlayerHands
 from src.widgets.insects import InsectLayer, FireflyLayer
+from src.widgets.weather import WeatherLayer, LightningLayer
 from src.widgets.installed_layer import InstalledLayer
 from src.widgets.icon_button import IconButton
 from src.widgets.styled_button import StyledButton
@@ -254,6 +255,13 @@ class GameScreen(Screen):
         self.hands = PlayerHands(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.hands)
 
+        # METEO (pluie / neige / brouillard / voile) : devant le decor et les
+        # mains, mais DERRIERE le voile de nuit -> les precipitations
+        # s'assombrissent naturellement la nuit.
+        self.weather_layer = WeatherLayer(size_hint=(1, 1),
+                                          pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.weather_layer)
+
         # Voile de NUIT : assombrit tout le decor (ciel, sol, mains) selon
         # l'heure, SANS toucher le HUD (ajoute APRES, donc par-dessus ce voile).
         self.night = Widget(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
@@ -274,6 +282,12 @@ class GameScreen(Screen):
         self.fireflies = FireflyLayer(size_hint=(1, 1),
                                       pos_hint={"x": 0, "y": 0})
         root.add_widget(self.fireflies)
+
+        # Eclairs (orage / blizzard) : eux aussi PAR-DESSUS le voile de nuit,
+        # pour illuminer reellement la scene.
+        self.lightning = LightningLayer(size_hint=(1, 1),
+                                        pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.lightning)
 
         # ---- Section ZONE (haut centre) ----
         zone_box = BoxLayout(orientation="vertical", padding=dp(10), spacing=4,
@@ -1262,6 +1276,13 @@ class GameScreen(Screen):
         nf = night_factor(state.time_seconds)
         self.insects.set_night(nf)
         self.fireflies.set_night(nf)
+
+        # Meteo : elle evolue avec le temps, et son rendu depend de la zone
+        # (en montagne : pluie -> neige, orage -> blizzard).
+        state.update_weather()
+        weather = state.effective_weather()
+        self.weather_layer.set_weather(weather, state.fog_active())
+        self.lightning.set_weather(weather)
         # Les cases occupees par un objet installe (feu de camp, ...) : le
         # scenery masquera les elements du decor qui tomberaient dedans.
         blocked_grid = tuple(sorted((int(o[1]), int(o[2]))

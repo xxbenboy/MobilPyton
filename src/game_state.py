@@ -53,6 +53,29 @@ CARDINALS = [(0, -1), (1, 0), (0, 1), (-1, 0)]
 FIND_BUDGET_MIN = 5
 FIND_BUDGET_MAX = 15
 
+# --------------------------------------------------------------------- #
+# METEO
+# --------------------------------------------------------------------- #
+# La meteo est GLOBALE (une seule en cours sur toute la carte), mais son rendu
+# depend de la zone : en MONTAGNE la pluie devient de la neige et l'orage un
+# blizzard (voir effective_weather()).
+WEATHERS = ["clair", "nuageux", "pluie", "orage"]
+WEATHER_WEIGHTS = [35, 35, 15, 15]          # en % du temps
+
+# Duree d'un episode meteo (heures de jeu). Comme toutes les meteos tirent
+# leur duree dans le meme intervalle, la part de TEMPS de chacune correspond
+# bien aux poids ci-dessus.
+WEATHER_MIN_HOURS = 2
+WEATHER_MAX_HOURS = 6
+
+# Par temps nuageux : une fois sur deux, du brouillard s'ajoute (sauf en
+# montagne, ou l'on est au-dessus).
+FOG_CHANCE = 0.5
+FOG_ZONES = ("Foret", "Plaine", "Lac")
+
+# Equivalents en montagne.
+MOUNTAIN_WEATHER = {"pluie": "neige", "orage": "blizzard"}
+
 
 def _clamp100(v):
     return max(0, min(100, v))
@@ -64,7 +87,8 @@ class GameState:
                  wood=0, food=0, water=0, action_count=0,
                  hands=None, ground=None, explores=None, harvested=None,
                  log=None, player_x=None, player_y=None, revealed=None,
-                 facing=0, installed=None, debug=False):
+                 facing=0, installed=None, debug=False,
+                 weather=None, fog=False, weather_until=0):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
@@ -115,6 +139,13 @@ class GameState:
         # carte toujours utilisable, craft illimite sans ingredients.
         self.debug = bool(debug)
 
+        # Meteo en cours (voir WEATHERS) : globale, avec brouillard eventuel,
+        # renouvelee quand `time_seconds` depasse `weather_until`.
+        self.weather = weather
+        self.fog = bool(fog)
+        self.weather_until = int(weather_until)
+        self.update_weather()
+
     # ------------------------------------------------------------------ #
     # Creation
     # ------------------------------------------------------------------ #
@@ -130,6 +161,9 @@ class GameState:
         state.food = start["food"]
         state.wood = start["wood"]
         state.log.append(f"Nouvelle partie ({difficulty}).")
+        # Meteo tiree a partir de l'heure de depart (et non de 0h).
+        state.weather = None
+        state.update_weather()
         # Reveler la zone de depart
         state.reveal_zone(state.player_x, state.player_y)
         return state
@@ -189,6 +223,35 @@ class GameState:
 
     def tick(self, seconds=1):
         self.time_seconds += max(0, int(seconds))
+
+    # ------------------------------------------------------------------ #
+    # Meteo
+    # ------------------------------------------------------------------ #
+    def update_weather(self):
+        """Renouvelle la meteo quand l'episode en cours est termine.
+
+        Appelable a chaque frame : ne fait rien tant que l'episode dure."""
+        if self.weather in WEATHERS and self.time_seconds < self.weather_until:
+            return
+        self.weather = random.choices(WEATHERS, weights=WEATHER_WEIGHTS, k=1)[0]
+        # Brouillard : seulement par temps nuageux, une fois sur deux.
+        self.fog = (self.weather == "nuageux"
+                    and random.random() < FOG_CHANCE)
+        hours = random.uniform(WEATHER_MIN_HOURS, WEATHER_MAX_HOURS)
+        self.weather_until = int(self.time_seconds + hours * 3600)
+
+    def effective_weather(self):
+        """Meteo telle qu'elle se manifeste DANS LA ZONE actuelle : en
+        montagne, la pluie devient neige et l'orage un blizzard."""
+        w = self.weather if self.weather in WEATHERS else "clair"
+        if self.current_zone() == "Montagne":
+            return MOUNTAIN_WEATHER.get(w, w)
+        return w
+
+    def fog_active(self):
+        """Y a-t-il du brouillard ici ? (temps nuageux + zone concernee)"""
+        return (self.fog and self.weather == "nuageux"
+                and self.current_zone() in FOG_ZONES)
 
     def advance_survival(self, seconds):
         """Fait deriver les stats selon le temps de jeu ecoule (en secondes)."""
@@ -447,6 +510,9 @@ class GameState:
             "ground": self.ground,
             "installed": self.installed,
             "debug": self.debug,
+            "weather": self.weather,
+            "fog": self.fog,
+            "weather_until": self.weather_until,
             "explores": self.explores,
             "harvested": self.harvested,
             "facing": self.facing,
@@ -481,6 +547,9 @@ class GameState:
             ground=data.get("ground"),
             installed=data.get("installed"),
             debug=data.get("debug", False),
+            weather=data.get("weather"),
+            fog=data.get("fog", False),
+            weather_until=data.get("weather_until", 0),
             explores=data.get("explores"),
             harvested=data.get("harvested"),
             facing=data.get("facing", 0),
