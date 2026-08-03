@@ -16,7 +16,7 @@ import random
 
 from kivy.uix.widget import Widget
 from kivy.clock import Clock
-from kivy.graphics import Color, Rectangle, Ellipse
+from kivy.graphics import Color, Rectangle, Ellipse, Mesh
 from kivy.graphics.texture import Texture
 from kivy.metrics import dp
 
@@ -73,6 +73,14 @@ MOON_EPOCH_PHASE = 0.5
 
 # Part de l'assombrissement nocturne que la PLEINE lune vient compenser.
 MOON_LIGHT = 0.22
+
+# Halo lumineux de la lune : (rayon x le rayon du disque, opacite de base).
+# Du plus large et diffus au plus serre. L'intensite suit la part eclairee :
+# une pleine lune brille fort, une nouvelle lune pas du tout.
+_MOON_HALO = ((3.4, 0.045), (2.4, 0.075), (1.6, 0.13))
+
+# Finesse du contour de la lune (nombre de tranches horizontales).
+_MOON_STEPS = 32
 
 # Noms des 8 phases, dans l'ordre du cycle (une case = 1/8 de cycle).
 _PHASE_NAMES = ("Nouvelle lune", "Premier croissant", "Premier quartier",
@@ -167,16 +175,19 @@ class AnimatedBackground(Widget):
             self._sun_glow = Ellipse()
             self._sun_c = Color(1.0, 0.95, 0.6, 0.0)
             self._sun = Ellipse()
-            # Lune dessinee en 3 temps (voir _place_moon) : le disque
-            # sombre (couleur du ciel nocturne, donc invisible), la moitie
-            # eclairee, puis le "terminateur" qui creuse le croissant ou
-            # remplit la gibbeuse.
-            self._moon_dark_c = Color(0.04, 0.05, 0.09, 0.0)
-            self._moon_dark = Ellipse()
-            self._moon_c = Color(0.92, 0.94, 1.0, 0.0)
-            self._moon = Ellipse()
-            self._moon_term_c = Color(0.92, 0.94, 1.0, 0.0)
-            self._moon_term = Ellipse()
+            # Lune : halo lumineux (plusieurs cercles de plus en plus
+            # diffus), puis UNIQUEMENT la portion eclairee, dessinee comme
+            # un maillage (voir _place_moon). Rien n'est dessine pour la
+            # face sombre : elle est donc reellement invisible.
+            self._moon_glow = []
+            for _mult, _a in _MOON_HALO:
+                self._moon_glow.append((Color(0.85, 0.90, 1.0, 0.0),
+                                        Ellipse()))
+            self._moon_c = Color(0.97, 0.98, 1.0, 0.0)
+            self._moon = Mesh(mode="triangle_strip")
+            # Les indices ne changent jamais : on les pose une fois pour
+            # toutes (seuls les sommets sont recalcules a chaque frame).
+            self._moon.indices = list(range(2 * (_MOON_STEPS + 1)))
 
             # 4. Nuages : chaque cumulus a sa PROPRE forme aleatoire (aucun
             #    identique). Base plate et grisee (volume) + bouffees blanches.
@@ -267,43 +278,50 @@ class AnimatedBackground(Widget):
         ellipse.pos = (cx - r, cy - r)
 
     def _place_moon(self, cx, cy, r, night):
-        """Dessine la lune a sa PHASE reelle.
+        """Dessine la lune a sa PHASE reelle, avec son halo lumineux.
 
-        Principe classique : on pose d'abord le disque entier dans la couleur
-        du CIEL NOCTURNE (donc invisible = face non eclairee), puis on peint
-        par-dessus la partie eclairee, composee de :
-        - une MOITIE de disque, du cote eclaire (droite si la lune croit) ;
-        - le TERMINATEUR, une ellipse centree de demi-largeur |k| * r, avec
-          k = cos(2*pi*phase) :
-            k > 0 (moins d'une moitie eclairee) -> ellipse SOMBRE, qui creuse
-                  le disque et laisse un croissant ;
-            k < 0 (plus d'une moitie) -> ellipse CLAIRE, qui deborde de l'autre
-                  cote et donne une gibbeuse.
-        Aux quartiers (k = 0), l'ellipse est plate : on voit exactement une
-        demi-lune. A la nouvelle lune (k = 1), tout est sombre : plus de lune.
+        On ne dessine QUE la portion eclairee : aucune forme n'est posee sur
+        la face sombre, qui est donc reellement invisible (pas de disque
+        grisatre en croissant, en quartier ni a la nouvelle lune).
+
+        La partie eclairee est construite tranche par tranche, en maillage
+        (voir le detail dans le corps de la methode), a partir de
+        k = cos(2*pi*phase) qui vaut +1 a la nouvelle lune et -1 a la pleine.
         """
         phase = moon_phase(self._abs_seconds)
         k = math.cos(2.0 * math.pi * phase)     # +1 nouvelle -> -1 pleine
         waxing = phase < 0.5                    # lune croissante
 
-        dark = (0.04, 0.05, 0.09, night)        # ~ couleur du ciel nocturne
-        lit = (0.92, 0.94, 1.0, night)
+        illum = (1.0 - k) / 2.0                 # part eclairee, 0 a 1
 
-        # 1) Disque entier "eteint".
-        self._moon_dark_c.rgba = dark
-        self._place_disc(self._moon_dark, cx, cy, r)
+        # 1) HALO : la lune brille d'autant plus qu'elle est pleine (aucune
+        #    lueur a la nouvelle lune, ni le jour).
+        glow = night * illum
+        for (col, ell), (mult, base_a) in zip(self._moon_glow, _MOON_HALO):
+            col.a = base_a * glow
+            self._place_disc(ell, cx, cy, r * mult)
 
-        # 2) Moitie eclairee (Kivy : 0 deg = haut, sens horaire).
-        self._moon_c.rgba = lit
-        self._place_disc(self._moon, cx, cy, r)
-        self._moon.angle_start = 0 if waxing else 180
-        self._moon.angle_end = 180 if waxing else 360
-
-        # 3) Terminateur.
-        self._moon_term_c.rgba = dark if k >= 0 else lit
-        half_w = abs(k) * r
-        self._moon_term.size = (half_w * 2, r * 2)
-        self._moon_term.pos = (cx - half_w, cy - r)
+        # 2) Portion ECLAIREE uniquement, tranche par tranche.
+        #    A la hauteur y, le disque s'etend de -xc a +xc, et le terminateur
+        #    (ellipse de demi-largeur |k| * r) y passe en k * xc. La zone
+        #    eclairee est donc la bande allant de k*xc au bord :
+        #      k = +1 (nouvelle lune) -> bande de largeur nulle : rien ;
+        #      k =  0 (quartier)      -> exactement une moitie ;
+        #      k = -1 (pleine lune)   -> le disque entier.
+        #    Rien n'est dessine ailleurs : la face sombre est donc invisible.
+        self._moon_c.a = night
+        verts = []
+        for i in range(_MOON_STEPS + 1):
+            t = -1.0 + 2.0 * i / _MOON_STEPS
+            y = cy + t * r
+            xc = r * math.sqrt(max(0.0, 1.0 - t * t))
+            if waxing:                          # eclairee a droite
+                x_in, x_out = k * xc, xc
+            else:                               # eclairee a gauche
+                x_in, x_out = -k * xc, -xc
+            verts += [cx + x_in, y, 0.0, 0.0,
+                      cx + x_out, y, 0.0, 0.0]
+        self._moon.vertices = verts
 
     def _tick(self, dt):
         # Independant du framerate : tout se base sur dt (temps reel), avec un
