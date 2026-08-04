@@ -519,10 +519,14 @@ class GameState:
 
     def do_craft(self, recipe):
         """Fabrique : consomme les ingredients (sol d'abord, puis mains).
-        En mode DEBUG, rien n'est consomme (craft illimite)."""
+
+        En mode DEBUG le craft ne peut jamais echouer (voir can_craft), mais
+        les ingredients REELLEMENT presents sont quand meme consommes : ce
+        qu'on voit dans les mains et au sol reste coherent avec l'inventaire.
+        Seul ce qui manque est offert."""
         if not self.can_craft(recipe):
             return False
-        for item, qty in (() if self.debug else recipe["ingredients"].items()):
+        for item, qty in recipe["ingredients"].items():
             need = qty
             g = self.ground.get(self._cell_key(), {})
             take = min(need, g.get(item, 0))
