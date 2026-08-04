@@ -159,8 +159,10 @@ class ZoneScenery(Widget):
             gfx, gfy, _gs = grid_to_screen(ggx, ggy)
             jit = random.Random(f"{self._seed}:{ggx}:{ggy}:big")
             depth = ggy / 4.0
-            # Leger decalage DANS la case (aspect naturel, jamais mecanique).
-            tx = x0 + (gfx + jit.uniform(-0.02, 0.02)) * w
+            # AUCUN decalage : l'element est pose EXACTEMENT au centre de sa
+            # case, comme un objet installe. C'est ce qui permet de retrouver
+            # la meme position dans la grille de placement et dans le jeu.
+            tx = x0 + gfx * w
             tb = y0 + gfy * h
             yield kind, depth, tx, tb, jit
 

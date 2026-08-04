@@ -33,39 +33,81 @@ CELL_NATURE = (0.25, 0.55, 0.30, 0.45)    # vert   : occupe par la nature
 CELL_PLAYER = (0.30, 0.70, 1.00, 0.35)    # bleu   : le joueur
 CELL_FREE = (0, 0, 0, 0)                  # aucune : libre
 
-# Legende affichee a gauche de la grille, dans l'ordre d'affichage.
-LEGEND = (
-    (CELL_TAKEN, "Emplacement\ndeja utilise"),
-    (CELL_NATURE, "Zone occupee\n(nature)"),
-    (CELL_FREE, "Zone vacante"),
-    (CELL_PLAYER, "Vous"),
-)
+# Nom lisible de chaque obstacle naturel (cf. world.NATURE_BIG).
+NATURE_LABEL = {"tree": "Arbre", "bush": "Buisson", "rock": "Rocher"}
+NATURE_ORDER = ("tree", "bush", "rock")
+
+
+def draw_nature_glyph(kind, cx, cy, size):
+    """Dessine l'obstacle VU DE DESSUS, centre sur (cx, cy).
+
+    A appeler dans un contexte `with canvas:`. La vue de placement regarde le
+    sol d'en haut : un arbre est donc un houppier rond avec son tronc au
+    centre, un buisson une touffe de lobes, un rocher une masse grise."""
+    r = size * 0.5
+    if kind == "tree":
+        Color(0, 0, 0, 0.28)                                  # ombre portee
+        Ellipse(pos=(cx - r, cy - r * 1.12), size=(r * 2, r * 2))
+        Color(0.13, 0.38, 0.18, 1)                            # houppier
+        Ellipse(pos=(cx - r, cy - r), size=(r * 2, r * 2))
+        Color(0.20, 0.52, 0.25, 1)                            # feuillage clair
+        Ellipse(pos=(cx - r * 0.66, cy - r * 0.66),
+                size=(r * 1.32, r * 1.32))
+        Color(0.34, 0.23, 0.13, 1)                            # tronc
+        Ellipse(pos=(cx - r * 0.17, cy - r * 0.17),
+                size=(r * 0.34, r * 0.34))
+    elif kind == "bush":
+        Color(0, 0, 0, 0.24)
+        Ellipse(pos=(cx - r * 0.92, cy - r * 1.02),
+                size=(r * 1.84, r * 1.84))
+        Color(0.17, 0.44, 0.21, 1)                            # lobes
+        for dx, dy, k in ((-0.44, 0.08, 0.60), (0.44, 0.08, 0.60),
+                          (0.0, -0.36, 0.60), (0.0, 0.32, 0.66)):
+            rr = r * k
+            Ellipse(pos=(cx + dx * r - rr, cy + dy * r - rr),
+                    size=(rr * 2, rr * 2))
+        Color(0.26, 0.56, 0.28, 1)                            # coeur eclaire
+        rr = r * 0.44
+        Ellipse(pos=(cx - rr, cy - rr), size=(rr * 2, rr * 2))
+    elif kind == "rock":
+        Color(0, 0, 0, 0.28)
+        Ellipse(pos=(cx - r, cy - r * 1.02), size=(r * 2, r * 1.7))
+        Color(0.45, 0.45, 0.49, 1)                            # masse
+        Ellipse(pos=(cx - r, cy - r * 0.85), size=(r * 2, r * 1.7))
+        Color(0.62, 0.62, 0.66, 1)                            # facette eclairee
+        Ellipse(pos=(cx - r * 0.55, cy - r * 0.28),
+                size=(r * 1.0, r * 0.82))
 
 
 class _Swatch(Widget):
     """Petit carre de couleur, dessine EXACTEMENT comme une case de la grille.
 
-    Meme fond sombre et meme contour : une case "vacante" (sans couleur) est
-    donc reconnaissable telle quelle."""
+    Meme fond sombre, meme contour et, le cas echeant, le meme pictogramme :
+    une case "vacante" (sans couleur) est donc reconnaissable telle quelle."""
 
-    def __init__(self, rgba, **kwargs):
+    def __init__(self, rgba, kind=None, **kwargs):
         super().__init__(**kwargs)
-        with self.canvas:
-            Color(*CELL_BG)
-            self._bg = Rectangle()
-            Color(*rgba)
-            self._fill = Rectangle()
-            Color(*CELL_LINE)
-            self._border = Line(width=1.2)
-        self.bind(pos=self._sync, size=self._sync)
+        self._rgba = rgba
+        self._kind = kind
+        self.bind(pos=self._redraw, size=self._redraw)
+        self._redraw()
 
-    def _sync(self, *_):
+    def _redraw(self, *_):
+        self.canvas.clear()
         s = min(self.width, self.height)
+        if s <= 0:
+            return
         x = self.x + (self.width - s) / 2.0
         y = self.y + (self.height - s) / 2.0
-        self._bg.pos = self._fill.pos = (x, y)
-        self._bg.size = self._fill.size = (s, s)
-        self._border.rectangle = (x, y, s, s)
+        with self.canvas:
+            Color(*CELL_BG)
+            Rectangle(pos=(x, y), size=(s, s))
+            Color(*self._rgba)
+            Rectangle(pos=(x, y), size=(s, s))
+            if self._kind:
+                draw_nature_glyph(self._kind, x + s / 2, y + s / 2, s * 0.66)
+            Color(*CELL_LINE)
+            Line(rectangle=(x, y, s, s), width=1.2)
 
 
 class _Legend(BoxLayout):
@@ -80,6 +122,19 @@ class _Legend(BoxLayout):
             Color(0.05, 0.07, 0.10, 0.55)
             self._bg = RoundedRectangle(radius=[dp(10)])
         self.bind(pos=self._sync, size=self._sync)
+        self._kinds = None
+        self.rebuild(())
+
+    def rebuild(self, kinds):
+        """(Re)construit la legende pour les obstacles PRESENTS sur la case.
+
+        Inutile d'annoncer "Rocher" dans une foret : on ne liste que ce que le
+        joueur a reellement sous les yeux."""
+        kinds = tuple(k for k in NATURE_ORDER if k in set(kinds))
+        if kinds == self._kinds:
+            return
+        self._kinds = kinds
+        self.clear_widgets()
 
         title = scale_font(Label(text="Legende", bold=True,
                                  color=(0.96, 0.82, 0.45, 1),
@@ -89,10 +144,19 @@ class _Legend(BoxLayout):
             w, "text_size", (w.width, w.height)))
         self.add_widget(title)
 
-        for rgba, text in LEGEND:
+        rows = [(CELL_TAKEN, None, "Emplacement\ndeja utilise")]
+        if kinds:
+            rows += [(CELL_NATURE, k, f"{NATURE_LABEL[k]}\n(zone occupee)")
+                     for k in kinds]
+        else:
+            rows.append((CELL_NATURE, None, "Zone occupee\n(nature)"))
+        rows += [(CELL_FREE, None, "Zone vacante"),
+                 (CELL_PLAYER, None, "Vous")]
+
+        for rgba, kind, text in rows:
             row = BoxLayout(orientation="horizontal", spacing=dp(8),
                             size_hint_y=None, height=dh(70))
-            row.add_widget(_Swatch(rgba, size_hint_x=None, width=dh(70)))
+            row.add_widget(_Swatch(rgba, kind, size_hint_x=None, width=dh(70)))
             lbl = scale_font(Label(text=text, color=(0.92, 0.92, 0.95, 1),
                                    halign="left", valign="middle"))
             lbl.bind(size=lambda w, *_: setattr(
@@ -113,7 +177,7 @@ class _GridOverlay(Widget):
         super().__init__(**kwargs)
         self.on_cell_pick = on_cell_pick
         self.taken = set()               # {(gx, gy), ...} objets installes
-        self.nature = set()              # {(gx, gy), ...} arbre/buisson/rocher
+        self.nature = {}                 # {(gx, gy): "tree"|"bush"|"rock"}
         self.bind(pos=self._redraw, size=self._redraw)
 
     def _grid_geom(self):
@@ -159,12 +223,14 @@ class _GridOverlay(Widget):
             Line(points=[acx - aw / 2, ay1 - aw * 0.55, acx, ay1,
                          acx + aw / 2, ay1 - aw * 0.55], width=2.2)
             # Cases occupees par la NATURE (arbre, buisson, gros rocher) :
-            # surlignees vertes, non cliquables.
-            Color(*CELL_NATURE)
-            for (gx, gy) in self.nature:
+            # surlignees vertes et marquees du pictogramme de l'obstacle,
+            # non cliquables.
+            for (gx, gy), kind in sorted(self.nature.items()):
                 tx = ox + gx * cs
                 ty = oy + gy * cs
+                Color(*CELL_NATURE)
                 Rectangle(pos=(tx, ty), size=(cs, cs))
+                draw_nature_glyph(kind, tx + cs / 2, ty + cs / 2, cs * 0.72)
             # Cases deja prises (installees) : surlignees rouge.
             Color(*CELL_TAKEN)
             for (gx, gy) in self.taken:
@@ -269,8 +335,11 @@ class PlaceScreen(Screen):
         # cases occupees par un GROS element du decor (arbre, buisson, rocher).
         self.grid_overlay.taken = {(int(o[1]), int(o[2]))
                                    for o in state.installed_objects_here()}
-        self.grid_overlay.nature = set(state.nature_cells_here().keys())
+        self.grid_overlay.nature = {(int(gx), int(gy)): kind for (gx, gy), kind
+                                    in state.nature_cells_here().items()}
         self.grid_overlay._redraw()
+        # La legende ne liste que les obstacles presents sur CETTE case.
+        self.legend.rebuild(self.grid_overlay.nature.values())
         # Titre : quel objet on est en train de placer ?
         if self._slot is not None and self._slot in (0, 1):
             item = state.hands[self._slot]
