@@ -57,30 +57,33 @@ INTERACTIVE_ITEMS = {"Feu_de_camp"}
 # frappees l'une contre l'autre suffisent a faire une etincelle.
 FIRE_STARTER_ITEMS = {"Silex", "Pierre_Coupante"}
 
-# Un foyer se nourrit de DEUX apports distincts, chacun avec sa reserve et son
-# bouton dans l'ecran Proximite. Les valeurs sont en HEURES de jeu.
+# Un foyer se nourrit de DEUX apports distincts, chacun avec son bouton dans
+# l'ecran Proximite, mais ils ne jouent PAS le meme role :
 #
-# - COMBUSTIBLE : le bois, ce qui brule (branches, buches) -> FIRE_WOOD_HOURS ;
-# - COMBURANT   : ce qui entretient la flamme (feuille, ecorce, amadou)
-#                 -> FIRE_TINDER_HOURS.
-#
-# Les deux reserves se consument en meme temps : si l'une s'epuise, le feu
-# s'eteint. Il faut donc entretenir les deux.
-FIRE_TINDER_HOURS = {
-    "Feuille": 0.5,
-    "Ecorce": 1.0,
-}
+# - COMBUSTIBLE (branche, buche) : c'est ce qui brule. Il donne la DUREE du
+#   feu, en heures de jeu.
+# - COMBURANT (feuille, ecorce) : c'est ce qui fait prendre la flamme. Il ne
+#   donne aucune duree, il augmente la CHANCE de reussir a allumer. Plus il
+#   est de bonne qualite et en quantite, plus le feu part facilement.
 FIRE_WOOD_HOURS = {
     "Small_Stick": 0.75,
     "Loafy_Long_Stick": 1.25,
     "Long_Stick": 2.0,
     "Buche": 3.0,
 }
-FIRE_FUEL_HOURS = dict(FIRE_TINDER_HOURS, **FIRE_WOOD_HOURS)
+
+# Chance d'allumage ajoutee par chaque apport de comburant (cumulable).
+FIRE_TINDER_CHANCE = {
+    "Feuille": 0.15,
+    "Ecorce": 0.30,
+}
+
+# Table de compatibilite : tout ce qui peut aller dans un foyer.
+FIRE_FUEL_HOURS = dict(FIRE_WOOD_HOURS)
 
 
 def fuel_hours(name):
-    """Duree apportee par cet objet, quel que soit son type (0 = inutilisable)."""
+    """Duree de combustion apportee par cet objet (0 = pas un combustible)."""
     return FIRE_FUEL_HOURS.get(name, 0.0)
 
 

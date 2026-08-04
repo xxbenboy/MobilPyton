@@ -96,9 +96,12 @@ WET_HOURS = {"pluie": 0.5, "orage": 1.0}
 # FEUX DE CAMP
 # --------------------------------------------------------------------- #
 # Un foyer se nourrit de deux apports, tous deux ramasses A PROXIMITE (mains
-# ou sol) : le COMBUSTIBLE (feuille, ecorce) et le COMBURANT (branche, buche),
-# voir items.FIRE_TINDER_HOURS / items.FIRE_WOOD_HOURS. Il faut de plus un
-# ALLUME-FEU en main pour le demarrer (items.FIRE_STARTER_ITEMS).
+# ou sol) : le COMBUSTIBLE (branche, buche) donne la DUREE du feu, le
+# COMBURANT (feuille, ecorce) donne la CHANCE de reussir a l'allumer. Il faut
+# de plus un ALLUME-FEU en main (items.FIRE_STARTER_ITEMS).
+FIRE_LIGHT_BASE = 0.10      # chance d'allumage sans aucun comburant
+FIRE_LIGHT_MAX = 0.95       # on n'est jamais sur a 100 %
+FIRE_LIGHT_FAIL_LOSS = 0.5  # part du comburant partie en fumee a chaque echec
 
 
 def _clamp100(v):
@@ -499,8 +502,10 @@ class GameState:
         """Etat du foyer a cette position de la grille (cree s'il manque).
 
         - "fuel" : heures de COMBUSTIBLE restant (bois : branche, buche) ;
-        - "air"  : heures de COMBURANT restant (amadou : feuille, ecorce) ;
-        - "lit"  : le feu brule (les deux reserves se consument) ;
+        - "air"  : bonus de CHANCE d'allumage accumule (comburant : feuille,
+                   ecorce). Ce n'est pas une duree : il ne sert qu'a faire
+                   partir la flamme, et disparait une fois le feu allume ;
+        - "lit"  : le feu brule (le combustible se consume) ;
         - "t"    : date du dernier calcul de combustion."""
         key = self._fire_key(gx, gy)
         f = self.fires.get(key)
@@ -510,24 +515,26 @@ class GameState:
         return f
 
     def fire_burn_hours(self, f):
-        """Heures avant extinction : la reserve qui manquera EN PREMIER."""
-        return max(0.0, min(f.get("fuel", 0.0), f.get("air", 0.0)))
+        """Heures avant extinction : ce qu'il reste de COMBUSTIBLE."""
+        return max(0.0, f.get("fuel", 0.0))
+
+    def fire_light_chance(self, f):
+        """Probabilite (0..1) de reussir a allumer ce foyer.
+
+        Elle part d'une base tres faible et monte avec le COMBURANT accumule
+        (feuilles, ecorce). Elle ne peut jamais atteindre la certitude."""
+        return min(FIRE_LIGHT_MAX, FIRE_LIGHT_BASE + max(0.0, f.get("air", 0.0)))
 
     def update_fires(self):
-        """Fait bruler les foyers allumes.
-
-        Le combustible ET le comburant se consument en meme temps : si l'un
-        des deux vient a manquer, le feu s'eteint (il reste alors du bois,
-        mais plus d'amadou - ou l'inverse)."""
+        """Fait bruler les foyers allumes : seul le COMBUSTIBLE se consume.
+        Quand il n'en reste plus, le feu s'eteint."""
         for f in self.fires.values():
             dt = max(0, self.time_seconds - int(f.get("t", self.time_seconds)))
             f["t"] = self.time_seconds
             if not f.get("lit") or dt <= 0:
                 continue
-            burn = dt / 3600.0
-            f["fuel"] = max(0.0, f["fuel"] - burn)
-            f["air"] = max(0.0, f["air"] - burn)
-            if f["fuel"] <= 0.0 or f["air"] <= 0.0:
+            f["fuel"] = max(0.0, f["fuel"] - dt / 3600.0)
+            if f["fuel"] <= 0.0:
                 f["lit"] = 0
         self._sync_fire_effect()
 
@@ -591,10 +598,10 @@ class GameState:
     def fire_add(self, gx, gy, kind):
         """Ajoute un apport au foyer.
 
-        `kind` designe la MATIERE : "wood" (branche, buche) alimente le
-        COMBUSTIBLE, "tinder" (feuille, ecorce) alimente le COMBURANT.
+        `kind` designe la MATIERE : "wood" (branche, buche) ajoute de la DUREE
+        au feu, "tinder" (feuille, ecorce) ajoute de la CHANCE de l'allumer.
         L'objet est pris a proximite."""
-        table = (items.FIRE_TINDER_HOURS if kind == "tinder"
+        table = (items.FIRE_TINDER_CHANCE if kind == "tinder"
                  else items.FIRE_WOOD_HOURS)
         name = self.fire_source(table)
         if name is None or not self.consume_nearby(name):
@@ -604,14 +611,25 @@ class GameState:
         self._sync_fire_effect()
         return True
 
-    def fire_light(self, gx, gy):
-        """Allume le foyer. Demande un allume-feu EN MAIN, du combustible et
-        du comburant : les trois cotes du triangle du feu."""
+    def fire_can_light(self, gx, gy):
+        """Peut-on TENTER d'allumer ce foyer ? (la reussite, elle, se joue)"""
         f = self.fire_at(gx, gy)
-        if (f.get("lit") or self.fire_starter_hand() is None
-                or f.get("fuel", 0.0) <= 0.0 or f.get("air", 0.0) <= 0.0):
+        return (not f.get("lit") and self.fire_starter_hand() is not None
+                and f.get("fuel", 0.0) > 0.0)
+
+    def fire_light(self, gx, gy):
+        """TENTE d'allumer le foyer : la reussite depend du comburant.
+
+        En cas d'echec une bonne partie du comburant part en fumee : il faut
+        en remettre pour retrouver ses chances."""
+        if not self.fire_can_light(gx, gy):
+            return False
+        f = self.fire_at(gx, gy)
+        if random.random() >= self.fire_light_chance(f):
+            f["air"] = max(0.0, f["air"] * (1.0 - FIRE_LIGHT_FAIL_LOSS))
             return False
         f["lit"] = 1
+        f["air"] = 0.0             # l'amadou s'est consume en prenant feu
         f["t"] = self.time_seconds
         self._sync_fire_effect()
         return True

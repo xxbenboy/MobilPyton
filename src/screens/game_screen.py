@@ -1434,10 +1434,10 @@ class GameScreen(Screen):
         self.background.set_weather(weather)
         # Les cases occupees par un objet installe (feu de camp, ...) : le
         # scenery masquera les elements du decor qui tomberaient dedans.
-        # Les objets installes sont masques pendant l'exploration (l'animation
-        # des mains occupe tout l'avant-plan).
-        installed = tuple() if exploring else tuple(
-            (o[0], int(o[1]), int(o[2])) for o in state.installed_objects_here())
+        # Les objets installes restent visibles pendant l'exploration : ils
+        # font partie du decor, les mains passent simplement devant.
+        installed = tuple((o[0], int(o[1]), int(o[2]))
+                          for o in state.installed_objects_here())
         blocked_grid = tuple(sorted((int(o[1]), int(o[2]))
                                     for o in state.installed_objects_here()))
         key = (zone, state.player_x, state.player_y, blocked_grid, installed)

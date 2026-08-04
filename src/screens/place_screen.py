@@ -291,24 +291,26 @@ class _ActionPanel(BoxLayout):
         btn.disabled = not ok
         btn.opacity = 1.0 if ok else 0.45
 
-    def update(self, state, gx, gy):
+    def update(self, state, gx, gy, message=""):
         """Rafraichit l'etat du foyer et la disponibilite de chaque action."""
         f = state.fire_at(gx, gy)
         lit = bool(f.get("lit"))
         self.title.text = items.display_name("Feu_de_camp")
         lines = ["Allume" if lit else "Eteint",
-                 f"Combustible : {_hm(f['fuel'])}    "
-                 f"Comburant : {_hm(f['air'])}"]
+                 f"Combustible : {_hm(f['fuel'])}"]
         if lit:
             lines.append(f"S'eteint dans {_hm(state.fire_burn_hours(f))}")
+        else:
+            pct = int(round(state.fire_light_chance(f) * 100))
+            lines.append(f"Chance d'allumage : {pct} %")
         self.status.text = "\n".join(lines)
 
-        why = []
+        why = [message] if message else []
         wood = state.fire_source(items.FIRE_WOOD_HOURS)
         self._set(self.btns["wood"], wood is not None)
         if wood is None:
             why.append("Combustible : aucune branche ni buche a proximite.")
-        tinder = state.fire_source(items.FIRE_TINDER_HOURS)
+        tinder = state.fire_source(items.FIRE_TINDER_CHANCE)
         self._set(self.btns["tinder"], tinder is not None)
         if tinder is None:
             why.append("Comburant : aucune feuille ni ecorce a proximite.")
@@ -320,8 +322,6 @@ class _ActionPanel(BoxLayout):
                          "coupante en main.")
         elif f["fuel"] <= 0.0:
             light_why = "Allumer : il manque du combustible dans le foyer."
-        elif f["air"] <= 0.0:
-            light_why = "Allumer : il manque du comburant dans le foyer."
         else:
             light_why = None
         self._set(self.btns["light"], light_why is None)
@@ -502,6 +502,7 @@ class PlaceScreen(Screen):
                                          pos_hint={"center_x": 0.5,
                                                    "center_y": 0.48})
         self._action_cell = None          # (gx, gy) de l'objet en cours
+        self._fire_msg = ""               # resultat de la derniere tentative
         self.action_panel.hide(True)      # masquee tant qu'on est sur la grille
         root.add_widget(self.action_panel)
 
@@ -561,7 +562,8 @@ class PlaceScreen(Screen):
         # La fenetre d'action reste ouverte si on vient d'y agir.
         self._show_action(self._action_cell is not None)
         if self._action_cell is not None:
-            self.action_panel.update(state, *self._action_cell)
+            self.action_panel.update(state, *self._action_cell,
+                                     message=self._fire_msg)
 
     def _on_cell_pick(self, gx, gy):
         state = App.get_running_app().game_state
@@ -571,6 +573,7 @@ class PlaceScreen(Screen):
         if self.mode == "use":
             # Ouvre la fenetre d'action de l'objet choisi.
             self._action_cell = (gx, gy)
+            self._fire_msg = ""
             self.action_panel.update(state, gx, gy)
             self._show_action(True)
             return
@@ -590,7 +593,13 @@ class PlaceScreen(Screen):
         gx, gy = self._action_cell
         if what == "light":
             ok = state.fire_light(gx, gy)
+            # Un echec est un vrai resultat de jeu (le comburant a brule) :
+            # on le dit, et on sauvegarde quand meme.
+            self._fire_msg = "" if ok else ("Le feu n'a pas pris. Ajoute du "
+                                            "comburant et reessaie.")
+            ok = True
         else:
+            self._fire_msg = ""
             ok = state.fire_add(gx, gy, what)
         if ok:
             App.get_running_app().autosave()
