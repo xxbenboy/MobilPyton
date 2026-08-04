@@ -57,21 +57,29 @@ INTERACTIVE_ITEMS = {"Feu_de_camp"}
 # frappees l'une contre l'autre suffisent a faire une etincelle.
 FIRE_STARTER_ITEMS = {"Silex", "Pierre_Coupante"}
 
-# COMBUSTIBLE : ce qu'on peut mettre dans un foyer, et la duree de combustion
-# apportee (en HEURES de jeu). L'amadou (feuille, herbe, roseau) s'enflamme
-# facilement mais brule vite ; le gros bois tient longtemps.
-FIRE_FUEL_HOURS = {
-    "Feuille": 0.1,
-    "Herbe": 0.1,
-    "Roseau": 0.15,
-    "Small_Stick": 0.5,
-    "Loafy_Long_Stick": 0.8,
-    "Long_Stick": 1.5,
+# Un foyer se nourrit de DEUX apports distincts, chacun avec sa reserve et son
+# bouton dans l'ecran Proximite. Les valeurs sont en HEURES de jeu.
+#
+# - COMBUSTIBLE : ce qui prend feu facilement (feuille, ecorce) ;
+# - COMBURANT   : le bois qui entretient le foyer (branches, buches).
+#
+# Les deux reserves se consument en meme temps : si l'une s'epuise, le feu
+# s'eteint. Il faut donc entretenir les deux.
+FIRE_TINDER_HOURS = {
+    "Feuille": 0.5,
+    "Ecorce": 1.0,
 }
+FIRE_WOOD_HOURS = {
+    "Small_Stick": 0.75,
+    "Loafy_Long_Stick": 1.25,
+    "Long_Stick": 2.0,
+    "Buche": 3.0,
+}
+FIRE_FUEL_HOURS = dict(FIRE_TINDER_HOURS, **FIRE_WOOD_HOURS)
 
 
 def fuel_hours(name):
-    """Duree de combustion apportee par cet objet (0 = pas un combustible)."""
+    """Duree apportee par cet objet, quel que soit son type (0 = inutilisable)."""
     return FIRE_FUEL_HOURS.get(name, 0.0)
 
 
@@ -90,7 +98,7 @@ def is_hand_collectable(name):
 # (poids 1) est rare.
 ZONE_FINDS = {
     "Foret": [("Small_Stick", 12), ("Long_Stick", 4), ("Loafy_Long_Stick", 4), ("Feuille", 10), ("Pierre", 7),
-              ("Brown_Mushroom", 4), ("Baie", 4), ("Plume", 2), ("Carcasse", 1)],
+              ("Ecorce", 6), ("Brown_Mushroom", 4), ("Baie", 4), ("Plume", 2), ("Carcasse", 1)],
     "Plaine": [("Herbe", 12), ("Fleur", 7), ("Small_Stick", 6), ("Long_Stick", 2), ("Pierre", 5),
                ("Baie", 3), ("Plume", 2), ("Carcasse", 1)],
     "Montagne": [("Pierre", 12), ("Small_Stick", 4), ("Long_Stick", 2), ("Pierre_Coupante", 3),

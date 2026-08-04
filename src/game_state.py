@@ -95,10 +95,10 @@ WET_HOURS = {"pluie": 0.5, "orage": 1.0}
 # --------------------------------------------------------------------- #
 # FEUX DE CAMP
 # --------------------------------------------------------------------- #
-# Un foyer a besoin des trois cotes du triangle du feu : du COMBUSTIBLE (bois,
-# amadou : voir items.FIRE_FUEL_HOURS), du COMBURANT (l'air, renouvele en
-# attisant) et d'une source d'ALLUMAGE (items.FIRE_STARTER_ITEMS).
-FIRE_AIR_HOURS = 1.0        # heures de tirage gagnees en attisant une fois
+# Un foyer se nourrit de deux apports, tous deux ramasses A PROXIMITE (mains
+# ou sol) : le COMBUSTIBLE (feuille, ecorce) et le COMBURANT (branche, buche),
+# voir items.FIRE_TINDER_HOURS / items.FIRE_WOOD_HOURS. Il faut de plus un
+# ALLUME-FEU en main pour le demarrer (items.FIRE_STARTER_ITEMS).
 
 
 def _clamp100(v):
@@ -498,8 +498,8 @@ class GameState:
     def fire_at(self, gx, gy):
         """Etat du foyer a cette position de la grille (cree s'il manque).
 
-        - "fuel" : heures de COMBUSTIBLE restant (bois, amadou) ;
-        - "air"  : heures de COMBURANT restant (tirage, ventilation) ;
+        - "fuel" : heures de COMBUSTIBLE restant (amadou : feuille, ecorce) ;
+        - "air"  : heures de COMBURANT restant (bois : branche, buche) ;
         - "lit"  : le feu brule (les deux reserves se consument) ;
         - "t"    : date du dernier calcul de combustion."""
         key = self._fire_key(gx, gy)
@@ -518,7 +518,7 @@ class GameState:
 
         Le combustible ET le comburant se consument en meme temps : si l'un
         des deux vient a manquer, le feu s'eteint (il reste alors du bois,
-        mais plus de tirage - ou l'inverse)."""
+        mais plus d'amadou - ou l'inverse)."""
         for f in self.fires.values():
             dt = max(0, self.time_seconds - int(f.get("t", self.time_seconds)))
             f["t"] = self.time_seconds
@@ -552,12 +552,34 @@ class GameState:
         else:
             self.effects.pop("Feu_de_camp", None)
 
-    def fire_fuel_hand(self):
-        """Main tenant un combustible (droite d'abord), ou None."""
-        for i in (1, 0):
-            if items.fuel_hours(self.hands[i]) > 0:
-                return i
-        return None
+    def fire_source(self, table):
+        """Meilleur apport de `table` disponible A PROXIMITE (mains ou sol).
+
+        "A proximite" = ce que le joueur tient ET ce qui traine sur la case,
+        comme pour le craft. On choisit celui qui brule le plus longtemps."""
+        pool = self.craft_pool()
+        best = None
+        for name, hours in table.items():
+            if pool.get(name, 0) > 0 and (best is None or hours > table[best]):
+                best = name
+        return best
+
+    def consume_nearby(self, name):
+        """Retire un exemplaire de l'objet : au SOL d'abord, puis en main."""
+        key = self._cell_key()
+        g = self.ground.get(key, {})
+        if g.get(name, 0) > 0:
+            g[name] -= 1
+            if g[name] <= 0:
+                del g[name]
+            if not g:
+                self.ground.pop(key, None)
+            return True
+        for i in (0, 1):
+            if self.hands[i] == name:
+                self.hands[i] = None
+                return True
+        return False
 
     def fire_starter_hand(self):
         """Main tenant un allume-feu (droite d'abord), ou None."""
@@ -566,22 +588,18 @@ class GameState:
                 return i
         return None
 
-    def fire_add_fuel(self, gx, gy):
-        """Met le combustible tenu en main dans le foyer."""
-        hand = self.fire_fuel_hand()
-        if hand is None:
+    def fire_add(self, gx, gy, kind):
+        """Ajoute un apport au foyer.
+
+        `kind` = "tinder" (COMBUSTIBLE : feuille, ecorce) ou "wood"
+        (COMBURANT : branche, buche). L'objet est pris a proximite."""
+        table = (items.FIRE_TINDER_HOURS if kind == "tinder"
+                 else items.FIRE_WOOD_HOURS)
+        name = self.fire_source(table)
+        if name is None or not self.consume_nearby(name):
             return False
         f = self.fire_at(gx, gy)
-        f["fuel"] += items.fuel_hours(self.hands[hand])
-        self.hands[hand] = None
-        self._sync_fire_effect()
-        return True
-
-    def fire_add_air(self, gx, gy):
-        """Attise le foyer : souffler / eventer renouvelle le comburant.
-        Ne demande aucun objet, mais il faut recommencer regulierement."""
-        f = self.fire_at(gx, gy)
-        f["air"] = f.get("air", 0.0) + FIRE_AIR_HOURS
+        f["fuel" if kind == "tinder" else "air"] += table[name]
         self._sync_fire_effect()
         return True
 

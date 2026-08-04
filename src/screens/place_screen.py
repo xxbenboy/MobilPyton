@@ -221,13 +221,12 @@ def _hm(hours):
 class _ActionPanel(BoxLayout):
     """Fenetre d'ACTION d'un objet pose. Pour l'instant : le feu de camp.
 
-    Un feu obeit au triangle du feu : il lui faut du COMBUSTIBLE (bois,
-    amadou), du COMBURANT (l'air, renouvele en attisant) et une source
-    d'ALLUMAGE. Chaque bouton est grise avec sa raison quand il manque
-    quelque chose."""
+    Un foyer demande du COMBUSTIBLE (feuille, ecorce), du COMBURANT (branche,
+    buche) et une source d'ALLUMAGE. Chaque bouton est grise, avec sa raison,
+    quand la matiere n'est pas a proximite."""
 
-    ACTIONS = (("fuel", "Alimenter\n(combustible)"),
-               ("air", "Attiser\n(comburant)"),
+    ACTIONS = (("tinder", "Alimenter\n(combustible)"),
+               ("wood", "Alimenter\n(comburant)"),
                ("light", "Allumer le feu"))
 
     def __init__(self, on_close, on_action, **kwargs):
@@ -305,12 +304,14 @@ class _ActionPanel(BoxLayout):
         self.status.text = "\n".join(lines)
 
         why = []
-        can_fuel = state.fire_fuel_hand() is not None
-        self._set(self.btns["fuel"], can_fuel)
-        if not can_fuel:
-            why.append("Alimenter : aucun combustible en main "
-                       "(bois, feuilles, herbe...).")
-        self._set(self.btns["air"], True)
+        tinder = state.fire_source(items.FIRE_TINDER_HOURS)
+        self._set(self.btns["tinder"], tinder is not None)
+        if tinder is None:
+            why.append("Combustible : aucune feuille ni ecorce a proximite.")
+        wood = state.fire_source(items.FIRE_WOOD_HOURS)
+        self._set(self.btns["wood"], wood is not None)
+        if wood is None:
+            why.append("Comburant : aucune branche ni buche a proximite.")
 
         if lit:
             light_why = "Allumer : le feu brule deja."
@@ -318,9 +319,9 @@ class _ActionPanel(BoxLayout):
             light_why = ("Allumer : il faut un silex ou une pierre "
                          "coupante en main.")
         elif f["fuel"] <= 0.0:
-            light_why = "Allumer : le foyer est vide, ajoute du combustible."
+            light_why = "Allumer : il manque du combustible dans le foyer."
         elif f["air"] <= 0.0:
-            light_why = "Allumer : attise le foyer pour lui donner de l'air."
+            light_why = "Allumer : il manque du comburant dans le foyer."
         else:
             light_why = None
         self._set(self.btns["light"], light_why is None)
@@ -587,9 +588,10 @@ class PlaceScreen(Screen):
         if state is None or self._action_cell is None:
             return
         gx, gy = self._action_cell
-        ok = {"fuel": state.fire_add_fuel,
-              "air": state.fire_add_air,
-              "light": state.fire_light}[what](gx, gy)
+        if what == "light":
+            ok = state.fire_light(gx, gy)
+        else:
+            ok = state.fire_add(gx, gy, what)
         if ok:
             App.get_running_app().autosave()
         self.on_pre_enter()
