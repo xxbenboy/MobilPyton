@@ -60,8 +60,9 @@ FIRE_STARTER_ITEMS = {"Silex", "Pierre_Coupante"}
 # Un foyer se nourrit de DEUX apports distincts, chacun avec sa reserve et son
 # bouton dans l'ecran Proximite. Les valeurs sont en HEURES de jeu.
 #
-# - COMBUSTIBLE : ce qui prend feu facilement (feuille, ecorce) ;
-# - COMBURANT   : le bois qui entretient le foyer (branches, buches).
+# - COMBUSTIBLE : le bois, ce qui brule (branches, buches) -> FIRE_WOOD_HOURS ;
+# - COMBURANT   : ce qui entretient la flamme (feuille, ecorce, amadou)
+#                 -> FIRE_TINDER_HOURS.
 #
 # Les deux reserves se consument en meme temps : si l'une s'epuise, le feu
 # s'eteint. Il faut donc entretenir les deux.

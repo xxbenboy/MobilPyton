@@ -498,8 +498,8 @@ class GameState:
     def fire_at(self, gx, gy):
         """Etat du foyer a cette position de la grille (cree s'il manque).
 
-        - "fuel" : heures de COMBUSTIBLE restant (amadou : feuille, ecorce) ;
-        - "air"  : heures de COMBURANT restant (bois : branche, buche) ;
+        - "fuel" : heures de COMBUSTIBLE restant (bois : branche, buche) ;
+        - "air"  : heures de COMBURANT restant (amadou : feuille, ecorce) ;
         - "lit"  : le feu brule (les deux reserves se consument) ;
         - "t"    : date du dernier calcul de combustion."""
         key = self._fire_key(gx, gy)
@@ -591,15 +591,16 @@ class GameState:
     def fire_add(self, gx, gy, kind):
         """Ajoute un apport au foyer.
 
-        `kind` = "tinder" (COMBUSTIBLE : feuille, ecorce) ou "wood"
-        (COMBURANT : branche, buche). L'objet est pris a proximite."""
+        `kind` designe la MATIERE : "wood" (branche, buche) alimente le
+        COMBUSTIBLE, "tinder" (feuille, ecorce) alimente le COMBURANT.
+        L'objet est pris a proximite."""
         table = (items.FIRE_TINDER_HOURS if kind == "tinder"
                  else items.FIRE_WOOD_HOURS)
         name = self.fire_source(table)
         if name is None or not self.consume_nearby(name):
             return False
         f = self.fire_at(gx, gy)
-        f["fuel" if kind == "tinder" else "air"] += table[name]
+        f["fuel" if kind == "wood" else "air"] += table[name]
         self._sync_fire_effect()
         return True
 

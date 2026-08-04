@@ -221,12 +221,12 @@ def _hm(hours):
 class _ActionPanel(BoxLayout):
     """Fenetre d'ACTION d'un objet pose. Pour l'instant : le feu de camp.
 
-    Un foyer demande du COMBUSTIBLE (feuille, ecorce), du COMBURANT (branche,
-    buche) et une source d'ALLUMAGE. Chaque bouton est grise, avec sa raison,
+    Un foyer demande du COMBUSTIBLE (branche, buche), du COMBURANT (feuille,
+    ecorce) et une source d'ALLUMAGE. Chaque bouton est grise, avec sa raison,
     quand la matiere n'est pas a proximite."""
 
-    ACTIONS = (("tinder", "Alimenter\n(combustible)"),
-               ("wood", "Alimenter\n(comburant)"),
+    ACTIONS = (("wood", "Alimenter\n(combustible)"),
+               ("tinder", "Alimenter\n(comburant)"),
                ("light", "Allumer le feu"))
 
     def __init__(self, on_close, on_action, **kwargs):
@@ -304,14 +304,14 @@ class _ActionPanel(BoxLayout):
         self.status.text = "\n".join(lines)
 
         why = []
-        tinder = state.fire_source(items.FIRE_TINDER_HOURS)
-        self._set(self.btns["tinder"], tinder is not None)
-        if tinder is None:
-            why.append("Combustible : aucune feuille ni ecorce a proximite.")
         wood = state.fire_source(items.FIRE_WOOD_HOURS)
         self._set(self.btns["wood"], wood is not None)
         if wood is None:
-            why.append("Comburant : aucune branche ni buche a proximite.")
+            why.append("Combustible : aucune branche ni buche a proximite.")
+        tinder = state.fire_source(items.FIRE_TINDER_HOURS)
+        self._set(self.btns["tinder"], tinder is not None)
+        if tinder is None:
+            why.append("Comburant : aucune feuille ni ecorce a proximite.")
 
         if lit:
             light_why = "Allumer : le feu brule deja."
