@@ -237,6 +237,7 @@ class _ActionPanel(BoxLayout):
         super().__init__(**kwargs)
         self._on_close = on_close
         self._on_action = on_action
+        self.hidden = True
         with self.canvas.before:
             Color(0.05, 0.07, 0.10, 0.82)
             self._bg = RoundedRectangle(radius=[dp(14)])
@@ -271,6 +272,20 @@ class _ActionPanel(BoxLayout):
     def _sync(self, *_):
         self._bg.pos = self.pos
         self._bg.size = self.size
+
+    def hide(self, hidden):
+        """Montre / masque la fenetre.
+
+        On ne se sert PAS de `disabled` pour la masquer : dans Kivy un widget
+        desactive AVALE les touches qui tombent sur lui. Cette fenetre couvre
+        le centre de l'ecran, elle bloquerait donc la grille en dessous."""
+        self.hidden = hidden
+        self.opacity = 0.0 if hidden else 1.0
+
+    def on_touch_down(self, touch):
+        if self.hidden:
+            return False              # laisse passer vers la grille
+        return super().on_touch_down(touch)
 
     @staticmethod
     def _set(btn, ok):
@@ -486,8 +501,7 @@ class PlaceScreen(Screen):
                                          pos_hint={"center_x": 0.5,
                                                    "center_y": 0.48})
         self._action_cell = None          # (gx, gy) de l'objet en cours
-        self.action_panel.opacity = 0.0   # masquee tant qu'on est sur la grille
-        self.action_panel.disabled = True
+        self.action_panel.hide(True)      # masquee tant qu'on est sur la grille
         root.add_widget(self.action_panel)
 
         self.root_layout = root
@@ -496,8 +510,7 @@ class PlaceScreen(Screen):
     # ------------------------------------------------------------------ #
     def _show_action(self, visible):
         """Bascule entre la GRILLE et la fenetre d'action."""
-        self.action_panel.opacity = 1.0 if visible else 0.0
-        self.action_panel.disabled = not visible
+        self.action_panel.hide(not visible)
         for w in (self.grid_overlay, self.legend):
             w.opacity = 0.0 if visible else 1.0
             w.disabled = visible
