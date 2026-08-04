@@ -57,6 +57,11 @@ class ZoneScenery(Widget):
         # cellules ne sont PAS dessines. Recalcule en debut de _redraw.
         self._blocked_grid = set()
         self._blocked_bboxes = []
+        # Objets INSTALLES sur la case : [(nom, gx, gy), ...]. Ils sont
+        # dessines DANS la scene (et non dans une couche au-dessus) pour que
+        # le tri par profondeur s'applique aussi a eux : un feu de camp pose
+        # derriere un buisson passe donc bien DERRIERE ce buisson.
+        self._installed = []
         # Eclairage par cartes de normales : actif seulement si des cartes
         # Normal existent (sinon canvas normal, aucun risque, rendu inchange).
         self._pbr = pbr.LIGHTING and textures.has_any_normal()
@@ -77,18 +82,26 @@ class ZoneScenery(Widget):
         if self._pbr:
             pbr.reset_maps()
 
-    def set_scene(self, zone_type, seed=0, taken=None, blocked_grid=None):
+    def set_scene(self, zone_type, seed=0, taken=None, blocked_grid=None,
+                  installed=None):
         """Vue a l'horizon (sol en bas + ciel).
 
         `taken` = {nom: nombre deja recolte} pour masquer les objets recoltes.
+        `installed` = [(nom, gx, gy), ...] : objets poses sur la case. Ils sont
+        dessines dans la scene, a leur profondeur.
         `blocked_grid` = iterable de (gx, gy) : cellules occupees par un objet
-        INSTALLE (feu de camp, ...). Les objets du decor qui tombent dans la
-        zone visuelle d'une case bloquee ne sont PAS dessines (mais restent
-        collectables via explorer : le budget de recolte est preserve)."""
+        INSTALLE (feu de camp, ...) ; deduit de `installed` si absent. Les
+        objets du decor qui tombent dans la zone visuelle d'une case bloquee ne
+        sont PAS dessines (mais restent collectables via explorer : le budget
+        de recolte est preserve)."""
         self._zone = zone_type
         self._seed = seed
         self._mode = "scene"
         self._taken = dict(taken or {})
+        self._installed = [(o[0], int(o[1]), int(o[2]))
+                           for o in (installed or [])]
+        if blocked_grid is None:
+            blocked_grid = [(gx, gy) for _n, gx, gy in self._installed]
         self._blocked_grid = set((int(g[0]), int(g[1]))
                                  for g in (blocked_grid or []))
         self._redraw()
@@ -152,8 +165,12 @@ class ZoneScenery(Widget):
         variations (taille...). Les cases occupees par un objet INSTALLE sont
         sautees (l'objet installe a la priorite d'affichage)."""
         w, h, x0, y0 = self.width, self.height, self.x, self.y
+        # Trie du plus LOINTAIN au plus proche (gy decroissant) : les zones qui
+        # dessinent directement (sans liste triee) obtiennent ainsi le bon
+        # ordre de recouvrement.
         for (ggx, ggy), kind in sorted(
-                world.nature_blocked_cells(self._zone, self._seed).items()):
+                world.nature_blocked_cells(self._zone, self._seed).items(),
+                key=lambda kv: (-kv[0][1], kv[0][0])):
             if (ggx, ggy) in self._blocked_grid:
                 continue
             gfx, gfy, _gs = grid_to_screen(ggx, ggy)
@@ -165,6 +182,40 @@ class ZoneScenery(Widget):
             tx = x0 + gfx * w
             tb = y0 + gfy * h
             yield kind, depth, tx, tb, jit
+
+    def _installed_items(self):
+        """Objets INSTALLES, prets a etre tries avec le reste du decor.
+
+        Renvoie [(y_base, fonction_de_dessin), ...] : la meme forme que les
+        elements du decor, donc le tri par profondeur les melange correctement
+        (ce qui est plus PROCHE est dessine par-dessus)."""
+        out = []
+        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        for name, gx, gy in self._installed:
+            fx, fy, size = grid_to_screen(gx, gy)
+            cx = x0 + fx * w
+            cy = y0 + fy * h
+            if name == "Feu_de_camp":
+                out.append((cy, lambda cx=cx, cy=cy, s=size * w:
+                            self._fire_pit(cx, cy, s)))
+        return out
+
+    def _fire_pit(self, cx, cy, w):
+        """Foyer de pierres vu en angle (cercle aplati + anneau de pierres)."""
+        h = w * 0.55
+        Color(0.10, 0.08, 0.06, 0.85)                  # cendres du foyer
+        Ellipse(pos=(cx - w / 2, cy - h / 2), size=(w, h))
+        n = 10                                         # anneau de pierres
+        r = min(w, h) * 0.15
+        for i in range(n):
+            a = 2 * math.pi * i / n
+            sx = cx + (w / 2 - r) * math.cos(a)
+            sy = cy + (h / 2 - r) * math.sin(a)
+            if i % 2 == 0:
+                Color(0.52, 0.42, 0.34, 1)
+            else:
+                Color(0.66, 0.58, 0.50, 1)
+            Ellipse(pos=(sx - r, sy - r), size=(r * 2, r * 2))
 
     def set_ground(self, zone_type, seed=0):
         """Vue VERS LE BAS : on regarde le sol, qui remplit tout l'ecran."""
@@ -546,6 +597,7 @@ class ZoneScenery(Widget):
                               self._forest_tree(tx, tb, th, 0.4)))
         # (Les insectes sont desormais une couche ANIMEE separee : InsectLayer.)
 
+        items += self._installed_items()     # feu de camp... a leur profondeur
         items.sort(key=lambda it: it[0], reverse=True)
         for _, fn in items:
             fn()
@@ -893,6 +945,7 @@ class ZoneScenery(Widget):
         # (Les insectes sont desormais une couche ANIMEE separee : InsectLayer.)
 
         # Rendu trie : plus loin (base haute) d'abord, plus proche par-dessus.
+        items += self._installed_items()     # feu de camp... a leur profondeur
         items.sort(key=lambda it: it[0], reverse=True)
         for _, fn in items:
             fn()
@@ -936,11 +989,21 @@ class ZoneScenery(Widget):
                              rng.uniform(0.03, 0.06) * h, (0.22, 0.34, 0.16, 1))
         # GROS rochers : elements FIXES positionnes sur la GRILLE 5x5 (cases
         # interdites a l'installation d'un objet). Non recoltables : la Pierre
-        # se recolte sur les petits rochers de la pente.
+        # se recolte sur les petits rochers de la pente. Ils sont tries AVEC
+        # les objets installes : un feu de camp pose derriere un rocher passe
+        # donc derriere lui.
+        items = self._installed_items()
         for kind, depth, rx, ry, jit in self._iter_nature_big():
             rr = (0.085 - 0.045 * depth) * jit.uniform(0.85, 1.15) * h
-            Color(0.38, 0.37, 0.43, 1)
-            Ellipse(pos=(rx - rr, ry), size=(rr * 2.4, rr * 1.8))
+            items.append((ry, lambda rx=rx, ry=ry, rr=rr:
+                          self._big_rock(rx, ry, rr)))
+        items.sort(key=lambda it: it[0], reverse=True)
+        for _, fn in items:
+            fn()
+
+    def _big_rock(self, rx, ry, rr):
+        Color(0.38, 0.37, 0.43, 1)
+        Ellipse(pos=(rx - rr, ry), size=(rr * 2.4, rr * 1.8))
 
     def _lac(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
@@ -961,17 +1024,30 @@ class ZoneScenery(Widget):
         # Rive proche (premier plan). Les galets recoltables sont remontes a
         # partir des jointures (rien en bas). [recoltable: Pierre]
         self._trect("sand", x0, y0, w, 0.12 * h)
+        # Galets, roseaux et objets installes sont tries ENSEMBLE par
+        # profondeur : un feu de camp pose au fond passe derriere les roseaux
+        # du premier plan.
+        items = self._installed_items()
         for _ in range(12):
             rx = x0 + rng.uniform(0, 1) * w
             ry = y0 + rng.uniform(_HARVEST_FLOOR, 0.28) * h
             rr = rng.uniform(0.012, 0.03) * h
             if not self._take_or_skip("Pierre") and not self._is_blocked(rx, ry):
-                Color(0.42, 0.40, 0.32, 1)
-                Ellipse(pos=(rx - rr, ry), size=(rr * 2.4, rr * 1.4))
+                items.append((ry, lambda rx=rx, ry=ry, rr=rr:
+                              self._pebble(rx, ry, rr)))
         # Roseaux (remontes a partir des jointures). [recoltable: Roseau]
         for _ in range(34):
             gx = x0 + rng.uniform(0, 1) * w
             gb = y0 + rng.uniform(_HARVEST_FLOOR, 0.30) * h
             gh = rng.uniform(0.08, 0.22) * h
             if not self._take_or_skip("Roseau") and not self._is_blocked(gx, gb):
-                self._grass_tuft(gx, gb, gh, (0.18, 0.38, 0.20, 1))
+                items.append((gb, lambda gx=gx, gb=gb, gh=gh:
+                              self._grass_tuft(gx, gb, gh,
+                                               (0.18, 0.38, 0.20, 1))))
+        items.sort(key=lambda it: it[0], reverse=True)
+        for _, fn in items:
+            fn()
+
+    def _pebble(self, rx, ry, rr):
+        Color(0.42, 0.40, 0.32, 1)
+        Ellipse(pos=(rx - rr, ry), size=(rr * 2.4, rr * 1.4))

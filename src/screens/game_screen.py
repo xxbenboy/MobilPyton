@@ -35,7 +35,6 @@ from src import items
 from src.widgets.player_hands import PlayerHands
 from src.widgets.insects import InsectLayer, FireflyLayer
 from src.widgets.weather import WeatherLayer, LightningLayer
-from src.widgets.installed_layer import InstalledLayer
 from src.widgets.icon_button import IconButton
 from src.widgets.styled_button import StyledButton
 from src.widgets.item_icon import ItemIcon
@@ -285,11 +284,9 @@ class GameScreen(Screen):
         root.add_widget(self.background)
         self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.scenery)
-        # Objets INSTALLES (feu de camp, etc.) au sol de la case courante,
-        # projetes en perspective. Entre le decor et les insectes.
-        self.installed_layer = InstalledLayer(size_hint=(1, 1),
-                                              pos_hint={"x": 0, "y": 0})
-        root.add_widget(self.installed_layer)
+        # (Les objets INSTALLES ne sont plus une couche au-dessus du decor :
+        #  ZoneScenery les dessine A LEUR PROFONDEUR, melanges au decor, sinon
+        #  un feu de camp pose au fond recouvrait les buissons du devant.)
         # Insectes animes (papillons / abeilles) qui volent dans la scene.
         self.insects = InsectLayer(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.insects)
@@ -1383,12 +1380,6 @@ class GameScreen(Screen):
         self.craft_btn.disabled = self._ff_active
         self.back_btn.disabled = self._ff_active
         self.move_btn.disabled = self._ff_active
-        # Objets INSTALLES : projetes dans la scene 1re personne. Masques
-        # pendant l'exploration (l'anim des mains recouvre tout).
-        if exploring:
-            self.installed_layer.set_objects([])
-        else:
-            self.installed_layer.set_objects(state.installed_objects_here())
         # Proximite : grise + inactif tant qu'il n'y a AUCUN objet interactif
         # (voir items.INTERACTIVE_ITEMS) INSTALLE sur la case courante. Un
         # simple "Deposer" n'active pas Proximite, seul "Utiliser" le fait.
@@ -1422,15 +1413,21 @@ class GameScreen(Screen):
         self.background.set_weather(weather)
         # Les cases occupees par un objet installe (feu de camp, ...) : le
         # scenery masquera les elements du decor qui tomberaient dedans.
+        # Les objets installes sont masques pendant l'exploration (l'animation
+        # des mains occupe tout l'avant-plan).
+        installed = tuple() if exploring else tuple(
+            (o[0], int(o[1]), int(o[2])) for o in state.installed_objects_here())
         blocked_grid = tuple(sorted((int(o[1]), int(o[2]))
                                     for o in state.installed_objects_here()))
-        key = (zone, state.player_x, state.player_y, blocked_grid)
+        key = (zone, state.player_x, state.player_y, blocked_grid, installed)
         if key != self._scene_key:
-            # On passe les objets deja recoltes pour masquer ceux pris ici,
-            # et les cases bloquees pour ne pas dessiner d'objets dedans.
+            # On passe les objets deja recoltes pour masquer ceux pris ici, les
+            # cases bloquees pour ne pas dessiner d'objets dedans, et les
+            # objets installes pour qu'ils soient tries avec le decor.
             self.scenery.set_scene(zone, state.player_x * 131 + state.player_y,
                                    taken=state.harvested_here(),
-                                   blocked_grid=blocked_grid)
+                                   blocked_grid=blocked_grid,
+                                   installed=installed)
             self._scene_key = key
 
     def _periodic_autosave(self, _dt):
