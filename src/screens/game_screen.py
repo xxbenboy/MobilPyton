@@ -444,6 +444,7 @@ class GameScreen(Screen):
             s = a.height * 0.94
             self.prox_btn.size = (s, s)
         prox_area.bind(size=_prox_square)
+        self.prox_btn.bind(on_release=self._open_prox)
         prox_area.add_widget(self.prox_btn)
         prox_cell.add_widget(prox_area)
         prox_cell.add_widget(_button_label("Proximite"))
@@ -950,6 +951,24 @@ class GameScreen(Screen):
             return
         place = self.manager.get_screen("place")
         place._slot = slot
+        place.mode = "place"
+        place._action_cell = None
+        self.manager.current = "place"
+
+    def _open_prox(self, *_):
+        """Ouvre la grille de la case pour se SERVIR d'un objet pose
+        (feu de camp...). Meme vue que le placement, mais on choisit un
+        objet au lieu d'une case libre."""
+        state = App.get_running_app().game_state
+        if state is None or self._ff_active or self._moving:
+            return
+        if not any(o[0] in items.INTERACTIVE_ITEMS
+                   for o in state.installed_objects_here()):
+            return
+        place = self.manager.get_screen("place")
+        place._slot = None
+        place.mode = "use"
+        place._action_cell = None
         self.manager.current = "place"
 
     # ------------------------------------------------------------------ #
@@ -1405,6 +1424,8 @@ class GameScreen(Screen):
         # Meteo : elle evolue avec le temps, et son rendu depend de la zone
         # (en montagne : pluie -> neige, orage -> blizzard).
         state.update_weather()
+        # Les foyers allumes consomment leur bois et leur air avec le temps.
+        state.update_fires()
         weather = state.effective_weather()
         self.weather_layer.set_weather(weather, state.fog_active())
         self.lightning.set_weather(weather)

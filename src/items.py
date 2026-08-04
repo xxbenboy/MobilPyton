@@ -53,6 +53,31 @@ INSTALLABLE_ITEMS = {"Feu_de_camp"}
 # "Proximite" s'active. Actuellement seul le feu de camp est interactif.
 INTERACTIVE_ITEMS = {"Feu_de_camp"}
 
+# ALLUMER un feu : il faut un de ces objets EN MAIN. Deux pierres dures
+# frappees l'une contre l'autre suffisent a faire une etincelle.
+FIRE_STARTER_ITEMS = {"Silex", "Pierre_Coupante"}
+
+# COMBUSTIBLE : ce qu'on peut mettre dans un foyer, et la duree de combustion
+# apportee (en HEURES de jeu). L'amadou (feuille, herbe, roseau) s'enflamme
+# facilement mais brule vite ; le gros bois tient longtemps.
+FIRE_FUEL_HOURS = {
+    "Feuille": 0.1,
+    "Herbe": 0.1,
+    "Roseau": 0.15,
+    "Small_Stick": 0.5,
+    "Loafy_Long_Stick": 0.8,
+    "Long_Stick": 1.5,
+}
+
+
+def fuel_hours(name):
+    """Duree de combustion apportee par cet objet (0 = pas un combustible)."""
+    return FIRE_FUEL_HOURS.get(name, 0.0)
+
+
+def is_fire_starter(name):
+    return name in FIRE_STARTER_ITEMS
+
 
 def is_hand_collectable(name):
     """Vrai si l'objet peut etre pris en main (faux = reste au sol)."""
@@ -69,9 +94,9 @@ ZONE_FINDS = {
     "Plaine": [("Herbe", 12), ("Fleur", 7), ("Small_Stick", 6), ("Long_Stick", 2), ("Pierre", 5),
                ("Baie", 3), ("Plume", 2), ("Carcasse", 1)],
     "Montagne": [("Pierre", 12), ("Small_Stick", 4), ("Long_Stick", 2), ("Pierre_Coupante", 3),
-                 ("Os", 2), ("Carcasse", 1)],
+                 ("Silex", 3), ("Os", 2), ("Carcasse", 1)],
     "Lac": [("Roseau", 9), ("Poisson", 7), ("Pierre", 4), ("Small_Stick", 3), ("Long_Stick", 1),
-            ("Coquillage", 2), ("Carcasse", 1)],
+            ("Silex", 2), ("Coquillage", 2), ("Carcasse", 1)],
 }
 
 

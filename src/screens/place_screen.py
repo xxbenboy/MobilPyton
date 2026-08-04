@@ -15,8 +15,10 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.widget import Widget
-from kivy.graphics import (Color, Rectangle, RoundedRectangle, Line, Ellipse)
+from kivy.graphics import (Color, Rectangle, RoundedRectangle, Line, Ellipse,
+                           Triangle)
 from kivy.metrics import dp
+import math
 
 from src import items
 from src.widgets.animated_background import AnimatedBackground, night_darkness
@@ -77,6 +79,45 @@ def draw_nature_glyph(kind, cx, cy, size):
         Color(0.62, 0.62, 0.66, 1)                            # facette eclairee
         Ellipse(pos=(cx - r * 0.55, cy - r * 0.28),
                 size=(r * 1.0, r * 0.82))
+
+
+def draw_object_glyph(name, cx, cy, size, lit=False):
+    """Dessine un objet INSTALLE vu de dessus, centre sur (cx, cy).
+
+    A appeler dans un contexte `with canvas:`. Un foyer eteint montre son
+    cercle de pierres et son bois ; allume, il montre ses flammes."""
+    r = size * 0.5
+    if name != "Feu_de_camp":
+        return
+    Color(0.10, 0.08, 0.06, 0.90)                         # cendres
+    Ellipse(pos=(cx - r * 0.78, cy - r * 0.78), size=(r * 1.56, r * 1.56))
+    if lit:                                               # braises
+        Color(0.75, 0.25, 0.08, 1)
+        Ellipse(pos=(cx - r * 0.62, cy - r * 0.62), size=(r * 1.24, r * 1.24))
+    else:                                                 # buches croisees
+        Color(0.36, 0.24, 0.14, 1)
+        for a in (0.6, -0.6):
+            dx, dy = math.cos(a) * r * 0.62, math.sin(a) * r * 0.62
+            Line(points=[cx - dx, cy - dy, cx + dx, cy + dy],
+                 width=max(1.2, r * 0.13))
+    n = 8                                                 # anneau de pierres
+    sr = r * 0.20
+    for i in range(n):
+        a = 2 * math.pi * i / n
+        sx = cx + (r - sr) * math.cos(a)
+        sy = cy + (r - sr) * math.sin(a)
+        if i % 2:
+            Color(0.52, 0.42, 0.34, 1)
+        else:
+            Color(0.66, 0.58, 0.50, 1)
+        Ellipse(pos=(sx - sr, sy - sr), size=(sr * 2, sr * 2))
+    if lit:                                               # flammes
+        Color(0.98, 0.62, 0.12, 1)
+        Triangle(points=[cx - r * 0.42, cy - r * 0.10, cx + r * 0.42,
+                         cy - r * 0.10, cx, cy + r * 0.78])
+        Color(1.0, 0.88, 0.35, 1)
+        Triangle(points=[cx - r * 0.22, cy - r * 0.05, cx + r * 0.22,
+                         cy - r * 0.05, cx, cy + r * 0.44])
 
 
 class _Swatch(Widget):
@@ -169,6 +210,110 @@ class _Legend(BoxLayout):
         self._bg.size = self.size
 
 
+def _hm(hours):
+    """Duree lisible : 1.25 -> "1 h 15", 0.4 -> "24 min"."""
+    total = max(0, int(round(hours * 60)))
+    if total >= 60:
+        return f"{total // 60} h {total % 60:02d}"
+    return f"{total} min"
+
+
+class _ActionPanel(BoxLayout):
+    """Fenetre d'ACTION d'un objet pose. Pour l'instant : le feu de camp.
+
+    Un feu obeit au triangle du feu : il lui faut du COMBUSTIBLE (bois,
+    amadou), du COMBURANT (l'air, renouvele en attisant) et une source
+    d'ALLUMAGE. Chaque bouton est grise avec sa raison quand il manque
+    quelque chose."""
+
+    ACTIONS = (("fuel", "Alimenter\n(combustible)"),
+               ("air", "Attiser\n(comburant)"),
+               ("light", "Allumer le feu"))
+
+    def __init__(self, on_close, on_action, **kwargs):
+        kwargs.setdefault("orientation", "vertical")
+        kwargs.setdefault("padding", dp(12))
+        kwargs.setdefault("spacing", dp(8))
+        super().__init__(**kwargs)
+        self._on_close = on_close
+        self._on_action = on_action
+        with self.canvas.before:
+            Color(0.05, 0.07, 0.10, 0.82)
+            self._bg = RoundedRectangle(radius=[dp(14)])
+        self.bind(pos=self._sync, size=self._sync)
+
+        def _label(size_hint_y, color=(0.92, 0.92, 0.95, 1), bold=False):
+            lbl = Label(text="", bold=bold, color=color, halign="center",
+                        valign="middle", size_hint_y=size_hint_y)
+            lbl.bind(size=lambda w, *_: setattr(
+                w, "text_size", (w.width, w.height)))
+            return scale_font(lbl)
+
+        self.title = _label(0.14, (0.96, 0.82, 0.45, 1), bold=True)
+        self.add_widget(self.title)
+        self.status = _label(0.20)
+        self.add_widget(self.status)
+
+        self.btns = {}
+        for key, text in self.ACTIONS:
+            b = scale_font(StyledButton(text=text, halign="center",
+                                        size_hint_y=0.15))
+            b.bind(on_release=lambda _w, k=key: self._on_action(k))
+            self.btns[key] = b
+            self.add_widget(b)
+
+        self.reason = _label(0.14, (0.85, 0.72, 0.55, 1))
+        self.add_widget(self.reason)
+        back = scale_font(StyledButton(text="Retour", size_hint_y=0.15))
+        back.bind(on_release=lambda *_: self._on_close())
+        self.add_widget(back)
+
+    def _sync(self, *_):
+        self._bg.pos = self.pos
+        self._bg.size = self.size
+
+    @staticmethod
+    def _set(btn, ok):
+        btn.disabled = not ok
+        btn.opacity = 1.0 if ok else 0.45
+
+    def update(self, state, gx, gy):
+        """Rafraichit l'etat du foyer et la disponibilite de chaque action."""
+        f = state.fire_at(gx, gy)
+        lit = bool(f.get("lit"))
+        self.title.text = items.display_name("Feu_de_camp")
+        lines = ["Allume" if lit else "Eteint",
+                 f"Combustible : {_hm(f['fuel'])}    "
+                 f"Comburant : {_hm(f['air'])}"]
+        if lit:
+            lines.append(f"S'eteint dans {_hm(state.fire_burn_hours(f))}")
+        self.status.text = "\n".join(lines)
+
+        why = []
+        can_fuel = state.fire_fuel_hand() is not None
+        self._set(self.btns["fuel"], can_fuel)
+        if not can_fuel:
+            why.append("Alimenter : aucun combustible en main "
+                       "(bois, feuilles, herbe...).")
+        self._set(self.btns["air"], True)
+
+        if lit:
+            light_why = "Allumer : le feu brule deja."
+        elif state.fire_starter_hand() is None:
+            light_why = ("Allumer : il faut un silex ou une pierre "
+                         "coupante en main.")
+        elif f["fuel"] <= 0.0:
+            light_why = "Allumer : le foyer est vide, ajoute du combustible."
+        elif f["air"] <= 0.0:
+            light_why = "Allumer : attise le foyer pour lui donner de l'air."
+        else:
+            light_why = None
+        self._set(self.btns["light"], light_why is None)
+        if light_why:
+            why.append(light_why)
+        self.reason.text = "\n".join(why[:2])
+
+
 class _GridOverlay(Widget):
     """Grille 5x5 avec joueur en (gx=2, gy=0). Cellules cliquables (sauf
     la case joueur et les cases deja prises)."""
@@ -178,6 +323,10 @@ class _GridOverlay(Widget):
         self.on_cell_pick = on_cell_pick
         self.taken = set()               # {(gx, gy), ...} objets installes
         self.nature = {}                 # {(gx, gy): "tree"|"bush"|"rock"}
+        self.objects = {}                # {(gx, gy): (nom, allume)}
+        # "place" = choisir une case LIBRE ou poser un objet ;
+        # "use"   = choisir un objet INSTALLE pour s'en servir.
+        self.mode = "place"
         self.bind(pos=self._redraw, size=self._redraw)
 
     def _grid_geom(self):
@@ -231,12 +380,17 @@ class _GridOverlay(Widget):
                 Color(*CELL_NATURE)
                 Rectangle(pos=(tx, ty), size=(cs, cs))
                 draw_nature_glyph(kind, tx + cs / 2, ty + cs / 2, cs * 0.72)
-            # Cases deja prises (installees) : surlignees rouge.
-            Color(*CELL_TAKEN)
-            for (gx, gy) in self.taken:
+            # Cases deja prises (installees) : surlignees rouge, avec le
+            # pictogramme de l'objet pose (feu de camp...).
+            for (gx, gy) in sorted(self.taken):
                 tx = ox + gx * cs
                 ty = oy + gy * cs
+                Color(*CELL_TAKEN)
                 Rectangle(pos=(tx, ty), size=(cs, cs))
+                obj = self.objects.get((gx, gy))
+                if obj:
+                    draw_object_glyph(obj[0], tx + cs / 2, ty + cs / 2,
+                                      cs * 0.72, lit=obj[1])
 
     def on_touch_down(self, touch):
         if not self.collide_point(*touch.pos):
@@ -248,6 +402,11 @@ class _GridOverlay(Widget):
         gy = int((touch.y - oy) / cs)
         gx = max(0, min(4, gx))
         gy = max(0, min(4, gy))
+        if self.mode == "use":
+            # Seuls les objets poses repondent.
+            if (gx, gy) in self.objects:
+                self.on_cell_pick(gx, gy)
+            return True
         if (gx, gy) == (2, 0):
             return True                  # case joueur : ignoree
         if (gx, gy) in self.taken or (gx, gy) in self.nature:
@@ -260,6 +419,9 @@ class PlaceScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._slot = None                # main dont on installe (0 ou 1)
+        # "place" = poser l'objet tenu ; "use" = se servir d'un objet pose
+        # (ouvert par le bouton Proximite).
+        self.mode = "place"
 
         root = FloatLayout()
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
@@ -316,7 +478,34 @@ class PlaceScreen(Screen):
                                                   "current", "game"))
         root.add_widget(cancel)
 
+        # Fenetre d'ACTION : remplace la grille quand on choisit un objet
+        # pose (mode "use"). Construite une fois, montree a la demande.
+        self.action_panel = _ActionPanel(on_close=self._close_action,
+                                         on_action=self._do_fire_action,
+                                         size_hint=(0.56, 0.74),
+                                         pos_hint={"center_x": 0.5,
+                                                   "center_y": 0.48})
+        self._action_cell = None          # (gx, gy) de l'objet en cours
+        self.action_panel.opacity = 0.0   # masquee tant qu'on est sur la grille
+        self.action_panel.disabled = True
+        root.add_widget(self.action_panel)
+
+        self.root_layout = root
         self.add_widget(root)
+
+    # ------------------------------------------------------------------ #
+    def _show_action(self, visible):
+        """Bascule entre la GRILLE et la fenetre d'action."""
+        self.action_panel.opacity = 1.0 if visible else 0.0
+        self.action_panel.disabled = not visible
+        for w in (self.grid_overlay, self.legend):
+            w.opacity = 0.0 if visible else 1.0
+            w.disabled = visible
+
+    def _close_action(self):
+        self._action_cell = None
+        self._show_action(False)
+        self.on_pre_enter()
 
     def on_pre_enter(self):
         state = App.get_running_app().game_state
@@ -333,29 +522,61 @@ class PlaceScreen(Screen):
             self._scene_key = key
         # Marque les positions deja installees comme non cliquables, et les
         # cases occupees par un GROS element du decor (arbre, buisson, rocher).
-        self.grid_overlay.taken = {(int(o[1]), int(o[2]))
-                                   for o in state.installed_objects_here()}
+        objs = [(o[0], int(o[1]), int(o[2]))
+                for o in state.installed_objects_here()]
+        self.grid_overlay.taken = {(gx, gy) for _n, gx, gy in objs}
+        self.grid_overlay.objects = {
+            (gx, gy): (n, bool(state.fire_at(gx, gy).get("lit"))
+                       if n == "Feu_de_camp" else False)
+            for n, gx, gy in objs}
         self.grid_overlay.nature = {(int(gx), int(gy)): kind for (gx, gy), kind
                                     in state.nature_cells_here().items()}
+        self.grid_overlay.mode = self.mode
         self.grid_overlay._redraw()
         # La legende ne liste que les obstacles presents sur CETTE case.
         self.legend.rebuild(self.grid_overlay.nature.values())
-        # Titre : quel objet on est en train de placer ?
-        if self._slot is not None and self._slot in (0, 1):
+        # Titre : selon qu'on POSE un objet ou qu'on s'en SERT.
+        if self.mode == "use":
+            self.title.text = "Choisis un objet a proximite"
+        elif self._slot is not None and self._slot in (0, 1):
             item = state.hands[self._slot]
-            if item:
-                self.title.text = f"Placer : {items.display_name(item)}"
-            else:
-                self.title.text = "Choisis une case"
+            self.title.text = (f"Placer : {items.display_name(item)}"
+                               if item else "Choisis une case")
         else:
             self.title.text = "Choisis une case"
+        # La fenetre d'action reste ouverte si on vient d'y agir.
+        self._show_action(self._action_cell is not None)
+        if self._action_cell is not None:
+            self.action_panel.update(state, *self._action_cell)
 
     def _on_cell_pick(self, gx, gy):
         state = App.get_running_app().game_state
-        if state is None or self._slot is None:
+        if state is None:
+            self.manager.current = "game"
+            return
+        if self.mode == "use":
+            # Ouvre la fenetre d'action de l'objet choisi.
+            self._action_cell = (gx, gy)
+            self.action_panel.update(state, gx, gy)
+            self._show_action(True)
+            return
+        if self._slot is None:
             self.manager.current = "game"
             return
         if state.install_from_hand(self._slot, gx, gy):
             App.get_running_app().autosave()
         self._slot = None
         self.manager.current = "game"
+
+    def _do_fire_action(self, what):
+        """Une action de la fenetre du foyer : alimenter / attiser / allumer."""
+        state = App.get_running_app().game_state
+        if state is None or self._action_cell is None:
+            return
+        gx, gy = self._action_cell
+        ok = {"fuel": state.fire_add_fuel,
+              "air": state.fire_add_air,
+              "light": state.fire_light}[what](gx, gy)
+        if ok:
+            App.get_running_app().autosave()
+        self.on_pre_enter()

@@ -92,6 +92,15 @@ EFFECT_HOURS = {
 WET_HOURS = {"pluie": 0.5, "orage": 1.0}
 
 
+# --------------------------------------------------------------------- #
+# FEUX DE CAMP
+# --------------------------------------------------------------------- #
+# Un foyer a besoin des trois cotes du triangle du feu : du COMBUSTIBLE (bois,
+# amadou : voir items.FIRE_FUEL_HOURS), du COMBURANT (l'air, renouvele en
+# attisant) et d'une source d'ALLUMAGE (items.FIRE_STARTER_ITEMS).
+FIRE_AIR_HOURS = 1.0        # heures de tirage gagnees en attisant une fois
+
+
 def _clamp100(v):
     return max(0, min(100, v))
 
@@ -104,7 +113,7 @@ class GameState:
                  log=None, player_x=None, player_y=None, revealed=None,
                  facing=0, installed=None, debug=False,
                  weather=None, fog=False, weather_until=0,
-                 effects=None):
+                 effects=None, fires=None):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
@@ -134,6 +143,15 @@ class GameState:
         # objet installe est irreversible (ne peut plus etre ramasse ni
         # deplace) et rend le bouton Proximite actif s'il est interactif.
         self.installed = installed if installed else {}
+        # Etat de chaque FOYER installe : {"x,y:gx,gy": {...}}. Voir fire_at().
+        # Un foyer ne brule que s'il a du COMBUSTIBLE et du COMBURANT ; il
+        # faut de plus l'ALLUMER (allume-feu en main).
+        self.fires = {}
+        for key, f in (fires or {}).items():
+            self.fires[key] = {"lit": int(f.get("lit", 0)),
+                               "fuel": float(f.get("fuel", 0.0)),
+                               "air": float(f.get("air", 0.0)),
+                               "t": int(f.get("t", time_seconds))}
         self.revealed = set(revealed) if revealed else set()  # {"x,y", ...} zones revelees
         self.action_count = action_count
         self.log = log if log is not None else []
@@ -462,8 +480,121 @@ class GameState:
                 return False
         lst.append((name, int(gx), int(gy)))
         self.hands[index] = None
-        # Un feu de camp installe s'allume : l'effet demarre pour sa duree.
-        self.start_effect(name)
+        if name == "Feu_de_camp":
+            # Un foyer monte est ETEINT : il faut y mettre du combustible,
+            # l'aerer, puis l'allumer (voir fire_light).
+            self.fires[self._fire_key(gx, gy)] = {
+                "lit": 0, "fuel": 0.0, "air": 0.0, "t": self.time_seconds}
+        else:
+            self.start_effect(name)
+        return True
+
+    # ------------------------------------------------------------------ #
+    # Feux de camp : combustible + comburant + allumage
+    # ------------------------------------------------------------------ #
+    def _fire_key(self, gx, gy):
+        return f"{self._cell_key()}:{int(gx)},{int(gy)}"
+
+    def fire_at(self, gx, gy):
+        """Etat du foyer a cette position de la grille (cree s'il manque).
+
+        - "fuel" : heures de COMBUSTIBLE restant (bois, amadou) ;
+        - "air"  : heures de COMBURANT restant (tirage, ventilation) ;
+        - "lit"  : le feu brule (les deux reserves se consument) ;
+        - "t"    : date du dernier calcul de combustion."""
+        key = self._fire_key(gx, gy)
+        f = self.fires.get(key)
+        if f is None:
+            f = {"lit": 0, "fuel": 0.0, "air": 0.0, "t": self.time_seconds}
+            self.fires[key] = f
+        return f
+
+    def fire_burn_hours(self, f):
+        """Heures avant extinction : la reserve qui manquera EN PREMIER."""
+        return max(0.0, min(f.get("fuel", 0.0), f.get("air", 0.0)))
+
+    def update_fires(self):
+        """Fait bruler les foyers allumes.
+
+        Le combustible ET le comburant se consument en meme temps : si l'un
+        des deux vient a manquer, le feu s'eteint (il reste alors du bois,
+        mais plus de tirage - ou l'inverse)."""
+        for f in self.fires.values():
+            dt = max(0, self.time_seconds - int(f.get("t", self.time_seconds)))
+            f["t"] = self.time_seconds
+            if not f.get("lit") or dt <= 0:
+                continue
+            burn = dt / 3600.0
+            f["fuel"] = max(0.0, f["fuel"] - burn)
+            f["air"] = max(0.0, f["air"] - burn)
+            if f["fuel"] <= 0.0 or f["air"] <= 0.0:
+                f["lit"] = 0
+        self._sync_fire_effect()
+
+    def _sync_fire_effect(self):
+        """L'effet "Feu de camp" dure tant qu'un foyer BRULE sur la case.
+
+        On garde la date de debut d'origine pour que l'anneau de l'effet
+        montre bien le temps qui s'ecoule (et remonte quand on rajoute du
+        combustible)."""
+        best = 0.0
+        for obj in self.installed_objects_here():
+            if obj[0] != "Feu_de_camp":
+                continue
+            f = self.fires.get(self._fire_key(obj[1], obj[2]))
+            if f and f.get("lit"):
+                best = max(best, self.fire_burn_hours(f))
+        if best > 0.0:
+            prev = self.effects.get("Feu_de_camp")
+            start = prev[0] if prev else self.time_seconds
+            self.effects["Feu_de_camp"] = [
+                int(start), int(self.time_seconds + best * 3600)]
+        else:
+            self.effects.pop("Feu_de_camp", None)
+
+    def fire_fuel_hand(self):
+        """Main tenant un combustible (droite d'abord), ou None."""
+        for i in (1, 0):
+            if items.fuel_hours(self.hands[i]) > 0:
+                return i
+        return None
+
+    def fire_starter_hand(self):
+        """Main tenant un allume-feu (droite d'abord), ou None."""
+        for i in (1, 0):
+            if self.hands[i] and items.is_fire_starter(self.hands[i]):
+                return i
+        return None
+
+    def fire_add_fuel(self, gx, gy):
+        """Met le combustible tenu en main dans le foyer."""
+        hand = self.fire_fuel_hand()
+        if hand is None:
+            return False
+        f = self.fire_at(gx, gy)
+        f["fuel"] += items.fuel_hours(self.hands[hand])
+        self.hands[hand] = None
+        self._sync_fire_effect()
+        return True
+
+    def fire_add_air(self, gx, gy):
+        """Attise le foyer : souffler / eventer renouvelle le comburant.
+        Ne demande aucun objet, mais il faut recommencer regulierement."""
+        f = self.fire_at(gx, gy)
+        f["air"] = f.get("air", 0.0) + FIRE_AIR_HOURS
+        self._sync_fire_effect()
+        return True
+
+    def fire_light(self, gx, gy):
+        """Allume le foyer. Demande un allume-feu EN MAIN, du combustible et
+        du comburant : les trois cotes du triangle du feu."""
+        f = self.fire_at(gx, gy)
+        if (f.get("lit") or self.fire_starter_hand() is None
+                or f.get("fuel", 0.0) <= 0.0 or f.get("air", 0.0) <= 0.0):
+            return False
+        f["lit"] = 1
+        f["t"] = self.time_seconds
+        self._sync_fire_effect()
         return True
 
     def take_found(self, item):
@@ -585,6 +716,7 @@ class GameState:
             "fog": self.fog,
             "weather_until": self.weather_until,
             "effects": self.effects,
+            "fires": self.fires,
             "explores": self.explores,
             "harvested": self.harvested,
             "facing": self.facing,
@@ -623,6 +755,7 @@ class GameState:
             fog=data.get("fog", False),
             weather_until=data.get("weather_until", 0),
             effects=data.get("effects"),
+            fires=data.get("fires"),
             explores=data.get("explores"),
             harvested=data.get("harvested"),
             facing=data.get("facing", 0),
