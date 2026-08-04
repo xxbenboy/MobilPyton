@@ -12,15 +12,97 @@ ramasse ni deplace.
 from kivy.app import App
 from kivy.uix.screenmanager import Screen
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.widget import Widget
-from kivy.graphics import Color, Rectangle, Line, Ellipse
+from kivy.graphics import (Color, Rectangle, RoundedRectangle, Line, Ellipse)
+from kivy.metrics import dp
 
 from src import items
 from src.widgets.animated_background import AnimatedBackground, night_darkness
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.styled_button import StyledButton
-from src.widgets.responsive import scale_font
+from src.widgets.responsive import scale_font, dh
+
+# Couleurs de la grille. Definies ICI une seule fois : la grille ET la legende
+# les utilisent, elles ne peuvent donc jamais se contredire.
+CELL_BG = (0, 0, 0, 0.20)             # fond commun a toutes les cases
+CELL_LINE = (1, 1, 1, 0.60)           # trait de separation
+CELL_TAKEN = (0.90, 0.35, 0.30, 0.35)     # rouge  : deja utilise
+CELL_NATURE = (0.25, 0.55, 0.30, 0.45)    # vert   : occupe par la nature
+CELL_PLAYER = (0.30, 0.70, 1.00, 0.35)    # bleu   : le joueur
+CELL_FREE = (0, 0, 0, 0)                  # aucune : libre
+
+# Legende affichee a gauche de la grille, dans l'ordre d'affichage.
+LEGEND = (
+    (CELL_TAKEN, "Emplacement\ndeja utilise"),
+    (CELL_NATURE, "Zone occupee\n(nature)"),
+    (CELL_FREE, "Zone vacante"),
+    (CELL_PLAYER, "Vous"),
+)
+
+
+class _Swatch(Widget):
+    """Petit carre de couleur, dessine EXACTEMENT comme une case de la grille.
+
+    Meme fond sombre et meme contour : une case "vacante" (sans couleur) est
+    donc reconnaissable telle quelle."""
+
+    def __init__(self, rgba, **kwargs):
+        super().__init__(**kwargs)
+        with self.canvas:
+            Color(*CELL_BG)
+            self._bg = Rectangle()
+            Color(*rgba)
+            self._fill = Rectangle()
+            Color(*CELL_LINE)
+            self._border = Line(width=1.2)
+        self.bind(pos=self._sync, size=self._sync)
+
+    def _sync(self, *_):
+        s = min(self.width, self.height)
+        x = self.x + (self.width - s) / 2.0
+        y = self.y + (self.height - s) / 2.0
+        self._bg.pos = self._fill.pos = (x, y)
+        self._bg.size = self._fill.size = (s, s)
+        self._border.rectangle = (x, y, s, s)
+
+
+class _Legend(BoxLayout):
+    """Panneau explicatif : a quoi correspond la couleur de chaque case."""
+
+    def __init__(self, **kwargs):
+        kwargs.setdefault("orientation", "vertical")
+        kwargs.setdefault("padding", dp(8))
+        kwargs.setdefault("spacing", dp(4))
+        super().__init__(**kwargs)
+        with self.canvas.before:
+            Color(0.05, 0.07, 0.10, 0.55)
+            self._bg = RoundedRectangle(radius=[dp(10)])
+        self.bind(pos=self._sync, size=self._sync)
+
+        title = scale_font(Label(text="Legende", bold=True,
+                                 color=(0.96, 0.82, 0.45, 1),
+                                 halign="center", valign="middle",
+                                 size_hint_y=None, height=dh(46)))
+        title.bind(size=lambda w, *_: setattr(
+            w, "text_size", (w.width, w.height)))
+        self.add_widget(title)
+
+        for rgba, text in LEGEND:
+            row = BoxLayout(orientation="horizontal", spacing=dp(8),
+                            size_hint_y=None, height=dh(70))
+            row.add_widget(_Swatch(rgba, size_hint_x=None, width=dh(70)))
+            lbl = scale_font(Label(text=text, color=(0.92, 0.92, 0.95, 1),
+                                   halign="left", valign="middle"))
+            lbl.bind(size=lambda w, *_: setattr(
+                w, "text_size", (w.width, w.height)))
+            row.add_widget(lbl)
+            self.add_widget(row)
+
+    def _sync(self, *_):
+        self._bg.pos = self.pos
+        self._bg.size = self.size
 
 
 class _GridOverlay(Widget):
@@ -48,10 +130,10 @@ class _GridOverlay(Widget):
         ox, oy, cs = self._grid_geom()
         with self.canvas:
             # Fond de la grille (semi-transparent pour laisser voir le decor).
-            Color(0, 0, 0, 0.20)
+            Color(*CELL_BG)
             Rectangle(pos=(ox, oy), size=(5 * cs, 5 * cs))
             # Lignes blanches translucides.
-            Color(1, 1, 1, 0.60)
+            Color(*CELL_LINE)
             for i in range(6):
                 Line(points=[ox + i * cs, oy,
                              ox + i * cs, oy + 5 * cs], width=1.2)
@@ -60,7 +142,7 @@ class _GridOverlay(Widget):
             # Case joueur (gx=2, gy=0) : surlignee bleu, non cliquable.
             px = ox + 2 * cs
             py = oy + 0 * cs
-            Color(0.30, 0.70, 1.00, 0.35)
+            Color(*CELL_PLAYER)
             Rectangle(pos=(px, py), size=(cs, cs))
             # Point du joueur (petit disque bleu au centre de sa case).
             r = cs * 0.18
@@ -78,13 +160,13 @@ class _GridOverlay(Widget):
                          acx + aw / 2, ay1 - aw * 0.55], width=2.2)
             # Cases occupees par la NATURE (arbre, buisson, gros rocher) :
             # surlignees vertes, non cliquables.
-            Color(0.25, 0.55, 0.30, 0.45)
+            Color(*CELL_NATURE)
             for (gx, gy) in self.nature:
                 tx = ox + gx * cs
                 ty = oy + gy * cs
                 Rectangle(pos=(tx, ty), size=(cs, cs))
             # Cases deja prises (installees) : surlignees rouge.
-            Color(0.90, 0.35, 0.30, 0.35)
+            Color(*CELL_TAKEN)
             for (gx, gy) in self.taken:
                 tx = ox + gx * cs
                 ty = oy + gy * cs
@@ -140,6 +222,14 @@ class PlaceScreen(Screen):
                                          pos_hint={"center_x": 0.5,
                                                    "center_y": 0.46})
         root.add_widget(self.grid_overlay)
+
+        # Legende, a GAUCHE de la grille : en paysage la grille est carree et
+        # centree, la bande de gauche est donc libre.
+        self.legend = _Legend(size_hint=(0.24, None),
+                              pos_hint={"x": 0.02, "center_y": 0.46})
+        self.legend.bind(minimum_height=self.legend.setter("height"))
+        self.legend.height = self.legend.minimum_height
+        root.add_widget(self.legend)
 
         # Titre (haut).
         self.title = scale_font(Label(text="Choisis une case",
