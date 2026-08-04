@@ -296,21 +296,29 @@ class _ActionPanel(BoxLayout):
         f = state.fire_at(gx, gy)
         lit = bool(f.get("lit"))
         self.title.text = items.display_name("Feu_de_camp")
+        pct = int(round(state.fire_light_chance(f) * 100))
         lines = ["Allume" if lit else "Eteint",
                  f"Combustible : {_hm(f['fuel'])}"]
         if lit:
             lines.append(f"S'eteint dans {_hm(state.fire_burn_hours(f))}")
         else:
-            pct = int(round(state.fire_light_chance(f) * 100))
             lines.append(f"Chance d'allumage : {pct} %")
         self.status.text = "\n".join(lines)
 
         why = [message] if message else []
+        # Chaque bouton annonce CE QU'IL APPORTE avec la matiere qui serait
+        # utilisee : autant de duree pour le combustible, autant de chance
+        # d'allumage pour le comburant.
         wood = state.fire_source(items.FIRE_WOOD_HOURS)
+        self.btns["wood"].text = "Alimenter\n(combustible)" + (
+            f"\n+{_hm(items.FIRE_WOOD_HOURS[wood])}" if wood else "")
         self._set(self.btns["wood"], wood is not None)
         if wood is None:
             why.append("Combustible : aucune branche ni buche a proximite.")
         tinder = state.fire_source(items.FIRE_TINDER_CHANCE)
+        self.btns["tinder"].text = "Alimenter\n(comburant)" + (
+            f"\n+{int(round(items.FIRE_TINDER_CHANCE[tinder] * 100))} %"
+            if tinder else "")
         self._set(self.btns["tinder"], tinder is not None)
         if tinder is None:
             why.append("Comburant : aucune feuille ni ecorce a proximite.")
@@ -324,6 +332,8 @@ class _ActionPanel(BoxLayout):
             light_why = "Allumer : il manque du combustible dans le foyer."
         else:
             light_why = None
+        self.btns["light"].text = ("Allumer le feu" if lit else
+                                   f"Allumer le feu\n{pct} %")
         self._set(self.btns["light"], light_why is None)
         if light_why:
             why.append(light_why)

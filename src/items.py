@@ -54,8 +54,19 @@ INSTALLABLE_ITEMS = {"Feu_de_camp"}
 INTERACTIVE_ITEMS = {"Feu_de_camp"}
 
 # ALLUMER un feu : il faut un de ces objets EN MAIN. Deux pierres dures
-# frappees l'une contre l'autre suffisent a faire une etincelle.
-FIRE_STARTER_ITEMS = {"Silex", "Pierre_Coupante"}
+# frappees l'une contre l'autre suffisent a faire une etincelle, mais un vrai
+# allume-feu (a fabriquer, voir RECIPES) donne bien plus de chances.
+FIRE_STARTER_BONUS = {
+    "Allume_feu": 0.25,
+    "Silex": 0.05,
+    "Pierre_Coupante": 0.0,
+}
+FIRE_STARTER_ITEMS = set(FIRE_STARTER_BONUS)
+
+
+def starter_bonus(name):
+    """Bonus de chance d'allumage apporte par l'allume-feu tenu en main."""
+    return FIRE_STARTER_BONUS.get(name, 0.0)
 
 # Un foyer se nourrit de DEUX apports distincts, chacun avec son bouton dans
 # l'ecran Proximite, mais ils ne jouent PAS le meme role :
@@ -127,4 +138,5 @@ RECIPES = [
     {"result": "Hache", "ingredients": {"Pierre": 1, "Long_Stick": 1, "Small_Stick": 1}},
     {"result": "Lance", "ingredients": {"Long_Stick": 1, "Couteau": 1}},
     {"result": "Feu_de_camp", "ingredients": {"Small_Stick": 3, "Pierre": 2}},
+    {"result": "Allume_feu", "ingredients": {"Silex": 1, "Pierre": 1}},
 ]

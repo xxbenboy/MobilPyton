@@ -521,9 +521,13 @@ class GameState:
     def fire_light_chance(self, f):
         """Probabilite (0..1) de reussir a allumer ce foyer.
 
-        Elle part d'une base tres faible et monte avec le COMBURANT accumule
-        (feuilles, ecorce). Elle ne peut jamais atteindre la certitude."""
-        return min(FIRE_LIGHT_MAX, FIRE_LIGHT_BASE + max(0.0, f.get("air", 0.0)))
+        Elle part d'une base tres faible, monte surtout avec le COMBURANT
+        accumule (feuilles, ecorce), et un peu avec la qualite de l'allume-feu
+        tenu en main. Elle ne peut jamais atteindre la certitude."""
+        hand = self.fire_starter_hand()
+        bonus = items.starter_bonus(self.hands[hand]) if hand is not None else 0.0
+        return min(FIRE_LIGHT_MAX,
+                   FIRE_LIGHT_BASE + max(0.0, f.get("air", 0.0)) + bonus)
 
     def update_fires(self):
         """Fait bruler les foyers allumes : seul le COMBUSTIBLE se consume.
@@ -589,11 +593,15 @@ class GameState:
         return False
 
     def fire_starter_hand(self):
-        """Main tenant un allume-feu (droite d'abord), ou None."""
+        """Main tenant le MEILLEUR allume-feu, ou None si aucune n'en a."""
+        best = None
         for i in (1, 0):
-            if self.hands[i] and items.is_fire_starter(self.hands[i]):
-                return i
-        return None
+            name = self.hands[i]
+            if name and items.is_fire_starter(name):
+                if (best is None or items.starter_bonus(name)
+                        > items.starter_bonus(self.hands[best])):
+                    best = i
+        return best
 
     def fire_add(self, gx, gy, kind):
         """Ajoute un apport au foyer.
