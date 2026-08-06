@@ -539,11 +539,15 @@ class ZoneScenery(Widget):
             fx = grass_pick() if rng.random() < 0.72 else None
             gx, gb, sc, t = place(fx=fx)
             gh = rng.uniform(0.05, 0.13) * h * sc
+            if self._is_blocked(gx, gb):
+                continue
             items.append((gb, f_grass(gx, gb, gh, rng.choice(GREENS) + (1,), sc)))
         # Fougeres / plantes (bosquets).
         for _ in range(rng.randint(8, 12)):
             px, py, sc, t = place(fx=fern_pick())
             s = rng.uniform(0.05, 0.10) * h * sc
+            if self._is_blocked(px, py):
+                continue
             items.append((py, lambda px=px, py=py, s=s: self._plant(px, py, s)))
         # (Les buissons de sous-bois sont desormais des GROS elements places
         #  sur la grille 5x5, voir plus bas.)
@@ -918,6 +922,8 @@ class ZoneScenery(Widget):
         for _ in range(rng.randint(10, 14)):           # plantes feuillues (bosquets)
             px, py, sc, t = place(fx=plant_pick())
             s = rng.uniform(0.05, 0.09) * h * sc
+            if self._is_blocked(px, py):
+                continue
             items.append((py, lambda px=px, py=py, s=s: self._plant(px, py, s)))
 
         # --- Plantes de champ OPTIONNELLES (tirage generatif) ---
@@ -925,12 +931,16 @@ class ZoneScenery(Widget):
             for _ in range(rng.randint(6, 12)):
                 fx, fb, sc, t = place(0.95, fx=hay_pick())
                 ht = rng.uniform(0.10, 0.20) * h * sc
+                if self._is_blocked(fx, fb):
+                    continue
                 items.append((fb, lambda fx=fx, fb=fb, ht=ht, sc=sc:
                               self._hay(fx, fb, ht, sc)))
         if rng.random() < 0.65:                        # epis / graminees (parcelles)
             for _ in range(rng.randint(8, 16)):
                 ex, eb, sc, t = place(0.95, fx=wheat_pick())
                 ht = rng.uniform(0.10, 0.18) * h * sc
+                if self._is_blocked(ex, eb):
+                    continue
                 items.append((eb, lambda ex=ex, eb=eb, ht=ht, sc=sc:
                               self._wheat(ex, eb, ht, sc)))
         # Pas de champignons en plaine (uniquement en foret pour l'instant).
@@ -981,12 +991,17 @@ class ZoneScenery(Widget):
             sx = x0 + fx * w
             sy = surf(fx) - rng.uniform(0.02, 0.10) * h
             rr = rng.uniform(0.02, 0.05) * h
+            if self._is_blocked(sx, sy):
+                continue
             Ellipse(pos=(sx - rr, sy), size=(rr * 2.4, rr * 1.2))
         # Touffes rares sur la pente basse.
         for _ in range(8):
             sx = x0 + rng.uniform(0, 1) * w
-            self._grass_tuft(sx, y0 + rng.uniform(0.03, 0.18) * h,
-                             rng.uniform(0.03, 0.06) * h, (0.22, 0.34, 0.16, 1))
+            sy = y0 + rng.uniform(0.03, 0.18) * h
+            if self._is_blocked(sx, sy):
+                continue
+            self._grass_tuft(sx, sy, rng.uniform(0.03, 0.06) * h,
+                             (0.22, 0.34, 0.16, 1))
         # GROS rochers : elements FIXES positionnes sur la GRILLE 5x5 (cases
         # interdites a l'installation d'un objet). Non recoltables : la Pierre
         # se recolte sur les petits rochers de la pente. Ils sont tries AVEC
