@@ -148,11 +148,21 @@ class ZoneScenery(Widget):
             hh = size * w * 0.55 * 0.5 * 1.15
             self._blocked_bboxes.append((cx, cy, hw, hh))
 
-    def _is_blocked(self, x, y):
-        """True si le point (x, y) tombe dans la zone visuelle d'un objet
-        installe (feu de camp) sur cette case."""
+    def _is_blocked(self, x, y, top=None):
+        """True si l'element tombe dans la zone visuelle d'un objet installe
+        (feu de camp) sur cette case.
+
+        `top` = hauteur atteinte par l'element. Les plantes poussent VERS LE
+        HAUT depuis leur base : n'examiner que la base laisserait une touffe
+        enracinee juste devant le foyer monter au milieu des flammes. Avec
+        `top`, c'est tout le segment [base, sommet] qui est teste."""
         for cx, cy, hw, hh in self._blocked_bboxes:
-            if abs(x - cx) < hw and abs(y - cy) < hh:
+            if abs(x - cx) >= hw:
+                continue
+            if top is None:
+                if abs(y - cy) < hh:
+                    return True
+            elif y <= cy + hh and top >= cy - hh:
                 return True
         return False
 
@@ -539,14 +549,14 @@ class ZoneScenery(Widget):
             fx = grass_pick() if rng.random() < 0.72 else None
             gx, gb, sc, t = place(fx=fx)
             gh = rng.uniform(0.05, 0.13) * h * sc
-            if self._is_blocked(gx, gb):
+            if self._is_blocked(gx, gb, gb + gh):
                 continue
             items.append((gb, f_grass(gx, gb, gh, rng.choice(GREENS) + (1,), sc)))
         # Fougeres / plantes (bosquets).
         for _ in range(rng.randint(8, 12)):
             px, py, sc, t = place(fx=fern_pick())
             s = rng.uniform(0.05, 0.10) * h * sc
-            if self._is_blocked(px, py):
+            if self._is_blocked(px, py, py + s * 1.05):
                 continue
             items.append((py, lambda px=px, py=py, s=s: self._plant(px, py, s)))
         # (Les buissons de sous-bois sont desormais des GROS elements places
@@ -907,7 +917,8 @@ class ZoneScenery(Widget):
             gh = rng.uniform(0.05, 0.16) * h * sc
             fcol = rng.choice(flowers) if rng.random() < 0.10 else None
             fr = max(1.5, w * 0.004 * sc)
-            if not self._take_or_skip("Herbe") and not self._is_blocked(gx, gb):
+            if (not self._take_or_skip("Herbe")
+                    and not self._is_blocked(gx, gb, gb + gh)):
                 items.append((gb, f_grass(gx, gb, gh, green_at(t), sc, fcol, fr)))
         n = 125                                        # herbe d'horizon [Herbe]
         for i in range(n):
@@ -915,14 +926,15 @@ class ZoneScenery(Widget):
             gx = x0 + fx * w + rng.uniform(-0.006, 0.006) * w
             gb = horizon_curve(fx) - rng.uniform(0.0, 0.03) * h  # sur la crete
             gh = rng.uniform(0.05, 0.11) * h
-            if not self._take_or_skip("Herbe") and not self._is_blocked(gx, gb):
+            if (not self._take_or_skip("Herbe")
+                    and not self._is_blocked(gx, gb, gb + gh)):
                 items.append((gb, f_grass(gx, gb, gh,
                                           green_at(rng.uniform(0.85, 1.0)),
                                           0.5, None, 0)))
         for _ in range(rng.randint(10, 14)):           # plantes feuillues (bosquets)
             px, py, sc, t = place(fx=plant_pick())
             s = rng.uniform(0.05, 0.09) * h * sc
-            if self._is_blocked(px, py):
+            if self._is_blocked(px, py, py + s * 1.05):
                 continue
             items.append((py, lambda px=px, py=py, s=s: self._plant(px, py, s)))
 
@@ -931,7 +943,7 @@ class ZoneScenery(Widget):
             for _ in range(rng.randint(6, 12)):
                 fx, fb, sc, t = place(0.95, fx=hay_pick())
                 ht = rng.uniform(0.10, 0.20) * h * sc
-                if self._is_blocked(fx, fb):
+                if self._is_blocked(fx, fb, fb + ht):
                     continue
                 items.append((fb, lambda fx=fx, fb=fb, ht=ht, sc=sc:
                               self._hay(fx, fb, ht, sc)))
@@ -939,7 +951,7 @@ class ZoneScenery(Widget):
             for _ in range(rng.randint(8, 16)):
                 ex, eb, sc, t = place(0.95, fx=wheat_pick())
                 ht = rng.uniform(0.10, 0.18) * h * sc
-                if self._is_blocked(ex, eb):
+                if self._is_blocked(ex, eb, eb + ht):
                     continue
                 items.append((eb, lambda ex=ex, eb=eb, ht=ht, sc=sc:
                               self._wheat(ex, eb, ht, sc)))
@@ -991,17 +1003,17 @@ class ZoneScenery(Widget):
             sx = x0 + fx * w
             sy = surf(fx) - rng.uniform(0.02, 0.10) * h
             rr = rng.uniform(0.02, 0.05) * h
-            if self._is_blocked(sx, sy):
+            if self._is_blocked(sx, sy, sy + rr * 1.2):
                 continue
             Ellipse(pos=(sx - rr, sy), size=(rr * 2.4, rr * 1.2))
         # Touffes rares sur la pente basse.
         for _ in range(8):
             sx = x0 + rng.uniform(0, 1) * w
             sy = y0 + rng.uniform(0.03, 0.18) * h
-            if self._is_blocked(sx, sy):
+            gh = rng.uniform(0.03, 0.06) * h
+            if self._is_blocked(sx, sy, sy + gh):
                 continue
-            self._grass_tuft(sx, sy, rng.uniform(0.03, 0.06) * h,
-                             (0.22, 0.34, 0.16, 1))
+            self._grass_tuft(sx, sy, gh, (0.22, 0.34, 0.16, 1))
         # GROS rochers : elements FIXES positionnes sur la GRILLE 5x5 (cases
         # interdites a l'installation d'un objet). Non recoltables : la Pierre
         # se recolte sur les petits rochers de la pente. Ils sont tries AVEC
@@ -1055,7 +1067,8 @@ class ZoneScenery(Widget):
             gx = x0 + rng.uniform(0, 1) * w
             gb = y0 + rng.uniform(_HARVEST_FLOOR, 0.30) * h
             gh = rng.uniform(0.08, 0.22) * h
-            if not self._take_or_skip("Roseau") and not self._is_blocked(gx, gb):
+            if (not self._take_or_skip("Roseau")
+                    and not self._is_blocked(gx, gb, gb + gh)):
                 items.append((gb, lambda gx=gx, gb=gb, gh=gh:
                               self._grass_tuft(gx, gb, gh,
                                                (0.18, 0.38, 0.20, 1))))
