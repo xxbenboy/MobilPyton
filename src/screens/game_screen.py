@@ -114,6 +114,14 @@ def _action_real_seconds(action, minutes):
     return max(0.05, minutes * 60.0 / FAST_FORWARD_SCALE)
 
 
+def _installed_tuple(state, obj):
+    """(nom, gx, gy, allume) pour un objet installe, pret pour ZoneScenery."""
+    name, gx, gy = obj[0], int(obj[1]), int(obj[2])
+    lit = (name == "Feu_de_camp"
+           and bool(state.fire_at(gx, gy).get("lit")))
+    return (name, gx, gy, lit)
+
+
 def _action_reason(state, action):
     """Raison (texte court) pour laquelle l'action est indisponible, ou None.
 
@@ -1435,8 +1443,10 @@ class GameScreen(Screen):
         # Les cases occupees par un objet installe (feu de camp, ...) : le
         # scenery masquera les elements du decor qui tomberaient dedans.
         # Les objets installes restent visibles pendant l'exploration : ils
-        # font partie du decor, les mains passent simplement devant.
-        installed = tuple((o[0], int(o[1]), int(o[2]))
+        # font partie du decor, les mains passent simplement devant. L'etat
+        # ALLUME est transmis : la scene se redessine donc (flammes) des que
+        # le feu prend, et de nouveau quand il s'eteint.
+        installed = tuple(_installed_tuple(state, o)
                           for o in state.installed_objects_here())
         blocked_grid = tuple(sorted((int(o[1]), int(o[2]))
                                     for o in state.installed_objects_here()))

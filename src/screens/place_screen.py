@@ -238,7 +238,9 @@ class _ActionPanel(BoxLayout):
         self._on_action = on_action
         self.hidden = True
         with self.canvas.before:
-            Color(0.05, 0.07, 0.10, 0.82)
+            # Assez sombre pour rester lisible, assez transparent pour laisser
+            # voir le decor et le feu derriere.
+            Color(0.05, 0.07, 0.10, 0.68)
             self._bg = RoundedRectangle(radius=[dp(14)])
         self.bind(pos=self._sync, size=self._sync)
 
@@ -540,20 +542,29 @@ class PlaceScreen(Screen):
         self.background.set_weather(state.effective_weather())
         self._night_color.a = night_darkness(state.time_seconds)
         zone = state.current_zone()
-        key = (zone, state.player_x, state.player_y)
+        objs = [(o[0], int(o[1]), int(o[2]),
+                 o[0] == "Feu_de_camp"
+                 and bool(state.fire_at(o[1], o[2]).get("lit")))
+                for o in state.installed_objects_here()]
+        # Fond : la GRILLE se lit d'en haut (vue du sol), mais la fenetre
+        # d'action s'ouvre sur la SCENE du jeu -> on voit le decor et, si le
+        # foyer est allume, ses flammes derriere la fenetre.
+        seed = state.player_x * 131 + state.player_y
+        on_action = self._action_cell is not None
+        key = (zone, state.player_x, state.player_y, on_action, tuple(objs))
         if key != self._scene_key:
-            self.scenery.set_ground(zone,
-                                    state.player_x * 131 + state.player_y)
+            if on_action:
+                self.scenery.set_scene(zone, seed,
+                                       taken=state.harvested_here(),
+                                       installed=objs)
+            else:
+                self.scenery.set_ground(zone, seed)
             self._scene_key = key
         # Marque les positions deja installees comme non cliquables, et les
         # cases occupees par un GROS element du decor (arbre, buisson, rocher).
-        objs = [(o[0], int(o[1]), int(o[2]))
-                for o in state.installed_objects_here()]
-        self.grid_overlay.taken = {(gx, gy) for _n, gx, gy in objs}
-        self.grid_overlay.objects = {
-            (gx, gy): (n, bool(state.fire_at(gx, gy).get("lit"))
-                       if n == "Feu_de_camp" else False)
-            for n, gx, gy in objs}
+        self.grid_overlay.taken = {(gx, gy) for _n, gx, gy, _l in objs}
+        self.grid_overlay.objects = {(gx, gy): (n, lit)
+                                     for n, gx, gy, lit in objs}
         self.grid_overlay.nature = {(int(gx), int(gy)): kind for (gx, gy), kind
                                     in state.nature_cells_here().items()}
         self.grid_overlay.mode = self.mode
@@ -581,11 +592,11 @@ class PlaceScreen(Screen):
             self.manager.current = "game"
             return
         if self.mode == "use":
-            # Ouvre la fenetre d'action de l'objet choisi.
+            # Ouvre la fenetre d'action de l'objet choisi. on_pre_enter fait
+            # tout : bascule le fond sur la scene et affiche la fenetre.
             self._action_cell = (gx, gy)
             self._fire_msg = ""
-            self.action_panel.update(state, gx, gy)
-            self._show_action(True)
+            self.on_pre_enter()
             return
         if self._slot is None:
             self.manager.current = "game"

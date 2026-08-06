@@ -87,8 +87,9 @@ class ZoneScenery(Widget):
         """Vue a l'horizon (sol en bas + ciel).
 
         `taken` = {nom: nombre deja recolte} pour masquer les objets recoltes.
-        `installed` = [(nom, gx, gy), ...] : objets poses sur la case. Ils sont
-        dessines dans la scene, a leur profondeur.
+        `installed` = [(nom, gx, gy[, allume]), ...] : objets poses sur la
+        case. Ils sont dessines dans la scene, a leur profondeur ; un foyer
+        allume y montre ses flammes.
         `blocked_grid` = iterable de (gx, gy) : cellules occupees par un objet
         INSTALLE (feu de camp, ...) ; deduit de `installed` si absent. Les
         objets du decor qui tombent dans la zone visuelle d'une case bloquee ne
@@ -98,10 +99,11 @@ class ZoneScenery(Widget):
         self._seed = seed
         self._mode = "scene"
         self._taken = dict(taken or {})
-        self._installed = [(o[0], int(o[1]), int(o[2]))
+        self._installed = [(o[0], int(o[1]), int(o[2]),
+                            bool(o[3]) if len(o) > 3 else False)
                            for o in (installed or [])]
         if blocked_grid is None:
-            blocked_grid = [(gx, gy) for _n, gx, gy in self._installed]
+            blocked_grid = [(gx, gy) for _n, gx, gy, _l in self._installed]
         self._blocked_grid = set((int(g[0]), int(g[1]))
                                  for g in (blocked_grid or []))
         self._redraw()
@@ -201,20 +203,31 @@ class ZoneScenery(Widget):
         (ce qui est plus PROCHE est dessine par-dessus)."""
         out = []
         w, h, x0, y0 = self.width, self.height, self.x, self.y
-        for name, gx, gy in self._installed:
+        for name, gx, gy, lit in self._installed:
             fx, fy, size = grid_to_screen(gx, gy)
             cx = x0 + fx * w
             cy = y0 + fy * h
             if name == "Feu_de_camp":
-                out.append((cy, lambda cx=cx, cy=cy, s=size * w:
-                            self._fire_pit(cx, cy, s)))
+                out.append((cy, lambda cx=cx, cy=cy, s=size * w, lit=lit:
+                            self._fire_pit(cx, cy, s, lit)))
         return out
 
-    def _fire_pit(self, cx, cy, w):
-        """Foyer de pierres vu en angle (cercle aplati + anneau de pierres)."""
+    def _fire_pit(self, cx, cy, w, lit=False):
+        """Foyer de pierres vu en angle (cercle aplati + anneau de pierres).
+
+        Allume, il montre ses braises et ses flammes : c'est la MEME scene qui
+        sert au jeu et au fond de l'ecran de proximite, le feu a donc partout
+        le meme aspect."""
         h = w * 0.55
+        if lit:                                        # lueur autour du foyer
+            Color(1.0, 0.55, 0.15, 0.14)
+            Ellipse(pos=(cx - w * 0.85, cy - h * 0.9), size=(w * 1.7, w * 1.7))
         Color(0.10, 0.08, 0.06, 0.85)                  # cendres du foyer
         Ellipse(pos=(cx - w / 2, cy - h / 2), size=(w, h))
+        if lit:                                        # braises rougeoyantes
+            Color(0.85, 0.30, 0.07, 0.95)
+            Ellipse(pos=(cx - w * 0.32, cy - h * 0.30),
+                    size=(w * 0.64, h * 0.60))
         n = 10                                         # anneau de pierres
         r = min(w, h) * 0.15
         for i in range(n):
@@ -226,6 +239,20 @@ class ZoneScenery(Widget):
             else:
                 Color(0.66, 0.58, 0.50, 1)
             Ellipse(pos=(sx - r, sy - r), size=(r * 2, r * 2))
+        if lit:                                        # langues de flamme
+            for off, sc, col in ((-0.20, 0.62, (0.90, 0.32, 0.07, 1)),
+                                 (0.19, 0.70, (0.94, 0.44, 0.10, 1)),
+                                 (0.0, 1.00, (0.98, 0.62, 0.14, 1))):
+                fw, fh = w * 0.34 * sc, w * 0.80 * sc
+                bx = cx + off * w
+                Color(*col)
+                Triangle(points=[bx - fw / 2, cy - h * 0.10,
+                                 bx + fw / 2, cy - h * 0.10,
+                                 bx + off * w * 0.35, cy + fh])
+            Color(1.0, 0.88, 0.38, 1)                  # coeur clair
+            fw, fh = w * 0.15, w * 0.40
+            Triangle(points=[cx - fw / 2, cy - h * 0.05,
+                             cx + fw / 2, cy - h * 0.05, cx, cy + fh])
 
     def set_ground(self, zone_type, seed=0):
         """Vue VERS LE BAS : on regarde le sol, qui remplit tout l'ecran."""
