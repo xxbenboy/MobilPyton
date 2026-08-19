@@ -39,6 +39,18 @@ CELL_FREE = (0, 0, 0, 0)                  # aucune : libre
 NATURE_LABEL = {"tree": "Arbre", "bush": "Buisson", "rock": "Rocher"}
 NATURE_ORDER = ("tree", "bush", "rock")
 
+# Taille des flammes du pictogramme, selon l'etat du feu (cf. FIRE_LEVELS).
+GLYPH_FLAME = {"grand": 1.00, "moyen": 0.66, "petit": 0.36, "braise": 0.0}
+
+
+def _installed_tuple(state, obj):
+    """(nom, gx, gy, allume, niveau) pour un objet pose sur la case."""
+    name, gx, gy = obj[0], int(obj[1]), int(obj[2])
+    if name != "Feu_de_camp":
+        return (name, gx, gy, False, "")
+    f = state.fire_at(gx, gy)
+    return (name, gx, gy, bool(f.get("lit")), state.fire_level(f))
+
 
 def draw_nature_glyph(kind, cx, cy, size):
     """Dessine l'obstacle VU DE DESSUS, centre sur (cx, cy).
@@ -81,7 +93,7 @@ def draw_nature_glyph(kind, cx, cy, size):
                 size=(r * 1.0, r * 0.82))
 
 
-def draw_object_glyph(name, cx, cy, size, lit=False):
+def draw_object_glyph(name, cx, cy, size, lit=False, level="grand"):
     """Dessine un objet INSTALLE vu de dessus, centre sur (cx, cy).
 
     A appeler dans un contexte `with canvas:`. Un foyer eteint montre son
@@ -111,13 +123,14 @@ def draw_object_glyph(name, cx, cy, size, lit=False):
         else:
             Color(0.66, 0.58, 0.50, 1)
         Ellipse(pos=(sx - sr, sy - sr), size=(sr * 2, sr * 2))
-    if lit:                                               # flammes
+    fl = GLYPH_FLAME.get(level, 1.0) if lit else 0.0
+    if fl > 0:                                            # flammes
         Color(0.98, 0.62, 0.12, 1)
         Triangle(points=[cx - r * 0.42, cy - r * 0.10, cx + r * 0.42,
-                         cy - r * 0.10, cx, cy + r * 0.78])
+                         cy - r * 0.10, cx, cy + r * 0.78 * fl])
         Color(1.0, 0.88, 0.35, 1)
         Triangle(points=[cx - r * 0.22, cy - r * 0.05, cx + r * 0.22,
-                         cy - r * 0.05, cx, cy + r * 0.44])
+                         cy - r * 0.05, cx, cy + r * 0.44 * fl])
 
 
 class _Swatch(Widget):
@@ -418,7 +431,8 @@ class _GridOverlay(Widget):
                 obj = self.objects.get((gx, gy))
                 if obj:
                     draw_object_glyph(obj[0], tx + cs / 2, ty + cs / 2,
-                                      cs * 0.72, lit=obj[1])
+                                      cs * 0.72, lit=obj[1],
+                                      level=obj[2] if len(obj) > 2 else "grand")
 
     def on_touch_down(self, touch):
         if not self.collide_point(*touch.pos):
@@ -542,9 +556,7 @@ class PlaceScreen(Screen):
         self.background.set_weather(state.effective_weather())
         self._night_color.a = night_darkness(state.time_seconds)
         zone = state.current_zone()
-        objs = [(o[0], int(o[1]), int(o[2]),
-                 o[0] == "Feu_de_camp"
-                 and bool(state.fire_at(o[1], o[2]).get("lit")))
+        objs = [_installed_tuple(state, o)
                 for o in state.installed_objects_here()]
         # Fond : la GRILLE se lit d'en haut (vue du sol), mais la fenetre
         # d'action s'ouvre sur la SCENE du jeu -> on voit le decor et, si le
@@ -562,9 +574,9 @@ class PlaceScreen(Screen):
             self._scene_key = key
         # Marque les positions deja installees comme non cliquables, et les
         # cases occupees par un GROS element du decor (arbre, buisson, rocher).
-        self.grid_overlay.taken = {(gx, gy) for _n, gx, gy, _l in objs}
-        self.grid_overlay.objects = {(gx, gy): (n, lit)
-                                     for n, gx, gy, lit in objs}
+        self.grid_overlay.taken = {(gx, gy) for _n, gx, gy, _l, _v in objs}
+        self.grid_overlay.objects = {(gx, gy): (n, lit, level)
+                                     for n, gx, gy, lit, level in objs}
         self.grid_overlay.nature = {(int(gx), int(gy)): kind for (gx, gy), kind
                                     in state.nature_cells_here().items()}
         self.grid_overlay.mode = self.mode

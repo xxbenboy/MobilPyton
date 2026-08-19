@@ -30,6 +30,7 @@ from src.game_state import _clamp100
 from src.widgets.animated_background import (AnimatedBackground,
                                             night_darkness, night_factor)
 from src.widgets.zone_scenery import ZoneScenery
+from src.widgets.installed_layer import grid_to_screen
 
 from src import items
 from src.widgets.player_hands import PlayerHands
@@ -115,11 +116,15 @@ def _action_real_seconds(action, minutes):
 
 
 def _installed_tuple(state, obj):
-    """(nom, gx, gy, allume) pour un objet installe, pret pour ZoneScenery."""
+    """(nom, gx, gy, allume, niveau) pour ZoneScenery.
+
+    `niveau` decrit l'ampleur du feu ("grand" a "braise") : il change avec le
+    combustible restant, donc la scene se redessine quand le feu faiblit."""
     name, gx, gy = obj[0], int(obj[1]), int(obj[2])
-    lit = (name == "Feu_de_camp"
-           and bool(state.fire_at(gx, gy).get("lit")))
-    return (name, gx, gy, lit)
+    if name != "Feu_de_camp":
+        return (name, gx, gy, False, "")
+    f = state.fire_at(gx, gy)
+    return (name, gx, gy, bool(f.get("lit")), state.fire_level(f))
 
 
 def _action_reason(state, action):
@@ -637,19 +642,6 @@ class GameScreen(Screen):
         return (x <= touch.x <= x + widget.width
                 and y <= touch.y <= y + widget.height)
 
-    def on_touch_down(self, touch):
-        # Quand le sous-menu Action est ouvert, un clic AILLEURS que sur
-        # Action / Manger / Boire le ferme. La fermeture est differee a la
-        # frame suivante pour laisser le widget cible recevoir le touch
-        # avant qu'on reconstruise la grille.
-        if self._action_submenu_visible:
-            on_relevant = (self._touch_on_widget(self._action_btn_widget, touch)
-                           or any(self._touch_on_widget(b, touch)
-                                  for b in self._action_submenu_btns))
-            if not on_relevant:
-                Clock.schedule_once(self._close_action_submenu, 0)
-        return super().on_touch_down(touch)
-
     def _build_action_grid(self, state):
         self.grid.clear_widgets()
         self._action_buttons = []
@@ -775,14 +767,69 @@ class GameScreen(Screen):
                 circle.set_value(frac * 100.0)
 
     def on_touch_down(self, touch):
-        """Un appui AILLEURS que sur le panneau ou ses boutons le referme."""
+        """Appuis sur l'ecran de jeu, dans l'ordre de priorite."""
+        # 1. Panneau lateral ouvert : un appui AILLEURS le referme.
         if (self._panel_mode is not None and self._pause_menu is None
                 and self._move_menu is None and not self._moving):
             if not (self.side_panel.collide_point(*touch.pos)
                     or self.panel_btns.collide_point(*touch.pos)):
                 self._set_panel(None)
                 return True                # l'appui sert juste a refermer
-        return super().on_touch_down(touch)
+        # 2. Sous-menu Action ouvert : un appui AILLEURS que sur Action /
+        #    Manger / Boire le ferme. La fermeture est differee a la frame
+        #    suivante pour laisser le widget vise recevoir le touch avant
+        #    qu'on reconstruise la grille.
+        if self._action_submenu_visible:
+            on_relevant = (self._touch_on_widget(self._action_btn_widget, touch)
+                           or any(self._touch_on_widget(b, touch)
+                                  for b in self._action_submenu_btns))
+            if not on_relevant:
+                Clock.schedule_once(self._close_action_submenu, 0)
+        # 3. Les boutons et panneaux d'abord.
+        if super().on_touch_down(touch):
+            return True
+        # 4. Personne n'a pris l'appui : c'est peut-etre un objet de la scene.
+        return self._touch_installed(touch)
+
+    def _touch_installed(self, touch):
+        """Ouvre le menu d'un objet pose si l'appui tombe dessus.
+
+        Permet d'atteindre un feu de camp directement en cliquant dessus dans
+        la scene, sans passer par le bouton Proximite."""
+        state = App.get_running_app().game_state
+        if (state is None or self._ff_active or self._moving
+                or self._pause_menu is not None or self._move_menu is not None
+                or self._panel_mode is not None):
+            return False
+        w, h = self.scenery.width, self.scenery.height
+        x0, y0 = self.scenery.x, self.scenery.y
+        if w <= 0 or h <= 0:
+            return False
+        best = None
+        for obj in state.installed_objects_here():
+            if obj[0] not in items.INTERACTIVE_ITEMS:
+                continue
+            gx, gy = int(obj[1]), int(obj[2])
+            fx, fy, size = grid_to_screen(gx, gy)
+            cx, cy, pw = x0 + fx * w, y0 + fy * h, size * w
+            # Boite genereuse : le foyer ET ses flammes, qui montent au-dessus.
+            if (abs(touch.x - cx) <= pw * 0.60
+                    and cy - pw * 0.35 <= touch.y <= cy + pw * 0.85):
+                if best is None or gy < best[1]:   # le plus PROCHE l'emporte
+                    best = (gx, gy)
+        if best is None:
+            return False
+        self._open_object_menu(*best)
+        return True
+
+    def _open_object_menu(self, gx, gy):
+        """Ouvre directement la fenetre d'action de l'objet pose en (gx, gy)."""
+        place = self.manager.get_screen("place")
+        place._slot = None
+        place.mode = "use"
+        place._action_cell = (gx, gy)
+        place._fire_msg = ""
+        self.manager.current = "place"
 
     # ------------------------------------------------------------------ #
     def do_action(self, action):

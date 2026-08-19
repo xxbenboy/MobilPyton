@@ -14,6 +14,7 @@ change (pas a chaque frame).
 import math
 import random
 
+from kivy.clock import Clock
 from kivy.uix.widget import Widget
 from kivy.graphics import (Color, Ellipse, Rectangle, Triangle, Line, Quad,
                            Mesh, RenderContext, PushMatrix, PopMatrix, Rotate)
@@ -35,6 +36,20 @@ _AVAIL_MAX = 5
 # niveau (~ la hauteur des jointures des mains du joueur). Fraction de la
 # hauteur d'ecran. On les repartit donc de cette ligne jusqu'au haut du terrain.
 _HARVEST_FLOOR = 0.18
+
+# Taille des flammes selon l'etat du feu (voir game_state.FIRE_LEVELS).
+# "braise" = plus de flamme du tout, seules les braises rougeoient.
+_FLAME_SCALE = {"grand": 1.00, "moyen": 0.66, "petit": 0.36, "braise": 0.0}
+
+# Langues de flamme : (decalage horizontal, taille, couleur).
+_FLAME_TONGUES = ((-0.20, 0.62, (0.90, 0.32, 0.07, 1)),
+                  (0.19, 0.70, (0.94, 0.44, 0.10, 1)),
+                  (0.00, 1.00, (0.98, 0.62, 0.14, 1)),
+                  (0.00, 0.45, (1.00, 0.88, 0.38, 1)))
+
+# Cadence de l'animation du feu. 30 images/s suffisent largement pour un
+# vacillement credible, et c'est deux fois moins de travail que 60.
+_FLAME_FPS = 30.0
 
 
 class ZoneScenery(Widget):
@@ -62,6 +77,13 @@ class ZoneScenery(Widget):
         # le tri par profondeur s'applique aussi a eux : un feu de camp pose
         # derriere un buisson passe donc bien DERRIERE ce buisson.
         self._installed = []
+        # Flammes ANIMEES : les instructions de dessin sont creees une seule
+        # fois avec la scene (donc a la bonne profondeur, masquees par ce qui
+        # est devant), puis seules leurs coordonnees et leur opacite changent
+        # a chaque image. L'horloge ne tourne que s'il y a un feu allume.
+        self._flames = []
+        self._flame_ev = None
+        self._flame_t = 0.0
         # Eclairage par cartes de normales : actif seulement si des cartes
         # Normal existent (sinon canvas normal, aucun risque, rendu inchange).
         self._pbr = pbr.LIGHTING and textures.has_any_normal()
@@ -87,9 +109,10 @@ class ZoneScenery(Widget):
         """Vue a l'horizon (sol en bas + ciel).
 
         `taken` = {nom: nombre deja recolte} pour masquer les objets recoltes.
-        `installed` = [(nom, gx, gy[, allume]), ...] : objets poses sur la
-        case. Ils sont dessines dans la scene, a leur profondeur ; un foyer
-        allume y montre ses flammes.
+        `installed` = [(nom, gx, gy[, allume[, niveau]]), ...] : objets poses
+        sur la case. Ils sont dessines dans la scene, a leur profondeur ; un
+        foyer allume y montre ses flammes, hautes ou basses selon `niveau`
+        ("grand", "moyen", "petit", "braise").
         `blocked_grid` = iterable de (gx, gy) : cellules occupees par un objet
         INSTALLE (feu de camp, ...) ; deduit de `installed` si absent. Les
         objets du decor qui tombent dans la zone visuelle d'une case bloquee ne
@@ -100,10 +123,11 @@ class ZoneScenery(Widget):
         self._mode = "scene"
         self._taken = dict(taken or {})
         self._installed = [(o[0], int(o[1]), int(o[2]),
-                            bool(o[3]) if len(o) > 3 else False)
+                            bool(o[3]) if len(o) > 3 else False,
+                            o[4] if len(o) > 4 else "grand")
                            for o in (installed or [])]
         if blocked_grid is None:
-            blocked_grid = [(gx, gy) for _n, gx, gy, _l in self._installed]
+            blocked_grid = [(gx, gy) for _n, gx, gy, _l, _v in self._installed]
         self._blocked_grid = set((int(g[0]), int(g[1]))
                                  for g in (blocked_grid or []))
         self._redraw()
@@ -203,29 +227,33 @@ class ZoneScenery(Widget):
         (ce qui est plus PROCHE est dessine par-dessus)."""
         out = []
         w, h, x0, y0 = self.width, self.height, self.x, self.y
-        for name, gx, gy, lit in self._installed:
+        for name, gx, gy, lit, level in self._installed:
             fx, fy, size = grid_to_screen(gx, gy)
             cx = x0 + fx * w
             cy = y0 + fy * h
             if name == "Feu_de_camp":
-                out.append((cy, lambda cx=cx, cy=cy, s=size * w, lit=lit:
-                            self._fire_pit(cx, cy, s, lit)))
+                out.append((cy, lambda cx=cx, cy=cy, s=size * w, lit=lit,
+                            lv=level: self._fire_pit(cx, cy, s, lit, lv)))
         return out
 
-    def _fire_pit(self, cx, cy, w, lit=False):
+    def _fire_pit(self, cx, cy, w, lit=False, level="grand"):
         """Foyer de pierres vu en angle (cercle aplati + anneau de pierres).
 
-        Allume, il montre ses braises et ses flammes : c'est la MEME scene qui
-        sert au jeu et au fond de l'ecran de proximite, le feu a donc partout
-        le meme aspect."""
+        Allume, il montre ses braises et ses flammes, d'autant plus hautes
+        qu'il lui reste du combustible (voir _FLAME_SCALE). C'est la MEME
+        scene qui sert au jeu et au fond de l'ecran de proximite : le feu a
+        donc partout le meme aspect."""
         h = w * 0.55
+        scale = _FLAME_SCALE.get(level, 1.0) if lit else 0.0
+        glow_c = ember_c = None
         if lit:                                        # lueur autour du foyer
-            Color(1.0, 0.55, 0.15, 0.14)
-            Ellipse(pos=(cx - w * 0.85, cy - h * 0.9), size=(w * 1.7, w * 1.7))
+            glow_c = Color(1.0, 0.55, 0.15, 0.14)
+            glow_e = Ellipse(pos=(cx - w * 0.85, cy - h * 0.9),
+                             size=(w * 1.7, w * 1.7))
         Color(0.10, 0.08, 0.06, 0.85)                  # cendres du foyer
         Ellipse(pos=(cx - w / 2, cy - h / 2), size=(w, h))
         if lit:                                        # braises rougeoyantes
-            Color(0.85, 0.30, 0.07, 0.95)
+            ember_c = Color(0.85, 0.30, 0.07, 0.95)
             Ellipse(pos=(cx - w * 0.32, cy - h * 0.30),
                     size=(w * 0.64, h * 0.60))
         n = 10                                         # anneau de pierres
@@ -239,20 +267,62 @@ class ZoneScenery(Widget):
             else:
                 Color(0.66, 0.58, 0.50, 1)
             Ellipse(pos=(sx - r, sy - r), size=(r * 2, r * 2))
-        if lit:                                        # langues de flamme
-            for off, sc, col in ((-0.20, 0.62, (0.90, 0.32, 0.07, 1)),
-                                 (0.19, 0.70, (0.94, 0.44, 0.10, 1)),
-                                 (0.0, 1.00, (0.98, 0.62, 0.14, 1))):
-                fw, fh = w * 0.34 * sc, w * 0.80 * sc
-                bx = cx + off * w
-                Color(*col)
-                Triangle(points=[bx - fw / 2, cy - h * 0.10,
-                                 bx + fw / 2, cy - h * 0.10,
-                                 bx + off * w * 0.35, cy + fh])
-            Color(1.0, 0.88, 0.38, 1)                  # coeur clair
-            fw, fh = w * 0.15, w * 0.40
-            Triangle(points=[cx - fw / 2, cy - h * 0.05,
-                             cx + fw / 2, cy - h * 0.05, cx, cy + fh])
+        tongues = []
+        if scale > 0:                                  # langues de flamme
+            for off, sc, col in _FLAME_TONGUES:
+                c = Color(*col)
+                tongues.append((c, Triangle(), off, sc))
+        if lit:
+            self._flames.append({
+                "cx": cx, "cy": cy, "w": w, "h": h, "scale": scale,
+                "glow_c": glow_c, "glow_e": glow_e, "ember_c": ember_c,
+                "tongues": tongues, "phase": 1.7 * len(self._flames)})
+            self._shape_flame(self._flames[-1], 0.0)
+
+    # -- vacillement -------------------------------------------------- #
+    def _shape_flame(self, fl, t):
+        """Place les flammes d'un foyer a l'instant t (rien n'est recree).
+
+        Deux sinusoides de frequences differentes par langue : le mouvement ne
+        se repete pas de facon perceptible, et chaque langue vit sa vie."""
+        cx, cy, w, h = fl["cx"], fl["cy"], fl["w"], fl["h"]
+        ph, scale = fl["phase"], fl["scale"]
+        for i, (col, tri, off, sc) in enumerate(fl["tongues"]):
+            p = ph + i * 2.1
+            flick = (1.0 + 0.20 * math.sin(t * (3.3 + 0.7 * i) + p)
+                     + 0.09 * math.sin(t * (8.1 + 1.3 * i) + p * 1.9))
+            sway = 0.05 * w * math.sin(t * 2.4 + p)
+            fw = w * 0.34 * sc * scale
+            fh = w * 0.80 * sc * scale * flick
+            bx = cx + off * w
+            tri.points = [bx - fw / 2, cy - h * 0.10,
+                          bx + fw / 2, cy - h * 0.10,
+                          bx + off * w * 0.35 + sway, cy + fh]
+            col.a = min(1.0, 0.82 + 0.18 * flick)
+        pulse = (0.80 + 0.20 * math.sin(t * 2.7 + ph)
+                 + 0.08 * math.sin(t * 6.1 + ph * 1.4))
+        if fl["glow_c"] is not None:
+            # Une braise eclaire encore un peu : la lueur ne descend pas a 0.
+            fl["glow_c"].a = 0.14 * max(0.35, scale) * pulse
+            gr = w * 0.85 * max(0.5, scale) * (0.94 + 0.10 * pulse)
+            fl["glow_e"].pos = (cx - gr, cy - h * 0.9)
+            fl["glow_e"].size = (gr * 2, gr * 2)
+        if fl["ember_c"] is not None:
+            fl["ember_c"].a = min(1.0, 0.72 + 0.28 * pulse)
+
+    def _sync_flame_clock(self):
+        """L'horloge du feu ne tourne que s'il y a quelque chose a animer."""
+        if self._flames and self._flame_ev is None:
+            self._flame_ev = Clock.schedule_interval(self._tick_flames,
+                                                     1.0 / _FLAME_FPS)
+        elif not self._flames and self._flame_ev is not None:
+            self._flame_ev.cancel()
+            self._flame_ev = None
+
+    def _tick_flames(self, dt):
+        self._flame_t += dt
+        for fl in self._flames:
+            self._shape_flame(fl, self._flame_t)
 
     def set_ground(self, zone_type, seed=0):
         """Vue VERS LE BAS : on regarde le sol, qui remplit tout l'ecran."""
@@ -266,6 +336,10 @@ class ZoneScenery(Widget):
         self.canvas.clear()
         if self.width <= 0 or self.height <= 0:
             return
+        # Les anciennes instructions de flamme viennent d'etre effacees avec
+        # le canvas : on repart d'une liste vide (elle sera remplie par
+        # _fire_pit pour chaque foyer allume de la scene).
+        self._flames = []
         # Reinitialise le comptage des objets recoltables pour cette passe.
         self._ord = {}
         self._harvest_total = {}
@@ -290,6 +364,7 @@ class ZoneScenery(Widget):
         self.harvest_total = dict(self._harvest_total)
         self.harvest_max = {n: min(self._avail_for(n), t)
                             for n, t in self.harvest_total.items() if t > 0}
+        self._sync_flame_clock()
 
     # -- helpers textures (surface plane texturee, sinon couleur de repli) - #
     def _trect(self, name, x, y, w, h, tile_px=None):

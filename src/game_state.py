@@ -103,6 +103,12 @@ FIRE_LIGHT_BASE = 0.10      # chance d'allumage sans aucun comburant
 FIRE_LIGHT_MAX = 0.95       # on n'est jamais sur a 100 %
 FIRE_LIGHT_FAIL_LOSS = 0.5  # part du comburant partie en fumee a chaque echec
 
+# Un feu FAIBLIT en brulant : son aspect suit la part de combustible qui lui
+# reste (par rapport a la plus grosse charge qu'il a recue). Seuil = minimum
+# pour atteindre ce niveau.
+FIRE_LEVELS = (("grand", 0.66), ("moyen", 0.33), ("petit", 0.05),
+               ("braise", 0.0))
+
 
 def _clamp100(v):
     return max(0, min(100, v))
@@ -154,6 +160,8 @@ class GameState:
             self.fires[key] = {"lit": int(f.get("lit", 0)),
                                "fuel": float(f.get("fuel", 0.0)),
                                "air": float(f.get("air", 0.0)),
+                               "fuel_max": float(f.get("fuel_max",
+                                                       f.get("fuel", 0.0))),
                                "t": int(f.get("t", time_seconds))}
         self.revealed = set(revealed) if revealed else set()  # {"x,y", ...} zones revelees
         self.action_count = action_count
@@ -487,7 +495,8 @@ class GameState:
             # Un foyer monte est ETEINT : il faut y mettre du combustible,
             # l'aerer, puis l'allumer (voir fire_light).
             self.fires[self._fire_key(gx, gy)] = {
-                "lit": 0, "fuel": 0.0, "air": 0.0, "t": self.time_seconds}
+                "lit": 0, "fuel": 0.0, "air": 0.0, "fuel_max": 0.0,
+                "t": self.time_seconds}
         else:
             self.start_effect(name)
         return True
@@ -510,13 +519,30 @@ class GameState:
         key = self._fire_key(gx, gy)
         f = self.fires.get(key)
         if f is None:
-            f = {"lit": 0, "fuel": 0.0, "air": 0.0, "t": self.time_seconds}
+            f = {"lit": 0, "fuel": 0.0, "air": 0.0, "fuel_max": 0.0,
+                 "t": self.time_seconds}
             self.fires[key] = f
         return f
 
     def fire_burn_hours(self, f):
         """Heures avant extinction : ce qu'il reste de COMBUSTIBLE."""
         return max(0.0, f.get("fuel", 0.0))
+
+    def fire_ratio(self, f):
+        """Part du combustible restante (0..1), par rapport a la plus grosse
+        charge que ce foyer a recue."""
+        top = max(f.get("fuel_max", 0.0), f.get("fuel", 0.0))
+        return (max(0.0, f.get("fuel", 0.0)) / top) if top > 0 else 0.0
+
+    def fire_level(self, f):
+        """Aspect du feu : "grand", "moyen", "petit", "braise" (ou "" eteint)."""
+        if not f.get("lit"):
+            return ""
+        ratio = self.fire_ratio(f)
+        for name, floor in FIRE_LEVELS:
+            if ratio >= floor:
+                return name
+        return "braise"
 
     def fire_light_chance(self, f):
         """Probabilite (0..1) de reussir a allumer ce foyer.
@@ -616,6 +642,8 @@ class GameState:
             return False
         f = self.fire_at(gx, gy)
         f["fuel" if kind == "wood" else "air"] += table[name]
+        # Reference pour l'ASPECT du feu : la plus grosse charge recue.
+        f["fuel_max"] = max(f.get("fuel_max", 0.0), f["fuel"])
         self._sync_fire_effect()
         return True
 
