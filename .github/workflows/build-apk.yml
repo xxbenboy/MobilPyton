@@ -131,29 +131,31 @@ jobs:
           echo "----- src/build_info.py -----" && cat src/build_info.py
           echo "----- buildozer.spec -----" && grep -E '^version|numeric_version' buildozer.spec
 
-      # Version de pip utilisee DANS l'environnement que p4a construit.
+      # CONTOURNEMENT : ecarter les paquets publiant des roues ANDROID.
       #
-      # Historique : ce build epinglait "pip<26" pour contourner un bug de p4a
-      # (le venv est recree pour chaque architecture au meme endroit et sans
-      # --clear ; en melangeant pip 25 et pip 26, le dossier `build_env/` de
-      # pip 26 masquait le module `build_env.py` de pip 25 -> ImportError).
+      # Depuis aout 2026, certains paquets publient des roues Android (PEP
+      # 738). python-for-android les RESOUT correctement :
+      #   pip3 install ... --platform=android_24_arm64_v8a --python-version 3.14
+      # mais les INSTALLE ensuite sans ces options :
+      #   venv/bin/pip install --target ... -r requirements.txt
+      # Ce pip-la tourne sur la machine de build (Linux x86_64) : il refuse la
+      # roue Android qu'on vient de lui donner, quelle que soit sa version.
+      #   ERROR: charset_normalizer-...-android_24_arm64_v8a.whl
+      #          is not a supported wheel on this platform
+      # (Verifie : le defaut est present sur master ET sur develop.)
       #
-      # Cet epinglage est devenu NUISIBLE : depuis aout 2026 des paquets
-      # publient des roues Android (PEP 738, ex. charset-normalizer 3.5), que
-      # p4a selectionne, et que seul pip >= 26 sait installer. Avec pip 25 le
-      # build echoue sur "... .whl is not a supported wheel on this platform".
+      # On force donc les versions a roue UNIVERSELLE. Si un autre paquet se
+      # met a publier des roues Android, il faudra l'ajouter ici.
       #
-      # On impose donc l'inverse : pip >= 26 partout. Les deux architectures
-      # utilisent la meme version (donc pas de melange), et les roues Android
-      # sont acceptees. Le nettoyage du venv ci-dessous protege en plus contre
-      # un venv d'un build precedent restaure par le cache.
-      - name: Epingler pip en version 26 ou plus (roues Android)
+      # Note : pip n'est plus epingle. Il l'a ete ("pip<26") pour un autre bug
+      # de p4a, corrige autrement plus bas (creation du venv avec --clear).
+      - name: Ecarter les roues Android (bug p4a)
         run: |
           set -e
           # Hors du depot (RUNNER_TEMP) pour ne pas finir dans l'APK.
-          echo 'pip>=26' > "$RUNNER_TEMP/pip-constraints.txt"
+          echo 'charset-normalizer<3.5' > "$RUNNER_TEMP/pip-constraints.txt"
           echo "PIP_CONSTRAINT=$RUNNER_TEMP/pip-constraints.txt" >> "$GITHUB_ENV"
-          echo ">>> pip epingle via PIP_CONSTRAINT :" && cat "$RUNNER_TEMP/pip-constraints.txt"
+          echo ">>> contraintes pip :" && cat "$RUNNER_TEMP/pip-constraints.txt"
 
       - name: Construire l'APK (debug)
         run: |
