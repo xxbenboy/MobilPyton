@@ -829,6 +829,8 @@ class GameScreen(Screen):
         place.mode = "use"
         place._action_cell = (gx, gy)
         place._fire_msg = ""
+        # Ouverte depuis la SCENE : "Retour" doit ramener ici, pas a la grille.
+        place._action_from_grid = False
         self.manager.current = "place"
 
     # ------------------------------------------------------------------ #
@@ -1024,6 +1026,7 @@ class GameScreen(Screen):
         place._slot = None
         place.mode = "use"
         place._action_cell = None
+        place._action_from_grid = True     # on arrive par la grille
         self.manager.current = "place"
 
     # ------------------------------------------------------------------ #

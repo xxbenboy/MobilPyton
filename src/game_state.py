@@ -629,16 +629,35 @@ class GameState:
                     best = i
         return best
 
+    def fire_table(self, kind):
+        """Table des matieres acceptees par un bouton du foyer."""
+        return (items.FIRE_TINDER_CHANCE if kind == "tinder"
+                else items.FIRE_WOOD_HOURS)
+
+    def fire_next(self, kind):
+        """Matiere que le bouton utiliserait, ou None s'il n'y en a aucune.
+
+        En mode DEBUG le foyer s'alimente sans reserve : quand rien n'est a
+        proximite, une matiere par defaut est fournie (branche / ecorce)."""
+        name = self.fire_source(self.fire_table(kind))
+        if name is None and self.debug:
+            name = (items.FIRE_DEFAULT_TINDER if kind == "tinder"
+                    else items.FIRE_DEFAULT_WOOD)
+        return name
+
     def fire_add(self, gx, gy, kind):
         """Ajoute un apport au foyer.
 
         `kind` designe la MATIERE : "wood" (branche, buche) ajoute de la DUREE
         au feu, "tinder" (feuille, ecorce) ajoute de la CHANCE de l'allumer.
-        L'objet est pris a proximite."""
-        table = (items.FIRE_TINDER_CHANCE if kind == "tinder"
-                 else items.FIRE_WOOD_HOURS)
-        name = self.fire_source(table)
-        if name is None or not self.consume_nearby(name):
+        L'objet est pris a proximite (ou fourni, en mode debug)."""
+        table = self.fire_table(kind)
+        name = self.fire_next(kind)
+        if name is None:
+            return False
+        # On ne consomme que ce qui est REELLEMENT la : en debug, la matiere
+        # manquante est offerte, mais celle qu'on possede part quand meme.
+        if not self.consume_nearby(name) and not self.debug:
             return False
         f = self.fire_at(gx, gy)
         f["fuel" if kind == "wood" else "air"] += table[name]

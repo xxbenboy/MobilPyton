@@ -324,13 +324,13 @@ class _ActionPanel(BoxLayout):
         # Chaque bouton annonce CE QU'IL APPORTE avec la matiere qui serait
         # utilisee : autant de duree pour le combustible, autant de chance
         # d'allumage pour le comburant.
-        wood = state.fire_source(items.FIRE_WOOD_HOURS)
+        wood = state.fire_next("wood")
         self.btns["wood"].text = "Alimenter\n(combustible)" + (
             f"\n+{_hm(items.FIRE_WOOD_HOURS[wood])}" if wood else "")
         self._set(self.btns["wood"], wood is not None)
         if wood is None:
             why.append("Combustible : aucune branche ni buche a proximite.")
-        tinder = state.fire_source(items.FIRE_TINDER_CHANCE)
+        tinder = state.fire_next("tinder")
         self.btns["tinder"].text = "Alimenter\n(comburant)" + (
             f"\n+{int(round(items.FIRE_TINDER_CHANCE[tinder] * 100))} %"
             if tinder else "")
@@ -529,6 +529,11 @@ class PlaceScreen(Screen):
                                                    "center_y": 0.48})
         self._action_cell = None          # (gx, gy) de l'objet en cours
         self._fire_msg = ""               # resultat de la derniere tentative
+        # La fenetre d'action a-t-elle ete ouverte DEPUIS la grille ? Si non,
+        # c'est qu'on a clique l'objet directement dans la scene du jeu : le
+        # bouton Retour doit alors ramener au jeu, pas afficher une grille que
+        # le joueur n'a jamais demandee.
+        self._action_from_grid = True
         self.action_panel.hide(True)      # masquee tant qu'on est sur la grille
         root.add_widget(self.action_panel)
 
@@ -544,7 +549,11 @@ class PlaceScreen(Screen):
             w.disabled = visible
 
     def _close_action(self):
+        """Retour : revient a la page PRECEDENTE, celle d'ou l'on vient."""
         self._action_cell = None
+        if not self._action_from_grid:
+            self.manager.current = "game"
+            return
         self._show_action(False)
         self.on_pre_enter()
 
@@ -608,6 +617,7 @@ class PlaceScreen(Screen):
             # tout : bascule le fond sur la scene et affiche la fenetre.
             self._action_cell = (gx, gy)
             self._fire_msg = ""
+            self._action_from_grid = True
             self.on_pre_enter()
             return
         if self._slot is None:

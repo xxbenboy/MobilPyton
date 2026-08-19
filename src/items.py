@@ -89,6 +89,11 @@ FIRE_TINDER_CHANCE = {
     "Ecorce": 0.30,
 }
 
+# Matieres fournies D'OFFICE en mode debug, quand le joueur n'a rien sous la
+# main : une branche pour le combustible, une ecorce pour le comburant.
+FIRE_DEFAULT_WOOD = "Long_Stick"
+FIRE_DEFAULT_TINDER = "Ecorce"
+
 # Table de compatibilite : tout ce qui peut aller dans un foyer.
 FIRE_FUEL_HOURS = dict(FIRE_WOOD_HOURS)
 
