@@ -196,6 +196,34 @@ jobs:
             echo "!! aidl introuvable dans 33.0.2 -- voir le log ci-dessus"
           fi
 
+          # CONTOURNEMENT d'un bug de python-for-android.
+          #
+          # p4a cree son environnement Python avec `python -m venv venv`, SANS
+          # --clear, et le refait AU MEME ENDROIT pour chaque architecture. Or
+          # il met pip a jour juste apres (25.3 -> 26.x). Au 2e passage, venv
+          # reinstalle pip 25.3 par-dessus sans rien effacer : le dossier
+          # `build_env/` laisse par pip 26 masque alors le module
+          # `build_env.py` de pip 25.3, et pip ne demarre plus :
+          #   ImportError: cannot import name 'BuildDependencyInstallError'
+          #
+          # Le correctif amont (ajout de --clear) est deja sur la branche
+          # develop de p4a, mais pas sur master, que buildozer utilise. On
+          # applique donc exactement la meme correction sur la copie locale.
+          P4A_BUILD=".buildozer/android/platform/python-for-android/pythonforandroid/build.py"
+          if [ -f "$P4A_BUILD" ]; then
+            if grep -q "'-m', 'venv', '--clear', 'venv'" "$P4A_BUILD"; then
+              echo ">>> p4a cree deja son venv avec --clear : rien a faire"
+            elif grep -q "'-m', 'venv', 'venv'" "$P4A_BUILD"; then
+              sed -i "s/'-m', 'venv', 'venv'/'-m', 'venv', '--clear', 'venv'/" "$P4A_BUILD"
+              echo ">>> p4a corrige :" && grep -n "'-m', 'venv'" "$P4A_BUILD"
+            else
+              echo "!! Appel a venv introuvable dans p4a : le correctif n'a PAS"
+              echo "!! ete applique. Verifier build.py en amont."
+            fi
+          else
+            echo "!! $P4A_BUILD introuvable : correctif non applique"
+          fi
+
           # 2e passe : build complet (aidl present + Gradle en Java 17).
           buildozer android debug
 
