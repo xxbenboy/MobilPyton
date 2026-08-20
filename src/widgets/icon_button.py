@@ -174,6 +174,25 @@ def _hand(cx, cy, s):                                # main (paume + doigts)
                      size=(fw, s * 0.32), radius=[fw / 2])
 
 
+def _bag(cx, cy, s):                                 # sac a dos (inventaire)
+    Color(0.36, 0.28, 0.20, 1)                       # bretelles, derriere
+    for dx in (-s * 0.34, s * 0.34):
+        RoundedRectangle(pos=(cx + dx - s * 0.07, cy + s * 0.10),
+                         size=(s * 0.14, s * 0.52), radius=[s * 0.07])
+    Color(0.52, 0.40, 0.26, 1)                       # rabat du dessus
+    RoundedRectangle(pos=(cx - s * 0.52, cy + s * 0.06),
+                     size=(s * 1.04, s * 0.46), radius=[s * 0.16])
+    Color(0.62, 0.48, 0.31, 1)                       # corps du sac
+    RoundedRectangle(pos=(cx - s * 0.56, cy - s * 0.66),
+                     size=(s * 1.12, s * 0.92), radius=[s * 0.18])
+    Color(0.46, 0.35, 0.22, 1)                       # poche avant
+    RoundedRectangle(pos=(cx - s * 0.34, cy - s * 0.56),
+                     size=(s * 0.68, s * 0.44), radius=[s * 0.10])
+    Color(0.82, 0.70, 0.44, 1)                       # boucle
+    RoundedRectangle(pos=(cx - s * 0.10, cy - s * 0.06),
+                     size=(s * 0.20, s * 0.14), radius=[s * 0.05])
+
+
 def _fire(cx, cy, s):                                # flamme (feu de camp)
     Color(0.38, 0.24, 0.14, 1)                       # buches croisees
     Line(points=[cx - s * 0.6, cy - s * 0.62, cx + s * 0.6, cy - s * 0.40],
@@ -205,7 +224,7 @@ def _wet(cx, cy, s):                                 # gouttes (mouille)
 
 ICONS = {"explore": _explore, "wood": _wood, "food": _food, "drink": _drink,
          "fill": _fill, "rest": _rest, "map": _map, "home": _home,
-         "craft": _craft, "move": _move, "fire": _fire, "wet": _wet, "actions": _actions, "hand": _hand,
+         "craft": _craft, "move": _move, "fire": _fire, "wet": _wet, "actions": _actions, "hand": _hand, "bag": _bag,
          # Logos des stats (section "Etat"). On reutilise certains logos
          # existants (pomme=faim, goutte=soif, Zzz=sommeil) et on ajoute le
          # coeur (vie) et l'eclair (energie).

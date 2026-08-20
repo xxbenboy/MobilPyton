@@ -473,6 +473,24 @@ class GameScreen(Screen):
         prox_cell.add_widget(_button_label("Proximite"))
         root.add_widget(prox_cell)
 
+        # ---- Bouton INVENTAIRE (a droite de Proximite) ----
+        # Proximite finit a x=0.160, +0.034 = 0.194.
+        inv_cell = BoxLayout(orientation="vertical", spacing=2,
+                             size_hint=(0.06, 0.16),
+                             pos_hint={"x": 0.194, "y": 0.012})
+        inv_area = AnchorLayout(size_hint=(1, 0.66))
+        self.inv_btn = IconButton(icon="bag", size_hint=(None, None))
+
+        def _inv_square(a, *_):
+            s = a.height * 0.94
+            self.inv_btn.size = (s, s)
+        inv_area.bind(size=_inv_square)
+        self.inv_btn.bind(on_release=self._go_inventory)
+        inv_area.add_widget(self.inv_btn)
+        inv_cell.add_widget(inv_area)
+        inv_cell.add_widget(_button_label("Inventaire"))
+        root.add_widget(inv_cell)
+
         # ---- Bouton MENU (bas a droite) ----
         menu_cell = BoxLayout(orientation="vertical", spacing=2, size_hint=(0.06, 0.16),
                               pos_hint={"right": 0.994, "y": 0.012})
@@ -1381,7 +1399,6 @@ class GameScreen(Screen):
             b.bind(on_release=cb)
             return b
 
-        panel.add_widget(mk("Inventaire", lambda *_: self._go_inventory()))
         panel.add_widget(mk("Parametres", lambda *_: self._go_settings()))
         panel.add_widget(mk("Statistiques", lambda *_: self._go_stats()))
         panel.add_widget(mk("Quitter", self.back_to_menu))
@@ -1403,7 +1420,9 @@ class GameScreen(Screen):
             self._pause_menu = None
         self.menu_label.text = "Menu"
 
-    def _go_inventory(self):
+    def _go_inventory(self, *_):
+        if self._ff_active or self._moving:
+            return
         self._close_pause_menu()
         self.manager.current = "inventory"
 
@@ -1522,6 +1541,7 @@ class GameScreen(Screen):
         # une facon de regarder ce qu'on a autour de soi.
         self.prox_btn.disabled = self._ff_active
         self.prox_btn.opacity = 1.0
+        self.inv_btn.disabled = self._ff_active
 
         self.background.set_seconds(state.time_seconds)
         # Assombrit le decor selon l'heure (voile de nuit).

@@ -19,7 +19,8 @@ from kivy.uix.gridlayout import GridLayout
 from kivy.uix.scrollview import ScrollView
 from kivy.uix.label import Label
 from kivy.uix.widget import Widget
-from kivy.graphics import Color, RoundedRectangle, Rectangle
+from kivy.graphics import (Color, RoundedRectangle, Rectangle, Ellipse,
+                           Line)
 from kivy.metrics import dp
 
 from src import items
@@ -32,6 +33,20 @@ from src.widgets.responsive import scale_font, dh
 # Couleur des textes secondaires (emplacement vide, explications).
 _DIM = (0.62, 0.64, 0.70, 1)
 _GOLD = (0.96, 0.82, 0.45, 1)
+
+# Silhouette : chaque emplacement est place VIS-A-VIS de la partie du corps
+# qu'il habille, et relie a elle par un trait.
+#   emplacement -> (x, y du cadre, x, y de la partie du corps)
+# Coordonnees en fractions du panneau (y = 0 en bas).
+_SLOT_LAYOUT = {
+    "casque":    (0.19, 0.86, 0.50, 0.85),
+    "chandail":  (0.19, 0.62, 0.50, 0.58),
+    "gant":      (0.19, 0.38, 0.35, 0.47),
+    "sac":       (0.81, 0.74, 0.60, 0.62),
+    "pantalon":  (0.81, 0.50, 0.50, 0.30),
+    "chaussure": (0.81, 0.22, 0.50, 0.08),
+}
+_SLOT_SIZE = (0.30, 0.19)
 
 
 def _panel(widget, alpha=0.45):
@@ -99,12 +114,8 @@ class InventoryScreen(Screen):
         left = BoxLayout(orientation="vertical", spacing=dp(6), size_hint_x=0.5)
         left.add_widget(scale_font(Label(text="Equipement", bold=True,
                         size_hint=(1, 0.10)), 0.022))
-        sc1 = ScrollView(size_hint=(1, 0.90))
-        self.equip_box = BoxLayout(orientation="vertical", spacing=dp(4),
-                                   size_hint_y=None)
-        self.equip_box.bind(minimum_height=self.equip_box.setter("height"))
-        sc1.add_widget(self.equip_box)
-        left.add_widget(sc1)
+        self.equip_box = _BodyPanel(size_hint=(1, 0.90))
+        left.add_widget(self.equip_box)
         body.add_widget(left)
 
         # ---- Droite : contenu du sac ----
@@ -153,19 +164,14 @@ class InventoryScreen(Screen):
         self._fill_bag(state)
 
     def _fill_equipment(self, state):
+        """Pose un cadre par emplacement, en face de sa partie du corps."""
         self.equip_box.clear_widgets()
         for slot in items.EQUIP_SLOTS:
-            worn = state.equipment.get(slot)
-            row = BoxLayout(orientation="horizontal", spacing=dp(6),
-                            size_hint_y=None, height=dh(150))
-            row.add_widget(ItemIcon(worn, show_name=False, size_hint_x=0.26)
-                           if worn else _empty_slot(0.26))
-            box = BoxLayout(orientation="vertical", size_hint_x=0.74)
-            box.add_widget(_label(items.EQUIP_SLOT_NAMES[slot], _GOLD))
-            box.add_widget(_label(items.display_name(worn) if worn
-                                  else "Aucun", _DIM))
-            row.add_widget(box)
-            self.equip_box.add_widget(row)
+            sx, sy, _bx, _by = _SLOT_LAYOUT[slot]
+            self.equip_box.add_widget(
+                _EquipSlot(slot, state.equipment.get(slot),
+                           size_hint=_SLOT_SIZE,
+                           pos_hint={"center_x": sx, "center_y": sy}))
 
     def _fill_bag(self, state):
         self.bag_box.clear_widgets()
@@ -193,6 +199,98 @@ class InventoryScreen(Screen):
                                    size_hint_y=None, height=dh(46)))
             grid.add_widget(cell)
         self.bag_box.add_widget(grid)
+
+
+class _BodyPanel(FloatLayout):
+    """Silhouette humaine, avec un trait vers chaque emplacement d'equipement.
+
+    Le corps est dessine dans `canvas.before` : les cadres d'equipement,
+    ajoutes comme enfants, passent donc par-dessus."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.bind(pos=self._redraw, size=self._redraw)
+
+    def _redraw(self, *_):
+        self.canvas.before.clear()
+        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        if w <= 0 or h <= 0:
+            return
+
+        def px(fx, fy):
+            return (x0 + fx * w, y0 + fy * h)
+
+        with self.canvas.before:
+            # Traits de correspondance, sous le corps : discrets.
+            Color(1, 1, 1, 0.16)
+            for slot, (sx, sy, bx, by) in _SLOT_LAYOUT.items():
+                # On part du bord INTERIEUR du cadre, vers la partie du corps.
+                edge = sx + (_SLOT_SIZE[0] / 2 if sx < 0.5
+                             else -_SLOT_SIZE[0] / 2)
+                Line(points=[*px(edge, sy), *px(bx, by)], width=1.2)
+
+            Color(0.72, 0.76, 0.84, 0.55)
+            head_r = h * 0.062
+            hx, hy = px(0.50, 0.85)
+            Ellipse(pos=(hx - head_r, hy - head_r),
+                    size=(head_r * 2, head_r * 2))            # tete
+            Rectangle(pos=px(0.475, 0.755), size=(w * 0.05, h * 0.04))  # cou
+            # Torse : epaules larges, taille plus etroite.
+            RoundedRectangle(pos=px(0.415, 0.44),
+                             size=(w * 0.17, h * 0.32),
+                             radius=[w * 0.03])
+            # Bras, le long du torse, mains a hauteur des hanches.
+            for dx in (0.365, 0.585):
+                RoundedRectangle(pos=px(dx, 0.46), size=(w * 0.05, h * 0.28),
+                                 radius=[w * 0.025])
+            # Mains.
+            for dx in (0.355, 0.595):
+                Ellipse(pos=px(dx, 0.425), size=(w * 0.06, h * 0.05))
+            # Jambes.
+            for dx in (0.437, 0.505):
+                RoundedRectangle(pos=px(dx, 0.10), size=(w * 0.058, h * 0.35),
+                                 radius=[w * 0.025])
+            # Pieds.
+            for dx in (0.425, 0.493):
+                RoundedRectangle(pos=px(dx, 0.055), size=(w * 0.082, h * 0.05),
+                                 radius=[w * 0.02])
+
+
+class _EquipSlot(BoxLayout):
+    """Cadre d'un emplacement : le nom, et l'objet porte (ou "Aucun")."""
+
+    def __init__(self, slot, worn, **kwargs):
+        kwargs.setdefault("orientation", "vertical")
+        kwargs.setdefault("padding", dp(4))
+        kwargs.setdefault("spacing", dp(2))
+        super().__init__(**kwargs)
+        # Un emplacement OCCUPE est plus dense et cercle d'or ; un emplacement
+        # vide reste discret.
+        edge = _GOLD[:3] + (0.45,) if worn else (1, 1, 1, 0.18)
+        with self.canvas.before:
+            Color(0.05, 0.07, 0.10, 0.62 if worn else 0.42)
+            bg = RoundedRectangle(radius=[dp(8)])
+            Color(*edge)
+            border = Line(width=1.2)
+
+        def _sync(*_):
+            bg.pos = self.pos
+            bg.size = self.size
+            border.rounded_rectangle = (self.x, self.y, self.width,
+                                        self.height, dp(8))
+        self.bind(pos=_sync, size=_sync)
+        _sync()
+
+        top = BoxLayout(orientation="horizontal", spacing=dp(4),
+                        size_hint_y=0.66)
+        top.add_widget(ItemIcon(worn, show_name=False, size_hint_x=0.42)
+                       if worn else _empty_slot(0.42))
+        top.add_widget(_label(items.EQUIP_SLOT_NAMES[slot], _GOLD,
+                              size_hint_x=0.58))
+        self.add_widget(top)
+        self.add_widget(_label(items.display_name(worn) if worn else "Aucun",
+                               (0.92, 0.92, 0.95, 1) if worn else _DIM,
+                               halign="center", size_hint_y=0.34))
 
 
 def _empty_slot(size_hint_x):
