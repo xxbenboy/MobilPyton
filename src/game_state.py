@@ -110,6 +110,22 @@ FIRE_LEVELS = (("grand", 0.66), ("moyen", 0.33), ("petit", 0.05),
                ("braise", 0.0))
 
 
+def _as_wear(name, value):
+    """Normalise une usure lue d'une sauvegarde.
+
+    L'usure a d'abord ete enregistree en NOMBRE d'utilisations, elle l'est
+    maintenant en PART usee (0..1). Une valeur superieure a 1 vient donc d'une
+    ancienne sauvegarde : on la reconvertit."""
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return 0.0
+    if v > 1.0:
+        total = items.tool_max_uses(name)
+        v = (v / total) if total > 0 else 0.0
+    return max(0.0, min(1.0, v))
+
+
 def _clamp100(v):
     return max(0, min(100, v))
 
@@ -141,18 +157,20 @@ class GameState:
         raw = list(hands) if hands else []
         self.hands = [raw[0] if len(raw) > 0 else None,
                       raw[1] if len(raw) > 1 else None]
-        # Usure des outils TENUS : [nom, utilisations] par main. Le nom est
-        # memorise avec l'usure pour qu'elle ne puisse jamais s'appliquer a un
-        # autre objet (voir tool_uses).
+        # Usure des outils TENUS : [nom, part_usee] par main, la part allant
+        # de 0.0 (neuf) a 1.0 (casse). Le nom est memorise avec l'usure pour
+        # qu'elle ne puisse jamais s'appliquer a un autre objet (voir
+        # tool_wear).
         raw_w = list(hand_wear) if hand_wear else []
-        self.hand_wear = [list(raw_w[i]) if i < len(raw_w) and raw_w[i]
-                          else [None, 0] for i in range(2)]
+        self.hand_wear = [[raw_w[i][0], _as_wear(raw_w[i][0], raw_w[i][1])]
+                          if i < len(raw_w) and raw_w[i] else [None, 0.0]
+                          for i in range(2)]
         self.ground = ground if ground else {}      # {"x,y": {objet: nombre}}
         # Usure des outils POSES AU SOL : {"x,y": {nom: [utilisations, ...]}},
         # une valeur par exemplaire.
         self.ground_wear = {}
         for cell, per_item in (ground_wear or {}).items():
-            self.ground_wear[cell] = {n: [int(u) for u in lst]
+            self.ground_wear[cell] = {n: [_as_wear(n, u) for u in lst]
                                       for n, lst in per_item.items()}
         self.explores = explores if explores else {}  # {"x,y": nb trouvailles}
         # Objets recoltes par case : {"x,y": {nom: nombre}} -> sert a masquer
@@ -440,15 +458,18 @@ class GameState:
                 return i
         return None
 
-    def add_ground(self, item, n=1, uses=0):
+    def add_ground(self, item, n=1, wear=0.0):
         g = self.ground.setdefault(self._cell_key(), {})
         g[item] = g.get(item, 0) + n
         if items.is_tool(item):
             # L'usure suit l'outil au sol : le poser puis le reprendre ne le
             # repare pas. Un exemplaire = une valeur dans la liste.
-            lst = self.ground_wear.setdefault(self._cell_key(), {}) \
-                      .setdefault(item, [])
-            lst.extend([int(uses)] * n)
+            for _ in range(n):
+                self._push_ground_wear(item, wear)
+
+    def _push_ground_wear(self, item, wear):
+        self.ground_wear.setdefault(self._cell_key(), {}) \
+            .setdefault(item, []).append(float(wear))
 
     def _take_ground_wear(self, item):
         """Retire et renvoie l'usure d'un exemplaire pose au sol.
@@ -458,7 +479,7 @@ class GameState:
         cell = self.ground_wear.get(self._cell_key(), {})
         lst = cell.get(item)
         if not lst:
-            return 0
+            return 0.0
         worst = max(lst)
         lst.remove(worst)
         if not lst:
@@ -487,7 +508,7 @@ class GameState:
     def drop_from_hands(self, index):
         """Depose au sol l'objet tenu dans la main donnee (0=gauche, 1=droite)."""
         if index in (0, 1) and self.hands[index] is not None:
-            self.add_ground(self.hands[index], uses=self.tool_uses(index))
+            self.add_ground(self.hands[index], wear=self.tool_wear(index))
             self.set_hand(index, None)
             return True
         return False
@@ -495,33 +516,36 @@ class GameState:
     # ------------------------------------------------------------------ #
     # Solidite des outils (hache, lance, couteau)
     # ------------------------------------------------------------------ #
-    def set_hand(self, index, name, uses=0):
+    def set_hand(self, index, name, wear=0.0):
         """Place un objet dans une main en fixant son usure."""
         self.hands[index] = name
-        self.hand_wear[index] = [name, int(uses)] if name else [None, 0]
+        self.hand_wear[index] = [name, float(wear)] if name else [None, 0.0]
 
-    def tool_uses(self, index):
-        """Utilisations DEJA faites par l'outil tenu dans cette main.
+    def tool_wear(self, index):
+        """Part DEJA usee de l'outil tenu (0.0 = neuf, 1.0 = casse).
 
         L'usure est memorisee avec le NOM de l'outil : si la main change de
         contenu sans passer par set_hand, elle repart de zero d'elle-meme."""
         name = self.hands[index]
         rec = self.hand_wear[index]
         if name is None or rec[0] != name:
-            return 0
-        return int(rec[1])
+            return 0.0
+        return float(rec[1])
 
     def tool_health(self, index):
         """Solidite restante de l'outil tenu, de 1.0 (neuf) a 0.0 (casse).
         Renvoie None si ce n'est pas un outil a usage multiple."""
         name = self.hands[index]
-        total = items.tool_max_uses(name) if name else 0
-        if total <= 0:
+        if not name or items.tool_max_uses(name) <= 0:
             return None
-        return max(0.0, 1.0 - self.tool_uses(index) / total)
+        return max(0.0, 1.0 - self.tool_wear(index))
 
-    def use_tool(self, index):
-        """Compte une utilisation de l'outil tenu. Renvoie True s'il CASSE.
+    def use_tool(self, index, amount=None):
+        """Use l'outil tenu. Renvoie True s'il CASSE.
+
+        `amount` = part de solidite consommee ; par defaut une utilisation
+        pleine, soit 1 / TOOL_USES. Une recette peut demander autre chose
+        (la fibre vegetale coute 10 % du couteau).
 
         Un outil casse disparait de la main : c'est ce qui donne son prix a
         l'entretien du materiel."""
@@ -529,12 +553,38 @@ class GameState:
         total = items.tool_max_uses(name) if name else 0
         if total <= 0:
             return False
-        used = self.tool_uses(index) + 1
-        if used >= total:
+        if amount is None:
+            amount = 1.0 / total
+        wear = self.tool_wear(index) + amount
+        if wear >= 1.0 - 1e-9:
             self.set_hand(index, None)
             self.add_log(f"{items.display_name(name)} casse")
             return True
-        self.hand_wear[index] = [name, used]
+        self.hand_wear[index] = [name, wear]
+        return False
+
+    def wear_tool_nearby(self, name, amount):
+        """Use un outil A PROXIMITE : celui en main d'abord, sinon un du sol.
+        Renvoie True s'il casse (il disparait alors)."""
+        if amount <= 0:
+            return False
+        hand = self.hand_holding(name)
+        if hand is not None:
+            return self.use_tool(hand, amount)
+        if self.ground_here().get(name, 0) <= 0:
+            return False
+        wear = self._take_ground_wear(name) + amount
+        if wear >= 1.0 - 1e-9:
+            key = self._cell_key()
+            g = self.ground.get(key, {})
+            g[name] = g.get(name, 1) - 1
+            if g[name] <= 0:
+                del g[name]
+            if not g:
+                self.ground.pop(key, None)
+            self.add_log(f"{items.display_name(name)} casse")
+            return True
+        self._push_ground_wear(name, wear)
         return False
 
     def hand_holding(self, name):
@@ -829,11 +879,34 @@ class GameState:
             pool[it] = pool.get(it, 0) + c
         return pool
 
+    def recipe_choice(self, recipe):
+        """Matiere retenue parmi les alternatives ("any_of") d'une recette.
+
+        On prend la plus ABONDANTE a proximite, pour entamer en premier ce
+        dont on a le plus. None si aucune n'est disponible."""
+        pool = self.craft_pool()
+        best = None
+        for name in recipe.get("any_of", ()):
+            if pool.get(name, 0) > 0 and (best is None
+                                          or pool[name] > pool.get(best, 0)):
+                best = name
+        return best
+
+    def recipe_tool_ok(self, recipe):
+        """L'outil demande par la recette est-il a proximite ?"""
+        name = recipe.get("tool")
+        return name is None or self.craft_pool().get(name, 0) > 0
+
     def can_craft(self, recipe):
         if self.debug:
             return True            # debug : tout craftable, sans ingredients
         pool = self.craft_pool()
-        return all(pool.get(k, 0) >= v for k, v in recipe["ingredients"].items())
+        if not all(pool.get(k, 0) >= v
+                   for k, v in recipe["ingredients"].items()):
+            return False
+        if recipe.get("any_of") and self.recipe_choice(recipe) is None:
+            return False
+        return self.recipe_tool_ok(recipe)
 
     def do_craft(self, recipe):
         """Fabrique : consomme les ingredients (sol d'abord, puis mains).
@@ -864,6 +937,15 @@ class GameState:
                     need -= 1
             if not g:
                 self.ground.pop(self._cell_key(), None)
+        # Matiere au CHOIX (feuille ou herbe...) : une seule est consommee.
+        choice = self.recipe_choice(recipe)
+        if choice is not None:
+            self.consume_nearby(choice)
+        # OUTIL : pas consomme, mais il s'use. S'il n'y en a pas (mode debug),
+        # il n'y a simplement rien a user.
+        tool = recipe.get("tool")
+        if tool:
+            self.wear_tool_nearby(tool, recipe.get("tool_wear", 0.0))
         result = recipe["result"]
         hand = self.free_hand()
         if hand is not None:

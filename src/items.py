@@ -157,10 +157,20 @@ def random_find(zone, rng=None):
 
 
 # Recettes : resultat <- ingredients (objet: quantite).
+# Une recette peut demander, en plus de ses `ingredients` (tous consommes) :
+# - "any_of" : une SEULE des matieres listees est consommee (au choix) ;
+# - "tool"   : un OUTIL qui doit etre a proximite. Il n'est pas consomme, mais
+#              "tool_wear" lui coute une part de sa solidite (0.10 = 10 %).
 RECIPES = [
     {"result": "Couteau", "ingredients": {"Pierre": 1, "Small_Stick": 1}},
-    {"result": "Hache", "ingredients": {"Pierre": 1, "Long_Stick": 1, "Small_Stick": 1}},
-    {"result": "Lance", "ingredients": {"Long_Stick": 1, "Couteau": 1}},
+    {"result": "Fibre_Vegetale", "ingredients": {},
+     "any_of": ["Feuille", "Herbe"], "tool": "Couteau", "tool_wear": 0.10},
+    {"result": "Corde", "ingredients": {"Fibre_Vegetale": 3}},
+    {"result": "Hache",
+     "ingredients": {"Pierre": 1, "Long_Stick": 1, "Small_Stick": 1,
+                     "Corde": 1}},
+    {"result": "Lance",
+     "ingredients": {"Long_Stick": 1, "Couteau": 1, "Corde": 1}},
     {"result": "Feu_de_camp", "ingredients": {"Small_Stick": 3, "Pierre": 2}},
     {"result": "Allume_feu", "ingredients": {"Silex": 1, "Pierre": 1}},
 ]

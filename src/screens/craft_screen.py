@@ -264,6 +264,23 @@ class CraftScreen(Screen):
                     parts.append(label)
                 else:
                     parts.append(f"[color=777777]{label}[/color]")
+            # Matiere au CHOIX : "Feuille ou Herbe", une seule est consommee.
+            alts = recipe.get("any_of")
+            if alts:
+                label = " ou ".join(items.display_name(a) for a in alts)
+                if state.recipe_choice(recipe) is not None:
+                    parts.append(label)
+                else:
+                    parts.append(f"[color=777777]{label}[/color]")
+            # OUTIL requis : pas consomme, mais il s'use.
+            tool = recipe.get("tool")
+            if tool:
+                cost = int(round(recipe.get("tool_wear", 0.0) * 100))
+                label = f"{items.display_name(tool)} (-{cost} %)"
+                if state.recipe_tool_ok(recipe):
+                    parts.append(label)
+                else:
+                    parts.append(f"[color=777777]{label}[/color]")
             ing = ", ".join(parts)
 
             # Rangee bien plus HAUTE qu'avant : l'image (qui garde son ratio)
