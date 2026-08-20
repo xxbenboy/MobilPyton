@@ -675,12 +675,19 @@ class GameState:
     def fire_light(self, gx, gy):
         """TENTE d'allumer le foyer : la reussite depend du comburant.
 
-        En cas d'echec une bonne partie du comburant part en fumee : il faut
-        en remettre pour retrouver ses chances."""
+        L'ALLUME-FEU est detruit dans tous les cas, reussite comme echec : une
+        tentative l'use. En cas d'echec, une bonne partie du comburant part de
+        plus en fumee, il faut en remettre pour retrouver ses chances."""
         if not self.fire_can_light(gx, gy):
             return False
         f = self.fire_at(gx, gy)
-        if random.random() >= self.fire_light_chance(f):
+        # La chance se calcule AVANT de detruire l'allume-feu : c'est lui qui
+        # apporte une partie du bonus.
+        chance = self.fire_light_chance(f)
+        hand = self.fire_starter_hand()
+        if hand is not None:
+            self.hands[hand] = None
+        if random.random() >= chance:
             f["air"] = max(0.0, f["air"] * (1.0 - FIRE_LIGHT_FAIL_LOSS))
             return False
         f["lit"] = 1

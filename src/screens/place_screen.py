@@ -638,8 +638,8 @@ class PlaceScreen(Screen):
             ok = state.fire_light(gx, gy)
             # Un echec est un vrai resultat de jeu (le comburant a brule) :
             # on le dit, et on sauvegarde quand meme.
-            self._fire_msg = "" if ok else ("Le feu n'a pas pris. Ajoute du "
-                                            "comburant et reessaie.")
+            self._fire_msg = "" if ok else ("Le feu n'a pas pris, et "
+                                            "l'allume-feu s'est use.")
             ok = True
         else:
             self._fire_msg = ""
