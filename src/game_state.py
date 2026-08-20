@@ -138,7 +138,8 @@ class GameState:
                  log=None, player_x=None, player_y=None, revealed=None,
                  facing=0, installed=None, debug=False,
                  weather=None, fog=False, weather_until=0,
-                 effects=None, fires=None, hand_wear=None, ground_wear=None):
+                 effects=None, fires=None, hand_wear=None, ground_wear=None,
+                 chopped=None):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
@@ -182,6 +183,11 @@ class GameState:
         # objet installe est irreversible (ne peut plus etre ramasse ni
         # deplace) et rend le bouton Proximite actif s'il est interactif.
         self.installed = installed if installed else {}
+        # Arbres ABATTUS par case : {"x,y": [[gx, gy], ...]}. Un arbre coupe
+        # ne repousse pas : sa cellule reste vide dans le decor.
+        self.chopped = {}
+        for cell, lst in (chopped or {}).items():
+            self.chopped[cell] = [[int(c[0]), int(c[1])] for c in lst]
         # Etat de chaque FOYER installe : {"x,y:gx,gy": {...}}. Voir fire_at().
         # Un foyer ne brule que s'il a du COMBUSTIBLE et du COMBURANT ; il
         # faut de plus l'ALLUMER (allume-feu en main).
@@ -599,6 +605,36 @@ class GameState:
         Les elements peuvent etre tuples ou listes (JSON serialize en liste)."""
         return self.installed.get(self._cell_key(), [])
 
+    # ------------------------------------------------------------------ #
+    # Arbres abattus
+    # ------------------------------------------------------------------ #
+    def chopped_here(self):
+        """Cellules 5x5 dont le GROS element a ete abattu sur cette case."""
+        return {(int(c[0]), int(c[1]))
+                for c in self.chopped.get(self._cell_key(), [])}
+
+    def trees_here(self):
+        """Arbres encore DEBOUT sur la case : [(gx, gy), ...].
+
+        Ce sont les gros elements du decor de type "tree" que le joueur n'a
+        pas encore coupes : le bouton "Couper du bois" en depend."""
+        gone = self.chopped_here()
+        return [cell for cell, kind in sorted(self.nature_cells_here().items())
+                if kind == "tree" and cell not in gone]
+
+    def chop_tree(self):
+        """Abat l'arbre le plus PROCHE. Renvoie sa cellule, ou None.
+
+        La cellule reste marquee pour toujours : l'arbre ne repousse pas et
+        disparait donc definitivement du decor."""
+        trees = self.trees_here()
+        if not trees:
+            return None
+        # gy croissant = de plus en plus loin : on coupe le plus proche.
+        cell = min(trees, key=lambda c: (c[1], c[0]))
+        self.chopped.setdefault(self._cell_key(), []).append([cell[0], cell[1]])
+        return cell
+
     def nature_cells_here(self):
         """Cellules 5x5 de la case occupees par un GROS element du decor
         (arbre, buisson, gros rocher) : {(gx, gy): type}. On ne peut pas y
@@ -990,6 +1026,7 @@ class GameState:
             "fires": self.fires,
             "hand_wear": self.hand_wear,
             "ground_wear": self.ground_wear,
+            "chopped": self.chopped,
             "explores": self.explores,
             "harvested": self.harvested,
             "facing": self.facing,
@@ -1031,6 +1068,7 @@ class GameState:
             fires=data.get("fires"),
             hand_wear=data.get("hand_wear"),
             ground_wear=data.get("ground_wear"),
+            chopped=data.get("chopped"),
             explores=data.get("explores"),
             harvested=data.get("harvested"),
             facing=data.get("facing", 0),

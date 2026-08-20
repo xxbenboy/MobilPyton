@@ -74,12 +74,15 @@ EFFECT_DISPLAY = {
 
 # Actions : effets ponctuels (la faim/soif/sommeil derivent en plus avec le
 # temps). "requires_sleep" => possible seulement si on est assez fatigue.
+# Ce que rapporte un arbre abattu, depose AU SOL : (objet, mini, maxi).
+CHOP_YIELD = (("Buche", 3, 3), ("Long_Stick", 3, 5), ("Feuille", 5, 10))
+
 ACTIONS = [
     {"label": "Explorer", "icon": "explore", "name": "Explorer",
      "minutes_range": (5, 15), "real_seconds": 1.5,
      "energy": -10, "type": "explore"},
     {"label": "Couper du bois", "icon": "wood", "name": "Couper\ndu bois",
-     "minutes": 120, "energy": -15, "wood": 3, "need_axe": True},
+     "minutes": 120, "energy": -15, "need_axe": True, "type": "chop"},
     {"label": "Chercher a manger", "icon": "food", "name": "Chercher\na manger",
      "minutes": 60, "energy": -5, "hunger": -25, "food": 2},
     {"label": "Boire", "icon": "drink", "name": "Boire",
@@ -143,6 +146,11 @@ def _action_reason(state, action):
         return "Aucun ruisseau ici\npour remplir la gourde."
     if action.get("type") == "explore" and state.hands_full():
         return "Mains occupees.\nVide une main pour explorer."
+    if action.get("need_axe"):
+        if items.AXE_ITEM not in state.hands:
+            return "Il faut une hache\nen main pour couper."
+        if not state.trees_here():
+            return "Aucun arbre a couper\nsur cette case."
     return None
 
 
@@ -285,6 +293,7 @@ class GameScreen(Screen):
         self._rest_fader_clock = None
         self._found_item = None        # objet decouvert a la fin d'une exploration
         self._did_explore = False      # vient-on d'explorer ? (pour le message)
+        self._did_chop = False         # vient-on d'abattre un arbre ?
         self._scene_key = None
         # Panneau lateral escamotable : None (masque), "stats" ou "effects".
         self._panel_mode = None
@@ -621,8 +630,7 @@ class GameScreen(Screen):
     # ------------------------------------------------------------------ #
     def _action_visible_key(self, state):
         """Cle resumant quels boutons conditionnels sont visibles."""
-        return (items.AXE_ITEM in state.hands,
-                any(state.has_item(g) for g in items.GOURDE_ITEMS),
+        return (any(state.has_item(g) for g in items.GOURDE_ITEMS),
                 self._action_submenu_visible)
 
     def _toggle_action_submenu(self, *_):
@@ -689,7 +697,6 @@ class GameScreen(Screen):
             self.grid.add_widget(cell)
             return btn
 
-        has_axe = items.AXE_ITEM in state.hands
         has_gourde = any(state.has_item(g) for g in items.GOURDE_ITEMS)
         by_label = {a["label"]: a for a in ACTIONS}
         # Ordre voulu : colonne gauche = Explorer / Se reposer / Action /
@@ -716,8 +723,6 @@ class GameScreen(Screen):
                     lambda *_: self._toggle_action_submenu())
                 continue
             action = by_label[label]
-            if action.get("need_axe") and not has_axe:
-                continue            # pas de hache -> bouton retire
             if action.get("need_gourde") and not has_gourde:
                 continue            # pas de gourde -> bouton retire
             btn = add_cell(action["icon"], action["name"],
@@ -873,6 +878,9 @@ class GameScreen(Screen):
             # (cf. _finish_action) ; ici on lance juste l'exploration.
             state.reveal_zone(state.player_x, state.player_y)
             self._did_explore = True
+        elif atype == "chop":
+            # L'arbre tombe (et le bois arrive) a la FIN du travail.
+            self._did_chop = True
 
         state.health = _clamp100(state.health + action.get("health", 0))
         state.energy = _clamp100(state.energy + action.get("energy", 0))
@@ -922,6 +930,9 @@ class GameScreen(Screen):
             self._end_rest_overlay()
             # Sommeil complet : on reste "bien repose" quelques heures.
             App.get_running_app().game_state.start_effect("Repos")
+        if self._did_chop:
+            self._did_chop = False
+            self._fell_tree()
         if self._did_explore:
             self._did_explore = False
             # La trouvaille et le RETRAIT de l'objet du decor se font ICI, a la
@@ -934,6 +945,19 @@ class GameScreen(Screen):
             else:
                 self._show_find_toast(None)
         App.get_running_app().autosave()
+
+    def _fell_tree(self):
+        """Abat un arbre : il quitte le decor et laisse son bois AU SOL."""
+        state = App.get_running_app().game_state
+        if state is None or state.chop_tree() is None:
+            return
+        got = []
+        for name, lo, hi in CHOP_YIELD:
+            n = random.randint(lo, hi)
+            state.add_ground(name, n)
+            got.append(f"{n} {items.display_name(name).lower()}")
+        state.add_log("Arbre abattu : " + ", ".join(got))
+        self._show_message("Arbre abattu.\n" + ", ".join(got))
 
     def _show_message(self, text):
         """Petit message d'information bref (1.2 s puis fondu), au centre haut.
@@ -1528,7 +1552,10 @@ class GameScreen(Screen):
                           for o in state.installed_objects_here())
         blocked_grid = tuple(sorted((int(o[1]), int(o[2]))
                                     for o in state.installed_objects_here()))
-        key = (zone, state.player_x, state.player_y, blocked_grid, installed)
+        # Arbres abattus : leur cellule reste vide dans le decor.
+        removed_grid = tuple(sorted(state.chopped_here()))
+        key = (zone, state.player_x, state.player_y, blocked_grid, installed,
+               removed_grid)
         if key != self._scene_key:
             # On passe les objets deja recoltes pour masquer ceux pris ici, les
             # cases bloquees pour ne pas dessiner d'objets dedans, et les
@@ -1536,7 +1563,8 @@ class GameScreen(Screen):
             self.scenery.set_scene(zone, state.player_x * 131 + state.player_y,
                                    taken=state.harvested_here(),
                                    blocked_grid=blocked_grid,
-                                   installed=installed)
+                                   installed=installed,
+                                   removed_grid=removed_grid)
             self._scene_key = key
 
     def _periodic_autosave(self, _dt):

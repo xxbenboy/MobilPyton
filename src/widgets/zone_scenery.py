@@ -77,6 +77,10 @@ class ZoneScenery(Widget):
         # le tri par profondeur s'applique aussi a eux : un feu de camp pose
         # derriere un buisson passe donc bien DERRIERE ce buisson.
         self._installed = []
+        # Cellules dont le GROS element a ete RETIRE (arbre abattu) : elles
+        # restent vides, contrairement aux cases bloquees par un objet pose,
+        # qui masquent en plus les petits objets du sol.
+        self._removed_grid = set()
         # Flammes ANIMEES : les instructions de dessin sont creees une seule
         # fois avec la scene (donc a la bonne profondeur, masquees par ce qui
         # est devant), puis seules leurs coordonnees et leur opacite changent
@@ -105,7 +109,7 @@ class ZoneScenery(Widget):
             pbr.reset_maps()
 
     def set_scene(self, zone_type, seed=0, taken=None, blocked_grid=None,
-                  installed=None):
+                  installed=None, removed_grid=None):
         """Vue a l'horizon (sol en bas + ciel).
 
         `taken` = {nom: nombre deja recolte} pour masquer les objets recoltes.
@@ -113,6 +117,8 @@ class ZoneScenery(Widget):
         sur la case. Ils sont dessines dans la scene, a leur profondeur ; un
         foyer allume y montre ses flammes, hautes ou basses selon `niveau`
         ("grand", "moyen", "petit", "braise").
+        `removed_grid` = iterable de (gx, gy) : gros elements ABATTUS, qui ne
+        sont plus dessines du tout.
         `blocked_grid` = iterable de (gx, gy) : cellules occupees par un objet
         INSTALLE (feu de camp, ...) ; deduit de `installed` si absent. Les
         objets du decor qui tombent dans la zone visuelle d'une case bloquee ne
@@ -130,6 +136,8 @@ class ZoneScenery(Widget):
             blocked_grid = [(gx, gy) for _n, gx, gy, _l, _v in self._installed]
         self._blocked_grid = set((int(g[0]), int(g[1]))
                                  for g in (blocked_grid or []))
+        self._removed_grid = set((int(g[0]), int(g[1]))
+                                 for g in (removed_grid or []))
         self._redraw()
 
     def set_taken(self, taken):
@@ -207,7 +215,8 @@ class ZoneScenery(Widget):
         for (ggx, ggy), kind in sorted(
                 world.nature_blocked_cells(self._zone, self._seed).items(),
                 key=lambda kv: (-kv[0][1], kv[0][0])):
-            if (ggx, ggy) in self._blocked_grid:
+            if ((ggx, ggy) in self._blocked_grid
+                    or (ggx, ggy) in self._removed_grid):
                 continue
             gfx, gfy, _gs = grid_to_screen(ggx, ggy)
             jit = random.Random(f"{self._seed}:{ggx}:{ggy}:big")
