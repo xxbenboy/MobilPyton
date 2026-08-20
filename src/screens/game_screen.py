@@ -630,6 +630,7 @@ class GameScreen(Screen):
     def _action_visible_key(self, state):
         """Cle resumant quels boutons conditionnels sont visibles."""
         return (any(state.has_item(g) for g in items.GOURDE_ITEMS),
+                bool(state.trees_here()),
                 self._action_submenu_visible)
 
     def _toggle_action_submenu(self, *_):
@@ -697,18 +698,24 @@ class GameScreen(Screen):
             return btn
 
         has_gourde = any(state.has_item(g) for g in items.GOURDE_ITEMS)
+        has_trees = bool(state.trees_here())
         by_label = {a["label"]: a for a in ACTIONS}
         # Ordre voulu : colonne gauche = Explorer / Se reposer / Action /
         # Craft (4 lignes), puis actions conditionnelles dans les colonnes
         # suivantes. "ACTION" = bouton sous-menu, None = bouton Craft.
-        order = ["Explorer", "Se reposer", "ACTION", None,
-                 "Couper du bois", "Remplir gourde"]
-        # Si le sous-menu Action est ouvert, on insere Manger et Boire
-        # juste apres Couper du bois (col 2).
+        order = ["Explorer", "Se reposer", "ACTION", None]
+        # "Couper du bois" occupe une place de choix TANT QU'IL Y A DES ARBRES
+        # a abattre ici. Ailleurs, elle n'encombre pas la grille : elle se
+        # range dans le sous-menu Action, avec Manger et Boire.
+        submenu = []
+        if has_trees:
+            order.append("Couper du bois")
+        elif self._action_submenu_visible:
+            submenu.append("Couper du bois")
         if self._action_submenu_visible:
-            order = ["Explorer", "Se reposer", "ACTION", None,
-                     "Couper du bois", "Chercher a manger", "Boire",
-                     "Remplir gourde"]
+            submenu += ["Chercher a manger", "Boire"]
+        order += submenu
+        order.append("Remplir gourde")
         for label in order:
             if label is None:
                 self.craft_btn = add_cell(
@@ -727,7 +734,7 @@ class GameScreen(Screen):
             btn = add_cell(action["icon"], action["name"],
                            lambda _w, a=action: self.do_action(a))
             self._action_buttons.append((btn, action))
-            if action["label"] in ("Chercher a manger", "Boire"):
+            if action["label"] in submenu:
                 self._action_submenu_btns.append(btn)
 
     # ------------------------------------------------------------------ #
