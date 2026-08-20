@@ -16,7 +16,7 @@ import random
 
 from kivy.uix.widget import Widget
 from kivy.clock import Clock
-from kivy.graphics import Color, Rectangle, Ellipse, Mesh
+from kivy.graphics import Color, Rectangle, Ellipse, Mesh, Line
 from kivy.graphics.texture import Texture
 from kivy.metrics import dp
 
@@ -25,13 +25,16 @@ SECONDS_PER_DAY = 24 * 3600
 # 24h en 4 minutes (240 s) => 360 secondes de jeu par seconde reelle.
 MENU_TIME_SCALE = SECONDS_PER_DAY / 240.0
 
+# Couleur du ciel heure par heure. Le JOUR est volontairement clair : un bleu
+# franc mais lumineux (le degrade assombrit deja le haut du cadre de 60 %, le
+# ciel parait donc plus sombre a l'ecran que ces valeurs).
 _SKY_KEYS = [
     (0.0,  (0.05, 0.07, 0.12)),
     (4.0,  (0.06, 0.08, 0.13)),
     (5.0,  (0.34, 0.23, 0.25)),
-    (6.0,  (0.42, 0.56, 0.72)),
-    (12.0, (0.52, 0.70, 0.92)),
-    (17.0, (0.46, 0.62, 0.82)),
+    (6.0,  (0.53, 0.69, 0.87)),
+    (12.0, (0.63, 0.81, 1.00)),
+    (17.0, (0.57, 0.74, 0.95)),
     (19.0, (0.58, 0.36, 0.28)),
     (20.0, (0.22, 0.18, 0.26)),
     (22.0, (0.07, 0.09, 0.14)),
@@ -175,6 +178,16 @@ def night_darkness(seconds, max_dark=0.62):
         1.0 - MOON_LIGHT * moon_light(seconds))
 
 
+# --------------------------------------------------------------------- #
+# ETOILES FILANTES
+# --------------------------------------------------------------------- #
+# Tirage a CHAQUE HEURE DE JEU ecoulee, et seulement la nuit : une nuit de
+# 10 h offre donc environ 40 % de chances d'en voir passer une.
+SHOOTING_STAR_CHANCE = 0.05
+SHOOTING_STAR_SECONDS = 1.1      # duree de la traversee (secondes reelles)
+SHOOTING_STAR_MIN_NIGHT = 0.55   # il faut faire assez sombre pour la voir
+
+
 def night_factor(seconds):
     """Avancement de la NUIT : 0 en plein jour, 1 en pleine nuit.
 
@@ -185,7 +198,7 @@ def night_factor(seconds):
 
 
 class AnimatedBackground(Widget):
-    def __init__(self, start_seconds=6 * 3600, time_scale=0.0, stars=28,
+    def __init__(self, start_seconds=6 * 3600, time_scale=0.0, stars=120,
                  **kwargs):
         super().__init__(**kwargs)
         self._seconds = float(start_seconds) % SECONDS_PER_DAY
@@ -199,6 +212,10 @@ class AnimatedBackground(Widget):
         self._current = sky_color(self._seconds)
         self._t = 0.0
         self._grad_accum = 0.0
+        # Etoile filante : heure de jeu deja tiree, et animation en cours.
+        self._last_hour = None
+        self._shoot_left = 0.0
+        self._shoot_path = None
 
         self._grad_tex = Texture.create(size=(1, 64), colorfmt="rgba")
         self._grad_tex.wrap = "clamp_to_edge"
@@ -217,7 +234,11 @@ class AnimatedBackground(Widget):
             #    simple pixel blanc.
             self._stars = []
             rng = random.Random(20240601)
-            for _ in range(stars):
+            for i in range(stars):
+                # Une etoile sur six est une BRILLANTE : plus grosse, plus
+                # vive, avec un halo plus large. Le ciel a ainsi du relief au
+                # lieu d'etre un semis uniforme.
+                bright = (i % 6 == 0)
                 glow = Color(0.85, 0.92, 1.0, 0.0)
                 glow_e = Ellipse()
                 col = Color(1, 1, 1, 0.0)
@@ -226,12 +247,22 @@ class AnimatedBackground(Widget):
                     "glow": glow, "ge": glow_e,
                     "fx": rng.uniform(0.02, 0.98),
                     "fy": rng.uniform(0.40, 0.98),
-                    "size": dp(rng.uniform(1.8, 4.2)),
-                    "halo": rng.uniform(2.8, 4.0),
-                    "base": rng.uniform(0.45, 1.0),
+                    "size": dp(rng.uniform(2.6, 5.2) if bright
+                               else rng.uniform(1.6, 3.4)),
+                    "halo": rng.uniform(3.4, 4.6) if bright
+                            else rng.uniform(2.6, 3.6),
+                    "base": rng.uniform(0.85, 1.0) if bright
+                            else rng.uniform(0.55, 0.9),
                     "phase": rng.uniform(0.0, 6.28),
                     "tw": rng.uniform(0.6, 1.8),
                 })
+
+            # 2b. ETOILE FILANTE (rare) : une trainee qui traverse le ciel.
+            #     Creee une fois, invisible tant qu'aucune n'est en cours.
+            self._shoot_glow_c = Color(0.80, 0.90, 1.0, 0.0)
+            self._shoot_glow = Line(width=dp(3.2), cap="round")
+            self._shoot_c = Color(1.0, 1.0, 1.0, 0.0)
+            self._shoot = Line(width=dp(1.5), cap="round")
 
             # 3. Soleil (avec halo) et Lune.
             self._sun_glow_c = Color(1.0, 0.92, 0.55, 0.0)
@@ -412,7 +443,48 @@ class AnimatedBackground(Widget):
                       cx + x_out, y, 0.0, 0.0]
         self._moon.vertices = verts
 
+    def _start_shooting_star(self):
+        """Tire une trajectoire : depart en haut du ciel, chute en diagonale."""
+        rng = random
+        going_right = rng.random() < 0.5
+        self._shoot_path = {
+            "fx": rng.uniform(0.10, 0.90),
+            "fy": rng.uniform(0.62, 0.95),
+            "dx": rng.uniform(0.28, 0.52) * (1 if going_right else -1),
+            "dy": -rng.uniform(0.14, 0.30),
+            "trail": rng.uniform(0.16, 0.26),
+        }
+        self._shoot_left = SHOOTING_STAR_SECONDS
+
+    def _shape_shooting_star(self, astro):
+        """Place la trainee selon l'avancement, et gere son fondu."""
+        p = self._shoot_path
+        if p is None:
+            self._shoot_c.a = self._shoot_glow_c.a = 0.0
+            return
+        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        # 0 au depart -> 1 a l'arrivee.
+        adv = 1.0 - _clamp01(self._shoot_left / SHOOTING_STAR_SECONDS)
+        hx = x0 + (p["fx"] + p["dx"] * adv) * w
+        hy = y0 + (p["fy"] + p["dy"] * adv) * h
+        # La trainee suit la tete, raccourcie au depart comme a l'arrivee.
+        tl = p["trail"] * min(1.0, adv * 4.0) * min(1.0, (1.0 - adv) * 3.0 + 0.3)
+        tx = hx - p["dx"] * tl * w
+        ty = hy - p["dy"] * tl * h
+        pts = [tx, ty, hx, hy]
+        self._shoot.points = pts
+        self._shoot_glow.points = pts
+        # Apparition franche, disparition douce ; masquee par les nuages.
+        fade = min(1.0, adv * 6.0) * min(1.0, (1.0 - adv) * 2.6)
+        self._shoot_c.a = fade * astro
+        self._shoot_glow_c.a = fade * 0.35 * astro
+
     def _tick(self, dt):
+        # Chaque ecran a son propre fond, mais un seul est AFFICHE : les autres
+        # ne sont plus rattaches a la fenetre (le ScreenManager les retire).
+        # Inutile de recalculer leur ciel et leurs etoiles a 60 images/s.
+        if self.get_root_window() is None:
+            return
         # Independant du framerate : tout se base sur dt (temps reel), avec un
         # plafond pour eviter un bond apres un ralentissement / reveil.
         dt = min(dt, 0.25)
@@ -453,6 +525,32 @@ class AnimatedBackground(Widget):
             a = s["base"] * twinkle * night * astro * wash
             s["col"].a = a
             s["glow"].a = a * 0.30
+
+        # Etoile filante : un tirage par HEURE DE JEU ecoulee, la nuit
+        # seulement. Le compteur d'heures suit le temps absolu, il marche donc
+        # aussi bien quand le fond avance seul (menu) que quand la partie lui
+        # impose son horloge (jeu).
+        hour_index = int(self._abs_seconds // 3600)
+        if self._last_hour is None:
+            self._last_hour = hour_index
+        elif hour_index > self._last_hour:
+            # Le temps peut SAUTER (sommeil, deplacement) : on tire pour
+            # chaque heure franchie, en bornant pour ne pas boucler longtemps.
+            steps = min(hour_index - self._last_hour, 24)
+            self._last_hour = hour_index
+            if night * astro >= SHOOTING_STAR_MIN_NIGHT and self._shoot_left <= 0:
+                for _ in range(steps):
+                    if random.random() < SHOOTING_STAR_CHANCE:
+                        self._start_shooting_star()
+                        break
+        if self._shoot_left > 0:
+            self._shoot_left -= dt
+            if self._shoot_left <= 0:
+                self._shoot_left = 0.0
+                self._shoot_path = None
+            self._shape_shooting_star(astro)
+        else:
+            self._shoot_c.a = self._shoot_glow_c.a = 0.0
 
         radius = min(w, h) * 0.055
 
