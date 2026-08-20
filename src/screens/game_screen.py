@@ -82,7 +82,7 @@ ACTIONS = [
      "minutes_range": (5, 15), "real_seconds": 1.5,
      "energy": -10, "type": "explore"},
     {"label": "Couper du bois", "icon": "wood", "name": "Couper\ndu bois",
-     "minutes": 120, "energy": -15, "need_axe": True, "type": "chop"},
+     "minutes": 180, "energy": -15, "need_axe": True, "type": "chop"},
     {"label": "Chercher a manger", "icon": "food", "name": "Chercher\na manger",
      "minutes": 60, "energy": -5, "hunger": -25, "food": 2},
     {"label": "Boire", "icon": "drink", "name": "Boire",

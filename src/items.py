@@ -45,10 +45,10 @@ AXE_ITEM = "Hache"
 GOURDE_ITEMS = {"Gourde"}
 
 # OUTILS A USAGE MULTIPLE : nombre d'utilisations avant de casser. Une hache
-# de pierre abat une dizaine d'arbres, un couteau taille plus longtemps qu'il
-# ne coupe fort. A 0, l'outil se brise et disparait.
+# de pierre abat cinq arbres, un couteau taille plus longtemps qu'il ne coupe
+# fort. A 0, l'outil se brise et disparait.
 TOOL_USES = {
-    "Hache": 10,
+    "Hache": 5,
     "Lance": 12,
     "Couteau": 15,
 }
