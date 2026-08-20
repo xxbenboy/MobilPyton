@@ -122,7 +122,7 @@ class GameState:
                  log=None, player_x=None, player_y=None, revealed=None,
                  facing=0, installed=None, debug=False,
                  weather=None, fog=False, weather_until=0,
-                 effects=None, fires=None):
+                 effects=None, fires=None, hand_wear=None, ground_wear=None):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
@@ -141,7 +141,19 @@ class GameState:
         raw = list(hands) if hands else []
         self.hands = [raw[0] if len(raw) > 0 else None,
                       raw[1] if len(raw) > 1 else None]
+        # Usure des outils TENUS : [nom, utilisations] par main. Le nom est
+        # memorise avec l'usure pour qu'elle ne puisse jamais s'appliquer a un
+        # autre objet (voir tool_uses).
+        raw_w = list(hand_wear) if hand_wear else []
+        self.hand_wear = [list(raw_w[i]) if i < len(raw_w) and raw_w[i]
+                          else [None, 0] for i in range(2)]
         self.ground = ground if ground else {}      # {"x,y": {objet: nombre}}
+        # Usure des outils POSES AU SOL : {"x,y": {nom: [utilisations, ...]}},
+        # une valeur par exemplaire.
+        self.ground_wear = {}
+        for cell, per_item in (ground_wear or {}).items():
+            self.ground_wear[cell] = {n: [int(u) for u in lst]
+                                      for n, lst in per_item.items()}
         self.explores = explores if explores else {}  # {"x,y": nb trouvailles}
         # Objets recoltes par case : {"x,y": {nom: nombre}} -> sert a masquer
         # les objets recoltes dans la scene (coherence decor/recolte).
@@ -428,9 +440,32 @@ class GameState:
                 return i
         return None
 
-    def add_ground(self, item, n=1):
+    def add_ground(self, item, n=1, uses=0):
         g = self.ground.setdefault(self._cell_key(), {})
         g[item] = g.get(item, 0) + n
+        if items.is_tool(item):
+            # L'usure suit l'outil au sol : le poser puis le reprendre ne le
+            # repare pas. Un exemplaire = une valeur dans la liste.
+            lst = self.ground_wear.setdefault(self._cell_key(), {}) \
+                      .setdefault(item, [])
+            lst.extend([int(uses)] * n)
+
+    def _take_ground_wear(self, item):
+        """Retire et renvoie l'usure d'un exemplaire pose au sol.
+
+        On rend le plus USE en premier : le joueur garde ainsi ses outils
+        neufs pour plus tard sans avoir a y penser."""
+        cell = self.ground_wear.get(self._cell_key(), {})
+        lst = cell.get(item)
+        if not lst:
+            return 0
+        worst = max(lst)
+        lst.remove(worst)
+        if not lst:
+            del cell[item]
+        if not cell:
+            self.ground_wear.pop(self._cell_key(), None)
+        return worst
 
     def take_from_ground(self, item, hand):
         """Ramasse 1 objet du sol vers la main donnee (0=gauche, 1=droite).
@@ -446,16 +481,68 @@ class GameState:
             del g[item]
         if not g:
             self.ground.pop(self._cell_key(), None)
-        self.hands[hand] = item
+        self.set_hand(hand, item, self._take_ground_wear(item))
         return True
 
     def drop_from_hands(self, index):
         """Depose au sol l'objet tenu dans la main donnee (0=gauche, 1=droite)."""
         if index in (0, 1) and self.hands[index] is not None:
-            self.add_ground(self.hands[index])
-            self.hands[index] = None
+            self.add_ground(self.hands[index], uses=self.tool_uses(index))
+            self.set_hand(index, None)
             return True
         return False
+
+    # ------------------------------------------------------------------ #
+    # Solidite des outils (hache, lance, couteau)
+    # ------------------------------------------------------------------ #
+    def set_hand(self, index, name, uses=0):
+        """Place un objet dans une main en fixant son usure."""
+        self.hands[index] = name
+        self.hand_wear[index] = [name, int(uses)] if name else [None, 0]
+
+    def tool_uses(self, index):
+        """Utilisations DEJA faites par l'outil tenu dans cette main.
+
+        L'usure est memorisee avec le NOM de l'outil : si la main change de
+        contenu sans passer par set_hand, elle repart de zero d'elle-meme."""
+        name = self.hands[index]
+        rec = self.hand_wear[index]
+        if name is None or rec[0] != name:
+            return 0
+        return int(rec[1])
+
+    def tool_health(self, index):
+        """Solidite restante de l'outil tenu, de 1.0 (neuf) a 0.0 (casse).
+        Renvoie None si ce n'est pas un outil a usage multiple."""
+        name = self.hands[index]
+        total = items.tool_max_uses(name) if name else 0
+        if total <= 0:
+            return None
+        return max(0.0, 1.0 - self.tool_uses(index) / total)
+
+    def use_tool(self, index):
+        """Compte une utilisation de l'outil tenu. Renvoie True s'il CASSE.
+
+        Un outil casse disparait de la main : c'est ce qui donne son prix a
+        l'entretien du materiel."""
+        name = self.hands[index]
+        total = items.tool_max_uses(name) if name else 0
+        if total <= 0:
+            return False
+        used = self.tool_uses(index) + 1
+        if used >= total:
+            self.set_hand(index, None)
+            self.add_log(f"{items.display_name(name)} casse")
+            return True
+        self.hand_wear[index] = [name, used]
+        return False
+
+    def hand_holding(self, name):
+        """Indice de la main tenant cet objet (droite d'abord), ou None."""
+        for i in (1, 0):
+            if self.hands[i] == name:
+                return i
+        return None
 
     def installed_objects_here(self):
         """Liste des objets INSTALLES sur la case actuelle : [(nom, gx, gy), ...].
@@ -490,7 +577,7 @@ class GameState:
             if int(obj[1]) == int(gx) and int(obj[2]) == int(gy):
                 return False
         lst.append((name, int(gx), int(gy)))
-        self.hands[index] = None
+        self.set_hand(index, None)
         if name == "Feu_de_camp":
             # Un foyer monte est ETEINT : il faut y mettre du combustible,
             # l'aerer, puis l'allumer (voir fire_light).
@@ -606,6 +693,7 @@ class GameState:
         key = self._cell_key()
         g = self.ground.get(key, {})
         if g.get(name, 0) > 0:
+            self._take_ground_wear(name)
             g[name] -= 1
             if g[name] <= 0:
                 del g[name]
@@ -614,7 +702,7 @@ class GameState:
             return True
         for i in (0, 1):
             if self.hands[i] == name:
-                self.hands[i] = None
+                self.set_hand(i, None)
                 return True
         return False
 
@@ -686,7 +774,7 @@ class GameState:
         chance = self.fire_light_chance(f)
         hand = self.fire_starter_hand()
         if hand is not None:
-            self.hands[hand] = None
+            self.set_hand(hand, None)
         if random.random() >= chance:
             f["air"] = max(0.0, f["air"] * (1.0 - FIRE_LIGHT_FAIL_LOSS))
             return False
@@ -700,7 +788,7 @@ class GameState:
         """Prend un objet trouve : dans une main libre si possible, sinon au sol."""
         hand = self.free_hand()
         if hand is not None:
-            self.hands[hand] = item
+            self.set_hand(hand, item)
             return True
         self.add_ground(item)
         return False
@@ -717,10 +805,10 @@ class GameState:
             self.add_ground(item)
             return None
         if self.hands[1] is None:
-            self.hands[1] = item
+            self.set_hand(1, item)
             return 1
         if self.hands[0] is None:
-            self.hands[0] = item
+            self.set_hand(0, item)
             return 0
         self.add_ground(item)
         return None
@@ -761,6 +849,8 @@ class GameState:
             g = self.ground.get(self._cell_key(), {})
             take = min(need, g.get(item, 0))
             if take:
+                for _ in range(take):
+                    self._take_ground_wear(item)
                 g[item] -= take
                 if g[item] <= 0:
                     del g[item]
@@ -770,14 +860,14 @@ class GameState:
                 if need <= 0:
                     break
                 if self.hands[i] == item:
-                    self.hands[i] = None
+                    self.set_hand(i, None)
                     need -= 1
             if not g:
                 self.ground.pop(self._cell_key(), None)
         result = recipe["result"]
         hand = self.free_hand()
         if hand is not None:
-            self.hands[hand] = result
+            self.set_hand(hand, result)
         else:
             self.add_ground(result)
         return True
@@ -816,6 +906,8 @@ class GameState:
             "weather_until": self.weather_until,
             "effects": self.effects,
             "fires": self.fires,
+            "hand_wear": self.hand_wear,
+            "ground_wear": self.ground_wear,
             "explores": self.explores,
             "harvested": self.harvested,
             "facing": self.facing,
@@ -855,6 +947,8 @@ class GameState:
             weather_until=data.get("weather_until", 0),
             effects=data.get("effects"),
             fires=data.get("fires"),
+            hand_wear=data.get("hand_wear"),
+            ground_wear=data.get("ground_wear"),
             explores=data.get("explores"),
             harvested=data.get("harvested"),
             facing=data.get("facing", 0),

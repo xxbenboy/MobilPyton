@@ -23,6 +23,7 @@ from src import items
 from src.widgets.animated_background import AnimatedBackground, night_darkness
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.item_icon import ItemIcon
+from src.widgets.durability_bar import DurabilityBar
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font, dh
 
@@ -193,7 +194,18 @@ class CraftScreen(Screen):
             # Rangee plus HAUTE + icone plus large -> image agrandie au maximum.
             row = BoxLayout(orientation="horizontal", spacing=dp(6),
                             size_hint_y=None, height=dh(200))
-            row.add_widget(ItemIcon(item, size_hint_x=0.30))
+            # Pour un OUTIL, l'image est surmontee de sa barre de solidite.
+            health = state.tool_health(i)
+            if health is None:
+                row.add_widget(ItemIcon(item, size_hint_x=0.30))
+            else:
+                col = BoxLayout(orientation="vertical", spacing=dp(3),
+                                size_hint_x=0.30)
+                col.add_widget(ItemIcon(item))
+                bar = DurabilityBar(size_hint_y=None, height=dh(14))
+                bar.set_value(health)
+                col.add_widget(bar)
+                row.add_widget(col)
             lbl = Label(text=hand_names[i], halign="left", valign="middle",
                         size_hint_x=0.33, color=(0.96, 0.82, 0.45, 1))
             lbl.bind(size=_inv_label_font)

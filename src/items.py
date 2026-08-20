@@ -44,6 +44,25 @@ COMPASS_ITEM = "Boussole"
 AXE_ITEM = "Hache"
 GOURDE_ITEMS = {"Gourde"}
 
+# OUTILS A USAGE MULTIPLE : nombre d'utilisations avant de casser. Une hache
+# de pierre abat une dizaine d'arbres, un couteau taille plus longtemps qu'il
+# ne coupe fort. A 0, l'outil se brise et disparait.
+TOOL_USES = {
+    "Hache": 10,
+    "Lance": 12,
+    "Couteau": 15,
+}
+
+
+def tool_max_uses(name):
+    """Nombre d'utilisations d'un outil neuf (0 = objet sans solidite)."""
+    return TOOL_USES.get(name, 0)
+
+
+def is_tool(name):
+    """Vrai si l'objet s'use a l'usage (et affiche donc une barre)."""
+    return name in TOOL_USES
+
 # Objets INSTALLABLES : peuvent etre "utilises" (montes/installes) depuis la
 # main via un bouton Utiliser dedie. Une fois installes, ils passent dans
 # game_state.installed (pas dans ground) et rendent le bouton Proximite actif.

@@ -40,6 +40,7 @@ from src.widgets.icon_button import IconButton
 from src.widgets.styled_button import StyledButton
 from src.widgets.item_icon import ItemIcon
 from src.widgets.stat_circle import StatCircle
+from src.widgets.durability_bar import DurabilityBar
 from src.widgets.clock_face import ClockFace
 from src.widgets.responsive import scale_font
 
@@ -272,6 +273,7 @@ class GameScreen(Screen):
         self._ff_scale = FAST_FORWARD_SCALE   # s de jeu / s reelle en cours
         self._ff_real = 0.0           # duree reelle de l'action, en secondes
         self._ff_label = ""
+        self._ff_tool = None          # outil use par l'action en cours
         # Transition de deplacement (fondu noir + horloge).
         self._moving = False
         self._fader = None
@@ -489,6 +491,7 @@ class GameScreen(Screen):
         # de l'ecran) pour ne pas chevaucher les mains visuellement.
         self.drop_btns = []
         self.drop_labels = []
+        self.wear_bars = []
         # Bouton "Utiliser" (un par main) : monte AU-DESSUS de "Deposer"
         # UNIQUEMENT quand la main tient un objet installable (voir
         # items.INSTALLABLE_ITEMS, ex. Feu_de_camp). Sinon masque et
@@ -504,6 +507,13 @@ class GameScreen(Screen):
             name_lbl.pos_hint = {"center_x": cx, "y": NAME_Y_LOW}
             root.add_widget(name_lbl)
             self.drop_labels.append(name_lbl)
+
+            # Barre de SOLIDITE, juste sous le nom : seulement pour les
+            # outils a usage multiple (hache, lance, couteau).
+            bar = DurabilityBar(size_hint=(0.13, 0.012),
+                                pos_hint={"center_x": cx, "y": NAME_Y_LOW})
+            root.add_widget(bar)
+            self.wear_bars.append(bar)
 
             db = scale_font(StyledButton(text="Deposer", size_hint=(0.13, 0.07),
                             pos_hint={"center_x": cx, "y": DROP_BTN_Y}), 0.02)
@@ -885,6 +895,8 @@ class GameScreen(Screen):
         self._ff_real = _action_real_seconds(action, minutes)
         self._ff_scale = self._ff_total / self._ff_real
         self._ff_label = action["label"]
+        # Outil mobilise par l'action : il s'usera a la fin du travail.
+        self._ff_tool = items.AXE_ITEM if action.get("need_axe") else None
         self._time_accum = 0.0
         self.refresh()
         # Repos : voile noir + horloge + message (comme le deplacement).
@@ -894,9 +906,18 @@ class GameScreen(Screen):
 
     def _finish_action(self):
         was_resting = (self._ff_label == "Se reposer")
+        used_tool = self._ff_tool
+        self._ff_tool = None
         self._ff_active = False
         self._ff_label = ""
         self.hands.set_state('haut')
+        # L'OUTIL s'use une fois le travail termine (et peut casser).
+        if used_tool is not None:
+            state = App.get_running_app().game_state
+            hand = state.hand_holding(used_tool)
+            if hand is not None and state.use_tool(hand):
+                self._show_message(
+                    f"{items.display_name(used_tool)} : l'outil s'est brise.")
         if was_resting:
             self._end_rest_overlay()
             # Sommeil complet : on reste "bien repose" quelques heures.
@@ -1427,6 +1448,13 @@ class GameScreen(Screen):
             y = NAME_Y_HIGH if use_visible else NAME_Y_LOW
             if lbl.pos_hint.get("y") != y:
                 lbl.pos_hint = {"center_x": PlayerHands.HAND_FX[slot], "y": y}
+            # Solidite : juste SOUS le nom, et seulement pour un outil.
+            bar = self.wear_bars[slot]
+            health = state.tool_health(slot) if visible else None
+            bar.set_value(health)
+            by = y - 0.014
+            if health is not None and bar.pos_hint.get("y") != by:
+                bar.pos_hint = {"center_x": PlayerHands.HAND_FX[slot], "y": by}
 
         # (Re)construit la grille des boutons si l'outillage a change (hache /
         # gourde) : ces boutons apparaissent / disparaissent completement.
