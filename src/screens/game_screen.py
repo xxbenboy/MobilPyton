@@ -372,20 +372,14 @@ class GameScreen(Screen):
         zone_box.add_widget(self.zone_desc)
         root.add_widget(zone_box)
 
-        # ---- Panneau lateral ESCAMOTABLE (masque par defaut) ----
-        # Il accueille soit l'ETAT (les cercles de stats), soit les EFFETS en
-        # cours. On l'ouvre avec les boutons de la colonne de droite ; il se
-        # referme en reappuyant, ou en touchant ailleurs sur l'ecran.
-        self.side_panel = BoxLayout(orientation="vertical",
+        # ---- Colonne d'ETAT (bord droit, TOUJOURS visible) ----
+        # Les cercles de stats sont l'information la plus consultee : ils
+        # restent affiches en permanence, colles au bord droit.
+        self.status_col = BoxLayout(orientation="vertical",
                                     padding=(dp(2), dp(6)), spacing=dp(6),
                                     size_hint=(0.07, 0.80),
-                                    pos_hint={"right": 0.925, "top": 0.99})
-        _add_panel(self.side_panel, alpha=0.34)
-        root.add_widget(self.side_panel)
-        self.side_panel.opacity = 0
-        self.side_panel.disabled = True
-
-        # Cercles d'ETAT : crees une fois, ranges dans le panneau a l'ouverture.
+                                    pos_hint={"right": 0.998, "top": 0.99})
+        _add_panel(self.status_col, alpha=0.34)
         self.stat_health = StatCircle("Vie", (0.85, 0.30, 0.30), "health")
         self.stat_energy = StatCircle("Energie", (0.95, 0.80, 0.30), "energy")
         self.stat_sleep = StatCircle("Sommeil", (0.45, 0.55, 0.95), "sleep")
@@ -394,20 +388,32 @@ class GameScreen(Screen):
         self._stat_circles = (self.stat_health, self.stat_energy,
                               self.stat_sleep, self.stat_hunger,
                               self.stat_thirst)
+        for circle in self._stat_circles:
+            self.status_col.add_widget(circle)
+        root.add_widget(self.status_col)
 
-        # ---- Colonne des BOUTONS du panneau (bord droit) ----
+        # ---- Bouton EFFET, a GAUCHE de la colonne d'etat ----
         self.panel_btns = BoxLayout(orientation="vertical",
                                     padding=(dp(2), dp(4)), spacing=dp(6),
-                                    size_hint=(0.07, 0.24),
-                                    pos_hint={"right": 0.998, "top": 0.99})
+                                    size_hint=(0.07, 0.12),
+                                    pos_hint={"right": 0.925, "top": 0.99})
         _add_panel(self.panel_btns, alpha=0.28)
-        self.status_btn = scale_font(StyledButton(text="Statut"), 0.02)
-        self.status_btn.bind(on_release=lambda *_: self._toggle_panel("stats"))
-        self.panel_btns.add_widget(self.status_btn)
         self.effect_btn = scale_font(StyledButton(text="Effet"), 0.02)
         self.effect_btn.bind(on_release=lambda *_: self._toggle_panel("effects"))
         self.panel_btns.add_widget(self.effect_btn)
         root.add_widget(self.panel_btns)
+
+        # ---- Panneau des EFFETS (masque par defaut) ----
+        # Il s'ouvre ENCORE PLUS A GAUCHE, sans jamais recouvrir l'etat ni son
+        # bouton. On le referme en reappuyant, ou en touchant ailleurs.
+        self.side_panel = BoxLayout(orientation="vertical",
+                                    padding=(dp(2), dp(6)), spacing=dp(6),
+                                    size_hint=(0.07, 0.80),
+                                    pos_hint={"right": 0.852, "top": 0.99})
+        _add_panel(self.side_panel, alpha=0.34)
+        root.add_widget(self.side_panel)
+        self.side_panel.opacity = 0
+        self.side_panel.disabled = True
 
         # ---- Etat d'action (sous la zone) ----
         self.status = scale_font(Label(text="", bold=True,
@@ -763,16 +769,13 @@ class GameScreen(Screen):
         self._set_panel(None if self._panel_mode == mode else mode)
 
     def _set_panel(self, mode):
-        """Affiche le panneau ("stats" / "effects") ou le masque (None)."""
+        """Affiche le panneau des effets ("effects") ou le masque (None)."""
         if mode == self._panel_mode:
             return
         self._panel_mode = mode
         self.side_panel.clear_widgets()
         self._effect_names = None          # force la reconstruction des effets
         self._effect_circles = {}
-        if mode == "stats":
-            for circle in self._stat_circles:
-                self.side_panel.add_widget(circle)
         self.side_panel.opacity = 0 if mode is None else 1
         self.side_panel.disabled = mode is None
         self.refresh()
