@@ -63,6 +63,46 @@ def is_tool(name):
     """Vrai si l'objet s'use a l'usage (et affiche donc une barre)."""
     return name in TOOL_USES
 
+# --------------------------------------------------------------------- #
+# EQUIPEMENT PORTE
+# --------------------------------------------------------------------- #
+# Emplacements du personnage, dans l'ordre d'affichage (de la tete aux pieds,
+# le sac en dernier).
+EQUIP_SLOTS = ("casque", "chandail", "gant", "pantalon", "chaussure", "sac")
+EQUIP_SLOT_NAMES = {
+    "casque": "Casque",
+    "chandail": "Chandail",
+    "gant": "Gants",
+    "pantalon": "Pantalon",
+    "chaussure": "Chaussures",
+    "sac": "Sac a dos",
+}
+
+# Tenue de depart : les vetements avec lesquels le personnage a survecu. Uses,
+# mais ils couvrent le corps. Ni casque, ni gants, ni sac.
+STARTING_EQUIPMENT = {
+    "chandail": "Chandail_Rescape",
+    "pantalon": "Pantalon_Rescape",
+    "chaussure": "Chaussures_Rescape",
+}
+
+# Nombre d'emplacements apportes par un sac. Sans sac : AUCUNE place, le
+# personnage ne transporte que ce qu'il tient dans ses mains.
+BAG_CAPACITY = {
+    "Sac_De_Fortune": 4,
+    "Sac_A_Dos": 8,
+}
+
+
+def bag_capacity(name):
+    """Nombre d'emplacements offerts par ce sac (0 = pas un sac)."""
+    return BAG_CAPACITY.get(name, 0)
+
+
+def is_bag(name):
+    return name in BAG_CAPACITY
+
+
 # Objets INSTALLABLES : peuvent etre "utilises" (montes/installes) depuis la
 # main via un bouton Utiliser dedie. Une fois installes, ils passent dans
 # game_state.installed (pas dans ground) et ne peuvent plus etre ramasses.

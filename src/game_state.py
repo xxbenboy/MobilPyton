@@ -139,7 +139,7 @@ class GameState:
                  facing=0, installed=None, debug=False,
                  weather=None, fog=False, weather_until=0,
                  effects=None, fires=None, hand_wear=None, ground_wear=None,
-                 chopped=None):
+                 chopped=None, equipment=None, bag=None):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
@@ -173,6 +173,14 @@ class GameState:
         for cell, per_item in (ground_wear or {}).items():
             self.ground_wear[cell] = {n: [_as_wear(n, u) for u in lst]
                                       for n, lst in per_item.items()}
+        # EQUIPEMENT porte : {emplacement: objet ou None}. Une partie sans
+        # equipement enregistre (nouvelle partie, ou sauvegarde d'avant cette
+        # fonctionnalite) demarre avec la tenue de rescape.
+        base = items.STARTING_EQUIPMENT if equipment is None else equipment
+        self.equipment = {slot: (base or {}).get(slot)
+                          for slot in items.EQUIP_SLOTS}
+        # Contenu du SAC A DOS. Sans sac, aucune place : la liste reste vide.
+        self.bag = [b for b in (bag or []) if b]
         self.explores = explores if explores else {}  # {"x,y": nb trouvailles}
         # Objets recoltes par case : {"x,y": {nom: nombre}} -> sert a masquer
         # les objets recoltes dans la scene (coherence decor/recolte).
@@ -606,6 +614,17 @@ class GameState:
         return self.installed.get(self._cell_key(), [])
 
     # ------------------------------------------------------------------ #
+    # Equipement et sac a dos
+    # ------------------------------------------------------------------ #
+    def bag_capacity(self):
+        """Nombre d'emplacements du sac porte (0 si le joueur n'en a pas)."""
+        return items.bag_capacity(self.equipment.get("sac"))
+
+    def bag_free(self):
+        """Emplacements encore libres dans le sac."""
+        return max(0, self.bag_capacity() - len(self.bag))
+
+    # ------------------------------------------------------------------ #
     # Arbres abattus
     # ------------------------------------------------------------------ #
     def chopped_here(self):
@@ -1027,6 +1046,8 @@ class GameState:
             "hand_wear": self.hand_wear,
             "ground_wear": self.ground_wear,
             "chopped": self.chopped,
+            "equipment": self.equipment,
+            "bag": self.bag,
             "explores": self.explores,
             "harvested": self.harvested,
             "facing": self.facing,
@@ -1069,6 +1090,8 @@ class GameState:
             hand_wear=data.get("hand_wear"),
             ground_wear=data.get("ground_wear"),
             chopped=data.get("chopped"),
+            equipment=data.get("equipment"),
+            bag=data.get("bag"),
             explores=data.get("explores"),
             harvested=data.get("harvested"),
             facing=data.get("facing", 0),

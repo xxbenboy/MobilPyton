@@ -1381,6 +1381,7 @@ class GameScreen(Screen):
             b.bind(on_release=cb)
             return b
 
+        panel.add_widget(mk("Inventaire", lambda *_: self._go_inventory()))
         panel.add_widget(mk("Parametres", lambda *_: self._go_settings()))
         panel.add_widget(mk("Statistiques", lambda *_: self._go_stats()))
         panel.add_widget(mk("Quitter", self.back_to_menu))
@@ -1401,6 +1402,10 @@ class GameScreen(Screen):
                 self._pause_menu.parent.remove_widget(self._pause_menu)
             self._pause_menu = None
         self.menu_label.text = "Menu"
+
+    def _go_inventory(self):
+        self._close_pause_menu()
+        self.manager.current = "inventory"
 
     def _go_settings(self):
         self._close_pause_menu()
