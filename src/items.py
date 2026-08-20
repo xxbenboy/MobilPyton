@@ -65,11 +65,12 @@ def is_tool(name):
 
 # Objets INSTALLABLES : peuvent etre "utilises" (montes/installes) depuis la
 # main via un bouton Utiliser dedie. Une fois installes, ils passent dans
-# game_state.installed (pas dans ground) et rendent le bouton Proximite actif.
+# game_state.installed (pas dans ground) et ne peuvent plus etre ramasses.
 INSTALLABLE_ITEMS = {"Feu_de_camp"}
 
-# Objets INTERACTIFS : quand ils sont INSTALLES sur la case courante, le bouton
-# "Proximite" s'active. Actuellement seul le feu de camp est interactif.
+# Objets INTERACTIFS : une fois INSTALLES, on peut s'en servir -- en cliquant
+# dessus dans la scene, ou en les choisissant dans l'ecran Proximite. Ils
+# ouvrent alors leur fenetre d'action. Seul le feu de camp l'est pour l'instant.
 INTERACTIVE_ITEMS = {"Feu_de_camp"}
 
 # ALLUMER un feu : il faut un de ces objets EN MAIN. Deux pierres dures
@@ -167,8 +168,7 @@ RECIPES = [
      "any_of": ["Feuille", "Herbe"], "tool": "Couteau", "tool_wear": 0.10},
     {"result": "Corde", "ingredients": {"Fibre_Vegetale": 3}},
     {"result": "Hache",
-     "ingredients": {"Pierre": 1, "Long_Stick": 1, "Small_Stick": 1,
-                     "Corde": 1}},
+     "ingredients": {"Pierre": 1, "Small_Stick": 4, "Corde": 1}},
     {"result": "Lance",
      "ingredients": {"Long_Stick": 1, "Couteau": 1, "Corde": 1}},
     {"result": "Feu_de_camp", "ingredients": {"Small_Stick": 3, "Pierre": 2}},

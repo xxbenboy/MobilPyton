@@ -454,9 +454,8 @@ class GameScreen(Screen):
         root.add_widget(map_cell)
 
         # ---- Bouton PROXIMITE (a droite de Carte) ----
-        # Grise et inactif quand aucun objet interactif (voir INTERACTIVE_ITEMS
-        # ci-dessous) n'est au sol sur la case courante. Pas d'action pour
-        # l'instant (la logique d'interaction viendra plus tard).
+        # Toujours disponible : elle ouvre la grille de la case, ou l'on
+        # choisit un objet pose pour s'en servir.
         # Ecart Carte<->Proximite = ecart Deplacer<->Menu (0.034 en fraction
         # de largeur d'ecran) : Carte finit a x=0.066, +0.034 = 0.100.
         prox_cell = BoxLayout(orientation="vertical", spacing=2,
@@ -1064,9 +1063,6 @@ class GameScreen(Screen):
         state = App.get_running_app().game_state
         if state is None or self._ff_active or self._moving:
             return
-        if not any(o[0] in items.INTERACTIVE_ITEMS
-                   for o in state.installed_objects_here()):
-            return
         place = self.manager.get_screen("place")
         place._slot = None
         place.mode = "use"
@@ -1509,17 +1505,11 @@ class GameScreen(Screen):
         self.craft_btn.disabled = self._ff_active
         self.back_btn.disabled = self._ff_active
         self.move_btn.disabled = self._ff_active
-        # Proximite : grise + inactif tant qu'il n'y a AUCUN objet interactif
-        # (voir items.INTERACTIVE_ITEMS) INSTALLE sur la case courante. Un
-        # simple "Deposer" n'active pas Proximite, seul "Utiliser" le fait.
-        has_interactive = any(obj[0] in items.INTERACTIVE_ITEMS
-                              for obj in state.installed_objects_here())
-        if self._ff_active or not has_interactive:
-            self.prox_btn.disabled = True
-            self.prox_btn.opacity = 0.45
-        else:
-            self.prox_btn.disabled = False
-            self.prox_btn.opacity = 1.0
+        # Proximite : toujours disponible (comme Carte ou Craft). Elle ouvre
+        # la grille de la case, meme si rien n'y est encore pose : c'est aussi
+        # une facon de regarder ce qu'on a autour de soi.
+        self.prox_btn.disabled = self._ff_active
+        self.prox_btn.opacity = 1.0
 
         self.background.set_seconds(state.time_seconds)
         # Assombrit le decor selon l'heure (voile de nuit).
