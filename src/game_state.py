@@ -624,6 +624,30 @@ class GameState:
         """Emplacements encore libres dans le sac."""
         return max(0, self.bag_capacity() - len(self.bag))
 
+    def can_equip(self, index):
+        """L'objet tenu dans cette main se porte-t-il ?"""
+        name = self.hands[index] if index in (0, 1) else None
+        return name is not None and items.equip_slot(name) is not None
+
+    def equip_from_hand(self, index):
+        """Porte l'objet tenu dans cette main.
+
+        La piece deja portee revient DANS LA MAIN : on echange, la main ne se
+        retrouve donc jamais encombree d'un objet perdu."""
+        if not self.can_equip(index):
+            return False
+        name = self.hands[index]
+        slot = items.equip_slot(name)
+        previous = self.equipment.get(slot)
+        self.equipment[slot] = name
+        self.set_hand(index, previous)
+        # Changer de sac peut REDUIRE la place disponible : ce qui ne rentre
+        # plus tombe au sol plutot que de disparaitre.
+        while len(self.bag) > self.bag_capacity():
+            self.add_ground(self.bag.pop())
+        self.add_log(f"{items.display_name(name)} equipe")
+        return True
+
     # ------------------------------------------------------------------ #
     # Arbres abattus
     # ------------------------------------------------------------------ #

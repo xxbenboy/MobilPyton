@@ -22,7 +22,12 @@ def image_path(name):
 
 
 def display_name(name):
-    """Nom lisible : 'feu_de_camp' -> 'Feu de camp'."""
+    """Nom lisible : 'feu_de_camp' -> 'Feu de camp'.
+
+    Tolere None (emplacement vide) : renvoie une chaine vide plutot que de
+    faire echouer l'affichage."""
+    if not name:
+        return ""
     return name.replace("_", " ").capitalize()
 
 
@@ -89,9 +94,33 @@ STARTING_EQUIPMENT = {
 # Nombre d'emplacements apportes par un sac. Sans sac : AUCUNE place, le
 # personnage ne transporte que ce qu'il tient dans ses mains.
 BAG_CAPACITY = {
-    "Sac_De_Fortune": 4,
+    "Sac_De_Feuille": 6,
     "Sac_A_Dos": 8,
 }
+
+# A quel emplacement se porte chaque piece d'equipement.
+EQUIP_ITEM_SLOT = {
+    # Tenue de depart.
+    "Chandail_Rescape": "chandail",
+    "Pantalon_Rescape": "pantalon",
+    "Chaussures_Rescape": "chaussure",
+    # Premiere tenue fabriquable : feuilles liees a la corde.
+    "Casque_De_Feuille": "casque",
+    "Veste_De_Feuille": "chandail",
+    "Gant_De_Feuille": "gant",
+    "Pantalon_De_Feuille": "pantalon",
+    "Soulier_De_Feuille": "chaussure",
+    "Sac_De_Feuille": "sac",
+}
+
+
+def equip_slot(name):
+    """Emplacement ou se porte cet objet, ou None s'il ne se porte pas."""
+    return EQUIP_ITEM_SLOT.get(name)
+
+
+def is_equipment(name):
+    return name in EQUIP_ITEM_SLOT
 
 
 def bag_capacity(name):
@@ -211,6 +240,19 @@ RECIPES = [
      "ingredients": {"Pierre": 1, "Small_Stick": 4, "Corde": 1}},
     {"result": "Lance",
      "ingredients": {"Long_Stick": 1, "Couteau": 1, "Corde": 1}},
+    # Premiere tenue : des feuilles maintenues par des batons et de la corde.
+    {"result": "Casque_De_Feuille",
+     "ingredients": {"Small_Stick": 5, "Feuille": 10, "Corde": 1}},
+    {"result": "Veste_De_Feuille",
+     "ingredients": {"Small_Stick": 5, "Feuille": 10, "Corde": 1}},
+    {"result": "Gant_De_Feuille",
+     "ingredients": {"Feuille": 5, "Corde": 1}},
+    {"result": "Pantalon_De_Feuille",
+     "ingredients": {"Small_Stick": 5, "Feuille": 10, "Corde": 1}},
+    {"result": "Soulier_De_Feuille",
+     "ingredients": {"Feuille": 5, "Corde": 1}},
+    {"result": "Sac_De_Feuille",
+     "ingredients": {"Small_Stick": 10, "Feuille": 20, "Corde": 2}},
     {"result": "Feu_de_camp", "ingredients": {"Small_Stick": 3, "Pierre": 2}},
     {"result": "Allume_feu", "ingredients": {"Silex": 1, "Pierre": 1}},
 ]

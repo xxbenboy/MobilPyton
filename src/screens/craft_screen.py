@@ -206,12 +206,22 @@ class CraftScreen(Screen):
                 bar.set_value(health)
                 col.add_widget(bar)
                 row.add_widget(col)
+            # Un vetement ou un sac se PORTE : on ajoute alors "Equiper" a
+            # cote de "Deposer", en resserrant le libelle pour faire la place.
+            equipable = state.can_equip(i)
             lbl = Label(text=hand_names[i], halign="left", valign="middle",
-                        size_hint_x=0.33, color=(0.96, 0.82, 0.45, 1))
+                        size_hint_x=0.22 if equipable else 0.33,
+                        color=(0.96, 0.82, 0.45, 1))
             lbl.bind(size=_inv_label_font)
             _inv_label_font(lbl)
             row.add_widget(lbl)
-            drop = StyledButton(text="Deposer", size_hint_x=0.37, bold=True)
+            if equipable:
+                eq = StyledButton(text="Equiper", size_hint_x=0.24, bold=True)
+                eq.bind(size=_btn_font)
+                eq.bind(on_release=lambda _w, idx=i: self._equip(idx))
+                row.add_widget(eq)
+            drop = StyledButton(text="Deposer", bold=True,
+                                size_hint_x=0.24 if equipable else 0.37)
             drop.bind(size=_btn_font)
             drop.bind(on_release=lambda _w, idx=i: self._drop(idx))
             row.add_widget(drop)
@@ -310,6 +320,12 @@ class CraftScreen(Screen):
     def _take(self, name, hand):
         App.get_running_app().game_state.take_from_ground(name, hand)
         App.get_running_app().autosave()
+        self.refresh()
+
+    def _equip(self, index):
+        """Porte l'objet tenu : il quitte la main pour son emplacement."""
+        if App.get_running_app().game_state.equip_from_hand(index):
+            App.get_running_app().autosave()
         self.refresh()
 
     def _drop(self, index):

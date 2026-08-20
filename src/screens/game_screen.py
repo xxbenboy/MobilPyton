@@ -518,11 +518,11 @@ class GameScreen(Screen):
         self.drop_btns = []
         self.drop_labels = []
         self.wear_bars = []
-        # Bouton "Utiliser" (un par main) : monte AU-DESSUS de "Deposer"
-        # UNIQUEMENT quand la main tient un objet installable (voir
-        # items.INSTALLABLE_ITEMS, ex. Feu_de_camp). Sinon masque et
-        # inactif. Un objet installe passe dans state.installed (pas dans
-        # ground) => c'est ce qui active le bouton Proximite.
+        # Bouton d'ACTION de la main (un par main), au-dessus de "Deposer".
+        # Il n'apparait que si l'objet tenu se prete a quelque chose :
+        #   - "Utiliser" pour un objet installable (items.INSTALLABLE_ITEMS) ;
+        #   - "Equiper"  pour un vetement ou un sac (items.EQUIP_ITEM_SLOT).
+        # Sinon il reste masque et inactif.
         self.use_btns = []
         for slot, cx in enumerate(PlayerHands.HAND_FX):
             # Bas -> haut : Deposer (y=0.005), Utiliser (y=0.080), Label.
@@ -1066,14 +1066,21 @@ class GameScreen(Screen):
             self.refresh()
 
     def _use_hand(self, slot):
-        """Ouvre l'ecran PLACEMENT (vue de dessus + grille 5x5) pour choisir
-        ou installer l'objet tenu dans la main donnee. L'installation se fait
-        depuis PlaceScreen (irreversible)."""
+        """Bouton d'action de la main : EQUIPER un vetement, ou PLACER un
+        objet installable (l'ecran Placement prend alors le relais)."""
         state = App.get_running_app().game_state
         if state is None or self._ff_active or self._moving:
             return
         name = state.hands[slot]
-        if name is None or name not in items.INSTALLABLE_ITEMS:
+        if name is None:
+            return
+        if state.can_equip(slot):
+            if state.equip_from_hand(slot):
+                self._show_message(f"{items.display_name(name)} equipe.")
+                App.get_running_app().autosave()
+                self.refresh()
+            return
+        if name not in items.INSTALLABLE_ITEMS:
             return
         place = self.manager.get_screen("place")
         place._slot = slot
@@ -1490,9 +1497,13 @@ class GameScreen(Screen):
                 lbl.text = items.display_name(item)
             ub = self.use_btns[slot]
             installable = occupied and item in items.INSTALLABLE_ITEMS
-            use_visible = installable and not exploring
+            equipable = occupied and items.equip_slot(item) is not None
+            usable = installable or equipable
+            if usable:
+                ub.text = "Equiper" if equipable else "Utiliser"
+            use_visible = usable and not exploring
             ub.opacity = 1 if use_visible else 0
-            ub.disabled = (not installable) or self._ff_active
+            ub.disabled = (not usable) or self._ff_active
             # Nom de l'objet : toujours le plus BAS possible entre l'objet
             # tenu et le bas de l'ecran -> il descend a la place du bouton
             # "Utiliser" quand celui-ci est masque.
