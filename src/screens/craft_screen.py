@@ -157,12 +157,17 @@ class CraftScreen(Screen):
         back.bind(on_release=lambda *_: setattr(self.manager, "current", "game"))
         col.add_widget(back)
 
+        # Categories de recettes actuellement DEPLIEES.
+        self._open_cats = set()
+
         _panel(col)
         root.add_widget(col)
         self.add_widget(root)
 
     # ------------------------------------------------------------------ #
     def on_pre_enter(self):
+        # A chaque ouverture de l'ecran, toutes les categories sont repliees.
+        self._open_cats = set()
         state = App.get_running_app().game_state
         if state is not None:
             self.background.set_seconds(state.time_seconds)
@@ -262,10 +267,39 @@ class CraftScreen(Screen):
                              height=dh(40)), 0.018)
             self.inventory_box.add_widget(lbl)
 
-        # Recettes
+        # Recettes, rangees par CATEGORIE repliable. Tout est replie a
+        # l'ouverture de l'ecran : la liste tient alors en quelques lignes,
+        # et le joueur deplie seulement ce qui l'interesse.
         self.recipe_box.clear_widgets()
         pool = state.craft_pool()
-        for recipe in items.RECIPES:
+        for category in items.RECIPE_CATEGORIES:
+            group = [r for r in items.RECIPES
+                     if r.get("category") == category]
+            if not group:
+                continue
+            ready = sum(1 for r in group if state.can_craft(r))
+            opened = category in self._open_cats
+            head = StyledButton(
+                text=f"{'-' if opened else '+'}  {category}   "
+                     f"({ready}/{len(group)})",
+                halign="left", bold=True, size_hint_y=None, height=dh(110))
+            head.bind(size=_btn_font)
+            head.bind(on_release=lambda _w, c=category: self._toggle_cat(c))
+            self.recipe_box.add_widget(head)
+            if not opened:
+                continue
+            self._add_recipes(state, pool, group)
+
+    def _toggle_cat(self, category):
+        """Deplie la categorie, ou la replie si elle l'etait deja."""
+        if category in self._open_cats:
+            self._open_cats.discard(category)
+        else:
+            self._open_cats.add(category)
+        self.refresh()
+
+    def _add_recipes(self, state, pool, group):
+        for recipe in group:
             # Ingredients : ecriture plus FONCEE si l'ingredient manque.
             parts = []
             for k, v in recipe["ingredients"].items():

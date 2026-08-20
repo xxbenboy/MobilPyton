@@ -226,33 +226,41 @@ def random_find(zone, rng=None):
     return rng.choices(names, weights=weights, k=1)[0]
 
 
+# Categories des recettes, dans l'ordre d'affichage de l'ecran Craft. Chaque
+# categorie s'y replie et se deplie.
+RECIPE_CATEGORIES = ("Outils", "Materiaux", "Equipement", "Installations")
+
 # Recettes : resultat <- ingredients (objet: quantite).
 # Une recette peut demander, en plus de ses `ingredients` (tous consommes) :
 # - "any_of" : une SEULE des matieres listees est consommee (au choix) ;
 # - "tool"   : un OUTIL qui doit etre a proximite. Il n'est pas consomme, mais
 #              "tool_wear" lui coute une part de sa solidite (0.10 = 10 %).
 RECIPES = [
-    {"result": "Couteau", "ingredients": {"Pierre": 1, "Small_Stick": 1}},
-    {"result": "Fibre_Vegetale", "ingredients": {},
-     "any_of": ["Feuille", "Herbe"], "tool": "Couteau", "tool_wear": 0.10},
-    {"result": "Corde", "ingredients": {"Fibre_Vegetale": 3}},
-    {"result": "Hache",
+    {"result": "Couteau", "category": "Outils",
+     "ingredients": {"Pierre": 1, "Small_Stick": 1}},
+    {"result": "Hache", "category": "Outils",
      "ingredients": {"Pierre": 1, "Small_Stick": 4, "Corde": 1}},
-    {"result": "Lance",
+    {"result": "Lance", "category": "Outils",
      "ingredients": {"Long_Stick": 1, "Couteau": 1, "Corde": 1}},
+    {"result": "Allume_feu", "category": "Outils",
+     "ingredients": {"Silex": 1, "Pierre": 1}},
+    {"result": "Fibre_Vegetale", "category": "Materiaux", "ingredients": {},
+     "any_of": ["Feuille", "Herbe"], "tool": "Couteau", "tool_wear": 0.10},
+    {"result": "Corde", "category": "Materiaux",
+     "ingredients": {"Fibre_Vegetale": 3}},
     # Premiere tenue : des feuilles maintenues par des batons et de la corde.
-    {"result": "Casque_De_Feuille",
+    {"result": "Casque_De_Feuille", "category": "Equipement",
      "ingredients": {"Small_Stick": 5, "Feuille": 10, "Corde": 1}},
-    {"result": "Veste_De_Feuille",
+    {"result": "Veste_De_Feuille", "category": "Equipement",
      "ingredients": {"Small_Stick": 5, "Feuille": 10, "Corde": 1}},
-    {"result": "Gant_De_Feuille",
+    {"result": "Gant_De_Feuille", "category": "Equipement",
      "ingredients": {"Feuille": 5, "Corde": 1}},
-    {"result": "Pantalon_De_Feuille",
+    {"result": "Pantalon_De_Feuille", "category": "Equipement",
      "ingredients": {"Small_Stick": 5, "Feuille": 10, "Corde": 1}},
-    {"result": "Soulier_De_Feuille",
+    {"result": "Soulier_De_Feuille", "category": "Equipement",
      "ingredients": {"Feuille": 5, "Corde": 1}},
-    {"result": "Sac_De_Feuille",
+    {"result": "Sac_De_Feuille", "category": "Equipement",
      "ingredients": {"Small_Stick": 10, "Feuille": 20, "Corde": 2}},
-    {"result": "Feu_de_camp", "ingredients": {"Small_Stick": 3, "Pierre": 2}},
-    {"result": "Allume_feu", "ingredients": {"Silex": 1, "Pierre": 1}},
+    {"result": "Feu_de_camp", "category": "Installations",
+     "ingredients": {"Small_Stick": 3, "Pierre": 2}},
 ]
