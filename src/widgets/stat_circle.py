@@ -37,6 +37,11 @@ class StatCircle(Widget):
 
         self.bind(pos=self._rebuild, size=self._rebuild)
 
+    @property
+    def value(self):
+        """Valeur affichee (0 a 100), pour recopier un cercle a l'identique."""
+        return self._value
+
     def set_value(self, value):
         self._value = max(0.0, min(100.0, float(value)))
         self._update_arc()

@@ -70,7 +70,14 @@ EFFECT_DISPLAY = {
     "Feu_de_camp": ("Feu", (0.95, 0.50, 0.18), "fire"),
     "Repos": ("Repos", (0.55, 0.70, 0.95), "rest"),
     "Mouille": ("Mouille", (0.35, 0.68, 0.95), "wet"),
+    "Faim": ("Faim", (0.85, 0.55, 0.25), "hunger"),
+    "Soif": ("Soif", (0.30, 0.70, 0.92), "thirst"),
 }
+
+# Un effet qui APPARAIT s'affiche d'abord en clair a l'ecran, puis file vers
+# le bouton "Effet" : le joueur voit ce qui lui arrive, et ou le retrouver.
+EFFECT_TOAST_SECONDS = 30.0
+EFFECT_FLY_SECONDS = 0.75
 
 # Actions : effets ponctuels (la faim/soif/sommeil derivent en plus avec le
 # temps). "requires_sleep" => possible seulement si on est assez fatigue.
@@ -297,6 +304,9 @@ class GameScreen(Screen):
         self._scene_key = None
         # Panneau lateral escamotable : None (masque), "stats" ou "effects".
         self._panel_mode = None
+        # Effets deja vus (pour reperer les NOUVEAUX) et bulles affichees.
+        self._seen_effects = None
+        self._toast_effects = {}
         self._effect_names = None
         self._effect_circles = {}
 
@@ -772,6 +782,8 @@ class GameScreen(Screen):
         """Affiche le panneau des effets ("effects") ou le masque (None)."""
         if mode == self._panel_mode:
             return
+        if mode is None and self._panel_mode == "effects":
+            self._fly_panel_effects()
         self._panel_mode = mode
         self.side_panel.clear_widgets()
         self._effect_names = None          # force la reconstruction des effets
@@ -779,6 +791,80 @@ class GameScreen(Screen):
         self.side_panel.opacity = 0 if mode is None else 1
         self.side_panel.disabled = mode is None
         self.refresh()
+
+    def _watch_new_effects(self, state):
+        """Repere les effets qui viennent d'apparaitre et les annonce."""
+        names = [n for n, _ in state.active_effects()]
+        current = set(names)
+        if self._seen_effects is None:
+            self._seen_effects = current      # 1re passe : rien de "nouveau"
+            return
+        for name in names:
+            if name not in self._seen_effects:
+                self._show_effect_toast(name)
+        self._seen_effects = current
+
+    def _effect_circle(self, name, value=100.0, **kwargs):
+        """Cercle d'un effet, pret a etre pose n'importe ou."""
+        label, color, icon = EFFECT_DISPLAY.get(
+            name, (name, (0.80, 0.80, 0.85), "rest"))
+        circle = StatCircle(label, color, icon, **kwargs)
+        circle.set_value(value)
+        return circle
+
+    def _show_effect_toast(self, name):
+        """Annonce un nouvel effet : il s'affiche a cote du bouton "Effet",
+        puis file dedans au bout de EFFECT_TOAST_SECONDS."""
+        if name in self._toast_effects:
+            return
+        w, h = self.width or 1, self.height or 1
+        size = (w * 0.075, h * 0.17)
+        # Empile les bulles sous le bouton, sans jamais recouvrir l'etat.
+        row = len(self._toast_effects)
+        # Le cercle va dans une BOITE : c'est elle qui porte le fond et qu'on
+        # anime. (StatCircle efface son canvas.before a chaque changement de
+        # taille : un fond pose dessus serait efface au premier redessin.)
+        box = BoxLayout(padding=dp(4), size_hint=(None, None), size=size)
+        box.pos = (w * 0.852 - size[0], h * (0.800 - 0.185 * row))
+        _add_panel(box, alpha=0.42)
+        box.add_widget(self._effect_circle(name))
+        self.root_layout.add_widget(box)
+        self._toast_effects[name] = box
+        Clock.schedule_once(lambda _dt, n=name: self._fly_toast(n),
+                            EFFECT_TOAST_SECONDS)
+
+    def _fly_toast(self, name):
+        """La bulle file vers le bouton "Effet" et s'y range."""
+        box = self._toast_effects.pop(name, None)
+        if box is not None:
+            self._fly_to_effect_button(box)
+
+    def _fly_to_effect_button(self, widget):
+        """Envoie un widget vers le bouton "Effet" en retrecissant."""
+        target = self.effect_btn.center
+        end = (max(1.0, widget.width * 0.15), max(1.0, widget.height * 0.15))
+        anim = Animation(pos=(target[0] - end[0] / 2.0,
+                              target[1] - end[1] / 2.0),
+                         size=end, opacity=0.0,
+                         duration=EFFECT_FLY_SECONDS, t="in_quad")
+        anim.bind(on_complete=lambda *_: (
+            widget.parent and widget.parent.remove_widget(widget)))
+        anim.start(widget)
+
+    def _fly_panel_effects(self):
+        """A la fermeture du panneau, les effets "rentrent" dans le bouton.
+
+        On ne deplace pas les vrais cercles (ils appartiennent au panneau, qui
+        se vide) : on en lance des copies depuis leur position actuelle."""
+        for name, circle in list(self._effect_circles.items()):
+            if circle.parent is None or circle.width <= 0:
+                continue
+            ghost = self._effect_circle(name, circle.value,
+                                        size_hint=(None, None))
+            ghost.size = circle.size
+            ghost.pos = circle.pos
+            self.root_layout.add_widget(ghost)
+            self._fly_to_effect_button(ghost)
 
     def _refresh_effects_panel(self, state):
         """Remplit le panneau avec les effets en cours et leur temps restant."""
@@ -1471,6 +1557,8 @@ class GameScreen(Screen):
         self.stat_sleep.set_value(state.sleep)
         self.stat_hunger.set_value(state.hunger)
         self.stat_thirst.set_value(state.thirst)
+        # Effets : on annonce les nouveaux, ou qu'en soit le panneau.
+        self._watch_new_effects(state)
         # Panneau des EFFETS : contenu et anneaux de temps restant.
         if self._panel_mode == "effects":
             self._refresh_effects_panel(state)

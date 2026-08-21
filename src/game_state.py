@@ -40,6 +40,22 @@ HEALTH_RATE = 0.05    # la vie baisse si faim/soif au max ou sommeil/energie a 0
 # On ne peut dormir (Se reposer) que si l'energie est <= a ce seuil.
 SLEEP_ENERGY_MAX = 70
 
+# --------------------------------------------------------------------- #
+# FAIM ET SOIF : alerte, puis degats
+# --------------------------------------------------------------------- #
+# A partir de ce niveau, la faim (ou la soif) devient un EFFET visible et
+# commence a couter de la vie.
+SURVIVAL_ALERT = 75
+# Entre le seuil et 100, chaque tranche franchie coute des points de vie.
+SURVIVAL_STEP = 5
+SURVIVAL_STEP_DAMAGE = 1
+# Au-dela de 100, c'est l'inanition : la vie tombe de 5 points par MINUTE
+# REELLE. Le jeu ne compte qu'en temps de JEU, on convertit donc avec
+# l'echelle du temps (cf. game_screen.TIME_SCALE : 24 h de jeu en 10 min
+# reelles, soit 144 minutes de jeu par minute reelle).
+STARVING_DAMAGE = 5.0
+GAME_MINUTES_PER_REAL_MINUTE = 144.0
+
 # Le joueur ne peut tenir que 2 objets dans ses mains a la fois.
 HANDS_MAX = 2
 
@@ -139,7 +155,8 @@ class GameState:
                  facing=0, installed=None, debug=False,
                  weather=None, fog=False, weather_until=0,
                  effects=None, fires=None, hand_wear=None, ground_wear=None,
-                 chopped=None, equipment=None, bag=None):
+                 chopped=None, equipment=None, bag=None,
+                 penalty_steps=None):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
@@ -181,6 +198,12 @@ class GameState:
                           for slot in items.EQUIP_SLOTS}
         # Contenu du SAC A DOS. Sans sac, aucune place : la liste reste vide.
         self.bag = [b for b in (bag or []) if b]
+        # Paliers de faim/soif deja factures en points de vie (voir
+        # _survival_damage) : evite de repayer le meme palier a chaque frame.
+        self.penalty_steps = {"hunger": 0, "thirst": 0}
+        for stat, n in (penalty_steps or {}).items():
+            if stat in self.penalty_steps:
+                self.penalty_steps[stat] = int(n)
         self.explores = explores if explores else {}  # {"x,y": nb trouvailles}
         # Objets recoltes par case : {"x,y": {nom: nombre}} -> sert a masquer
         # les objets recoltes dans la scene (coherence decor/recolte).
@@ -376,6 +399,14 @@ class GameState:
                 continue
             total = max(1, end - start)
             out.append((name, (end - self.time_seconds) / total))
+        # FAIM et SOIF ne sont pas des effets a duree : ils durent tant que le
+        # niveau reste critique. L'anneau se vide a mesure qu'on approche de
+        # 100, ou commence l'inanition.
+        span = max(1.0, 100.0 - SURVIVAL_ALERT)
+        for stat, name in (("hunger", "Faim"), ("thirst", "Soif")):
+            value = getattr(self, stat)
+            if value >= SURVIVAL_ALERT:
+                out.append((name, max(0.0, (100.0 - value) / span)))
         return out
 
     def effective_weather(self):
@@ -398,10 +429,34 @@ class GameState:
         self.thirst = _clamp100(self.thirst + THIRST_RATE * minutes)
         self.sleep = _clamp100(self.sleep - SLEEP_RATE * minutes)
         self.energy = _clamp100(self.energy - ENERGY_DRAIN * minutes)
-        # En danger (faim/soif au max, ou sommeil/energie a zero) : la vie baisse.
-        if (self.hunger >= 100 or self.thirst >= 100
-                or self.sleep <= 0 or self.energy <= 0):
+        # Epuisement (sommeil ou energie a zero) : la vie baisse doucement.
+        if self.sleep <= 0 or self.energy <= 0:
             self.health = _clamp100(self.health - HEALTH_RATE * minutes)
+        # Faim et soif : paliers, puis inanition.
+        damage = self._survival_damage(minutes)
+        if damage:
+            self.health = _clamp100(self.health - damage)
+
+    def _survival_damage(self, minutes):
+        """Points de vie coutes par la faim et la soif sur cette duree.
+
+        Deux regimes :
+        - entre le seuil d'alerte et 100, chaque tranche de 5 points FRANCHIE
+          coute 1 point de vie, une seule fois (manger fait repartir le
+          compteur, il se represente donc si on remonte) ;
+        - a 100, c'est l'inanition : 5 points de vie par minute reelle."""
+        total = 0.0
+        for stat in ("hunger", "thirst"):
+            value = getattr(self, stat)
+            steps = max(0, int((value - SURVIVAL_ALERT) // SURVIVAL_STEP))
+            done = int(self.penalty_steps.get(stat, 0))
+            if steps > done:
+                total += (steps - done) * SURVIVAL_STEP_DAMAGE
+            if steps != done:
+                self.penalty_steps[stat] = steps
+            if value >= 100:
+                total += STARVING_DAMAGE * minutes / GAME_MINUTES_PER_REAL_MINUTE
+        return total
 
     def can_sleep(self):
         """On ne peut dormir que si on est assez fatigue (energie pas trop haute)."""
@@ -1072,6 +1127,7 @@ class GameState:
             "chopped": self.chopped,
             "equipment": self.equipment,
             "bag": self.bag,
+            "penalty_steps": self.penalty_steps,
             "explores": self.explores,
             "harvested": self.harvested,
             "facing": self.facing,
@@ -1116,6 +1172,7 @@ class GameState:
             chopped=data.get("chopped"),
             equipment=data.get("equipment"),
             bag=data.get("bag"),
+            penalty_steps=data.get("penalty_steps"),
             explores=data.get("explores"),
             harvested=data.get("harvested"),
             facing=data.get("facing", 0),
