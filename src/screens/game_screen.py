@@ -793,16 +793,27 @@ class GameScreen(Screen):
         self.refresh()
 
     def _watch_new_effects(self, state):
-        """Repere les effets qui viennent d'apparaitre et les annonce."""
-        names = [n for n, _ in state.active_effects()]
-        current = set(names)
+        """Annonce les NOUVEAUX effets et tient les bulles a jour.
+
+        Une bulle n'est pas une image figee : son anneau suit l'effet, et elle
+        s'en va d'elle-meme si l'effet se termine avant la fin des 30 s."""
+        active = dict(state.active_effects())
         if self._seen_effects is None:
-            self._seen_effects = current      # 1re passe : rien de "nouveau"
+            self._seen_effects = set(active)  # 1re passe : rien de "nouveau"
             return
-        for name in names:
+        for name in active:
             if name not in self._seen_effects:
-                self._show_effect_toast(name)
-        self._seen_effects = current
+                self._show_effect_toast(name, active[name])
+        self._seen_effects = set(active)
+        # Le panneau montre deja tout : inutile d'en remettre une couche a
+        # cote, les deux occupent la meme colonne.
+        hidden = self._panel_mode == "effects"
+        for name, (box, circle) in list(self._toast_effects.items()):
+            if name not in active:
+                self._fly_toast(name)
+                continue
+            circle.set_value(active[name] * 100.0)
+            box.opacity = 0.0 if hidden else 1.0
 
     def _effect_circle(self, name, value=100.0, **kwargs):
         """Cercle d'un effet, pret a etre pose n'importe ou."""
@@ -812,7 +823,7 @@ class GameScreen(Screen):
         circle.set_value(value)
         return circle
 
-    def _show_effect_toast(self, name):
+    def _show_effect_toast(self, name, frac=1.0):
         """Annonce un nouvel effet : il s'affiche a cote du bouton "Effet",
         puis file dedans au bout de EFFECT_TOAST_SECONDS."""
         if name in self._toast_effects:
@@ -827,17 +838,19 @@ class GameScreen(Screen):
         box = BoxLayout(padding=dp(4), size_hint=(None, None), size=size)
         box.pos = (w * 0.852 - size[0], h * (0.800 - 0.185 * row))
         _add_panel(box, alpha=0.42)
-        box.add_widget(self._effect_circle(name))
+        circle = self._effect_circle(name, frac * 100.0)
+        box.add_widget(circle)
+        box.opacity = 0.0 if self._panel_mode == "effects" else 1.0
         self.root_layout.add_widget(box)
-        self._toast_effects[name] = box
+        self._toast_effects[name] = (box, circle)
         Clock.schedule_once(lambda _dt, n=name: self._fly_toast(n),
                             EFFECT_TOAST_SECONDS)
 
     def _fly_toast(self, name):
         """La bulle file vers le bouton "Effet" et s'y range."""
-        box = self._toast_effects.pop(name, None)
-        if box is not None:
-            self._fly_to_effect_button(box)
+        entry = self._toast_effects.pop(name, None)
+        if entry is not None:
+            self._fly_to_effect_button(entry[0])
 
     def _fly_to_effect_button(self, widget):
         """Envoie un widget vers le bouton "Effet" en retrecissant."""
