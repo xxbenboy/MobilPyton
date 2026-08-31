@@ -108,7 +108,7 @@ class InventoryScreen(Screen):
                        color=_GOLD, size_hint=(1, 0.08)), 0.03))
 
         body = BoxLayout(orientation="horizontal", spacing=dp(10),
-                         size_hint=(1, 0.82))
+                         size_hint=(1, 0.60))
 
         # ---- Gauche : equipement porte ----
         left = BoxLayout(orientation="vertical", spacing=dp(6), size_hint_x=0.5)
@@ -133,12 +133,38 @@ class InventoryScreen(Screen):
 
         col.add_widget(body)
 
+        # ---- Les MAINS, en bas : source du glisser-deposer ----
+        hands = BoxLayout(orientation="horizontal", spacing=dp(8),
+                          size_hint=(1, 0.20))
+        self.hand_slots = []
+        for i, titre in enumerate(("Main gauche", "Main droite")):
+            slot = _HandSlot(i, titre)
+            self.hand_slots.append(slot)
+            hands.add_widget(slot)
+        col.add_widget(hands)
+
+        # Message d'aide / refus (pourquoi un depot n'a pas marche).
+        self.hint = _label("Glisse un objet d'une main vers son emplacement "
+                           "ou vers le sac.", _DIM, halign="center",
+                           size_hint=(1, 0.06))
+        col.add_widget(self.hint)
+
         back = scale_font(StyledButton(text="Retour", size_hint=(1, 0.10)), 0.022)
         back.bind(on_release=lambda *_: setattr(self.manager, "current", "game"))
         col.add_widget(back)
 
         _panel(col)
         root.add_widget(col)
+
+        # Couche du glisser-deposer : l'objet suivi par le doigt passe
+        # AU-DESSUS de tout le reste.
+        self.drag_layer = FloatLayout(size_hint=(1, 1),
+                                      pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.drag_layer)
+        self._drag = None
+        # Cibles du glisser-deposer, reconstruites a chaque rafraichissement.
+        self._equip_slots = []
+        self._bag_cells = []
         self.add_widget(root)
 
     # ------------------------------------------------------------------ #
@@ -162,19 +188,119 @@ class InventoryScreen(Screen):
             return
         self._fill_equipment(state)
         self._fill_bag(state)
+        for slot in self.hand_slots:
+            slot.set_item(state.hands[slot.hand])
+
+    # ------------------------------------------------------------------ #
+    # Glisser-deposer
+    # ------------------------------------------------------------------ #
+    def on_touch_down(self, touch):
+        if self._start_drag(touch):
+            return True
+        return super().on_touch_down(touch)
+
+    def on_touch_move(self, touch):
+        if self._drag is not None:
+            self._drag["ghost"].center = touch.pos
+            return True
+        return super().on_touch_move(touch)
+
+    def on_touch_up(self, touch):
+        if self._drag is not None:
+            self._drop(touch)
+            return True
+        return super().on_touch_up(touch)
+
+    def _start_drag(self, touch):
+        """Saisit l'objet sous le doigt : une main, ou une case du sac."""
+        source = None
+        for slot in self.hand_slots:
+            if slot.item and slot.collide_point(*touch.pos):
+                source = ("hand", slot.hand, slot.item)
+        for cell in self._bag_cells:
+            if cell.item and cell.collide_point(*touch.pos):
+                source = ("bag", cell.bag_index, cell.item)
+        if source is None:
+            return False
+        name = source[2]
+        size = (self.width * 0.09, self.height * 0.16)
+        ghost = BoxLayout(size_hint=(None, None), size=size, padding=dp(4))
+        _panel(ghost, alpha=0.55)
+        ghost.add_widget(ItemIcon(name, show_name=False))
+        ghost.center = touch.pos
+        ghost.opacity = 0.9
+        self.drag_layer.add_widget(ghost)
+        self._drag = {"source": source, "ghost": ghost}
+        self.hint.text = f"{items.display_name(name)}..."
+        return True
+
+    def _drop(self, touch):
+        """Lache l'objet : on regarde ce qui se trouve sous le doigt."""
+        drag, self._drag = self._drag, None
+        self.drag_layer.remove_widget(drag["ghost"])
+        kind, index, name = drag["source"]
+        state = App.get_running_app().game_state
+        if state is None:
+            return
+        message = self._apply_drop(state, kind, index, name, touch)
+        self.hint.text = message
+        App.get_running_app().autosave()
+        self.refresh()
+
+    def _apply_drop(self, state, kind, index, name, touch):
+        """Effectue le depot et renvoie le message a afficher."""
+        # ---- vers un emplacement d'EQUIPEMENT ----
+        for widget in self._equip_slots:
+            if not widget.collide_point(*touch.pos):
+                continue
+            if kind != "hand":
+                return "Prends l'objet en main avant de le porter."
+            good = items.equip_slot(name)
+            if good is None:
+                return f"{items.display_name(name)} ne se porte pas."
+            if good != widget.slot:
+                return (f"{items.display_name(name)} se porte a "
+                        f"l'emplacement {items.EQUIP_SLOT_NAMES[good]}.")
+            state.equip_from_hand(index)
+            return f"{items.display_name(name)} equipe."
+        # ---- vers le SAC ----
+        if self.bag_box.collide_point(*touch.pos) or any(
+                c.collide_point(*touch.pos) for c in self._bag_cells):
+            if kind != "hand":
+                return ""
+            if state.bag_capacity() <= 0:
+                return "Aucun sac a dos pour ranger cet objet."
+            if state.bag_free() <= 0:
+                return "Le sac est plein."
+            state.bag_store(index)
+            return f"{items.display_name(name)} range dans le sac."
+        # ---- vers une MAIN (on ressort du sac) ----
+        for slot in self.hand_slots:
+            if not slot.collide_point(*touch.pos):
+                continue
+            if kind != "bag":
+                return ""
+            if state.hands[slot.hand] is not None:
+                return "Cette main est deja occupee."
+            state.bag_take(index, slot.hand)
+            return f"{items.display_name(name)} repris en main."
+        return ""
 
     def _fill_equipment(self, state):
         """Pose un cadre par emplacement, en face de sa partie du corps."""
         self.equip_box.clear_widgets()
+        self._equip_slots = []
         for slot in items.EQUIP_SLOTS:
             sx, sy, _bx, _by = _SLOT_LAYOUT[slot]
-            self.equip_box.add_widget(
-                _EquipSlot(slot, state.equipment.get(slot),
-                           size_hint=_SLOT_SIZE,
-                           pos_hint={"center_x": sx, "center_y": sy}))
+            widget = _EquipSlot(slot, state.equipment.get(slot),
+                                size_hint=_SLOT_SIZE,
+                                pos_hint={"center_x": sx, "center_y": sy})
+            self._equip_slots.append(widget)
+            self.equip_box.add_widget(widget)
 
     def _fill_bag(self, state):
         self.bag_box.clear_widgets()
+        self._bag_cells = []
         capacity = state.bag_capacity()
         if capacity <= 0:
             self.bag_title.text = "Sac a dos"
@@ -190,6 +316,9 @@ class InventoryScreen(Screen):
             name = state.bag[i] if i < len(state.bag) else None
             cell = BoxLayout(orientation="vertical", spacing=dp(2),
                              size_hint_y=None, height=dh(220))
+            cell.bag_index = i
+            cell.item = name
+            self._bag_cells.append(cell)
             cell.add_widget(ItemIcon(name, show_name=False) if name
                             else _empty_slot(1.0))
             cell.add_widget(_label(items.display_name(name) if name
@@ -199,6 +328,33 @@ class InventoryScreen(Screen):
                                    size_hint_y=None, height=dh(46)))
             grid.add_widget(cell)
         self.bag_box.add_widget(grid)
+
+
+class _HandSlot(BoxLayout):
+    """Ce que tient une main. Point de DEPART du glisser-deposer."""
+
+    def __init__(self, hand, title, **kwargs):
+        kwargs.setdefault("orientation", "horizontal")
+        kwargs.setdefault("padding", dp(6))
+        kwargs.setdefault("spacing", dp(6))
+        super().__init__(**kwargs)
+        self.hand = hand
+        self.item = None
+        _panel(self, alpha=0.30)
+        self._icon_box = BoxLayout(size_hint_x=0.34)
+        self.add_widget(self._icon_box)
+        self._text = _label("", size_hint_x=0.66)
+        self.add_widget(self._text)
+        self._title = title
+
+    def set_item(self, name):
+        self.item = name
+        self._icon_box.clear_widgets()
+        self._icon_box.add_widget(ItemIcon(name, show_name=False) if name
+                                  else _empty_slot(1.0))
+        self._text.text = (f"{self._title}\n{items.display_name(name)}"
+                           if name else f"{self._title}\nVide")
+        self._text.color = (0.92, 0.92, 0.95, 1) if name else _DIM
 
 
 class _BodyPanel(FloatLayout):

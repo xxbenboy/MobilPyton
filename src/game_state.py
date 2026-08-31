@@ -156,7 +156,7 @@ class GameState:
                  weather=None, fog=False, weather_until=0,
                  effects=None, fires=None, hand_wear=None, ground_wear=None,
                  chopped=None, equipment=None, bag=None,
-                 penalty_steps=None):
+                 penalty_steps=None, bag_wear=None):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
@@ -197,7 +197,12 @@ class GameState:
         self.equipment = {slot: (base or {}).get(slot)
                           for slot in items.EQUIP_SLOTS}
         # Contenu du SAC A DOS. Sans sac, aucune place : la liste reste vide.
+        # `bag_wear` suit exactement `bag` : l'usure d'un outil range dans le
+        # sac ne se perd pas.
         self.bag = [b for b in (bag or []) if b]
+        raw_bw = list(bag_wear or [])
+        self.bag_wear = [_as_wear(self.bag[i], raw_bw[i]) if i < len(raw_bw)
+                         else 0.0 for i in range(len(self.bag))]
         # Paliers de faim/soif deja factures en points de vie (voir
         # _survival_damage) : evite de repayer le meme palier a chaque frame.
         self.penalty_steps = {"hunger": 0, "thirst": 0}
@@ -679,6 +684,29 @@ class GameState:
         """Emplacements encore libres dans le sac."""
         return max(0, self.bag_capacity() - len(self.bag))
 
+    def bag_store(self, hand):
+        """Range dans le sac l'objet tenu dans cette main.
+
+        L'usure de l'outil voyage avec lui : un couteau range a moitie use
+        ressort a moitie use."""
+        name = self.hands[hand] if hand in (0, 1) else None
+        if name is None or self.bag_free() <= 0:
+            return False
+        self.bag.append(name)
+        self.bag_wear.append(self.tool_wear(hand))
+        self.set_hand(hand, None)
+        return True
+
+    def bag_take(self, index, hand):
+        """Sort du sac l'objet d'un emplacement, vers une main LIBRE."""
+        if not (0 <= index < len(self.bag)) or hand not in (0, 1):
+            return False
+        if self.hands[hand] is not None:
+            return False
+        wear = self.bag_wear.pop(index) if index < len(self.bag_wear) else 0.0
+        self.set_hand(hand, self.bag.pop(index), wear)
+        return True
+
     def can_equip(self, index):
         """L'objet tenu dans cette main se porte-t-il ?"""
         name = self.hands[index] if index in (0, 1) else None
@@ -699,7 +727,9 @@ class GameState:
         # Changer de sac peut REDUIRE la place disponible : ce qui ne rentre
         # plus tombe au sol plutot que de disparaitre.
         while len(self.bag) > self.bag_capacity():
-            self.add_ground(self.bag.pop())
+            lost = self.bag.pop()
+            self.add_ground(lost, wear=self.bag_wear.pop()
+                            if self.bag_wear else 0.0)
         self.add_log(f"{items.display_name(name)} equipe")
         return True
 
@@ -1127,6 +1157,7 @@ class GameState:
             "chopped": self.chopped,
             "equipment": self.equipment,
             "bag": self.bag,
+            "bag_wear": self.bag_wear,
             "penalty_steps": self.penalty_steps,
             "explores": self.explores,
             "harvested": self.harvested,
@@ -1172,6 +1203,7 @@ class GameState:
             chopped=data.get("chopped"),
             equipment=data.get("equipment"),
             bag=data.get("bag"),
+            bag_wear=data.get("bag_wear"),
             penalty_steps=data.get("penalty_steps"),
             explores=data.get("explores"),
             harvested=data.get("harvested"),
