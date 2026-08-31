@@ -73,6 +73,20 @@ def _row_font(w, *_):
     w.text_size = (w.width, w.height)
 
 
+def _hit(widget, touch):
+    """Le doigt est-il sur ce widget ?
+
+    On passe par to_window() : un widget place dans un ScrollView a des
+    coordonnees LOCALES (le ScrollView applique une translation a ses
+    enfants), et collide_point() les comparerait a des coordonnees d'ecran.
+    Le test echouait donc systematiquement pour les cases du sac."""
+    if widget is None or widget.parent is None:
+        return False
+    x, y = widget.to_window(widget.x, widget.y)
+    return (x <= touch.x <= x + widget.width
+            and y <= touch.y <= y + widget.height)
+
+
 def _label(text, color=(0.92, 0.92, 0.95, 1), halign="left", **kwargs):
     lbl = Label(text=text, color=color, halign=halign, valign="middle",
                 **kwargs)
@@ -126,7 +140,7 @@ class InventoryScreen(Screen):
         self.bag_title = scale_font(Label(text="Sac a dos", bold=True,
                                     size_hint=(1, 0.10)), 0.022)
         right.add_widget(self.bag_title)
-        sc2 = ScrollView(size_hint=(1, 0.90))
+        sc2 = self.bag_scroll = ScrollView(size_hint=(1, 0.90))
         self.bag_box = BoxLayout(orientation="vertical", spacing=dp(4),
                                  size_hint_y=None)
         self.bag_box.bind(minimum_height=self.bag_box.setter("height"))
@@ -226,10 +240,10 @@ class InventoryScreen(Screen):
         """Saisit l'objet sous le doigt : une main, ou une case du sac."""
         source = None
         for slot in self.hand_slots:
-            if slot.item and slot.collide_point(*touch.pos):
+            if slot.item and _hit(slot, touch):
                 source = ("hand", slot.hand, slot.item)
         for cell in self._bag_cells:
-            if cell.item and cell.collide_point(*touch.pos):
+            if cell.item and _hit(cell, touch):
                 source = ("bag", cell.bag_index, cell.item)
         if source is None:
             return False
@@ -294,7 +308,7 @@ class InventoryScreen(Screen):
         """Effectue le depot et renvoie le message a afficher."""
         # ---- vers un emplacement d'EQUIPEMENT ----
         for widget in self._equip_slots:
-            if not widget.collide_point(*touch.pos):
+            if not _hit(widget, touch):
                 continue
             if kind != "hand":
                 return "Prends l'objet en main avant de le porter."
@@ -307,8 +321,7 @@ class InventoryScreen(Screen):
             state.equip_from_hand(index)
             return f"{items.display_name(name)} equipe."
         # ---- vers le SAC ----
-        if self.bag_box.collide_point(*touch.pos) or any(
-                c.collide_point(*touch.pos) for c in self._bag_cells):
+        if _hit(self.bag_scroll, touch):
             if kind != "hand":
                 return ""
             if state.bag_capacity() <= 0:
@@ -319,7 +332,7 @@ class InventoryScreen(Screen):
             return f"{items.display_name(name)} range dans le sac."
         # ---- vers une MAIN (on ressort du sac) ----
         for slot in self.hand_slots:
-            if not slot.collide_point(*touch.pos):
+            if not _hit(slot, touch):
                 continue
             if kind != "bag":
                 return ""
@@ -353,12 +366,12 @@ class InventoryScreen(Screen):
             self.bag_box.add_widget(msg)
             return
         self.bag_title.text = f"Sac a dos ({len(state.bag)}/{capacity})"
-        grid = GridLayout(cols=2, spacing=dp(6), size_hint_y=None)
+        grid = GridLayout(cols=6, spacing=dp(3), size_hint_y=None)
         grid.bind(minimum_height=grid.setter("height"))
         for i in range(capacity):
             name = state.bag[i] if i < len(state.bag) else None
-            cell = BoxLayout(orientation="vertical", spacing=dp(2),
-                             size_hint_y=None, height=dh(220))
+            cell = BoxLayout(orientation="vertical", spacing=dp(1),
+                             size_hint_y=None, height=dh(170))
             cell.bag_index = i
             cell.item = name
             self._bag_cells.append(cell)
@@ -368,7 +381,7 @@ class InventoryScreen(Screen):
                                    else "Vide",
                                    (0.92, 0.92, 0.95, 1) if name else _DIM,
                                    halign="center",
-                                   size_hint_y=None, height=dh(46)))
+                                   size_hint_y=None, height=dh(40)))
             grid.add_widget(cell)
         self.bag_box.add_widget(grid)
 
