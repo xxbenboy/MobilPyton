@@ -11,7 +11,10 @@ Au depart le personnage porte ses vetements de rescape (chandail, pantalon,
 chaussures) et n'a pas de sac : il ne transporte donc que ce qu'il tient dans
 ses mains.
 """
+import math
+
 from kivy.app import App
+from kivy.clock import Clock
 from kivy.uix.screenmanager import Screen
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.boxlayout import BoxLayout
@@ -165,6 +168,10 @@ class InventoryScreen(Screen):
         # Cibles du glisser-deposer, reconstruites a chaque rafraichissement.
         self._equip_slots = []
         self._bag_cells = []
+        # Emplacement mis en valeur pendant un glisser, et son clignotement.
+        self._hl_slot = None
+        self._hl_event = None
+        self._hl_t = 0.0
         self.add_widget(root)
 
     # ------------------------------------------------------------------ #
@@ -181,6 +188,10 @@ class InventoryScreen(Screen):
                                         state.player_x * 131 + state.player_y)
                 self._scene_key = key
         self.refresh()
+
+    def on_leave(self):
+        """Ne laisse pas un clignotement tourner sur un ecran qu'on quitte."""
+        self._stop_highlight()
 
     def refresh(self):
         state = App.get_running_app().game_state
@@ -231,13 +242,45 @@ class InventoryScreen(Screen):
         ghost.opacity = 0.9
         self.drag_layer.add_widget(ghost)
         self._drag = {"source": source, "ghost": ghost}
+        # Montre OU cet objet peut se porter : la case correspondante
+        # clignote tant que le doigt tient l'objet.
+        self._highlight_for(name)
         self.hint.text = f"{items.display_name(name)}..."
         return True
+
+    def _highlight_for(self, name):
+        """Fait clignoter l'emplacement qui accepte cet objet (s'il y en a un)."""
+        self._hl_slot = items.equip_slot(name) if name else None
+        for widget in self._equip_slots:
+            widget.set_highlight(widget.slot == self._hl_slot)
+        if self._hl_slot is None:
+            self._stop_highlight()
+        elif self._hl_event is None:
+            self._hl_t = 0.0
+            self._hl_event = Clock.schedule_interval(self._pulse_highlight,
+                                                     1 / 30.0)
+
+    def _pulse_highlight(self, dt):
+        self._hl_t += dt
+        pulse = 0.5 + 0.5 * math.sin(self._hl_t * 6.0)
+        for widget in self._equip_slots:
+            if widget.slot == self._hl_slot:
+                widget.set_highlight(True, pulse)
+
+    def _stop_highlight(self):
+        """Eteint le clignotement et rend leur aspect aux emplacements."""
+        if self._hl_event is not None:
+            self._hl_event.cancel()
+            self._hl_event = None
+        self._hl_slot = None
+        for widget in self._equip_slots:
+            widget.set_highlight(False)
 
     def _drop(self, touch):
         """Lache l'objet : on regarde ce qui se trouve sous le doigt."""
         drag, self._drag = self._drag, None
         self.drag_layer.remove_widget(drag["ghost"])
+        self._stop_highlight()
         kind, index, name = drag["source"]
         state = App.get_running_app().game_state
         if state is None:
@@ -420,13 +463,18 @@ class _EquipSlot(BoxLayout):
         kwargs.setdefault("padding", dp(4))
         kwargs.setdefault("spacing", dp(2))
         super().__init__(**kwargs)
+        self.slot = slot          # cible du glisser-deposer
+        self.worn = worn
         # Un emplacement OCCUPE est plus dense et cercle d'or ; un emplacement
-        # vide reste discret.
-        edge = _GOLD[:3] + (0.45,) if worn else (1, 1, 1, 0.18)
+        # vide reste discret. Les couleurs sont memorisees pour pouvoir
+        # ILLUMINER l'emplacement pendant un glisser, puis le rendre a son
+        # aspect normal.
+        self._base_bg = (0.05, 0.07, 0.10, 0.62 if worn else 0.42)
+        self._base_edge = _GOLD[:3] + (0.45,) if worn else (1, 1, 1, 0.18)
         with self.canvas.before:
-            Color(0.05, 0.07, 0.10, 0.62 if worn else 0.42)
+            self._bg_color = Color(*self._base_bg)
             bg = RoundedRectangle(radius=[dp(8)])
-            Color(*edge)
+            self._edge_color = Color(*self._base_edge)
             border = Line(width=1.2)
 
         def _sync(*_):
@@ -447,6 +495,18 @@ class _EquipSlot(BoxLayout):
         self.add_widget(_label(items.display_name(worn) if worn else "Aucun",
                                (0.92, 0.92, 0.95, 1) if worn else _DIM,
                                halign="center", size_hint_y=0.34))
+
+    def set_highlight(self, on, pulse=1.0):
+        """Allume l'emplacement pendant un glisser (ou le rend a son aspect).
+
+        `pulse` va de 0 a 1 : c'est lui qui fait CLIGNOTER le cadre, pour
+        attirer l'oeil sans etre agressif."""
+        if not on:
+            self._bg_color.rgba = self._base_bg
+            self._edge_color.rgba = self._base_edge
+            return
+        self._bg_color.rgba = (0.12, 0.34, 0.20, 0.45 + 0.25 * pulse)
+        self._edge_color.rgba = (0.45, 1.00, 0.62, 0.40 + 0.60 * pulse)
 
 
 def _empty_slot(size_hint_x):
