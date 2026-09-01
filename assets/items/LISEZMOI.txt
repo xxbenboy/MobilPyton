@@ -7,49 +7,64 @@ un fichier nomme d'apres l'objet :
     assets/items/<nom>.png      (ou .jpg / .jpeg)
 
 Tant qu'aucune image n'existe pour un objet, le jeu affiche un "?" avec le
-nom dessous. Des que tu ajoutes le bon fichier (meme nom), il s'affiche.
+nom dessous. Des que tu ajoutes le bon fichier (meme nom), il s'affiche
+PARTOUT : inventaire, mains, recettes de craft, sac a dos, silhouette
+d'equipement. Aucun code a modifier.
+
+EXEMPLE
+-------
+Pour donner une image a la veste de feuille :
+
+    1. dessine / recupere ton image (PNG carre, fond transparent) ;
+    2. renomme-la exactement    Veste_De_Feuille.png
+    3. depose-la dans           assets/items/
+    4. pousse le projet sur GitHub (envoyer-sur-github.bat)
+    5. le prochain APK affichera l'image a la place du "?"
+
+Le nom du fichier doit reprendre EXACTEMENT le nom interne de l'objet :
+memes majuscules, memes underscores, sans accent.
 
 ----------------------------------------------------------------
-NOMS DE FICHIERS ATTENDUS (exactement, en minuscules)
+CE QUI MANQUE ENCORE (mis a jour le 21 aout 2026)
 ----------------------------------------------------------------
-Objets trouves :
-    Small_Stick.png        (commun)
-    Long_Stick.png
-    Loafy_Long_Stick.png   (branche avec feuilles, rare)
-    Pierre.png             (commun)
-    Feuille.png
-    Herbe.png
-    Brown_Mushroom.png     (champignon brun, foret uniquement)
-    Red_Mushroom.png       (champignon rouge, image en banque - PAS encore
-                            utilise dans le jeu)
-    Baie.png
-    Fleur.png
+EQUIPEMENT (tenue de rescape et tenue de feuille) :
+    Chandail_Rescape.png       porte au depart
+    Pantalon_Rescape.png       porte au depart
+    Chaussures_Rescape.png     porte au depart
+    Casque_De_Feuille.png
+    Veste_De_Feuille.png
+    Gant_De_Feuille.png
+    Pantalon_De_Feuille.png
+    Soulier_De_Feuille.png
+    Sac_De_Feuille.png         6 emplacements de rangement
+
+MATIERES ET OUTILS :
+    Fibre_Vegetale.png         faite d'une feuille ou d'une herbe
+    Corde.png                  3 fibres
+    Allume_feu.png             silex + pierre
+    Silex.png                  montagne, lac
+    Ecorce.png                 foret
+    Buche.png                  donnee par un arbre abattu
+
+TROUVAILLES SANS IMAGE :
     Poisson.png
-    Roseau.png
-    Pierre_Coupante.png
-    Plume.png
-    Os.png
-    Coquillage.png
-    Carcasse.png           (rare)
+    Carcasse.png
 
-Remarque : chaque objet a une RARETE (poids dans src/items.py). Les objets
-communs (Small_Stick, Pierre, Herbe...) sortent souvent ; les rares (Carcasse...)
-sortent peu. De plus, chaque case n'offre qu'un stock limite de trouvailles
-(entre 5 et 15) : une fois epuisee, explorer n'y donne plus rien.
-
-Objets fabriques (craft) :
-    Couteau.png
-    Hache.png
-    Lance.png
-    Feu_de_camp.png        (underscore _ a la place des espaces)
+----------------------------------------------------------------
+DEJA EN PLACE
+----------------------------------------------------------------
+    Small_Stick, Long_Stick, Loafy_Long_Stick, Pierre, Pierre_Coupante,
+    Feuille, Herbe, Fleur, Baie, Brown_Mushroom, Red_Mushroom, Roseau,
+    Plume, Os, Coquillage, Couteau, Hache, Lance, Feu_de_camp
 
 ----------------------------------------------------------------
 CONSEILS
 ----------------------------------------------------------------
-- Format conseille : PNG carre avec fond transparent (ex. 256x256).
-- Le nom doit correspondre EXACTEMENT (minuscules, sans accents,
-  underscore pour les espaces).
-- Apres avoir ajoute des images : pousse le projet (envoyer-sur-github.bat)
-  pour qu'elles soient incluses dans l'APK.
+- Format conseille : PNG carre a fond transparent (256x256 suffit).
+- L'image garde ses proportions : une image carree evite les surprises.
+- Dans le sac a dos, une case fait environ 185 px de large : evite les
+  details trop fins, ils seront illisibles.
+- Le "?" n'est pas un bug : c'est l'affichage de repli quand l'image
+  manque.
 
-La liste des objets et des recettes est dans : src/items.py
+La liste complete des objets et des recettes est dans : src/items.py
