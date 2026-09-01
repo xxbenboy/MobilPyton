@@ -37,19 +37,48 @@ from src.widgets.responsive import scale_font, dh
 _DIM = (0.62, 0.64, 0.70, 1)
 _GOLD = (0.96, 0.82, 0.45, 1)
 
+# Une case d'objet, dans le sac COMME dans l'equipement : un carre pour
+# l'image, une legende dessous. L'equipement ajoute une legende AU-DESSUS
+# (la partie du corps), d'ou sa hauteur plus grande.
+# Tailles pensees pour une fenetre de 1080 de haut (cf. dh()).
+_ICON_SIDE = 122        # cote du carre de l'image
+_CELL_LABEL = 34        # hauteur d'une legende
+_CELL_W = 182           # largeur d'une case (celle d'une case du sac)
+_CELL_H = _ICON_SIDE + 2 * _CELL_LABEL
+_BAG_CELL_H = _ICON_SIDE + _CELL_LABEL
+
 # Silhouette : chaque emplacement est place VIS-A-VIS de la partie du corps
 # qu'il habille, et relie a elle par un trait.
 #   emplacement -> (x, y du cadre, x, y de la partie du corps)
-# Coordonnees en fractions du panneau (y = 0 en bas).
+# Coordonnees en fractions du panneau (y = 0 en bas). Les six cases forment
+# deux colonnes de trois, de part et d'autre du corps.
 _SLOT_LAYOUT = {
-    "casque":    (0.19, 0.86, 0.50, 0.85),
-    "chandail":  (0.19, 0.62, 0.50, 0.58),
-    "gant":      (0.19, 0.38, 0.35, 0.47),
-    "sac":       (0.81, 0.74, 0.60, 0.62),
-    "pantalon":  (0.81, 0.50, 0.50, 0.30),
-    "chaussure": (0.81, 0.22, 0.50, 0.08),
+    "casque":    (0.22, 0.84, 0.50, 0.85),
+    "chandail":  (0.22, 0.50, 0.50, 0.60),
+    "gant":      (0.22, 0.16, 0.375, 0.45),
+    "sac":       (0.78, 0.84, 0.58, 0.68),
+    "pantalon":  (0.78, 0.50, 0.50, 0.28),
+    "chaussure": (0.78, 0.16, 0.545, 0.08),
 }
-_SLOT_SIZE = (0.30, 0.19)
+
+
+def _cell_size(panel):
+    """Taille d'une case d'equipement.
+
+    C'est celle d'une case du sac, mais ramenee si le panneau est trop
+    etroit ou trop court : trois rangees doivent tenir sans se chevaucher,
+    quelle que soit la forme de la fenetre."""
+    if panel.width <= 1 or panel.height <= 1:
+        return (dh(_CELL_W), dh(_CELL_H))
+    # 0.24 en largeur : au-dela, les deux colonnes de cases mordraient sur la
+    # silhouette (elles sont centrees a 0.22 et 0.78, le corps occupe le
+    # milieu). 0.315 en hauteur : trois rangees, plus un peu d'air.
+    width = min(dh(_CELL_W), panel.width * 0.24)
+    # Le carre ne peut pas etre plus large que la case : sur un ecran etroit
+    # on rabaisse la case, sinon elle serait haute avec un carre riquiqui.
+    height = min(dh(_CELL_H), panel.height * 0.315,
+                 width * _CELL_H / _ICON_SIDE)
+    return (width, height)
 
 
 def _panel(widget, alpha=0.45):
@@ -122,25 +151,27 @@ class InventoryScreen(Screen):
                         size_hint=(0.96, 0.96),
                         pos_hint={"center_x": 0.5, "center_y": 0.5})
         col.add_widget(scale_font(Label(text="INVENTAIRE", bold=True,
-                       color=_GOLD, size_hint=(1, 0.08)), 0.03))
+                       color=_GOLD, size_hint=(1, 0.07)), 0.03))
 
+        # Les cases d'equipement occupent trois rangees : cette section a
+        # besoin de hauteur, elle en prend sur les mains et le bas d'ecran.
         body = BoxLayout(orientation="horizontal", spacing=dp(10),
-                         size_hint=(1, 0.60))
+                         size_hint=(1, 0.76))
 
         # ---- Gauche : equipement porte ----
         left = BoxLayout(orientation="vertical", spacing=dp(6), size_hint_x=0.5)
         left.add_widget(scale_font(Label(text="Equipement", bold=True,
-                        size_hint=(1, 0.10)), 0.022))
-        self.equip_box = _BodyPanel(size_hint=(1, 0.90))
+                        size_hint=(1, 0.09)), 0.022))
+        self.equip_box = _BodyPanel(size_hint=(1, 0.91))
         left.add_widget(self.equip_box)
         body.add_widget(left)
 
         # ---- Droite : contenu du sac ----
         right = BoxLayout(orientation="vertical", spacing=dp(6), size_hint_x=0.5)
         self.bag_title = scale_font(Label(text="Sac a dos", bold=True,
-                                    size_hint=(1, 0.10)), 0.022)
+                                    size_hint=(1, 0.09)), 0.022)
         right.add_widget(self.bag_title)
-        sc2 = self.bag_scroll = ScrollView(size_hint=(1, 0.90))
+        sc2 = self.bag_scroll = ScrollView(size_hint=(1, 0.91))
         self.bag_box = BoxLayout(orientation="vertical", spacing=dp(4),
                                  size_hint_y=None)
         self.bag_box.bind(minimum_height=self.bag_box.setter("height"))
@@ -152,7 +183,7 @@ class InventoryScreen(Screen):
 
         # ---- Les MAINS, en bas : source du glisser-deposer ----
         hands = BoxLayout(orientation="horizontal", spacing=dp(8),
-                          size_hint=(1, 0.20))
+                          size_hint=(1, 0.16))
         self.hand_slots = []
         for i, titre in enumerate(("Main gauche", "Main droite")):
             slot = _HandSlot(i, titre)
@@ -163,10 +194,10 @@ class InventoryScreen(Screen):
         # Message d'aide / refus (pourquoi un depot n'a pas marche).
         self.hint = _label("Glisse un objet d'une main vers son emplacement "
                            "ou vers le sac.", _DIM, halign="center",
-                           size_hint=(1, 0.06))
+                           size_hint=(1, 0.05))
         col.add_widget(self.hint)
 
-        back = scale_font(StyledButton(text="Retour", size_hint=(1, 0.10)), 0.022)
+        back = scale_font(StyledButton(text="Retour", size_hint=(1, 0.09)), 0.022)
         back.bind(on_release=lambda *_: setattr(self.manager, "current", "game"))
         col.add_widget(back)
 
@@ -186,6 +217,9 @@ class InventoryScreen(Screen):
         self._hl_slot = None
         self._hl_event = None
         self._hl_t = 0.0
+        # Les cases d'equipement ont une taille FIXE (celle d'une case du
+        # sac) : il faut la recalculer quand le panneau change de taille.
+        self.equip_box.bind(size=self._size_equip_slots)
         self.add_widget(root)
 
     # ------------------------------------------------------------------ #
@@ -213,6 +247,9 @@ class InventoryScreen(Screen):
             return
         self._fill_equipment(state)
         self._fill_bag(state)
+        # Apres les DEUX colonnes : la mise a l'echelle touche les cases de
+        # l'equipement comme celles du sac, qui viennent d'etre recreees.
+        self._size_equip_slots()
         for slot in self.hand_slots:
             slot.set_item(state.hands[slot.hand])
 
@@ -343,16 +380,31 @@ class InventoryScreen(Screen):
         return ""
 
     def _fill_equipment(self, state):
-        """Pose un cadre par emplacement, en face de sa partie du corps."""
+        """Pose une case par emplacement, en face de sa partie du corps."""
         self.equip_box.clear_widgets()
         self._equip_slots = []
         for slot in items.EQUIP_SLOTS:
             sx, sy, _bx, _by = _SLOT_LAYOUT[slot]
             widget = _EquipSlot(slot, state.equipment.get(slot),
-                                size_hint=_SLOT_SIZE,
                                 pos_hint={"center_x": sx, "center_y": sy})
             self._equip_slots.append(widget)
             self.equip_box.add_widget(widget)
+
+    def _size_equip_slots(self, *_):
+        """Accorde la taille des cases des DEUX colonnes.
+
+        Le carre d'un objet doit faire exactement la meme taille dans le sac
+        et dans l'equipement. C'est la colonne d'equipement qui commande :
+        c'est elle qui peut etre serree (trois rangees a caser), le sac lui
+        defile."""
+        width, height = _cell_size(self.equip_box)
+        for widget in self._equip_slots:
+            widget.size = (width, height)
+        icon = height * (_ICON_SIDE / _CELL_H)
+        label = height * (_CELL_LABEL / _CELL_H)
+        for cell in self._bag_cells:
+            cell.name_label.height = label
+            cell.height = icon + label
 
     def _fill_bag(self, state):
         self.bag_box.clear_widgets()
@@ -370,18 +422,19 @@ class InventoryScreen(Screen):
         grid.bind(minimum_height=grid.setter("height"))
         for i in range(capacity):
             name = state.bag[i] if i < len(state.bag) else None
-            cell = BoxLayout(orientation="vertical", spacing=dp(1),
-                             size_hint_y=None, height=dh(170))
+            cell = BoxLayout(orientation="vertical", size_hint_y=None,
+                             height=dh(_BAG_CELL_H))
             cell.bag_index = i
             cell.item = name
             self._bag_cells.append(cell)
             cell.add_widget(ItemIcon(name, show_name=False) if name
                             else _empty_slot(1.0))
-            cell.add_widget(_label(items.display_name(name) if name
-                                   else "Vide",
-                                   (0.92, 0.92, 0.95, 1) if name else _DIM,
-                                   halign="center",
-                                   size_hint_y=None, height=dh(40)))
+            cell.name_label = _label(items.display_name(name) if name
+                                     else "Vide",
+                                     (0.92, 0.92, 0.95, 1) if name else _DIM,
+                                     halign="center",
+                                     size_hint_y=None, height=dh(_CELL_LABEL))
+            cell.add_widget(cell.name_label)
             grid.add_widget(cell)
         self.bag_box.add_widget(grid)
 
@@ -432,13 +485,16 @@ class _BodyPanel(FloatLayout):
         def px(fx, fy):
             return (x0 + fx * w, y0 + fy * h)
 
+        # Demi-largeur d'une case, en fraction du panneau : les traits doivent
+        # partir du bord de la case, pas de son centre.
+        half = _cell_size(self)[0] / (2.0 * w)
+
         with self.canvas.before:
             # Traits de correspondance, sous le corps : discrets.
             Color(1, 1, 1, 0.16)
             for slot, (sx, sy, bx, by) in _SLOT_LAYOUT.items():
-                # On part du bord INTERIEUR du cadre, vers la partie du corps.
-                edge = sx + (_SLOT_SIZE[0] / 2 if sx < 0.5
-                             else -_SLOT_SIZE[0] / 2)
+                # On part du bord INTERIEUR de la case, vers la partie du corps.
+                edge = sx + (half if sx < 0.5 else -half)
                 Line(points=[*px(edge, sy), *px(bx, by)], width=1.2)
 
             Color(0.72, 0.76, 0.84, 0.55)
@@ -469,45 +525,58 @@ class _BodyPanel(FloatLayout):
 
 
 class _EquipSlot(BoxLayout):
-    """Cadre d'un emplacement : le nom, et l'objet porte (ou "Aucun")."""
+    """Une case d'equipement, batie comme une case du sac.
+
+    De haut en bas : la PARTIE DU CORPS, le carre de l'objet (meme cote que
+    dans le sac), puis le NOM de l'objet porte (ou "Aucun")."""
 
     def __init__(self, slot, worn, **kwargs):
         kwargs.setdefault("orientation", "vertical")
-        kwargs.setdefault("padding", dp(4))
-        kwargs.setdefault("spacing", dp(2))
+        kwargs.setdefault("size_hint", (None, None))
+        kwargs.setdefault("size", (dh(_CELL_W), dh(_CELL_H)))
         super().__init__(**kwargs)
         self.slot = slot          # cible du glisser-deposer
         self.worn = worn
+
+        # 1. la partie du corps, au-dessus
+        self.add_widget(_label(items.EQUIP_SLOT_NAMES[slot], _GOLD,
+                               halign="center",
+                               size_hint_y=_CELL_LABEL / _CELL_H))
+
+        # 2. le carre de l'objet
+        square = BoxLayout(size_hint_y=_ICON_SIDE / _CELL_H)
         # Un emplacement OCCUPE est plus dense et cercle d'or ; un emplacement
         # vide reste discret. Les couleurs sont memorisees pour pouvoir
         # ILLUMINER l'emplacement pendant un glisser, puis le rendre a son
         # aspect normal.
         self._base_bg = (0.05, 0.07, 0.10, 0.62 if worn else 0.42)
         self._base_edge = _GOLD[:3] + (0.45,) if worn else (1, 1, 1, 0.18)
-        with self.canvas.before:
+        with square.canvas.before:
             self._bg_color = Color(*self._base_bg)
             bg = RoundedRectangle(radius=[dp(8)])
             self._edge_color = Color(*self._base_edge)
             border = Line(width=1.2)
 
         def _sync(*_):
-            bg.pos = self.pos
-            bg.size = self.size
-            border.rounded_rectangle = (self.x, self.y, self.width,
-                                        self.height, dp(8))
-        self.bind(pos=_sync, size=_sync)
+            # Le cadre est CARRE et centre : c'est la meme forme que la case
+            # vide d'un objet dans le sac.
+            side = min(square.width, square.height)
+            x = square.center_x - side / 2
+            y = square.center_y - side / 2
+            bg.pos = (x, y)
+            bg.size = (side, side)
+            border.rounded_rectangle = (x, y, side, side, dp(8))
+        square.bind(pos=_sync, size=_sync)
         _sync()
+        if worn:
+            square.add_widget(ItemIcon(worn, show_name=False))
+        self.add_widget(square)
 
-        top = BoxLayout(orientation="horizontal", spacing=dp(4),
-                        size_hint_y=0.66)
-        top.add_widget(ItemIcon(worn, show_name=False, size_hint_x=0.42)
-                       if worn else _empty_slot(0.42))
-        top.add_widget(_label(items.EQUIP_SLOT_NAMES[slot], _GOLD,
-                              size_hint_x=0.58))
-        self.add_widget(top)
+        # 3. le nom de l'objet, en dessous
         self.add_widget(_label(items.display_name(worn) if worn else "Aucun",
                                (0.92, 0.92, 0.95, 1) if worn else _DIM,
-                               halign="center", size_hint_y=0.34))
+                               halign="center",
+                               size_hint_y=_CELL_LABEL / _CELL_H))
 
     def set_highlight(self, on, pulse=1.0):
         """Allume l'emplacement pendant un glisser (ou le rend a son aspect).
