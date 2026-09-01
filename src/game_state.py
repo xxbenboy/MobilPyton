@@ -724,13 +724,49 @@ class GameState:
         previous = self.equipment.get(slot)
         self.equipment[slot] = name
         self.set_hand(index, previous)
-        # Changer de sac peut REDUIRE la place disponible : ce qui ne rentre
-        # plus tombe au sol plutot que de disparaitre.
-        while len(self.bag) > self.bag_capacity():
-            lost = self.bag.pop()
-            self.add_ground(lost, wear=self.bag_wear.pop()
-                            if self.bag_wear else 0.0)
+        self._spill_bag()
         self.add_log(f"{items.display_name(name)} equipe")
+        return True
+
+    def _spill_bag(self):
+        """Fait tomber au sol ce que le sac ne peut plus contenir.
+
+        Changer de sac — ou le retirer — REDUIT la place disponible. Le
+        surplus tombe au sol plutot que de disparaitre : il reste
+        ramassable. Renvoie le nombre d'objets tombes."""
+        lost = 0
+        while len(self.bag) > self.bag_capacity():
+            name = self.bag.pop()
+            self.add_ground(name, wear=self.bag_wear.pop()
+                            if self.bag_wear else 0.0)
+            lost += 1
+        return lost
+
+    def unequip_to_hand(self, slot, hand):
+        """Retire la piece portee et la met dans une main LIBRE.
+
+        Renvoie le nombre d'objets tombes du sac (retirer le sac le vide),
+        ou None si le retrait est impossible."""
+        name = self.equipment.get(slot)
+        if name is None or hand not in (0, 1) or self.hands[hand] is not None:
+            return None
+        self.equipment[slot] = None
+        self.set_hand(hand, name)
+        spilled = self._spill_bag()
+        self.add_log(f"{items.display_name(name)} retire")
+        return spilled
+
+    def unequip_to_bag(self, slot):
+        """Retire la piece portee et la range dans le sac.
+
+        Un sac a dos ne peut evidemment pas se ranger dans lui-meme."""
+        name = self.equipment.get(slot)
+        if name is None or slot == "sac" or self.bag_free() <= 0:
+            return False
+        self.equipment[slot] = None
+        self.bag.append(name)
+        self.bag_wear.append(0.0)
+        self.add_log(f"{items.display_name(name)} retire")
         return True
 
     # ------------------------------------------------------------------ #

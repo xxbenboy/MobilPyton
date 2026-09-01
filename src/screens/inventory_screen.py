@@ -116,6 +116,29 @@ def _hit(widget, touch):
             and y <= touch.y <= y + widget.height)
 
 
+def _make_highlightable(widget):
+    """Donne a un widget un cadre vert clignotant, eteint au repos.
+
+    Sert a montrer OU un objet peut etre lache pendant un glisser : les
+    mains libres, le sac. Le cadre est dans `canvas.after` pour passer
+    par-dessus le contenu du widget."""
+    with widget.canvas.after:
+        color = Color(0.45, 1.00, 0.62, 0.0)
+        line = Line(width=1.6)
+
+    def _sync(*_):
+        line.rounded_rectangle = (widget.x, widget.y, widget.width,
+                                  widget.height, dp(10))
+    widget.bind(pos=_sync, size=_sync)
+    _sync()
+
+    def set_highlight(on, pulse=1.0):
+        color.a = (0.40 + 0.60 * pulse) if on else 0.0
+
+    widget.set_highlight = set_highlight
+    return widget
+
+
 def _label(text, color=(0.92, 0.92, 0.95, 1), halign="left", **kwargs):
     lbl = Label(text=text, color=color, halign=halign, valign="middle",
                 **kwargs)
@@ -171,7 +194,8 @@ class InventoryScreen(Screen):
         self.bag_title = scale_font(Label(text="Sac a dos", bold=True,
                                     size_hint=(1, 0.09)), 0.022)
         right.add_widget(self.bag_title)
-        sc2 = self.bag_scroll = ScrollView(size_hint=(1, 0.91))
+        sc2 = self.bag_scroll = _make_highlightable(ScrollView(
+            size_hint=(1, 0.91)))
         self.bag_box = BoxLayout(orientation="vertical", spacing=dp(4),
                                  size_hint_y=None)
         self.bag_box.bind(minimum_height=self.bag_box.setter("height"))
@@ -193,7 +217,9 @@ class InventoryScreen(Screen):
 
         # Message d'aide / refus (pourquoi un depot n'a pas marche).
         self.hint = _label("Glisse un objet d'une main vers son emplacement "
-                           "ou vers le sac.", _DIM, halign="center",
+                           "ou vers le sac. Glisse une piece portee vers une "
+                           "main ou le sac pour la retirer.", _DIM,
+                           halign="center",
                            size_hint=(1, 0.05))
         col.add_widget(self.hint)
 
@@ -214,7 +240,8 @@ class InventoryScreen(Screen):
         self._equip_slots = []
         self._bag_cells = []
         # Emplacement mis en valeur pendant un glisser, et son clignotement.
-        self._hl_slot = None
+        # Cibles qui clignotent pendant un glisser.
+        self._hl_widgets = []
         self._hl_event = None
         self._hl_t = 0.0
         # Les cases d'equipement ont une taille FIXE (celle d'une case du
@@ -274,8 +301,14 @@ class InventoryScreen(Screen):
         return super().on_touch_up(touch)
 
     def _start_drag(self, touch):
-        """Saisit l'objet sous le doigt : une main, ou une case du sac."""
+        """Saisit l'objet sous le doigt.
+
+        Trois origines possibles : une main, une case du sac, ou une piece
+        PORTEE (on la retire alors de la silhouette)."""
         source = None
+        for widget in self._equip_slots:
+            if widget.worn and _hit(widget, touch):
+                source = ("equip", widget.slot, widget.worn)
         for slot in self.hand_slots:
             if slot.item and _hit(slot, touch):
                 source = ("hand", slot.hand, slot.item)
@@ -293,18 +326,35 @@ class InventoryScreen(Screen):
         ghost.opacity = 0.9
         self.drag_layer.add_widget(ghost)
         self._drag = {"source": source, "ghost": ghost}
-        # Montre OU cet objet peut se porter : la case correspondante
-        # clignote tant que le doigt tient l'objet.
-        self._highlight_for(name)
+        # Montre OU cet objet peut aller : les cibles valables clignotent
+        # tant que le doigt le tient.
+        self._highlight_for(source[0], name)
         self.hint.text = f"{items.display_name(name)}..."
         return True
 
-    def _highlight_for(self, name):
-        """Fait clignoter l'emplacement qui accepte cet objet (s'il y en a un)."""
-        self._hl_slot = items.equip_slot(name) if name else None
-        for widget in self._equip_slots:
-            widget.set_highlight(widget.slot == self._hl_slot)
-        if self._hl_slot is None:
+    def _targets(self):
+        """Tout ce qui peut clignoter, pour tout eteindre d'un coup."""
+        return list(self._equip_slots) + list(self.hand_slots) + [self.bag_scroll]
+
+    def _highlight_for(self, kind, name):
+        """Fait clignoter les destinations possibles de l'objet saisi."""
+        state = App.get_running_app().game_state
+        targets = []
+        if kind == "equip" and state is not None:
+            # On RETIRE une piece : elle va dans une main libre, ou dans le
+            # sac s'il reste de la place. Un sac ne se range pas en lui-meme.
+            targets = [h for h in self.hand_slots
+                       if state.hands[h.hand] is None]
+            if items.equip_slot(name) != "sac" and state.bag_free() > 0:
+                targets.append(self.bag_scroll)
+        elif kind in ("hand", "bag"):
+            slot = items.equip_slot(name) if name else None
+            targets = [w for w in self._equip_slots if w.slot == slot]
+
+        for widget in self._targets():
+            widget.set_highlight(False)
+        self._hl_widgets = targets
+        if not targets:
             self._stop_highlight()
         elif self._hl_event is None:
             self._hl_t = 0.0
@@ -314,17 +364,16 @@ class InventoryScreen(Screen):
     def _pulse_highlight(self, dt):
         self._hl_t += dt
         pulse = 0.5 + 0.5 * math.sin(self._hl_t * 6.0)
-        for widget in self._equip_slots:
-            if widget.slot == self._hl_slot:
-                widget.set_highlight(True, pulse)
+        for widget in self._hl_widgets:
+            widget.set_highlight(True, pulse)
 
     def _stop_highlight(self):
-        """Eteint le clignotement et rend leur aspect aux emplacements."""
+        """Eteint le clignotement et rend leur aspect aux cibles."""
         if self._hl_event is not None:
             self._hl_event.cancel()
             self._hl_event = None
-        self._hl_slot = None
-        for widget in self._equip_slots:
+        self._hl_widgets = []
+        for widget in self._targets():
             widget.set_highlight(False)
 
     def _drop(self, touch):
@@ -343,22 +392,36 @@ class InventoryScreen(Screen):
 
     def _apply_drop(self, state, kind, index, name, touch):
         """Effectue le depot et renvoie le message a afficher."""
+        label = items.display_name(name)
         # ---- vers un emplacement d'EQUIPEMENT ----
         for widget in self._equip_slots:
             if not _hit(widget, touch):
                 continue
+            if kind == "equip":
+                # Repose sur son propre emplacement : rien n'a bouge.
+                return "" if widget.slot == index else (
+                    f"Prends {label} en main avant de le porter ailleurs.")
             if kind != "hand":
                 return "Prends l'objet en main avant de le porter."
             good = items.equip_slot(name)
             if good is None:
-                return f"{items.display_name(name)} ne se porte pas."
+                return f"{label} ne se porte pas."
             if good != widget.slot:
-                return (f"{items.display_name(name)} se porte a "
+                return (f"{label} se porte a "
                         f"l'emplacement {items.EQUIP_SLOT_NAMES[good]}.")
             state.equip_from_hand(index)
-            return f"{items.display_name(name)} equipe."
+            return f"{label} equipe."
         # ---- vers le SAC ----
         if _hit(self.bag_scroll, touch):
+            if kind == "equip":
+                if index == "sac":
+                    return "Le sac a dos ne peut pas se ranger dans lui-meme."
+                if state.bag_capacity() <= 0:
+                    return "Aucun sac a dos pour ranger cet objet."
+                if state.bag_free() <= 0:
+                    return "Le sac est plein."
+                state.unequip_to_bag(index)
+                return f"{label} retire et range dans le sac."
             if kind != "hand":
                 return ""
             if state.bag_capacity() <= 0:
@@ -366,17 +429,27 @@ class InventoryScreen(Screen):
             if state.bag_free() <= 0:
                 return "Le sac est plein."
             state.bag_store(index)
-            return f"{items.display_name(name)} range dans le sac."
-        # ---- vers une MAIN (on ressort du sac) ----
+            return f"{label} range dans le sac."
+        # ---- vers une MAIN (on ressort du sac, ou on se deshabille) ----
         for slot in self.hand_slots:
             if not _hit(slot, touch):
                 continue
-            if kind != "bag":
-                return ""
             if state.hands[slot.hand] is not None:
                 return "Cette main est deja occupee."
+            if kind == "equip":
+                spilled = state.unequip_to_hand(index, slot.hand)
+                if spilled is None:
+                    return ""
+                if spilled:
+                    # Retirer le sac supprime la place qu'il offrait : son
+                    # contenu tombe au sol, il n'est pas perdu.
+                    return (f"{label} retire — {spilled} objet(s) du sac "
+                            f"tombent au sol.")
+                return f"{label} retire, en main."
+            if kind != "bag":
+                return ""
             state.bag_take(index, slot.hand)
-            return f"{items.display_name(name)} repris en main."
+            return f"{label} repris en main."
         return ""
 
     def _fill_equipment(self, state):
@@ -450,6 +523,7 @@ class _HandSlot(BoxLayout):
         self.hand = hand
         self.item = None
         _panel(self, alpha=0.30)
+        _make_highlightable(self)   # cible d'un glisser (on se deshabille)
         self._icon_box = BoxLayout(size_hint_x=0.34)
         self.add_widget(self._icon_box)
         self._text = _label("", size_hint_x=0.66)
