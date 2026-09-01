@@ -40,22 +40,33 @@ EQUIPEMENT (tenue de rescape et tenue de feuille) :
 
 MATIERES ET OUTILS :
     Fibre_Vegetale.png         faite d'une feuille ou d'une herbe
-    Corde.png                  3 fibres
     Allume_feu.png             silex + pierre
-    Silex.png                  montagne, lac
     Ecorce.png                 foret
     Buche.png                  donnee par un arbre abattu
 
 TROUVAILLES SANS IMAGE :
     Poisson.png
-    Carcasse.png
 
 ----------------------------------------------------------------
 DEJA EN PLACE
 ----------------------------------------------------------------
     Small_Stick, Long_Stick, Loafy_Long_Stick, Pierre, Pierre_Coupante,
-    Feuille, Herbe, Fleur, Baie, Brown_Mushroom, Red_Mushroom, Roseau,
-    Plume, Os, Coquillage, Couteau, Hache, Lance, Feu_de_camp
+    Silex, Feuille, Herbe, Fleur, Baie, Brown_Mushroom, Red_Mushroom,
+    Roseau, Plume, Os, Coquillage, Corde, Carcasse, Couteau, Hache,
+    Lance, Feu_de_camp
+
+----------------------------------------------------------------
+IMAGES EN ATTENTE D'UN OBJET
+----------------------------------------------------------------
+Cinq images sont dans le dossier mais ne correspondent a AUCUN objet
+du jeu pour l'instant. Elles gardent leur nom d'origine et ne sont donc
+pas chargees ; elles attendent que l'objet existe :
+
+    copilot_image_1750114476057.png   peau / fourrure
+    copilot_image_1750123141797.png   long baton lisse
+    copilot_image_1750123386651.png   epieu de bois taille
+    copilot_image_1750126622905.png   arc
+    copilot_image_1750133885513.png   canne a peche
 
 ----------------------------------------------------------------
 CONSEILS
