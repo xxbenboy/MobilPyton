@@ -216,10 +216,9 @@ class InventoryScreen(Screen):
         col.add_widget(hands)
 
         # Message d'aide / refus (pourquoi un depot n'a pas marche).
-        self.hint = _label("Glisse un objet d'une main vers son emplacement "
-                           "ou vers le sac. Glisse une piece portee vers une "
-                           "main ou le sac pour la retirer.", _DIM,
-                           halign="center",
+        self.hint = _label("Glisse un objet entre tes mains, ton sac et ton "
+                           "equipement : les cases ou tu peux le lacher "
+                           "clignotent.", _DIM, halign="center",
                            size_hint=(1, 0.05))
         col.add_widget(self.hint)
 
@@ -337,19 +336,28 @@ class InventoryScreen(Screen):
         return list(self._equip_slots) + list(self.hand_slots) + [self.bag_scroll]
 
     def _highlight_for(self, kind, name):
-        """Fait clignoter les destinations possibles de l'objet saisi."""
+        """Fait clignoter TOUTES les destinations possibles de l'objet saisi.
+
+        Le joueur voit donc d'un coup d'oeil ou il a le droit de lacher :
+        une main libre, le sac, l'emplacement du corps qui convient."""
         state = App.get_running_app().game_state
+        if state is None:
+            return
         targets = []
-        if kind == "equip" and state is not None:
-            # On RETIRE une piece : elle va dans une main libre, ou dans le
-            # sac s'il reste de la place. Un sac ne se range pas en lui-meme.
-            targets = [h for h in self.hand_slots
-                       if state.hands[h.hand] is None]
-            if items.equip_slot(name) != "sac" and state.bag_free() > 0:
-                targets.append(self.bag_scroll)
-        elif kind in ("hand", "bag"):
-            slot = items.equip_slot(name) if name else None
-            targets = [w for w in self._equip_slots if w.slot == slot]
+        slot = items.equip_slot(name) if name else None
+
+        # L'emplacement du corps qui accepte l'objet, sauf si on l'y prend.
+        if kind != "equip" and slot is not None:
+            targets += [w for w in self._equip_slots if w.slot == slot]
+        # Une main LIBRE : on sort du sac, ou on se deshabille.
+        if kind != "hand":
+            targets += [h for h in self.hand_slots
+                        if state.hands[h.hand] is None]
+        # Le sac, s'il existe et qu'il reste de la place. Un sac a dos ne
+        # peut evidemment pas se ranger dans lui-meme.
+        if (kind != "bag" and state.bag_free() > 0
+                and not (kind == "equip" and slot == "sac")):
+            targets.append(self.bag_scroll)
 
         for widget in self._targets():
             widget.set_highlight(False)
@@ -401,15 +409,22 @@ class InventoryScreen(Screen):
                 # Repose sur son propre emplacement : rien n'a bouge.
                 return "" if widget.slot == index else (
                     f"Prends {label} en main avant de le porter ailleurs.")
-            if kind != "hand":
-                return "Prends l'objet en main avant de le porter."
             good = items.equip_slot(name)
             if good is None:
                 return f"{label} ne se porte pas."
             if good != widget.slot:
                 return (f"{label} se porte a "
                         f"l'emplacement {items.EQUIP_SLOT_NAMES[good]}.")
-            state.equip_from_hand(index)
+            if kind == "hand":
+                state.equip_from_hand(index)
+                return f"{label} equipe."
+            # Depuis le SAC : la piece remplacee prend sa place dedans.
+            spilled = state.equip_from_bag(index)
+            if spilled is None:
+                return ""
+            if spilled:
+                return (f"{label} equipe — {spilled} objet(s) du sac "
+                        f"tombent au sol.")
             return f"{label} equipe."
         # ---- vers le SAC ----
         if _hit(self.bag_scroll, touch):

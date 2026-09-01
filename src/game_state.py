@@ -728,6 +728,32 @@ class GameState:
         self.add_log(f"{items.display_name(name)} equipe")
         return True
 
+    def equip_from_bag(self, index):
+        """Porte une piece rangee dans le sac.
+
+        La piece deja portee prend sa PLACE DANS LE SAC : on echange, rien
+        ne se perd. Renvoie le nombre d'objets tombes au sol (changer de sac
+        peut reduire la place), ou None si l'echange est impossible."""
+        if not (0 <= index < len(self.bag)):
+            return None
+        name = self.bag[index]
+        slot = items.equip_slot(name)
+        if slot is None:
+            return None
+        previous = self.equipment.get(slot)
+        self.bag.pop(index)
+        if index < len(self.bag_wear):
+            # L'equipement ne retient pas d'usure (aucune piece portable
+            # n'est un outil a usage multiple) : celle-ci s'arrete ici.
+            self.bag_wear.pop(index)
+        self.equipment[slot] = name
+        if previous is not None:
+            self.bag.insert(index, previous)
+            self.bag_wear.insert(index, 0.0)
+        spilled = self._spill_bag()
+        self.add_log(f"{items.display_name(name)} equipe")
+        return spilled
+
     def _spill_bag(self):
         """Fait tomber au sol ce que le sac ne peut plus contenir.
 
