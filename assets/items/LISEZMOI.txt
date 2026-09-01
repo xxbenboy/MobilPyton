@@ -27,10 +27,7 @@ memes majuscules, memes underscores, sans accent.
 ----------------------------------------------------------------
 CE QUI MANQUE ENCORE (mis a jour le 1er septembre 2026)
 ----------------------------------------------------------------
-EQUIPEMENT (tenue de rescape et tenue de feuille) :
-    Chandail_Rescape.png       porte au depart
-    Pantalon_Rescape.png       porte au depart
-    Chaussures_Rescape.png     porte au depart
+EQUIPEMENT (tenue de feuille) :
     Casque_De_Feuille.png
     Veste_De_Feuille.png
     Gant_De_Feuille.png
@@ -52,7 +49,8 @@ DEJA EN PLACE
     Small_Stick, Long_Stick, Loafy_Long_Stick, Pierre, Pierre_Coupante,
     Silex, Feuille, Herbe, Fleur, Baie, Brown_Mushroom, Red_Mushroom,
     Roseau, Plume, Os, Coquillage, Corde, Carcasse, Couteau, Hache,
-    Lance, Feu_de_camp, Soulier_De_Feuille
+    Lance, Feu_de_camp, Soulier_De_Feuille, Chandail_Rescape,
+    Pantalon_Rescape, Chaussures_Rescape
 
 ----------------------------------------------------------------
 LE DOSSIER futur/
