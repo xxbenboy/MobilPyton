@@ -25,7 +25,7 @@ Le nom du fichier doit reprendre EXACTEMENT le nom interne de l'objet :
 memes majuscules, memes underscores, sans accent.
 
 ----------------------------------------------------------------
-CE QUI MANQUE ENCORE (mis a jour le 21 aout 2026)
+CE QUI MANQUE ENCORE (mis a jour le 1er septembre 2026)
 ----------------------------------------------------------------
 EQUIPEMENT (tenue de rescape et tenue de feuille) :
     Chandail_Rescape.png       porte au depart
@@ -35,7 +35,6 @@ EQUIPEMENT (tenue de rescape et tenue de feuille) :
     Veste_De_Feuille.png
     Gant_De_Feuille.png
     Pantalon_De_Feuille.png
-    Soulier_De_Feuille.png
     Sac_De_Feuille.png         6 emplacements de rangement
 
 MATIERES ET OUTILS :
@@ -53,26 +52,36 @@ DEJA EN PLACE
     Small_Stick, Long_Stick, Loafy_Long_Stick, Pierre, Pierre_Coupante,
     Silex, Feuille, Herbe, Fleur, Baie, Brown_Mushroom, Red_Mushroom,
     Roseau, Plume, Os, Coquillage, Corde, Carcasse, Couteau, Hache,
-    Lance, Feu_de_camp
+    Lance, Feu_de_camp, Soulier_De_Feuille
 
 ----------------------------------------------------------------
-IMAGES EN ATTENTE D'UN OBJET
+LE DOSSIER futur/
 ----------------------------------------------------------------
-Cinq images sont dans le dossier mais ne correspondent a AUCUN objet
-du jeu pour l'instant. Elles gardent leur nom d'origine et ne sont donc
-pas chargees ; elles attendent que l'objet existe :
+assets/items/futur/ garde les images qui n'ont PAS encore d'objet dans
+le jeu. Elles y sont ignorees : le jeu ne regarde que assets/items/.
+Chacune porte deja le nom que l'objet devrait avoir, donc le jour ou la
+recette existe il suffit de remonter le fichier d'un dossier.
 
-    copilot_image_1750114476057.png   peau / fourrure
-    copilot_image_1750123141797.png   long baton lisse
-    copilot_image_1750123386651.png   epieu de bois taille
-    copilot_image_1750126622905.png   arc
-    copilot_image_1750133885513.png   canne a peche
+    Arc.png              Echelle.png        Marteau.png
+    Baie_Bleue.png       Epieu.png          Oeuf.png
+    Branche_Morte.png    Four.png           Peau.png
+    Canne_A_Peche.png    Fourrure.png       Torche.png
+    Conque.png           Griffe.png         Viande.png
+
+Variantes d'objets qui ont deja une image (au cas ou tu prefererais
+l'une d'elles) : Hache_2, Long_Stick_2, Brown_Mushroom_2,
+Red_Mushroom_2, Viande_2.
 
 ----------------------------------------------------------------
 CONSEILS
 ----------------------------------------------------------------
-- Format conseille : PNG carre a fond transparent (256x256 suffit).
-- L'image garde ses proportions : une image carree evite les surprises.
+- Format conseille : PNG a fond transparent, 512 px sur le plus grand
+  cote. C'est la taille des images deja en place.
+- Detoure bien : recadre sur l'objet, sans grande marge vide, sinon il
+  parait tout petit dans sa case.
+- Attention aux filigranes du genre "Made with AI" : ils font partie de
+  l'image et s'afficheraient dans le jeu. Efface-les avant.
+- L'image garde ses proportions, aucune deformation a craindre.
 - Dans le sac a dos, une case fait environ 185 px de large : evite les
   details trop fins, ils seront illisibles.
 - Le "?" n'est pas un bug : c'est l'affichage de repli quand l'image
