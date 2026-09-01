@@ -41,11 +41,14 @@ _GOLD = (0.96, 0.82, 0.45, 1)
 # l'image, une legende dessous. L'equipement ajoute une legende AU-DESSUS
 # (la partie du corps), d'ou sa hauteur plus grande.
 # Tailles pensees pour une fenetre de 1080 de haut (cf. dh()).
-_ICON_SIDE = 122        # cote du carre de l'image
-_CELL_LABEL = 34        # hauteur d'une legende
+_ICON_SIDE = 116        # cote du carre de l'image
+_CELL_LABEL = 34        # hauteur de la legende du HAUT (partie du corps)
+# La legende du BAS est plus haute : un sac y affiche son remplissage sur
+# une deuxieme ligne, sous son nom.
+_NAME_LABEL = 46
 _CELL_W = 182           # largeur d'une case (celle d'une case du sac)
-_CELL_H = _ICON_SIDE + 2 * _CELL_LABEL
-_BAG_CELL_H = _ICON_SIDE + _CELL_LABEL
+_CELL_H = _ICON_SIDE + _CELL_LABEL + _NAME_LABEL
+_BAG_CELL_H = _ICON_SIDE + _NAME_LABEL
 
 # Silhouette : chaque emplacement est place VIS-A-VIS de la partie du corps
 # qu'il habille, et relie a elle par un trait.
@@ -90,15 +93,20 @@ def _panel(widget, alpha=0.45):
 
 
 def _row_font(w, *_):
-    """Police d'une ligne d'inventaire, ramenee si le texte est trop large."""
-    if w.width <= 1:
+    """Police d'une ligne d'inventaire, ramenee si le texte deborde.
+
+    Le texte peut compter plusieurs lignes (un sac affiche son remplissage
+    sous son nom) : la police est donc d'abord limitee par la hauteur
+    DISPONIBLE PAR LIGNE, puis reduite encore si une ligne est trop large."""
+    if w.width <= 1 or w.height <= 1:
         return
-    target = dh(70) * 0.46
+    lines = (w.text or "").count("\n") + 1
+    target = min(dh(70) * 0.46, w.height * 0.82 / lines)
     w.text_size = (None, None)
     w.font_size = target
     w.texture_update()
     if w.texture_size[0] > w.width:
-        w.font_size = max(10, target * w.width / w.texture_size[0])
+        w.font_size = max(9, target * w.width / w.texture_size[0])
     w.text_size = (w.width, w.height)
 
 
@@ -137,6 +145,20 @@ def _make_highlightable(widget):
 
     widget.set_highlight = set_highlight
     return widget
+
+
+def _item_text(state, name, worn=False):
+    """Nom de l'objet, avec le remplissage dessous s'il s'agit d'un sac.
+
+    Un sac retire garde ce qu'il transportait : on affiche donc son contenu
+    qu'il soit porte, tenu en main ou range."""
+    if not name:
+        return "Vide"
+    text = items.display_name(name)
+    fill = state.bag_fill(name, worn) if state is not None else None
+    if fill and fill[0] > 0:
+        text += f"\n{fill[0]}/{fill[1]}"
+    return text
 
 
 def _label(text, color=(0.92, 0.92, 0.95, 1), halign="left", **kwargs):
@@ -277,7 +299,8 @@ class InventoryScreen(Screen):
         # l'equipement comme celles du sac, qui viennent d'etre recreees.
         self._size_equip_slots()
         for slot in self.hand_slots:
-            slot.set_item(state.hands[slot.hand])
+            name = state.hands[slot.hand]
+            slot.set_item(name, _item_text(state, name))
 
     # ------------------------------------------------------------------ #
     # Glisser-deposer
@@ -455,11 +478,15 @@ class InventoryScreen(Screen):
                 spilled = state.unequip_to_hand(index, slot.hand)
                 if spilled is None:
                     return ""
+                kept = state.bag_fill(name)
+                if kept and kept[0] > 0:
+                    # Un sac retire garde ce qu'il transportait : rien ne
+                    # tombe, tout revient quand on le remet.
+                    return (f"{label} retire — ses {kept[0]} objet(s) "
+                            f"restent dedans.")
                 if spilled:
-                    # Retirer le sac supprime la place qu'il offrait : son
-                    # contenu tombe au sol, il n'est pas perdu.
-                    return (f"{label} retire — {spilled} objet(s) du sac "
-                            f"tombent au sol.")
+                    return (f"{label} retire — {spilled} objet(s) tombent "
+                            f"au sol.")
                 return f"{label} retire, en main."
             if kind != "bag":
                 return ""
@@ -473,7 +500,9 @@ class InventoryScreen(Screen):
         self._equip_slots = []
         for slot in items.EQUIP_SLOTS:
             sx, sy, _bx, _by = _SLOT_LAYOUT[slot]
-            widget = _EquipSlot(slot, state.equipment.get(slot),
+            worn = state.equipment.get(slot)
+            widget = _EquipSlot(slot, worn,
+                                _item_text(state, worn, worn=True),
                                 pos_hint={"center_x": sx, "center_y": sy})
             self._equip_slots.append(widget)
             self.equip_box.add_widget(widget)
@@ -489,7 +518,7 @@ class InventoryScreen(Screen):
         for widget in self._equip_slots:
             widget.size = (width, height)
         icon = height * (_ICON_SIDE / _CELL_H)
-        label = height * (_CELL_LABEL / _CELL_H)
+        label = height * (_NAME_LABEL / _CELL_H)
         for cell in self._bag_cells:
             cell.name_label.height = label
             cell.height = icon + label
@@ -517,11 +546,10 @@ class InventoryScreen(Screen):
             self._bag_cells.append(cell)
             cell.add_widget(ItemIcon(name, show_name=False) if name
                             else _empty_slot(1.0))
-            cell.name_label = _label(items.display_name(name) if name
-                                     else "Vide",
+            cell.name_label = _label(_item_text(state, name),
                                      (0.92, 0.92, 0.95, 1) if name else _DIM,
                                      halign="center",
-                                     size_hint_y=None, height=dh(_CELL_LABEL))
+                                     size_hint_y=None, height=dh(_NAME_LABEL))
             cell.add_widget(cell.name_label)
             grid.add_widget(cell)
         self.bag_box.add_widget(grid)
@@ -545,13 +573,12 @@ class _HandSlot(BoxLayout):
         self.add_widget(self._text)
         self._title = title
 
-    def set_item(self, name):
+    def set_item(self, name, text=None):
         self.item = name
         self._icon_box.clear_widgets()
         self._icon_box.add_widget(ItemIcon(name, show_name=False) if name
                                   else _empty_slot(1.0))
-        self._text.text = (f"{self._title}\n{items.display_name(name)}"
-                           if name else f"{self._title}\nVide")
+        self._text.text = f"{self._title}\n{text or 'Vide'}"
         self._text.color = (0.92, 0.92, 0.95, 1) if name else _DIM
 
 
@@ -619,7 +646,7 @@ class _EquipSlot(BoxLayout):
     De haut en bas : la PARTIE DU CORPS, le carre de l'objet (meme cote que
     dans le sac), puis le NOM de l'objet porte (ou "Aucun")."""
 
-    def __init__(self, slot, worn, **kwargs):
+    def __init__(self, slot, worn, text, **kwargs):
         kwargs.setdefault("orientation", "vertical")
         kwargs.setdefault("size_hint", (None, None))
         kwargs.setdefault("size", (dh(_CELL_W), dh(_CELL_H)))
@@ -661,11 +688,11 @@ class _EquipSlot(BoxLayout):
             square.add_widget(ItemIcon(worn, show_name=False))
         self.add_widget(square)
 
-        # 3. le nom de l'objet, en dessous
-        self.add_widget(_label(items.display_name(worn) if worn else "Aucun",
+        # 3. le nom de l'objet, en dessous (et son remplissage si c'est un sac)
+        self.add_widget(_label(text if worn else "Aucun",
                                (0.92, 0.92, 0.95, 1) if worn else _DIM,
                                halign="center",
-                               size_hint_y=_CELL_LABEL / _CELL_H))
+                               size_hint_y=_NAME_LABEL / _CELL_H))
 
     def set_highlight(self, on, pulse=1.0):
         """Allume l'emplacement pendant un glisser (ou le rend a son aspect).

@@ -156,7 +156,7 @@ class GameState:
                  weather=None, fog=False, weather_until=0,
                  effects=None, fires=None, hand_wear=None, ground_wear=None,
                  chopped=None, equipment=None, bag=None,
-                 penalty_steps=None, bag_wear=None):
+                 penalty_steps=None, bag_wear=None, bag_stash=None):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
@@ -203,6 +203,21 @@ class GameState:
         raw_bw = list(bag_wear or [])
         self.bag_wear = [_as_wear(self.bag[i], raw_bw[i]) if i < len(raw_bw)
                          else 0.0 for i in range(len(self.bag))]
+        # CONTENU DES SACS RETIRES : {nom du sac: {"items": [...],
+        # "wear": [...]}}. Un sac qu'on enleve garde ce qu'il transportait ;
+        # le remettre restitue tout. Sans cela, le retirer viderait son
+        # contenu au sol, ce qui rendrait le changement de sac punitif.
+        self.bag_stash = {}
+        for key, kept in (bag_stash or {}).items():
+            stored = [b for b in (kept or {}).get("items", []) if b]
+            if not stored:
+                continue
+            raw = list((kept or {}).get("wear", []))
+            self.bag_stash[key] = {
+                "items": stored,
+                "wear": [_as_wear(stored[i], raw[i]) if i < len(raw) else 0.0
+                         for i in range(len(stored))],
+            }
         # Paliers de faim/soif deja factures en points de vie (voir
         # _survival_damage) : evite de repayer le meme palier a chaque frame.
         self.penalty_steps = {"hunger": 0, "thirst": 0}
@@ -724,7 +739,10 @@ class GameState:
         previous = self.equipment.get(slot)
         self.equipment[slot] = name
         self.set_hand(index, previous)
-        self._spill_bag()
+        if slot == "sac":
+            self._swap_bag(previous, name)
+        else:
+            self._spill_bag()
         self.add_log(f"{items.display_name(name)} equipe")
         return True
 
@@ -747,12 +765,77 @@ class GameState:
             # n'est un outil a usage multiple) : celle-ci s'arrete ici.
             self.bag_wear.pop(index)
         self.equipment[slot] = name
-        if previous is not None:
-            self.bag.insert(index, previous)
-            self.bag_wear.insert(index, 0.0)
-        spilled = self._spill_bag()
+        if slot == "sac":
+            # On porte un sac qui etait RANGE dans le sac precedent. Ce qui
+            # restait dans l'ancien l'attend, le contenu du nouveau revient,
+            # et l'ancien sac lui-meme prend place dans le nouveau.
+            spilled = self._swap_bag(previous, name)
+            if previous is not None:
+                if self.bag_free() > 0:
+                    self.bag.append(previous)
+                    self.bag_wear.append(0.0)
+                else:
+                    self.add_ground(previous)
+                    spilled += 1
+        else:
+            if previous is not None:
+                self.bag.insert(index, previous)
+                self.bag_wear.insert(index, 0.0)
+            spilled = self._spill_bag()
         self.add_log(f"{items.display_name(name)} equipe")
         return spilled
+
+    # ------------------------------------------------------------------ #
+    # Contenu d'un sac RETIRE
+    # ------------------------------------------------------------------ #
+    def _stash_bag(self, name):
+        """Met de cote le contenu du sac qu'on retire : il l'attend.
+
+        Le sac garde donc ce qu'il transportait ; rien ne tombe au sol."""
+        if not self.bag:
+            self.bag_stash.pop(name, None)
+        else:
+            self.bag_stash[name] = {"items": list(self.bag),
+                                    "wear": list(self.bag_wear)}
+        kept = len(self.bag)
+        self.bag = []
+        self.bag_wear = []
+        return kept
+
+    def _restore_bag(self, name):
+        """Rend a un sac qu'on remet le contenu qu'il avait.
+
+        Renvoie le nombre d'objets tombes au sol : normalement aucun, sauf
+        si la place du sac a change entre-temps."""
+        kept = self.bag_stash.pop(name, None) or {}
+        stored = [b for b in kept.get("items", []) if b]
+        raw = list(kept.get("wear", []))
+        self.bag = stored
+        self.bag_wear = [_as_wear(stored[i], raw[i]) if i < len(raw) else 0.0
+                         for i in range(len(stored))]
+        return self._spill_bag()
+
+    def _swap_bag(self, previous, name):
+        """Change de sac : l'ancien contenu est mis de cote, le nouveau revient."""
+        if previous:
+            self._stash_bag(previous)
+        else:
+            self.bag = []
+            self.bag_wear = []
+        return self._restore_bag(name)
+
+    def bag_fill(self, name, worn=False):
+        """(objets, capacite) d'un sac, ou None si ce n'est pas un sac.
+
+        `worn` distingue le sac PORTE (son contenu est dans self.bag) d'un
+        sac range ou tenu en main (son contenu attend dans bag_stash)."""
+        capacity = items.bag_capacity(name)
+        if capacity <= 0:
+            return None
+        if worn:
+            return (len(self.bag), capacity)
+        kept = self.bag_stash.get(name) or {}
+        return (len(kept.get("items", [])), capacity)
 
     def _spill_bag(self):
         """Fait tomber au sol ce que le sac ne peut plus contenir.
@@ -771,14 +854,19 @@ class GameState:
     def unequip_to_hand(self, slot, hand):
         """Retire la piece portee et la met dans une main LIBRE.
 
-        Renvoie le nombre d'objets tombes du sac (retirer le sac le vide),
-        ou None si le retrait est impossible."""
+        Renvoie le nombre d'objets tombes au sol, ou None si le retrait est
+        impossible. Retirer un SAC ne fait rien tomber : son contenu est mis
+        de cote et l'attend."""
         name = self.equipment.get(slot)
         if name is None or hand not in (0, 1) or self.hands[hand] is not None:
             return None
         self.equipment[slot] = None
         self.set_hand(hand, name)
-        spilled = self._spill_bag()
+        if slot == "sac":
+            self._stash_bag(name)
+            spilled = 0
+        else:
+            spilled = self._spill_bag()
         self.add_log(f"{items.display_name(name)} retire")
         return spilled
 
@@ -1220,6 +1308,7 @@ class GameState:
             "equipment": self.equipment,
             "bag": self.bag,
             "bag_wear": self.bag_wear,
+            "bag_stash": self.bag_stash,
             "penalty_steps": self.penalty_steps,
             "explores": self.explores,
             "harvested": self.harvested,
@@ -1266,6 +1355,7 @@ class GameState:
             equipment=data.get("equipment"),
             bag=data.get("bag"),
             bag_wear=data.get("bag_wear"),
+            bag_stash=data.get("bag_stash"),
             penalty_steps=data.get("penalty_steps"),
             explores=data.get("explores"),
             harvested=data.get("harvested"),
