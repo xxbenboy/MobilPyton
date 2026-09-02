@@ -135,8 +135,10 @@ class NewGameScreen(Screen):
                                "Supprime-en une dans 'Charger'.")
             return
 
-        app.game_state = GameState.new_random(
-            name=name, difficulty=self._selected_difficulty())
-        # Sauvegarde immediate : la partie apparait dans "Charger".
-        app.autosave()
-        self.manager.current = "game"
+        # La partie n'est PAS creee ici : le joueur doit d'abord repartir ses
+        # points d'aptitude. C'est l'ecran suivant qui la cree et la
+        # sauvegarde, une fois les 35 points places.
+        allocate = self.manager.get_screen("allocate")
+        allocate.pending_name = name
+        allocate.pending_difficulty = self._selected_difficulty()
+        self.manager.current = "allocate"

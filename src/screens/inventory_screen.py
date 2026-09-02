@@ -27,6 +27,7 @@ from kivy.graphics import (Color, RoundedRectangle, Rectangle, Ellipse,
 from kivy.metrics import dp
 
 from src import items
+from src import stats as stats_mod
 from src.widgets.animated_background import AnimatedBackground, night_darkness
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.item_icon import ItemIcon
@@ -157,6 +158,28 @@ def _make_highlightable(widget):
 
     widget.set_highlight = set_highlight
     return widget
+
+
+def _xp_bar(done, needed, **kwargs):
+    """Petite barre montrant l'avancee vers le niveau suivant."""
+    bar = Widget(**kwargs)
+    part = max(0.0, min(1.0, done / float(needed))) if needed else 0.0
+    with bar.canvas:
+        Color(1, 1, 1, 0.12)
+        back = RoundedRectangle(radius=[dp(3)])
+        Color(0.45, 0.85, 0.55, 0.85)
+        fill = RoundedRectangle(radius=[dp(3)])
+
+    def _sync(*_):
+        height = min(bar.height, dp(7))
+        y = bar.center_y - height / 2
+        back.pos = (bar.x, y)
+        back.size = (bar.width, height)
+        fill.pos = (bar.x, y)
+        fill.size = (bar.width * part, height)
+    bar.bind(pos=_sync, size=_sync)
+    _sync()
+    return bar
 
 
 def _item_text(state, name, worn=False):
@@ -565,12 +588,11 @@ class InventoryScreen(Screen):
         return ""
 
     def _fill_stats(self, state):
-        """Une ligne par statistique : le total, puis son detail."""
+        """Une ligne par aptitude : son niveau, et l'experience en cours."""
         self.stats_box.clear_widgets()
-        totals = state.stats_total()
-        for key in items.STAT_ORDER:
-            base, gear = totals.get(key, (0, 0))
-            unit = items.STAT_UNITS.get(key)
+        for key in stats_mod.STAT_ORDER:
+            level = state.stat(key)
+            done, needed = state.stat_progress(key)
             row = BoxLayout(orientation="vertical", size_hint_y=None,
                             height=dh(_STAT_ROW), padding=(dp(10), dp(4)))
             with row.canvas.before:
@@ -579,23 +601,23 @@ class InventoryScreen(Screen):
             row.bind(pos=lambda w, *_, r=bg: setattr(r, "pos", w.pos),
                      size=lambda w, *_, r=bg: setattr(r, "size", w.size))
 
-            head = BoxLayout(orientation="horizontal", size_hint_y=0.55)
-            head.add_widget(_label(items.STAT_NAMES.get(key, key), _GOLD,
-                                   size_hint_x=0.60))
-            total = base + gear
-            head.add_widget(_label(f"{total}" + (f" {unit}" if unit else ""),
-                                   halign="right", size_hint_x=0.40))
+            head = BoxLayout(orientation="horizontal", size_hint_y=0.42)
+            head.add_widget(_label(stats_mod.STAT_NAMES[key], _GOLD,
+                                   size_hint_x=0.66))
+            head.add_widget(_label(f"niv. {level}", halign="right",
+                                   size_hint_x=0.34))
             row.add_widget(head)
 
-            # Le detail : sans lui, un total ne dit pas ce qu'on gagnerait a
-            # mieux s'habiller.
-            detail = f"base {base}" + (f"  +{gear} porte" if gear else "")
-            row.add_widget(_label(detail, _DIM, size_hint_y=0.45))
+            # Barre d'experience : on voit ce qui reste avant le niveau
+            # suivant, sinon un niveau semblerait tomber sans raison.
+            row.add_widget(_xp_bar(done, needed, size_hint_y=0.26))
+            row.add_widget(_label(f"{done}/{needed} vers niv. {level + 1}",
+                                  _DIM, size_hint_y=0.32))
             self.stats_box.add_widget(row)
 
-        note = _label("Seul le rangement agit deja sur le jeu ; les autres "
-                      "sont indicatifs.", _DIM, halign="center",
-                      size_hint_y=None, height=dh(_STAT_ROW))
+        note = _label("Chaque aptitude monte par les actions qui la "
+                      "sollicitent.", _DIM, halign="center",
+                      size_hint_y=None, height=dh(_STAT_ROW * 0.6))
         self.stats_box.add_widget(note)
 
     def _fill_equipment(self, state):

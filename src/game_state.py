@@ -15,6 +15,7 @@ import random
 
 from src import world
 from src import items
+from src import stats as stats_mod
 
 SAVE_VERSION = 2
 
@@ -22,6 +23,10 @@ SECONDS_PER_DAY = 24 * 60 * 60
 
 # Heure a laquelle commence chaque nouvelle partie (6h du matin).
 START_HOUR = 6
+
+# Bornes de la NUIT, utilisees par is_night() (progression de la discretion).
+NIGHT_START_HOUR = 20
+NIGHT_END_HOUR = 6
 
 DIFFICULTIES = ["Facile", "Moyen", "Difficile"]
 START_RESOURCES = {
@@ -156,7 +161,8 @@ class GameState:
                  weather=None, fog=False, weather_until=0,
                  effects=None, fires=None, hand_wear=None, ground_wear=None,
                  chopped=None, equipment=None, bag=None,
-                 penalty_steps=None, bag_wear=None, bag_stash=None):
+                 penalty_steps=None, bag_wear=None, bag_stash=None,
+                 stats=None, stat_xp=None):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
@@ -270,6 +276,13 @@ class GameState:
         # Mode DEBUG (partie "Partie D" lancee depuis le bouton du menu) :
         # carte toujours utilisable, craft illimite sans ingredients.
         self.debug = bool(debug)
+        # APTITUDES : un niveau et une experience par aptitude. Une partie
+        # d'avant cette fonctionnalite repart au niveau 1 partout, sans
+        # points repartis : elle n'est pas cassee, elle commence juste sa
+        # progression maintenant.
+        self.stats = stats_mod.normalize(stats)
+        self.stat_xp = {key: max(0, int((stat_xp or {}).get(key, 0)))
+                        for key in stats_mod.STAT_ORDER}
 
         # Effets temporaires : {nom: [debut, fin]} en secondes de jeu.
         # Initialises AVANT la meteo, qui peut declencher l'effet "Mouille".
@@ -289,12 +302,18 @@ class GameState:
     # Creation
     # ------------------------------------------------------------------ #
     @classmethod
-    def new_random(cls, name, difficulty="Moyen", seed=None, debug=False):
+    def new_random(cls, name, difficulty="Moyen", seed=None, debug=False,
+                   stats=None):
         if seed is None:
             seed = random.randrange(1_000_000)
         if difficulty not in DIFFICULTIES:
             difficulty = "Moyen"
-        state = cls(seed=seed, name=name, difficulty=difficulty, debug=debug)
+        # La partie de test ne passe pas par l'ecran de repartition : elle
+        # recoit d'office le meme total, a parts egales.
+        if stats is None and debug:
+            stats = stats_mod.distribute_even()
+        state = cls(seed=seed, name=name, difficulty=difficulty, debug=debug,
+                    stats=stats)
         state.time_seconds = START_HOUR * 3600        # debut a 6h
         start = START_RESOURCES[difficulty]
         state.food = start["food"]
@@ -324,6 +343,7 @@ class GameState:
             return False
         self.player_x += dx
         self.player_y += dy
+        self.gain_xp("marcher")
         return True
 
     # -- Orientation (le joueur "regarde" dans une direction) ----------- #
@@ -356,6 +376,11 @@ class GameState:
     def clock(self):
         s = self.time_seconds % SECONDS_PER_DAY
         return f"{s // 3600:02d}:{(s % 3600) // 60:02d}:{s % 60:02d}"
+
+    def is_night(self):
+        """Fait-il nuit ? (avant 6 h ou a partir de 20 h)"""
+        hour = (self.time_seconds % SECONDS_PER_DAY) // 3600
+        return hour < NIGHT_END_HOUR or hour >= NIGHT_START_HOUR
 
     def advance_time(self, minutes):
         self.time_seconds += max(0, int(minutes)) * 60
@@ -524,6 +549,11 @@ class GameState:
             return None
         key = self._cell_key()
         self.explores[key] = self.explores.get(key, 0) + 1
+        # Explorer aiguise la VITESSE ; le faire DE NUIT apprend en plus a se
+        # deplacer sans se faire remarquer.
+        self.gain_xp("explorer")
+        if self.is_night():
+            self.gain_xp("nuit")
         # Reveler cette zone et les adjacentes
         self.reveal_zone(self.player_x, self.player_y)
         return items.random_find(self.current_zone())
@@ -592,6 +622,7 @@ class GameState:
         if not g:
             self.ground.pop(self._cell_key(), None)
         self.set_hand(hand, item, self._take_ground_wear(item))
+        self.gain_xp("ramasser")
         return True
 
     def drop_from_hands(self, index):
@@ -824,29 +855,38 @@ class GameState:
             self.bag_wear = []
         return self._restore_bag(name)
 
-    def stats_total(self):
-        """Statistiques du personnage : ce qu'il vaut nu, plus ce qu'il porte.
+    # ------------------------------------------------------------------ #
+    # Aptitudes du personnage
+    # ------------------------------------------------------------------ #
+    def stat(self, key):
+        """Niveau actuel d'une aptitude."""
+        return self.stats.get(key, stats_mod.START_LEVEL)
 
-        Renvoie {cle: (base, apport de l'equipement)} dans l'ordre
-        d'affichage. Le total est la somme des deux."""
-        out = {key: [items.STAT_BASE.get(key, 0), 0]
-               for key in items.STAT_ORDER}
-        for slot in items.EQUIP_SLOTS:
-            for key, value in items.item_stats(
-                    self.equipment.get(slot)).items():
-                out.setdefault(key, [items.STAT_BASE.get(key, 0), 0])
-                out[key][1] += value
-        return {key: tuple(value) for key, value in out.items()}
+    def stat_progress(self, key):
+        """(experience acquise, experience requise) pour le niveau suivant."""
+        return (self.stat_xp.get(key, 0), stats_mod.xp_needed(self.stat(key)))
 
-    def stats_sources(self, key):
-        """Qui apporte cette statistique : [(objet, valeur), ...]."""
-        found = []
-        for slot in items.EQUIP_SLOTS:
-            worn = self.equipment.get(slot)
-            value = items.item_stats(worn).get(key, 0)
-            if value:
-                found.append((worn, value))
-        return found
+    def gain_xp(self, action, times=1):
+        """Fait progresser l'aptitude que cette action sollicite.
+
+        Chaque aptitude a sa propre experience : couper du bois ne rend pas
+        plus adroit. Renvoie la liste des aptitudes qui ont pris un niveau,
+        pour que l'ecran puisse l'annoncer."""
+        entry = stats_mod.ACTION_XP.get(action)
+        if entry is None or times <= 0:
+            return []
+        key, amount = entry
+        self.stat_xp[key] = self.stat_xp.get(key, 0) + amount * times
+        gained = []
+        # Une boucle, pas un simple test : une action genereuse (ou une
+        # avance rapide) peut faire franchir plusieurs niveaux d'un coup.
+        while self.stat_xp[key] >= stats_mod.xp_needed(self.stat(key)):
+            self.stat_xp[key] -= stats_mod.xp_needed(self.stat(key))
+            self.stats[key] = self.stat(key) + 1
+            gained.append(key)
+            self.add_log(f"{stats_mod.STAT_NAMES[key]} niveau "
+                         f"{self.stats[key]}")
+        return gained
 
     def bag_fill(self, name, worn=False):
         """(objets, capacite) d'un sac, ou None si ce n'est pas un sac.
@@ -935,6 +975,7 @@ class GameState:
         # gy croissant = de plus en plus loin : on coupe le plus proche.
         cell = min(trees, key=lambda c: (c[1], c[0]))
         self.chopped.setdefault(self._cell_key(), []).append([cell[0], cell[1]])
+        self.gain_xp("couper")
         return cell
 
     def nature_cells_here(self):
@@ -1170,6 +1211,7 @@ class GameState:
         f["air"] = 0.0             # l'amadou s'est consume en prenant feu
         f["t"] = self.time_seconds
         self._sync_fire_effect()
+        self.gain_xp("feu")
         return True
 
     def take_found(self, item):
@@ -1290,6 +1332,7 @@ class GameState:
             self.set_hand(hand, result)
         else:
             self.add_ground(result)
+        self.gain_xp("fabriquer")
         return True
 
     # ------------------------------------------------------------------ #
@@ -1333,6 +1376,8 @@ class GameState:
             "bag": self.bag,
             "bag_wear": self.bag_wear,
             "bag_stash": self.bag_stash,
+            "stats": self.stats,
+            "stat_xp": self.stat_xp,
             "penalty_steps": self.penalty_steps,
             "explores": self.explores,
             "harvested": self.harvested,
@@ -1380,6 +1425,8 @@ class GameState:
             bag=data.get("bag"),
             bag_wear=data.get("bag_wear"),
             bag_stash=data.get("bag_stash"),
+            stats=data.get("stats"),
+            stat_xp=data.get("stat_xp"),
             penalty_steps=data.get("penalty_steps"),
             explores=data.get("explores"),
             harvested=data.get("harvested"),

@@ -267,65 +267,6 @@ RECIPES = [
 
 
 # --------------------------------------------------------------------- #
-# STATISTIQUES DU PERSONNAGE
-# --------------------------------------------------------------------- #
-# Le personnage a des valeurs DE BASE (celles d'un corps nu), auxquelles
-# s'ajoute ce qu'apporte chaque piece portee. L'ecran Inventaire affiche le
-# total et son detail.
-#
-# ATTENTION : seul "rangement" agit deja sur le jeu (c'est la place du sac,
-# deduite de BAG_CAPACITY). Chaleur, protection et impermeabilite sont pour
-# l'instant DESCRIPTIVES : rien ne les consulte encore dans la simulation.
-STAT_ORDER = ("chaleur", "protection", "impermeable", "rangement")
-STAT_NAMES = {
-    "chaleur": "Chaleur",
-    "protection": "Protection",
-    "impermeable": "Impermeabilite",
-    "rangement": "Rangement",
-}
-STAT_UNITS = {"rangement": "places"}
-
-# Ce que vaut un corps nu : il produit sa propre chaleur, rien de plus.
-STAT_BASE = {"chaleur": 5, "protection": 0, "impermeable": 0, "rangement": 0}
-
-# Apport de chaque piece. La tenue de rescape est usee mais couvre ; la tenue
-# de feuille tient mieux la pluie et le froid, sans proteger davantage.
-EQUIP_STATS = {
-    "Chandail_Rescape": {"chaleur": 2, "protection": 1},
-    "Pantalon_Rescape": {"chaleur": 2, "protection": 1},
-    "Chaussures_Rescape": {"chaleur": 1, "protection": 1},
-    "Casque_De_Feuille": {"chaleur": 1, "impermeable": 2},
-    "Veste_De_Feuille": {"chaleur": 3, "protection": 1, "impermeable": 2},
-    "Gant_De_Feuille": {"chaleur": 1, "protection": 1},
-    "Pantalon_De_Feuille": {"chaleur": 3, "protection": 1, "impermeable": 2},
-    "Soulier_De_Feuille": {"chaleur": 1, "protection": 1, "impermeable": 1},
-    "Sac_De_Feuille": {},
-}
-
-
-def item_stats(name):
-    """Statistiques apportees par un objet PORTE.
-
-    Le rangement n'est pas recopie ici : il est deduit de BAG_CAPACITY, pour
-    qu'un sac ne puisse pas annoncer une place differente de celle qu'il
-    offre reellement."""
-    if not name:
-        return {}
-    stats = dict(EQUIP_STATS.get(name, {}))
-    places = bag_capacity(name)
-    if places:
-        stats["rangement"] = places
-    return stats
-
-
-def stat_label(key, value):
-    """'Chaleur +3', ou 'Rangement +6 places'."""
-    unit = STAT_UNITS.get(key)
-    return (f"{STAT_NAMES.get(key, key)} +{value}"
-            + (f" {unit}" if unit else ""))
-
-
-# --------------------------------------------------------------------- #
 # FICHES D'OBJET
 # --------------------------------------------------------------------- #
 # Une phrase par objet. Tout le RESTE de la fiche (recette, zones, solidite,
@@ -448,13 +389,9 @@ def describe(name):
     slot = equip_slot(name)
     if slot:
         facts.append(f"Se porte : {EQUIP_SLOT_NAMES[slot]}")
-    gains = item_stats(name)
-    if gains:
-        facts.append("Une fois porte : "
-                     + ", ".join(stat_label(k, gains[k])
-                                 for k in STAT_ORDER if k in gains))
-    elif bag_capacity(name):
-        facts.append(f"Sac : {bag_capacity(name)} emplacements")
+    places = bag_capacity(name)
+    if places:
+        facts.append(f"Sac : {places} emplacements")
     uses = tool_max_uses(name)
     if uses:
         facts.append(f"Outil : {uses} utilisations avant de casser")

@@ -24,6 +24,7 @@ from src.save_manager import SaveManager
 from src.audio_manager import AudioManager
 from src.screens.menu_screen import MenuScreen
 from src.screens.new_game_screen import NewGameScreen
+from src.screens.allocate_screen import AllocateScreen
 from src.screens.load_screen import LoadScreen
 from src.screens.settings_screen import SettingsScreen
 from src.screens.stats_screen import StatsScreen
@@ -48,6 +49,7 @@ class MobilPytonApp(App):
         sm = ScreenManager(transition=FadeTransition())
         sm.add_widget(MenuScreen(name="menu"))
         sm.add_widget(NewGameScreen(name="newgame"))
+        sm.add_widget(AllocateScreen(name="allocate"))
         sm.add_widget(LoadScreen(name="load"))
         sm.add_widget(SettingsScreen(name="settings"))
         sm.add_widget(StatsScreen(name="stats"))
