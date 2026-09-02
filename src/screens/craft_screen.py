@@ -22,7 +22,7 @@ from kivy.metrics import dp
 from src import items
 from src.widgets.animated_background import AnimatedBackground, night_darkness
 from src.widgets.zone_scenery import ZoneScenery
-from src.widgets.item_icon import ItemIcon
+from src.widgets.item_info import show_item_info, TappableIcon
 from src.widgets.durability_bar import DurabilityBar
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font, dh
@@ -162,6 +162,7 @@ class CraftScreen(Screen):
 
         _panel(col)
         root.add_widget(col)
+        self._root = root
         self.add_widget(root)
 
     # ------------------------------------------------------------------ #
@@ -202,11 +203,11 @@ class CraftScreen(Screen):
             # Pour un OUTIL, l'image est surmontee de sa barre de solidite.
             health = state.tool_health(i)
             if health is None:
-                row.add_widget(ItemIcon(item, size_hint_x=0.30))
+                row.add_widget(TappableIcon(item, self._info, size_hint_x=0.30))
             else:
                 col = BoxLayout(orientation="vertical", spacing=dp(3),
                                 size_hint_x=0.30)
-                col.add_widget(ItemIcon(item))
+                col.add_widget(TappableIcon(item, self._info))
                 bar = DurabilityBar(size_hint_y=None, height=dh(14))
                 bar.set_value(health)
                 col.add_widget(bar)
@@ -239,7 +240,8 @@ class CraftScreen(Screen):
             # Rangee plus HAUTE + icone plus large -> image agrandie au maximum.
             row = BoxLayout(orientation="horizontal", spacing=dp(6),
                             size_hint_y=None, height=dh(200))
-            row.add_widget(ItemIcon(name, count, size_hint_x=0.30))
+            row.add_widget(TappableIcon(name, self._info, count=count,
+                                        size_hint_x=0.30))
             lbl = Label(text="À proximité", halign="left", valign="middle",
                         size_hint_x=0.30, color=(0.96, 0.82, 0.45, 1))
             lbl.bind(size=_inv_label_font)
@@ -333,8 +335,8 @@ class CraftScreen(Screen):
                             size_hint_y=None, height=dh(200))
             # Image du resultat a gauche, AGRANDIE au maximum : rangee plus
             # haute + boite plus large (ou "?" si aucune image n'existe).
-            row.add_widget(ItemIcon(recipe["result"], show_name=False,
-                                    size_hint_x=0.30))
+            row.add_widget(TappableIcon(recipe["result"], self._info,
+                                        show_name=False, size_hint_x=0.30))
             txt = Label(
                 text=f"[b]{items.display_name(recipe['result'])}[/b]\n{ing}",
                 markup=True, halign="left", valign="middle", size_hint_x=0.44)
@@ -351,6 +353,10 @@ class CraftScreen(Screen):
             self.recipe_box.add_widget(row)
 
     # ------------------------------------------------------------------ #
+    def _info(self, name):
+        """Ouvre la fiche de l'objet sur lequel on vient de taper."""
+        show_item_info(self._root, name)
+
     def _take(self, name, hand):
         App.get_running_app().game_state.take_from_ground(name, hand)
         App.get_running_app().autosave()

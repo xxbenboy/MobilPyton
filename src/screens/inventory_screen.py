@@ -30,8 +30,14 @@ from src import items
 from src.widgets.animated_background import AnimatedBackground, night_darkness
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.item_icon import ItemIcon
+from src.widgets.item_info import show_item_info
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font, dh
+
+# Tolerance, en pixels, sous laquelle un toucher est un TAP et non un
+# glisser. Un doigt bouge toujours un peu : sans cette marge, ouvrir une
+# fiche d'objet serait une affaire de chance.
+TAP_SLOP = dp(14)
 
 # Couleur des textes secondaires (emplacement vide, explications).
 _DIM = (0.62, 0.64, 0.70, 1)
@@ -256,7 +262,11 @@ class InventoryScreen(Screen):
         self.drag_layer = FloatLayout(size_hint=(1, 1),
                                       pos_hint={"x": 0, "y": 0})
         root.add_widget(self.drag_layer)
+        self._root = root
         self._drag = None
+        self._drag_name = None
+        # Fiche d'objet ouverte (un simple tap l'ouvre), ou None.
+        self._info = None
         # Cibles du glisser-deposer, reconstruites a chaque rafraichissement.
         self._equip_slots = []
         self._bag_cells = []
@@ -286,8 +296,10 @@ class InventoryScreen(Screen):
         self.refresh()
 
     def on_leave(self):
-        """Ne laisse pas un clignotement tourner sur un ecran qu'on quitte."""
-        self._stop_highlight()
+        """Ne laisse ni clignotement ni fiche ouverte sur un ecran qu'on quitte."""
+        self._cancel_drag()
+        if self._info is not None:
+            self._info.close()
 
     def refresh(self):
         state = App.get_running_app().game_state
@@ -306,6 +318,9 @@ class InventoryScreen(Screen):
     # Glisser-deposer
     # ------------------------------------------------------------------ #
     def on_touch_down(self, touch):
+        # Une fiche d'objet ouverte prend la main : le glisser attendra.
+        if self._info is not None:
+            return super().on_touch_down(touch)
         if self._start_drag(touch):
             return True
         return super().on_touch_down(touch)
@@ -318,9 +333,30 @@ class InventoryScreen(Screen):
 
     def on_touch_up(self, touch):
         if self._drag is not None:
-            self._drop(touch)
+            # Doigt pose et releve sans bouger : ce n'etait pas un glisser
+            # mais un simple TAP, qui ouvre la fiche de l'objet.
+            start = self._drag["start"]
+            moved = max(abs(touch.x - start[0]), abs(touch.y - start[1]))
+            if moved <= TAP_SLOP:
+                self._cancel_drag()
+                self._show_info(self._drag_name)
+            else:
+                self._drop(touch)
             return True
         return super().on_touch_up(touch)
+
+    # ------------------------------------------------------------------ #
+    def _show_info(self, name):
+        """Ouvre la fiche d'un objet, et retient qu'elle est ouverte."""
+        if not name:
+            return
+        self.hint.text = ""
+        self._info = show_item_info(self._root, name)
+        self._info.bind(parent=self._forget_info)
+
+    def _forget_info(self, panel, parent):
+        if parent is None and self._info is panel:
+            self._info = None
 
     def _start_drag(self, touch):
         """Saisit l'objet sous le doigt.
@@ -347,7 +383,8 @@ class InventoryScreen(Screen):
         ghost.center = touch.pos
         ghost.opacity = 0.9
         self.drag_layer.add_widget(ghost)
-        self._drag = {"source": source, "ghost": ghost}
+        self._drag = {"source": source, "ghost": ghost, "start": touch.pos}
+        self._drag_name = name
         # Montre OU cet objet peut aller : les cibles valables clignotent
         # tant que le doigt le tient.
         self._highlight_for(source[0], name)
@@ -406,6 +443,13 @@ class InventoryScreen(Screen):
         self._hl_widgets = []
         for widget in self._targets():
             widget.set_highlight(False)
+
+    def _cancel_drag(self):
+        """Abandonne le glisser en cours sans rien deplacer."""
+        drag, self._drag = self._drag, None
+        if drag is not None:
+            self.drag_layer.remove_widget(drag["ghost"])
+        self._stop_highlight()
 
     def _drop(self, touch):
         """Lache l'objet : on regarde ce qui se trouve sous le doigt."""
