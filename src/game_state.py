@@ -824,6 +824,30 @@ class GameState:
             self.bag_wear = []
         return self._restore_bag(name)
 
+    def stats_total(self):
+        """Statistiques du personnage : ce qu'il vaut nu, plus ce qu'il porte.
+
+        Renvoie {cle: (base, apport de l'equipement)} dans l'ordre
+        d'affichage. Le total est la somme des deux."""
+        out = {key: [items.STAT_BASE.get(key, 0), 0]
+               for key in items.STAT_ORDER}
+        for slot in items.EQUIP_SLOTS:
+            for key, value in items.item_stats(
+                    self.equipment.get(slot)).items():
+                out.setdefault(key, [items.STAT_BASE.get(key, 0), 0])
+                out[key][1] += value
+        return {key: tuple(value) for key, value in out.items()}
+
+    def stats_sources(self, key):
+        """Qui apporte cette statistique : [(objet, valeur), ...]."""
+        found = []
+        for slot in items.EQUIP_SLOTS:
+            worn = self.equipment.get(slot)
+            value = items.item_stats(worn).get(key, 0)
+            if value:
+                found.append((worn, value))
+        return found
+
     def bag_fill(self, name, worn=False):
         """(objets, capacite) d'un sac, ou None si ce n'est pas un sac.
 

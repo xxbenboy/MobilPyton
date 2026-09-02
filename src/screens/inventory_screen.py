@@ -53,6 +53,12 @@ _CELL_LABEL = 34        # hauteur de la legende du HAUT (partie du corps)
 # une deuxieme ligne, sous son nom.
 _NAME_LABEL = 46
 _CELL_W = 182           # largeur d'une case (celle d'une case du sac)
+# Part de la largeur prise par la colonne des statistiques. Le reste est
+# partage a egalite entre l'equipement et le sac, comme avant qu'elle
+# existe. 0.26 laisse aux cases d'equipement la place de ne pas mordre sur
+# la silhouette (voir _cell_size).
+_STATS_SHARE = 0.26
+_STAT_ROW = 120         # hauteur d'une ligne de statistique
 _CELL_H = _ICON_SIDE + _CELL_LABEL + _NAME_LABEL
 _BAG_CELL_H = _ICON_SIDE + _NAME_LABEL
 
@@ -209,8 +215,26 @@ class InventoryScreen(Screen):
         body = BoxLayout(orientation="horizontal", spacing=dp(10),
                          size_hint=(1, 0.76))
 
-        # ---- Gauche : equipement porte ----
-        left = BoxLayout(orientation="vertical", spacing=dp(6), size_hint_x=0.5)
+        # ---- Gauche : les statistiques cumulees ----
+        # Une simple liste : elle a besoin de moins de largeur que les deux
+        # autres, qui gardent entre elles leur proportion d'avant (moitie
+        # moitie).
+        stats = BoxLayout(orientation="vertical", spacing=dp(6),
+                          size_hint_x=_STATS_SHARE)
+        stats.add_widget(scale_font(Label(text="Statistiques", bold=True,
+                         size_hint=(1, 0.09)), 0.022))
+        sc0 = ScrollView(size_hint=(1, 0.91))
+        self.stats_box = BoxLayout(orientation="vertical", spacing=dp(6),
+                                   size_hint_y=None)
+        self.stats_box.bind(minimum_height=self.stats_box.setter("height"))
+        sc0.add_widget(self.stats_box)
+        stats.add_widget(sc0)
+        body.add_widget(stats)
+
+        # ---- Milieu : equipement porte ----
+        rest = (1.0 - _STATS_SHARE) / 2.0
+        left = BoxLayout(orientation="vertical", spacing=dp(6),
+                         size_hint_x=rest)
         left.add_widget(scale_font(Label(text="Equipement", bold=True,
                         size_hint=(1, 0.09)), 0.022))
         self.equip_box = _BodyPanel(size_hint=(1, 0.91))
@@ -218,7 +242,8 @@ class InventoryScreen(Screen):
         body.add_widget(left)
 
         # ---- Droite : contenu du sac ----
-        right = BoxLayout(orientation="vertical", spacing=dp(6), size_hint_x=0.5)
+        right = BoxLayout(orientation="vertical", spacing=dp(6),
+                          size_hint_x=rest)
         self.bag_title = scale_font(Label(text="Sac a dos", bold=True,
                                     size_hint=(1, 0.09)), 0.022)
         right.add_widget(self.bag_title)
@@ -305,6 +330,7 @@ class InventoryScreen(Screen):
         state = App.get_running_app().game_state
         if state is None:
             return
+        self._fill_stats(state)
         self._fill_equipment(state)
         self._fill_bag(state)
         # Apres les DEUX colonnes : la mise a l'echelle touche les cases de
@@ -538,6 +564,40 @@ class InventoryScreen(Screen):
             return f"{label} repris en main."
         return ""
 
+    def _fill_stats(self, state):
+        """Une ligne par statistique : le total, puis son detail."""
+        self.stats_box.clear_widgets()
+        totals = state.stats_total()
+        for key in items.STAT_ORDER:
+            base, gear = totals.get(key, (0, 0))
+            unit = items.STAT_UNITS.get(key)
+            row = BoxLayout(orientation="vertical", size_hint_y=None,
+                            height=dh(_STAT_ROW), padding=(dp(10), dp(4)))
+            with row.canvas.before:
+                Color(0.05, 0.07, 0.10, 0.42)
+                bg = RoundedRectangle(radius=[dp(8)])
+            row.bind(pos=lambda w, *_, r=bg: setattr(r, "pos", w.pos),
+                     size=lambda w, *_, r=bg: setattr(r, "size", w.size))
+
+            head = BoxLayout(orientation="horizontal", size_hint_y=0.55)
+            head.add_widget(_label(items.STAT_NAMES.get(key, key), _GOLD,
+                                   size_hint_x=0.60))
+            total = base + gear
+            head.add_widget(_label(f"{total}" + (f" {unit}" if unit else ""),
+                                   halign="right", size_hint_x=0.40))
+            row.add_widget(head)
+
+            # Le detail : sans lui, un total ne dit pas ce qu'on gagnerait a
+            # mieux s'habiller.
+            detail = f"base {base}" + (f"  +{gear} porte" if gear else "")
+            row.add_widget(_label(detail, _DIM, size_hint_y=0.45))
+            self.stats_box.add_widget(row)
+
+        note = _label("Seul le rangement agit deja sur le jeu ; les autres "
+                      "sont indicatifs.", _DIM, halign="center",
+                      size_hint_y=None, height=dh(_STAT_ROW))
+        self.stats_box.add_widget(note)
+
     def _fill_equipment(self, state):
         """Pose une case par emplacement, en face de sa partie du corps."""
         self.equip_box.clear_widgets()
@@ -555,13 +615,20 @@ class InventoryScreen(Screen):
         """Accorde la taille des cases des DEUX colonnes.
 
         Le carre d'un objet doit faire exactement la meme taille dans le sac
-        et dans l'equipement. C'est la colonne d'equipement qui commande :
-        c'est elle qui peut etre serree (trois rangees a caser), le sac lui
-        defile."""
+        et dans l'equipement. Chaque colonne a sa propre contrainte : trois
+        rangees a caser pour l'equipement, six cases de front pour le sac.
+        C'est la plus SERREE des deux qui decide, sinon les carres
+        finiraient par ne plus se ressembler sur les fenetres etroites."""
         width, height = _cell_size(self.equip_box)
+        side = height * (_ICON_SIDE / _CELL_H)
+        column = (self.bag_scroll.width - 5 * dp(3)) / 6.0
+        if column > 1:
+            side = min(side, column)
+            height = side * (_CELL_H / _ICON_SIDE)
+            width = min(width, height * (_CELL_W / _CELL_H))
         for widget in self._equip_slots:
             widget.size = (width, height)
-        icon = height * (_ICON_SIDE / _CELL_H)
+        icon = side
         label = height * (_NAME_LABEL / _CELL_H)
         for cell in self._bag_cells:
             cell.name_label.height = label
