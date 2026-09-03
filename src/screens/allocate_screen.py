@@ -62,10 +62,11 @@ class _XpBar(Label):
         kwargs.setdefault("valign", "middle")
         super().__init__(**kwargs)
         self._part = 0.0
+        self._alpha = color[3]
         with self.canvas.before:
             Color(1, 1, 1, 0.10)
             self._back = RoundedRectangle(radius=[dp(5)])
-            Color(*color)
+            self._fill_color = Color(*color)
             self._fill = RoundedRectangle(radius=[dp(5)])
         self.bind(pos=self._sync, size=self._sync)
         self._sync()
@@ -80,10 +81,18 @@ class _XpBar(Label):
         self._back.pos = self.pos
         self._back.size = self.size
         self._fill.pos = self.pos
-        # Une barre vide garderait ses coins arrondis et ressemblerait a un
-        # petit point : mieux vaut ne rien dessiner du tout.
-        self._fill.size = (self.width * self._part if self._part > 0 else 0,
-                           self.height)
+        width = self.width * self._part
+
+        # Une barre qu'on RAMENE A ZERO (passage de niveau : 10/20 devient
+        # 0/40) restait affichee a moitie pleine. Un RoundedRectangle plus
+        # etroit que ses coins arrondis ne reconstruit pas sa geometrie et
+        # garde donc son ancien dessin : lui donner une taille nulle ne
+        # l'efface pas. On coupe donc sa COULEUR, ce qui l'efface a coup sur,
+        # et on rabat le rayon des coins tant qu'elle est plus etroite qu'eux.
+        self._fill_color.a = self._alpha if width > 0.5 else 0.0
+        radius = max(1.0, min(dp(5), self.height / 2.0, width / 2.0))
+        self._fill.radius = [radius]
+        self._fill.size = (max(0.0, width), self.height)
 
 
 class AllocateScreen(Screen):

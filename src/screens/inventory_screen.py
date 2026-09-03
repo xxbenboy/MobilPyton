@@ -167,7 +167,7 @@ def _xp_bar(done, needed, **kwargs):
     with bar.canvas:
         Color(1, 1, 1, 0.12)
         back = RoundedRectangle(radius=[dp(3)])
-        Color(0.45, 0.85, 0.55, 0.85)
+        fill_color = Color(0.45, 0.85, 0.55, 0.85)
         fill = RoundedRectangle(radius=[dp(3)])
 
     def _sync(*_):
@@ -175,8 +175,13 @@ def _xp_bar(done, needed, **kwargs):
         y = bar.center_y - height / 2
         back.pos = (bar.x, y)
         back.size = (bar.width, height)
+        width = bar.width * part
+        # A zero, un RoundedRectangle garde ses coins et laisse une pastille
+        # qui ferait croire a un debut de progression : on coupe sa couleur.
+        fill_color.a = 0.85 if width > 0.5 else 0.0
+        fill.radius = [max(1.0, min(dp(3), height / 2.0, width / 2.0))]
         fill.pos = (bar.x, y)
-        fill.size = (bar.width * part, height)
+        fill.size = (max(0.0, width), height)
     bar.bind(pos=_sync, size=_sync)
     _sync()
     return bar
