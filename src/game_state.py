@@ -39,11 +39,29 @@ START_RESOURCES = {
 HUNGER_RATE = 0.05    # on a de plus en plus faim
 THIRST_RATE = 0.08    # on a soif plus vite
 SLEEP_RATE = 0.07     # on devient fatigue (le sommeil baisse)
-ENERGY_DRAIN = 0.02   # legere perte d'energie passive
-HEALTH_RATE = 0.05    # la vie baisse si faim/soif au max ou sommeil/energie a 0
+HEALTH_RATE = 0.05    # la sante baisse si faim/soif au max, ou epuisement
 
-# On ne peut dormir (Se reposer) que si l'energie est <= a ce seuil.
-SLEEP_ENERGY_MAX = 70
+# --------------------------------------------------------------------- #
+# ENDURANCE
+# --------------------------------------------------------------------- #
+# L'endurance ne s'use PAS toute seule : elle se depense en agissant et en
+# marchant, et remonte pendant qu'on ne fait rien.
+#
+# Son maximum n'est pas fixe : un corps repose et bien nourri en a plus.
+ENDURANCE_BASE = 100                # a jeun, sans aptitude
+ENDURANCE_PER_LEVEL = 5             # par niveau d'endurance (equipement compris)
+# Remontee, en points par HEURE DE JEU.
+ENDURANCE_REGEN_PER_HOUR = 40.0
+ENDURANCE_REGEN_PER_LEVEL = 4.0     # par niveau d'endurance
+ENDURANCE_REGEN_PER_FOOD = 0.25     # par point de bonus alimentaire
+# Le SOMMEIL commande la recuperation : epuise, on recupere trois fois moins
+# vite que frais et dispos.
+ENDURANCE_SLEEP_FLOOR = 0.30
+
+# On ne peut dormir (Se reposer) que sous cette PART de son endurance : il
+# faut etre assez fatigue. Une part, et non un nombre fixe, puisque le
+# maximum varie d'un personnage a l'autre.
+SLEEP_ENERGY_PART = 0.70
 
 # --------------------------------------------------------------------- #
 # FAIM ET SOIF : alerte, puis degats
@@ -162,13 +180,17 @@ class GameState:
                  effects=None, fires=None, hand_wear=None, ground_wear=None,
                  chopped=None, equipment=None, bag=None,
                  penalty_steps=None, bag_wear=None, bag_stash=None,
-                 stats=None, stat_xp=None):
+                 stats=None, stat_xp=None, food_bonus_points=0,
+                 food_until=0):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
         self.time_seconds = time_seconds
         self.health = health        # vie
-        self.energy = energy        # energie
+        self.energy = energy        # endurance restante
+        # Dernier repas : bonus au MAXIMUM d'endurance, et jusqu'a quand.
+        self.food_bonus_points = max(0, int(food_bonus_points or 0))
+        self.food_until = max(0, int(food_until or 0))
         self.sleep = sleep          # sommeil (100 = bien repose)
         self.hunger = hunger        # faim (0 = rassasie, 100 = affame)
         self.thirst = thirst        # soif (0 = hydrate, 100 = assoiffe)
@@ -315,6 +337,9 @@ class GameState:
         state = cls(seed=seed, name=name, difficulty=difficulty, debug=debug,
                     stats=stats, stat_xp=stat_xp)
         state.time_seconds = START_HOUR * 3600        # debut a 6h
+        # On commence en pleine forme : le maximum depend de la tenue de
+        # depart, il ne vaut donc pas forcement 100 pile.
+        state.energy = state.endurance_max()
         start = START_RESOURCES[difficulty]
         state.food = start["food"]
         state.wood = start["wood"]
@@ -473,8 +498,12 @@ class GameState:
         self.hunger = _clamp100(self.hunger + HUNGER_RATE * minutes)
         self.thirst = _clamp100(self.thirst + THIRST_RATE * minutes)
         self.sleep = _clamp100(self.sleep - SLEEP_RATE * minutes)
-        self.energy = _clamp100(self.energy - ENERGY_DRAIN * minutes)
-        # Epuisement (sommeil ou energie a zero) : la vie baisse doucement.
+        # L'endurance REMONTE avec le temps, au lieu de s'user : c'est en
+        # agissant qu'on la depense (voir spend_energy).
+        self.energy = min(self.endurance_max(),
+                          self.energy
+                          + self.endurance_regen_per_hour() * minutes / 60.0)
+        # Epuisement (sommeil ou endurance a zero) : la sante baisse.
         if self.sleep <= 0 or self.energy <= 0:
             self.health = _clamp100(self.health - HEALTH_RATE * minutes)
         # Faim et soif : paliers, puis inanition.
@@ -503,9 +532,70 @@ class GameState:
                 total += STARVING_DAMAGE * minutes / GAME_MINUTES_PER_REAL_MINUTE
         return total
 
+    # ------------------------------------------------------------------ #
+    # Endurance
+    # ------------------------------------------------------------------ #
+    def food_bonus(self):
+        """Bonus d'endurance encore actif de ce qu'on a mange recemment."""
+        return self.food_bonus_points if self.time_seconds < self.food_until \
+            else 0
+
+    def endurance_max(self):
+        """Endurance maximale : le corps, ses aptitudes et son dernier repas."""
+        return (ENDURANCE_BASE + self.food_bonus()
+                + ENDURANCE_PER_LEVEL * self.effective_stat("endurance"))
+
+    def endurance_regen_per_hour(self):
+        """Points d'endurance regagnes par heure de jeu.
+
+        Le SOMMEIL commande : un corps epuise recupere mal, meme bien
+        nourri. Les aptitudes et le dernier repas elargissent la base."""
+        base = (ENDURANCE_REGEN_PER_HOUR
+                + ENDURANCE_REGEN_PER_LEVEL * self.effective_stat("endurance")
+                + ENDURANCE_REGEN_PER_FOOD * self.food_bonus())
+        repos = (ENDURANCE_SLEEP_FLOOR
+                 + (1.0 - ENDURANCE_SLEEP_FLOOR) * max(0, self.sleep) / 100.0)
+        return base * repos
+
+    def spend_energy(self, amount):
+        """Depense de l'endurance. Renvoie ce qui a REELLEMENT ete depense."""
+        avant = self.energy
+        self.energy = max(0.0, min(self.endurance_max(),
+                                   self.energy - max(0.0, amount)))
+        return avant - self.energy
+
+    def change_energy(self, delta):
+        """Ajoute (ou retire) de l'endurance, sans depasser le maximum."""
+        self.energy = max(0.0, min(self.endurance_max(), self.energy + delta))
+
+    def eat(self, name):
+        """Mange un aliment : la faim recule, l'endurance s'elargit.
+
+        Le bonus ne s'empile pas : un meilleur repas remplace le precedent,
+        un moins bon ne rogne pas ce qu'on a deja. Sinon il suffirait
+        d'avaler dix baies pour valoir un festin."""
+        value = items.food_value(name)
+        if value is None:
+            return False
+        self.hunger = _clamp100(self.hunger - value["hunger"])
+        gain = value["endurance"]
+        if gain >= self.food_bonus():
+            self.food_bonus_points = gain
+            self.food_until = self.time_seconds + value["hours"] * 3600
+        self.add_log(f"{items.display_name(name)} mange")
+        return True
+
+    def eat_from_hand(self, index):
+        """Mange ce que tient cette main."""
+        name = self.hands[index] if index in (0, 1) else None
+        if name is None or not self.eat(name):
+            return False
+        self.set_hand(index, None)
+        return True
+
     def can_sleep(self):
-        """On ne peut dormir que si on est assez fatigue (energie pas trop haute)."""
-        return self.energy <= SLEEP_ENERGY_MAX
+        """On ne peut dormir que si on est assez fatigue."""
+        return self.energy <= SLEEP_ENERGY_PART * self.endurance_max()
 
     def has_water_source(self):
         """Y a-t-il un ruisseau d'eau potable sur la case actuelle ?"""
@@ -1449,6 +1539,8 @@ class GameState:
             "time_seconds": self.time_seconds,
             "health": self.health,
             "energy": self.energy,
+            "food_bonus_points": self.food_bonus_points,
+            "food_until": self.food_until,
             "sleep": self.sleep,
             "hunger": self.hunger,
             "thirst": self.thirst,
@@ -1498,6 +1590,8 @@ class GameState:
             time_seconds=time_seconds,
             health=data.get("health", 100),
             energy=data.get("energy", 100),
+            food_bonus_points=data.get("food_bonus_points", 0),
+            food_until=data.get("food_until", 0),
             sleep=data.get("sleep", 100),
             hunger=data.get("hunger", 0),
             thirst=data.get("thirst", 0),

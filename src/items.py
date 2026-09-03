@@ -143,6 +143,34 @@ def item_stats(name):
     return dict(EQUIP_STATS.get(name, {}))
 
 
+# --------------------------------------------------------------------- #
+# NOURRITURE
+# --------------------------------------------------------------------- #
+# Ce qu'un aliment apporte une fois mange :
+#   "hunger"    : points de faim retires ;
+#   "endurance" : bonus TEMPORAIRE au maximum d'endurance ;
+#   "hours"     : duree de ce bonus, en heures de jeu.
+# Plus la nourriture est nourrissante, plus elle porte loin : une poignee de
+# baies tient deux heures, un bon morceau de viande toute une journee de
+# marche.
+FOOD = {
+    "Herbe":          {"hunger": 4,  "endurance": 5,  "hours": 1},
+    "Baie":           {"hunger": 8,  "endurance": 10, "hours": 2},
+    "Brown_Mushroom": {"hunger": 12, "endurance": 15, "hours": 3},
+    "Poisson":        {"hunger": 25, "endurance": 35, "hours": 5},
+    "Carcasse":       {"hunger": 40, "endurance": 50, "hours": 6},
+}
+
+
+def food_value(name):
+    """Ce que vaut cet aliment, ou None si ca ne se mange pas."""
+    return FOOD.get(name)
+
+
+def is_food(name):
+    return name in FOOD
+
+
 def equip_slot(name):
     """Emplacement ou se porte cet objet, ou None s'il ne se porte pas."""
     return EQUIP_ITEM_SLOT.get(name)

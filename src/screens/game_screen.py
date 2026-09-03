@@ -50,7 +50,7 @@ FAST_FORWARD_SCALE = 3600     # avance rapide : 1h de jeu / s reelle
 
 # Cout d'un deplacement d'une case (1 km a pied).
 MOVE_MINUTES = 12
-MOVE_ENERGY = -3
+MOVE_ENERGY = -8
 MOVE_HUNGER = 2
 
 # Pile du bas de l'ecran, sous chaque main (fractions de la hauteur) :
@@ -87,17 +87,17 @@ CHOP_YIELD = (("Buche", 3, 3), ("Long_Stick", 3, 5), ("Feuille", 5, 10))
 ACTIONS = [
     {"label": "Explorer", "icon": "explore", "name": "Explorer",
      "minutes_range": (5, 15), "real_seconds": 1.5,
-     "energy": -10, "type": "explore"},
+     "energy": -20, "type": "explore"},
     {"label": "Couper du bois", "icon": "wood", "name": "Couper\ndu bois",
-     "minutes": 180, "energy": -15, "need_axe": True, "type": "chop"},
+     "minutes": 180, "energy": -75, "need_axe": True, "type": "chop"},
     {"label": "Chercher a manger", "icon": "food", "name": "Chercher\na manger",
-     "minutes": 60, "energy": -5, "hunger": -25, "food": 2},
+     "minutes": 60, "energy": -15, "hunger": -25, "food": 2},
     {"label": "Boire", "icon": "drink", "name": "Boire",
-     "minutes": 10, "thirst": -40, "type": "drink"},
+     "minutes": 10, "energy": -2, "thirst": -40, "type": "drink"},
     {"label": "Remplir gourde", "icon": "fill", "name": "Remplir\ngourde",
-     "minutes": 15, "type": "fill", "need_gourde": True},
+     "minutes": 15, "energy": -3, "type": "fill", "need_gourde": True},
     {"label": "Se reposer", "icon": "rest", "name": "Se\nreposer",
-     "minutes": 240, "energy": 35, "sleep": 50, "requires_sleep": True},
+     "minutes": 240, "energy": 25, "sleep": 50, "requires_sleep": True},
 ]
 
 
@@ -390,8 +390,8 @@ class GameScreen(Screen):
                                     size_hint=(0.07, 0.80),
                                     pos_hint={"right": 0.998, "top": 0.99})
         _add_panel(self.status_col, alpha=0.34)
-        self.stat_health = StatCircle("Vie", (0.85, 0.30, 0.30), "health")
-        self.stat_energy = StatCircle("Energie", (0.95, 0.80, 0.30), "energy")
+        self.stat_health = StatCircle("Sante", (0.85, 0.30, 0.30), "health")
+        self.stat_energy = StatCircle("Endurance", (0.95, 0.80, 0.30), "energy")
         self.stat_sleep = StatCircle("Sommeil", (0.45, 0.55, 0.95), "sleep")
         self.stat_hunger = StatCircle("Faim", (0.85, 0.55, 0.25), "hunger")
         self.stat_thirst = StatCircle("Soif", (0.30, 0.70, 0.92), "thirst")
@@ -1009,7 +1009,7 @@ class GameScreen(Screen):
             self._did_chop = True
 
         state.health = _clamp100(state.health + action.get("health", 0))
-        state.energy = _clamp100(state.energy + action.get("energy", 0))
+        state.change_energy(action.get("energy", 0))
         state.sleep = _clamp100(state.sleep + action.get("sleep", 0))
         state.hunger = _clamp100(state.hunger + action.get("hunger", 0))
         state.thirst = _clamp100(state.thirst + action.get("thirst", 0))
@@ -1168,13 +1168,24 @@ class GameScreen(Screen):
             self.refresh()
 
     def _use_hand(self, slot):
-        """Bouton d'action de la main : EQUIPER un vetement, ou PLACER un
-        objet installable (l'ecran Placement prend alors le relais)."""
+        """Bouton d'action de la main, selon ce qu'elle tient : MANGER un
+        aliment, EQUIPER un vetement, ou PLACER un objet installable
+        (l'ecran Placement prend alors le relais)."""
         state = App.get_running_app().game_state
         if state is None or self._ff_active or self._moving:
             return
         name = state.hands[slot]
         if name is None:
+            return
+        if items.is_food(name):
+            if state.eat_from_hand(slot):
+                bonus = state.food_bonus()
+                self._show_message(
+                    f"{items.display_name(name)} mange. Endurance max "
+                    f"{state.endurance_max():.0f}."
+                    + (f" (+{bonus} pendant un temps)" if bonus else ""))
+                App.get_running_app().autosave()
+                self.refresh()
             return
         if state.can_equip(slot):
             if state.equip_from_hand(slot):
@@ -1381,7 +1392,7 @@ class GameScreen(Screen):
         # retrouve derriere nous).
         state.face(dx, dy)
         state.reveal_zone(state.player_x, state.player_y)
-        state.energy = _clamp100(state.energy + MOVE_ENERGY)
+        state.change_energy(MOVE_ENERGY)
         state.hunger = _clamp100(state.hunger + MOVE_HUNGER)
         state.tick(MOVE_MINUTES * 60)               # le temps du trajet passe
         state.advance_survival(MOVE_MINUTES * 60)
@@ -1566,7 +1577,10 @@ class GameScreen(Screen):
         self.status.text = f"{self._ff_label}..." if self._ff_active else ""
 
         self.stat_health.set_value(state.health)
-        self.stat_energy.set_value(state.energy)
+        # L'anneau montre une PART : le maximum d'endurance varie avec
+        # les aptitudes et le dernier repas.
+        self.stat_energy.set_value(
+            100.0 * state.energy / max(1.0, state.endurance_max()))
         self.stat_sleep.set_value(state.sleep)
         self.stat_hunger.set_value(state.hunger)
         self.stat_thirst.set_value(state.thirst)
@@ -1602,9 +1616,11 @@ class GameScreen(Screen):
             ub = self.use_btns[slot]
             installable = occupied and item in items.INSTALLABLE_ITEMS
             equipable = occupied and items.equip_slot(item) is not None
-            usable = installable or equipable
+            edible = occupied and items.is_food(item)
+            usable = installable or equipable or edible
             if usable:
-                ub.text = "Equiper" if equipable else "Utiliser"
+                ub.text = ("Manger" if edible
+                           else "Equiper" if equipable else "Utiliser")
             use_visible = usable and not exploring
             ub.opacity = 1 if use_visible else 0
             ub.disabled = (not usable) or self._ff_active
