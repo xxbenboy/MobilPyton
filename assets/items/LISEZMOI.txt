@@ -25,13 +25,9 @@ Le nom du fichier doit reprendre EXACTEMENT le nom interne de l'objet :
 memes majuscules, memes underscores, sans accent.
 
 ----------------------------------------------------------------
-CE QUI MANQUE ENCORE (mis a jour le 1er septembre 2026)
+CE QUI MANQUE ENCORE (mis a jour le 3 septembre 2026)
 ----------------------------------------------------------------
-EQUIPEMENT (tenue de feuille) :
-    Casque_De_Feuille.png
-    Veste_De_Feuille.png
-    Gant_De_Feuille.png
-    Pantalon_De_Feuille.png
+EQUIPEMENT : il ne manque que le sac.
     Sac_De_Feuille.png         6 emplacements de rangement
 
 MATIERES ET OUTILS :
@@ -49,8 +45,9 @@ DEJA EN PLACE
     Small_Stick, Long_Stick, Loafy_Long_Stick, Pierre, Pierre_Coupante,
     Silex, Feuille, Herbe, Fleur, Baie, Brown_Mushroom, Red_Mushroom,
     Roseau, Plume, Os, Coquillage, Corde, Carcasse, Couteau, Hache,
-    Lance, Feu_de_camp, Soulier_De_Feuille, Chandail_Rescape,
-    Pantalon_Rescape, Chaussures_Rescape
+    Lance, Feu_de_camp, Chandail_Rescape, Pantalon_Rescape,
+    Chaussures_Rescape, Casque_De_Feuille, Veste_De_Feuille,
+    Gant_De_Feuille, Pantalon_De_Feuille, Soulier_De_Feuille
 
 ----------------------------------------------------------------
 LE DOSSIER futur/
@@ -79,6 +76,8 @@ CONSEILS
   parait tout petit dans sa case.
 - Attention aux filigranes du genre "Made with AI" : ils font partie de
   l'image et s'afficheraient dans le jeu. Efface-les avant.
+- Un fond BLANC n'est pas un fond transparent : il s'afficherait comme
+  un carre blanc autour de l'objet. Il faut le detourer.
 - L'image garde ses proportions, aucune deformation a craindre.
 - Dans le sac a dos, une case fait environ 185 px de large : evite les
   details trop fins, ils seront illisibles.
