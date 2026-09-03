@@ -43,6 +43,8 @@ TAP_SLOP = dp(14)
 # Couleur des textes secondaires (emplacement vide, explications).
 _DIM = (0.62, 0.64, 0.70, 1)
 _GOLD = (0.96, 0.82, 0.45, 1)
+# Vert des bonus apportes par l'equipement.
+_BONUS = (0.55, 0.92, 0.62, 1)
 
 # Une case d'objet, dans le sac COMME dans l'equipement : un carre pour
 # l'image, une legende dessous. L'equipement ajoute une legende AU-DESSUS
@@ -249,9 +251,20 @@ class InventoryScreen(Screen):
         # moitie).
         stats = BoxLayout(orientation="vertical", spacing=dp(6),
                           size_hint_x=_STATS_SHARE)
-        stats.add_widget(scale_font(Label(text="Statistiques", bold=True,
-                         size_hint=(1, 0.09)), 0.022))
-        sc0 = ScrollView(size_hint=(1, 0.91))
+        # Deux onglets : ce que vaut le PERSONNAGE, et ce que lui apporte son
+        # EQUIPEMENT. Les deux repondent a des questions differentes, les
+        # melanger rendrait la colonne illisible.
+        tabs = BoxLayout(orientation="horizontal", spacing=dp(4),
+                         size_hint=(1, 0.10))
+        self.tab_buttons = {}
+        for key, label in (("perso", "Personnage"), ("equip", "Equipement")):
+            btn = scale_font(StyledButton(text=label), 0.018)
+            btn.bind(on_release=lambda _w, k=key: self._show_tab(k))
+            tabs.add_widget(btn)
+            self.tab_buttons[key] = btn
+        stats.add_widget(tabs)
+        self._tab = "perso"
+        sc0 = ScrollView(size_hint=(1, 0.90))
         self.stats_box = BoxLayout(orientation="vertical", spacing=dp(6),
                                    size_hint_y=None)
         self.stats_box.bind(minimum_height=self.stats_box.setter("height"))
@@ -592,25 +605,53 @@ class InventoryScreen(Screen):
             return f"{label} repris en main."
         return ""
 
+    def _show_tab(self, key):
+        """Bascule entre les aptitudes du personnage et l'apport du materiel."""
+        self._tab = key
+        state = App.get_running_app().game_state
+        if state is not None:
+            self._fill_stats(state)
+
+    def _panel_row(self, height_ratio=1.0):
+        """Ligne encadree, commune aux deux onglets."""
+        row = BoxLayout(orientation="vertical", size_hint_y=None,
+                        height=dh(_STAT_ROW * height_ratio),
+                        padding=(dp(10), dp(4)))
+        with row.canvas.before:
+            Color(0.05, 0.07, 0.10, 0.42)
+            bg = RoundedRectangle(radius=[dp(8)])
+        row.bind(pos=lambda w, *_, r=bg: setattr(r, "pos", w.pos),
+                 size=lambda w, *_, r=bg: setattr(r, "size", w.size))
+        return row
+
     def _fill_stats(self, state):
-        """Une ligne par aptitude : son niveau, et l'experience en cours."""
+        """Remplit la colonne selon l'onglet choisi."""
+        for key, btn in self.tab_buttons.items():
+            # L'onglet ACTIF est celui qu'on ne peut pas rechoisir.
+            btn.disabled = (key == self._tab)
         self.stats_box.clear_widgets()
+        if self._tab == "equip":
+            self._fill_gear_stats(state)
+        else:
+            self._fill_hero_stats(state)
+
+    def _fill_hero_stats(self, state):
+        """Une ligne par aptitude : son niveau, et l'experience en cours."""
         for key in stats_mod.STAT_ORDER:
             level = state.stat(key)
+            bonus = state.stat_bonus(key)
             done, needed = state.stat_progress(key)
-            row = BoxLayout(orientation="vertical", size_hint_y=None,
-                            height=dh(_STAT_ROW), padding=(dp(10), dp(4)))
-            with row.canvas.before:
-                Color(0.05, 0.07, 0.10, 0.42)
-                bg = RoundedRectangle(radius=[dp(8)])
-            row.bind(pos=lambda w, *_, r=bg: setattr(r, "pos", w.pos),
-                     size=lambda w, *_, r=bg: setattr(r, "size", w.size))
+            row = self._panel_row()
 
             head = BoxLayout(orientation="horizontal", size_hint_y=0.42)
             head.add_widget(_label(stats_mod.STAT_NAMES[key], _GOLD,
-                                   size_hint_x=0.66))
-            head.add_widget(_label(f"niv. {level}", halign="right",
-                                   size_hint_x=0.34))
+                                   size_hint_x=0.60))
+            # Le niveau atteint, puis ce que l'equipement y ajoute : les deux
+            # sont visibles separement, l'un se gagne, l'autre s'enleve.
+            head.add_widget(_label(f"niv. {level}" + (f" +{bonus}" if bonus
+                                                      else ""),
+                                   _BONUS if bonus else (0.92, 0.92, 0.95, 1),
+                                   halign="right", size_hint_x=0.40))
             row.add_widget(head)
 
             # Barre d'experience : on voit ce qui reste avant le niveau
@@ -624,6 +665,46 @@ class InventoryScreen(Screen):
                       "sollicitent.", _DIM, halign="center",
                       size_hint_y=None, height=dh(_STAT_ROW * 0.6))
         self.stats_box.add_widget(note)
+
+    def _fill_gear_stats(self, state):
+        """Ce que l'equipement porte apporte, aptitude par aptitude."""
+        detail = state.equipment_bonuses()
+        if not detail:
+            self.stats_box.add_widget(
+                _label("Rien de ce que tu portes n'ameliore tes aptitudes.",
+                       _DIM, halign="center", size_hint_y=None,
+                       height=dh(_STAT_ROW)))
+        for key, sources in detail.items():
+            total = sum(value for _, value in sources)
+            # La hauteur suit le nombre de pieces qui contribuent : un titre
+            # plus une ligne par piece.
+            row = self._panel_row(0.42 + 0.34 * len(sources))
+            head = BoxLayout(orientation="horizontal",
+                             size_hint_y=0.42 / (0.42 + 0.34 * len(sources)))
+            head.add_widget(_label(stats_mod.STAT_NAMES[key], _GOLD,
+                                   size_hint_x=0.62))
+            head.add_widget(_label(f"+{total}", _BONUS, halign="right",
+                                   size_hint_x=0.38))
+            row.add_widget(head)
+            for worn, value in sources:
+                line = BoxLayout(orientation="horizontal")
+                line.add_widget(_label(items.display_name(worn), _DIM,
+                                       size_hint_x=0.78))
+                line.add_widget(_label(f"+{value}", _DIM, halign="right",
+                                       size_hint_x=0.22))
+                row.add_widget(line)
+            self.stats_box.add_widget(row)
+
+        # Ce qu'on porte SANS aucun effet : sans cette liste, on chercherait
+        # en vain une piece qui n'apparait nulle part.
+        inutiles = [state.equipment[s] for s in items.EQUIP_SLOTS
+                    if state.equipment.get(s)
+                    and not items.item_stats(state.equipment[s])]
+        if inutiles:
+            names = ", ".join(items.display_name(n) for n in inutiles)
+            self.stats_box.add_widget(
+                _label(f"Sans effet : {names}", _DIM, halign="center",
+                       size_hint_y=None, height=dh(_STAT_ROW * 0.6)))
 
     def _fill_equipment(self, state):
         """Pose une case par emplacement, en face de sa partie du corps."""

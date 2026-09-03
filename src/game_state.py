@@ -862,6 +862,32 @@ class GameState:
         """Niveau actuel d'une aptitude."""
         return self.stats.get(key, stats_mod.START_LEVEL)
 
+    def stat_bonus(self, key):
+        """Bonus apporte a cette aptitude par TOUT ce qui est porte."""
+        return sum(items.item_stats(self.equipment.get(slot)).get(key, 0)
+                   for slot in items.EQUIP_SLOTS)
+
+    def effective_stat(self, key):
+        """Niveau reellement utile : celui du personnage, plus son equipement.
+
+        C'est cette valeur qui compte pour agir : le niveau atteint se
+        gagne lentement, l'equipement s'enleve et se remet."""
+        return self.stat(key) + self.stat_bonus(key)
+
+    def equipment_bonuses(self):
+        """Detail des bonus portes : {aptitude: [(objet, valeur), ...]}.
+
+        Ne garde que les aptitudes reellement ameliorees, dans l'ordre
+        d'affichage des aptitudes puis des emplacements."""
+        detail = {}
+        for slot in items.EQUIP_SLOTS:
+            worn = self.equipment.get(slot)
+            for key, value in items.item_stats(worn).items():
+                if value:
+                    detail.setdefault(key, []).append((worn, value))
+        return {key: detail[key] for key in stats_mod.STAT_ORDER
+                if key in detail}
+
     def stat_progress(self, key):
         """(experience acquise, experience requise) pour le niveau suivant."""
         return (self.stat_xp.get(key, 0), stats_mod.xp_needed(self.stat(key)))

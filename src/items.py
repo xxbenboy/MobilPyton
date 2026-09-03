@@ -114,6 +114,35 @@ EQUIP_ITEM_SLOT = {
 }
 
 
+# Ce que chaque piece PORTEE apporte aux aptitudes du personnage (les cles
+# sont celles de src/stats.py). Ces bonus s'ajoutent au niveau atteint : un
+# personnage Agilite 3 qui enfile des gants de feuille agit comme un
+# Agilite 5.
+#
+# La tenue de rescape est en lambeaux : elle tient a peine chaud et n'aide
+# presque en rien. La tenue de feuille est taillee pour la foret, chaque
+# piece servant a ce qu'elle couvre : des gants pour les mains, des souliers
+# pour la course, une capuche pour passer inapercu.
+EQUIP_STATS = {
+    # Tenue de depart : usee, un point chacune.
+    "Chandail_Rescape": {"endurance": 1},
+    "Pantalon_Rescape": {"endurance": 1},
+    "Chaussures_Rescape": {"vitesse": 1},
+    # Tenue de feuille.
+    "Casque_De_Feuille": {"discretion": 2, "ingeniosite": 1},
+    "Veste_De_Feuille": {"endurance": 2, "discretion": 1},
+    "Gant_De_Feuille": {"agilite": 2, "force": 1},
+    "Pantalon_De_Feuille": {"endurance": 2, "vitesse": 1},
+    "Soulier_De_Feuille": {"vitesse": 2, "discretion": 1},
+    "Sac_De_Feuille": {"force": 1, "chance": 1},
+}
+
+
+def item_stats(name):
+    """Aptitudes ameliorees par cet objet une fois PORTE ({} sinon)."""
+    return dict(EQUIP_STATS.get(name, {}))
+
+
 def equip_slot(name):
     """Emplacement ou se porte cet objet, ou None s'il ne se porte pas."""
     return EQUIP_ITEM_SLOT.get(name)
@@ -389,6 +418,12 @@ def describe(name):
     slot = equip_slot(name)
     if slot:
         facts.append(f"Se porte : {EQUIP_SLOT_NAMES[slot]}")
+    gains = item_stats(name)
+    if gains:
+        from src import stats as _stats
+        facts.append("Une fois porte : " + ", ".join(
+            f"{_stats.STAT_NAMES.get(k, k)} +{gains[k]}"
+            for k in _stats.STAT_ORDER if k in gains))
     places = bag_capacity(name)
     if places:
         facts.append(f"Sac : {places} emplacements")
