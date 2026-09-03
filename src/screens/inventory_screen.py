@@ -116,7 +116,10 @@ def _row_font(w, *_):
     if w.width <= 1 or w.height <= 1:
         return
     lines = (w.text or "").count("\n") + 1
-    target = min(dh(70) * 0.46, w.height * 0.82 / lines)
+    # `font_scale` permet d'ecrire une ligne plus grosse (un nom) ou plus
+    # petite (un detail) que la taille courante de l'inventaire.
+    target = min(dh(70) * 0.46 * getattr(w, "font_scale", 1.0),
+                 w.height * 0.90 / lines)
     w.text_size = (None, None)
     w.font_size = target
     w.texture_update()
@@ -203,10 +206,12 @@ def _item_text(state, name, worn=False):
     return text
 
 
-def _label(text, color=(0.92, 0.92, 0.95, 1), halign="left", **kwargs):
+def _label(text, color=(0.92, 0.92, 0.95, 1), halign="left", scale=1.0,
+           **kwargs):
     lbl = Label(text=text, color=color, halign=halign, valign="middle",
                 **kwargs)
-    lbl.bind(size=_row_font)
+    lbl.font_scale = scale
+    lbl.bind(size=_row_font, text=_row_font)
     _row_font(lbl)
     return lbl
 
@@ -667,44 +672,53 @@ class InventoryScreen(Screen):
         self.stats_box.add_widget(note)
 
     def _fill_gear_stats(self, state):
-        """Ce que l'equipement porte apporte, aptitude par aptitude."""
-        detail = state.equipment_bonuses()
-        if not detail:
-            self.stats_box.add_widget(
-                _label("Rien de ce que tu portes n'ameliore tes aptitudes.",
-                       _DIM, halign="center", size_hint_y=None,
-                       height=dh(_STAT_ROW)))
-        for key, sources in detail.items():
-            total = sum(value for _, value in sources)
-            # La hauteur suit le nombre de pieces qui contribuent : un titre
-            # plus une ligne par piece.
-            row = self._panel_row(0.42 + 0.34 * len(sources))
-            head = BoxLayout(orientation="horizontal",
-                             size_hint_y=0.42 / (0.42 + 0.34 * len(sources)))
-            head.add_widget(_label(stats_mod.STAT_NAMES[key], _GOLD,
-                                   size_hint_x=0.62))
-            head.add_widget(_label(f"+{total}", _BONUS, halign="right",
-                                   size_hint_x=0.38))
-            row.add_widget(head)
-            for worn, value in sources:
-                line = BoxLayout(orientation="horizontal")
-                line.add_widget(_label(items.display_name(worn), _DIM,
-                                       size_hint_x=0.78))
-                line.add_widget(_label(f"+{value}", _DIM, halign="right",
-                                       size_hint_x=0.22))
-                row.add_widget(line)
-            self.stats_box.add_widget(row)
+        """Ce que chaque piece portee apporte.
 
-        # Ce qu'on porte SANS aucun effet : sans cette liste, on chercherait
-        # en vain une piece qui n'apparait nulle part.
-        inutiles = [state.equipment[s] for s in items.EQUIP_SLOTS
-                    if state.equipment.get(s)
-                    and not items.item_stats(state.equipment[s])]
-        if inutiles:
-            names = ", ".join(items.display_name(n) for n in inutiles)
+        Une entree par PIECE : son nom en grand, ses apports en petit
+        dessous. Le cumul de tout ce qui est porte ouvre la liste."""
+        porte = [(slot, state.equipment[slot]) for slot in items.EQUIP_SLOTS
+                 if state.equipment.get(slot)]
+        if not porte:
             self.stats_box.add_widget(
-                _label(f"Sans effet : {names}", _DIM, halign="center",
-                       size_hint_y=None, height=dh(_STAT_ROW * 0.6)))
+                _label("Tu ne portes rien.", _DIM, halign="center",
+                       size_hint_y=None, height=dh(_STAT_ROW)))
+            return
+
+        # ---- Le cumul, en tete ----
+        totaux = [f"{stats_mod.STAT_NAMES[k]} +{state.stat_bonus(k)}"
+                  for k in stats_mod.STAT_ORDER if state.stat_bonus(k)]
+        # Sept bonus sur une seule ligne deviendraient minuscules dans une
+        # colonne aussi etroite : on les repartit sur deux lignes.
+        moitie = (len(totaux) + 1) // 2
+        resume = "\n".join(filter(None, (", ".join(totaux[:moitie]),
+                                         ", ".join(totaux[moitie:]))))
+        row = self._panel_row(1.0)
+        row.add_widget(_label("Total porte", _GOLD, size_hint_y=0.34,
+                              scale=1.15))
+        row.add_widget(_label(resume or "Aucun bonus pour l'instant.",
+                              _BONUS if totaux else _DIM, size_hint_y=0.66,
+                              scale=0.80))
+        self.stats_box.add_widget(row)
+
+        # ---- Puis piece par piece ----
+        for slot, worn in porte:
+            gains = items.item_stats(worn)
+            detail = ", ".join(
+                f"{stats_mod.STAT_NAMES[k]} +{gains[k]}"
+                for k in stats_mod.STAT_ORDER if k in gains)
+            row = self._panel_row(0.85)
+            head = BoxLayout(orientation="horizontal", size_hint_y=0.52)
+            # Le NOM est ce qu'on cherche du regard : il passe en grand.
+            head.add_widget(_label(items.display_name(worn), size_hint_x=0.70,
+                                   scale=1.30))
+            head.add_widget(_label(items.EQUIP_SLOT_NAMES[slot], _DIM,
+                                   halign="right", size_hint_x=0.30,
+                                   scale=0.72))
+            row.add_widget(head)
+            row.add_widget(_label(detail or "N'apporte aucun bonus.",
+                                  _BONUS if detail else _DIM,
+                                  size_hint_y=0.48, scale=0.80))
+            self.stats_box.add_widget(row)
 
     def _fill_equipment(self, state):
         """Pose une case par emplacement, en face de sa partie du corps."""

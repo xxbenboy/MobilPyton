@@ -33,8 +33,6 @@ EQUIPEMENT : il ne manque que le sac.
 MATIERES ET OUTILS :
     Fibre_Vegetale.png         faite d'une feuille ou d'une herbe
     Allume_feu.png             silex + pierre
-    Ecorce.png                 foret
-    Buche.png                  donnee par un arbre abattu
 
 TROUVAILLES SANS IMAGE :
     Poisson.png
@@ -47,7 +45,8 @@ DEJA EN PLACE
     Roseau, Plume, Os, Coquillage, Corde, Carcasse, Couteau, Hache,
     Lance, Feu_de_camp, Chandail_Rescape, Pantalon_Rescape,
     Chaussures_Rescape, Casque_De_Feuille, Veste_De_Feuille,
-    Gant_De_Feuille, Pantalon_De_Feuille, Soulier_De_Feuille
+    Gant_De_Feuille, Pantalon_De_Feuille, Soulier_De_Feuille,
+    Ecorce, Buche
 
 ----------------------------------------------------------------
 LE DOSSIER futur/
