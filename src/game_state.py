@@ -303,17 +303,17 @@ class GameState:
     # ------------------------------------------------------------------ #
     @classmethod
     def new_random(cls, name, difficulty="Moyen", seed=None, debug=False,
-                   stats=None):
+                   stats=None, stat_xp=None):
         if seed is None:
             seed = random.randrange(1_000_000)
         if difficulty not in DIFFICULTIES:
             difficulty = "Moyen"
         # La partie de test ne passe pas par l'ecran de repartition : elle
-        # recoit d'office le meme total, a parts egales.
+        # demarre d'office au niveau 5 dans chaque aptitude.
         if stats is None and debug:
-            stats = stats_mod.distribute_even()
+            stats = stats_mod.debug_levels()
         state = cls(seed=seed, name=name, difficulty=difficulty, debug=debug,
-                    stats=stats)
+                    stats=stats, stat_xp=stat_xp)
         state.time_seconds = START_HOUR * 3600        # debut a 6h
         start = START_RESOURCES[difficulty]
         state.food = start["food"]

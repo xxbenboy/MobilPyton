@@ -1,12 +1,17 @@
 """
-Ecran de REPARTITION des points d'aptitude, au debut d'une partie.
+Ecran de REPARTITION de l'experience, au debut d'une partie.
 
-Les sept aptitudes partent toutes au niveau 1. Le joueur dispose de 35
-points a placer ou il veut : rien ne l'oblige a les etaler, il peut tout
-mettre dans une seule aptitude.
+Les sept aptitudes partent toutes au NIVEAU 0. Le joueur dispose de 500
+points d'experience a placer ou il veut, par tranches de 10 : rien ne
+l'oblige a les etaler, il peut tout mettre dans une seule aptitude.
 
-L'ecran ne laisse pas commencer tant qu'il reste des points : sinon on les
-perdrait sans le vouloir, puisqu'ils ne se recuperent pas ensuite.
+Comme un niveau coute deux fois plus que le precedent (20, 40, 80...), la
+meme experience rapporte beaucoup dans une aptitude negligee et peu dans
+une aptitude deja poussee. L'ecran affiche donc le NIVEAU obtenu a chaque
+appui, pas seulement l'experience placee.
+
+Il ne laisse pas commencer tant qu'il reste de l'experience : elle ne se
+recupere pas une fois la partie lancee.
 """
 from kivy.app import App
 from kivy.uix.screenmanager import Screen
@@ -65,10 +70,14 @@ class AllocateScreen(Screen):
 
         column.add_widget(scale_font(Label(text="Aptitudes", bold=True,
                           color=_GOLD, size_hint=(1, 0.09)), 0.03))
+        column.add_widget(scale_font(Label(
+            text="Un niveau coute deux fois plus que le precedent : "
+                 "20, 40, 80, 160...",
+            color=_DIM, size_hint=(1, 0.055)), 0.016))
         self.remaining = scale_font(Label(text="", size_hint=(1, 0.07)), 0.022)
         column.add_widget(self.remaining)
 
-        scroll = ScrollView(size_hint=(1, 0.66))
+        scroll = ScrollView(size_hint=(1, 0.61))
         body = BoxLayout(orientation="vertical", spacing=dp(6),
                          size_hint_y=None)
         body.bind(minimum_height=body.setter("height"))
@@ -124,8 +133,8 @@ class AllocateScreen(Screen):
         minus.bind(on_release=lambda _w, k=key: self._change(k, -1))
         row.add_widget(minus)
 
-        value = _fit(Label(text="1", bold=True, halign="center",
-                           valign="middle", size_hint_x=0.22), 0.62)
+        value = _fit(Label(text="niv. 0", bold=True, halign="center",
+                           valign="middle", size_hint_x=0.22), 0.40)
         row.add_widget(value)
 
         plus = scale_font(StyledButton(text="+", size_hint_x=0.13), 0.03)
@@ -140,12 +149,15 @@ class AllocateScreen(Screen):
         self._reset()
 
     def _left(self):
-        return stats_mod.START_POINTS - sum(self._spent.values())
+        """Experience encore a placer."""
+        return stats_mod.START_XP - sum(self._spent.values())
 
-    def _change(self, key, delta):
-        if delta > 0 and self._left() <= 0:
+    def _change(self, key, steps):
+        """Place ou retire une tranche d'experience (10 points)."""
+        delta = steps * stats_mod.XP_STEP
+        if delta > 0 and self._left() < delta:
             return
-        if delta < 0 and self._spent[key] <= 0:
+        if delta < 0 and self._spent[key] < -delta:
             return
         self._spent[key] += delta
         self._refresh()
@@ -155,31 +167,44 @@ class AllocateScreen(Screen):
         self._refresh()
 
     def _spread(self, *_):
-        """Le meme partage que la partie de test : 5 points partout."""
-        self._spent = {key: stats_mod.DEBUG_POINTS_EACH
-                       for key in stats_mod.STAT_ORDER}
+        """Repartition aussi egale que possible.
+
+        500 ne se divise pas en sept parts de 10 : on donne une tranche de
+        plus aux premieres aptitudes plutot que de laisser du reste."""
+        count = len(stats_mod.STAT_ORDER)
+        steps = stats_mod.START_XP // stats_mod.XP_STEP
+        base, extra = divmod(steps, count)
+        self._spent = {
+            key: (base + (1 if i < extra else 0)) * stats_mod.XP_STEP
+            for i, key in enumerate(stats_mod.STAT_ORDER)}
         self._refresh()
 
     def _refresh(self):
         left = self._left()
-        self.remaining.text = (f"{left} point(s) a placer"
-                               if left else "Tous les points sont places")
+        self.remaining.text = (f"{left} xp a placer"
+                               if left else "Toute l'experience est placee")
         self.remaining.color = _GOLD if left else (0.60, 0.90, 0.65, 1)
         for key, (value, minus, plus) in self._rows.items():
-            value.text = str(stats_mod.START_LEVEL + self._spent[key])
-            minus.disabled = self._spent[key] <= 0
-            plus.disabled = left <= 0
-        # On ne part pas en laissant des points derriere soi : ils ne se
-        # recuperent plus une fois la partie commencee.
+            spent = self._spent[key]
+            level, rest = stats_mod.level_from_xp(spent)
+            # Le niveau d'abord : c'est lui qui compte, l'experience placee
+            # n'est que le moyen d'y arriver.
+            value.text = (f"niv. {level}\n{rest}/{stats_mod.xp_needed(level)}"
+                          if spent else "niv. 0")
+            minus.disabled = spent < stats_mod.XP_STEP
+            plus.disabled = left < stats_mod.XP_STEP
+        # On ne part pas en laissant de l'experience derriere soi : elle ne
+        # se recupere plus une fois la partie commencee.
         self.start_btn.disabled = left > 0
 
     def _start(self, *_):
         from src.game_state import GameState
         app = App.get_running_app()
-        levels = {key: stats_mod.START_LEVEL + self._spent[key]
-                  for key in stats_mod.STAT_ORDER}
+        levels, rests = {}, {}
+        for key in stats_mod.STAT_ORDER:
+            levels[key], rests[key] = stats_mod.level_from_xp(self._spent[key])
         app.game_state = GameState.new_random(
             name=self.pending_name, difficulty=self.pending_difficulty,
-            stats=levels)
+            stats=levels, stat_xp=rests)
         app.autosave()
         self.manager.current = "game"
