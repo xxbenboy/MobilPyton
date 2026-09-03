@@ -47,9 +47,8 @@ HEALTH_RATE = 0.05    # la sante baisse si faim/soif au max, ou epuisement
 # L'endurance ne s'use PAS toute seule : elle se depense en agissant et en
 # marchant, et remonte pendant qu'on ne fait rien.
 #
-# Son maximum n'est pas fixe : un corps repose et bien nourri en a plus.
-ENDURANCE_BASE = 100                # a jeun, sans aptitude
-ENDURANCE_PER_LEVEL = 5             # par niveau d'endurance (equipement compris)
+# Son maximum n'est pas fixe : il vaut la QUANTITE de l'aptitude Endurance
+# (stats.quantity : 100 au niveau 1, +5 par niveau), plus le dernier repas.
 # Remontee, en points par HEURE DE JEU.
 ENDURANCE_REGEN_PER_HOUR = 40.0
 ENDURANCE_REGEN_PER_LEVEL = 4.0     # par niveau d'endurance
@@ -66,9 +65,10 @@ SLEEP_ENERGY_PART = 0.70
 # --------------------------------------------------------------------- #
 # FAIM ET SOIF : alerte, puis degats
 # --------------------------------------------------------------------- #
-# A partir de ce niveau, la faim (ou la soif) devient un EFFET visible et
-# commence a couter de la vie.
-SURVIVAL_ALERT = 75
+# A partir de cette PART de la jauge, la faim (ou la soif) devient un
+# EFFET visible et commence a couter de la sante. Une part, et non un
+# nombre fixe : le maximum des jauges grandit avec l'aptitude Endurance.
+SURVIVAL_ALERT_PART = 0.75
 # Entre le seuil et 100, chaque tranche franchie coute des points de vie.
 SURVIVAL_STEP = 5
 SURVIVAL_STEP_DAMAGE = 1
@@ -472,11 +472,13 @@ class GameState:
         # FAIM et SOIF ne sont pas des effets a duree : ils durent tant que le
         # niveau reste critique. L'anneau se vide a mesure qu'on approche de
         # 100, ou commence l'inanition.
-        span = max(1.0, 100.0 - SURVIVAL_ALERT)
+        plafond = float(self.gauge_max())
+        alerte = self.survival_alert()
+        span = max(1.0, plafond - alerte)
         for stat, name in (("hunger", "Faim"), ("thirst", "Soif")):
             value = getattr(self, stat)
-            if value >= SURVIVAL_ALERT:
-                out.append((name, max(0.0, (100.0 - value) / span)))
+            if value >= alerte:
+                out.append((name, max(0.0, (plafond - value) / span)))
         return out
 
     def effective_weather(self):
@@ -495,9 +497,9 @@ class GameState:
     def advance_survival(self, seconds):
         """Fait deriver les stats selon le temps de jeu ecoule (en secondes)."""
         minutes = max(0, seconds) / 60.0
-        self.hunger = _clamp100(self.hunger + HUNGER_RATE * minutes)
-        self.thirst = _clamp100(self.thirst + THIRST_RATE * minutes)
-        self.sleep = _clamp100(self.sleep - SLEEP_RATE * minutes)
+        self.hunger = self.clamp_gauge(self.hunger + HUNGER_RATE * minutes)
+        self.thirst = self.clamp_gauge(self.thirst + THIRST_RATE * minutes)
+        self.sleep = self.clamp_gauge(self.sleep - SLEEP_RATE * minutes)
         # L'endurance REMONTE avec le temps, au lieu de s'user : c'est en
         # agissant qu'on la depense (voir spend_energy).
         self.energy = min(self.endurance_max(),
@@ -505,11 +507,12 @@ class GameState:
                           + self.endurance_regen_per_hour() * minutes / 60.0)
         # Epuisement (sommeil ou endurance a zero) : la sante baisse.
         if self.sleep <= 0 or self.energy <= 0:
-            self.health = _clamp100(self.health - HEALTH_RATE * minutes)
+            self.health = self.clamp_gauge(self.health
+                                           - HEALTH_RATE * minutes)
         # Faim et soif : paliers, puis inanition.
         damage = self._survival_damage(minutes)
         if damage:
-            self.health = _clamp100(self.health - damage)
+            self.health = self.clamp_gauge(self.health - damage)
 
     def _survival_damage(self, minutes):
         """Points de vie coutes par la faim et la soif sur cette duree.
@@ -520,17 +523,23 @@ class GameState:
           compteur, il se represente donc si on remonte) ;
         - a 100, c'est l'inanition : 5 points de vie par minute reelle."""
         total = 0.0
+        plafond = float(self.gauge_max())
+        alerte = self.survival_alert()
         for stat in ("hunger", "thirst"):
             value = getattr(self, stat)
-            steps = max(0, int((value - SURVIVAL_ALERT) // SURVIVAL_STEP))
+            steps = max(0, int((value - alerte) // SURVIVAL_STEP))
             done = int(self.penalty_steps.get(stat, 0))
             if steps > done:
                 total += (steps - done) * SURVIVAL_STEP_DAMAGE
             if steps != done:
                 self.penalty_steps[stat] = steps
-            if value >= 100:
+            if value >= plafond:
                 total += STARVING_DAMAGE * minutes / GAME_MINUTES_PER_REAL_MINUTE
         return total
+
+    def survival_alert(self):
+        """Niveau de faim ou de soif a partir duquel on commence a souffrir."""
+        return SURVIVAL_ALERT_PART * self.gauge_max()
 
     # ------------------------------------------------------------------ #
     # Endurance
@@ -540,10 +549,20 @@ class GameState:
         return self.food_bonus_points if self.time_seconds < self.food_until \
             else 0
 
+    def gauge_max(self):
+        """Maximum des jauges du corps : sante, endurance, energie, faim, soif.
+
+        Toutes suivent l'aptitude ENDURANCE, qui mesure ce que le corps
+        encaisse : 100 au niveau 1, 105 au niveau 2, 110 au niveau 3..."""
+        return stats_mod.quantity(self.effective_stat("endurance"))
+
+    def clamp_gauge(self, value):
+        """Ramene une jauge entre 0 et son maximum."""
+        return max(0.0, min(float(self.gauge_max()), float(value)))
+
     def endurance_max(self):
-        """Endurance maximale : le corps, ses aptitudes et son dernier repas."""
-        return (ENDURANCE_BASE + self.food_bonus()
-                + ENDURANCE_PER_LEVEL * self.effective_stat("endurance"))
+        """Endurance maximale : ce que vaut le corps, plus le dernier repas."""
+        return self.gauge_max() + self.food_bonus()
 
     def endurance_regen_per_hour(self):
         """Points d'endurance regagnes par heure de jeu.
@@ -577,7 +596,7 @@ class GameState:
         value = items.food_value(name)
         if value is None:
             return False
-        self.hunger = _clamp100(self.hunger - value["hunger"])
+        self.hunger = self.clamp_gauge(self.hunger - value["hunger"])
         gain = value["endurance"]
         if gain >= self.food_bonus():
             self.food_bonus_points = gain

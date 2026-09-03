@@ -63,6 +63,18 @@ ACTION_XP = {
 }
 
 
+# Ce que VAUT une aptitude a un niveau donne, sa "quantite". Le niveau 1
+# est la reference : 100. Chaque niveau au-dessus ajoute 5, chaque niveau
+# en dessous en retire autant.
+QUANTITY_BASE = 100
+QUANTITY_PER_LEVEL = 5
+
+
+def quantity(level):
+    """Quantite d'une aptitude : 95 au niveau 0, 100 au 1, 105 au 2..."""
+    return max(0, QUANTITY_BASE + QUANTITY_PER_LEVEL * (int(level) - 1))
+
+
 def xp_needed(level):
     """Experience a accumuler pour QUITTER ce niveau.
 

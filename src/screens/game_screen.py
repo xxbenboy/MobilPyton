@@ -26,7 +26,6 @@ from kivy.uix.label import Label
 from kivy.graphics import Color, Rectangle, RoundedRectangle
 from kivy.metrics import dp
 
-from src.game_state import _clamp100
 from src.widgets.animated_background import (AnimatedBackground,
                                             night_darkness, night_factor)
 from src.widgets.zone_scenery import ZoneScenery
@@ -392,7 +391,7 @@ class GameScreen(Screen):
         _add_panel(self.status_col, alpha=0.34)
         self.stat_health = StatCircle("Sante", (0.85, 0.30, 0.30), "health")
         self.stat_energy = StatCircle("Endurance", (0.95, 0.80, 0.30), "energy")
-        self.stat_sleep = StatCircle("Sommeil", (0.45, 0.55, 0.95), "sleep")
+        self.stat_sleep = StatCircle("Energie", (0.45, 0.55, 0.95), "sleep")
         self.stat_hunger = StatCircle("Faim", (0.85, 0.55, 0.25), "hunger")
         self.stat_thirst = StatCircle("Soif", (0.30, 0.70, 0.92), "thirst")
         self._stat_circles = (self.stat_health, self.stat_energy,
@@ -1008,11 +1007,14 @@ class GameScreen(Screen):
             # L'arbre tombe (et le bois arrive) a la FIN du travail.
             self._did_chop = True
 
-        state.health = _clamp100(state.health + action.get("health", 0))
+        state.health = state.clamp_gauge(state.health
+                                         + action.get("health", 0))
         state.change_energy(action.get("energy", 0))
-        state.sleep = _clamp100(state.sleep + action.get("sleep", 0))
-        state.hunger = _clamp100(state.hunger + action.get("hunger", 0))
-        state.thirst = _clamp100(state.thirst + action.get("thirst", 0))
+        state.sleep = state.clamp_gauge(state.sleep + action.get("sleep", 0))
+        state.hunger = state.clamp_gauge(state.hunger
+                                         + action.get("hunger", 0))
+        state.thirst = state.clamp_gauge(state.thirst
+                                         + action.get("thirst", 0))
         state.wood += action.get("wood", 0)
         state.food += action.get("food", 0)
         state.action_count += 1
@@ -1393,7 +1395,7 @@ class GameScreen(Screen):
         state.face(dx, dy)
         state.reveal_zone(state.player_x, state.player_y)
         state.change_energy(MOVE_ENERGY)
-        state.hunger = _clamp100(state.hunger + MOVE_HUNGER)
+        state.hunger = state.clamp_gauge(state.hunger + MOVE_HUNGER)
         state.tick(MOVE_MINUTES * 60)               # le temps du trajet passe
         state.advance_survival(MOVE_MINUTES * 60)
         state.action_count += 1
@@ -1576,14 +1578,18 @@ class GameScreen(Screen):
         self.zone_desc.text = desc
         self.status.text = f"{self._ff_label}..." if self._ff_active else ""
 
-        self.stat_health.set_value(state.health)
+        # Les cinq jauges partagent le meme maximum (sauf l'endurance,
+        # que le dernier repas elargit encore) : l'anneau montre donc une
+        # PART, sinon il deborderait des le niveau 2 d'Endurance.
+        plafond = max(1.0, float(state.gauge_max()))
+        self.stat_health.set_value(100.0 * state.health / plafond)
         # L'anneau montre une PART : le maximum d'endurance varie avec
         # les aptitudes et le dernier repas.
         self.stat_energy.set_value(
             100.0 * state.energy / max(1.0, state.endurance_max()))
-        self.stat_sleep.set_value(state.sleep)
-        self.stat_hunger.set_value(state.hunger)
-        self.stat_thirst.set_value(state.thirst)
+        self.stat_sleep.set_value(100.0 * state.sleep / plafond)
+        self.stat_hunger.set_value(100.0 * state.hunger / plafond)
+        self.stat_thirst.set_value(100.0 * state.thirst / plafond)
         # Effets : on annonce les nouveaux, ou qu'en soit le panneau.
         self._watch_new_effects(state)
         # Panneau des EFFETS : contenu et anneaux de temps restant.

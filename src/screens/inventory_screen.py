@@ -741,29 +741,47 @@ class InventoryScreen(Screen):
         self._sync_tabs()
 
     def _fill_hero_stats(self, state):
-        """Une ligne par aptitude : son niveau, et l'experience en cours."""
+        """Une ligne par aptitude : niveau, quantite, et experience en cours.
+
+        Quatre chiffres comptent et sont montres separement : le niveau
+        atteint, ce que l'equipement y ajoute, la QUANTITE que cela
+        represente, et l'avancee vers le niveau suivant."""
         for key in stats_mod.STAT_ORDER:
             level = state.stat(key)
             bonus = state.stat_bonus(key)
             done, needed = state.stat_progress(key)
-            row = self._panel_row()
+            row = self._panel_row(1.25)
 
-            head = BoxLayout(orientation="horizontal", size_hint_y=0.42)
+            head = BoxLayout(orientation="horizontal", size_hint_y=0.34)
             head.add_widget(_label(stats_mod.STAT_NAMES[key], _GOLD,
-                                   size_hint_x=0.60))
+                                   size_hint_x=0.58, scale=1.10))
             # Le niveau atteint, puis ce que l'equipement y ajoute : les deux
             # sont visibles separement, l'un se gagne, l'autre s'enleve.
             head.add_widget(_label(f"niv. {level}" + (f" +{bonus}" if bonus
                                                       else ""),
                                    _BONUS if bonus else (0.92, 0.92, 0.95, 1),
-                                   halign="right", size_hint_x=0.40))
+                                   halign="right", size_hint_x=0.42,
+                                   scale=1.10))
             row.add_widget(head)
+
+            # La QUANTITE : ce que le niveau vaut vraiment. Avec le bonus de
+            # l'equipement s'il y en a un, puisque c'est celle-la qui sert.
+            quantite = stats_mod.quantity(level + bonus)
+            ligne = BoxLayout(orientation="horizontal", size_hint_y=0.22)
+            ligne.add_widget(_label("Quantite", _DIM, size_hint_x=0.58,
+                                    scale=0.78))
+            ligne.add_widget(_label(str(quantite),
+                                    _BONUS if bonus else _DIM,
+                                    halign="right", size_hint_x=0.42,
+                                    scale=0.78))
+            row.add_widget(ligne)
 
             # Barre d'experience : on voit ce qui reste avant le niveau
             # suivant, sinon un niveau semblerait tomber sans raison.
-            row.add_widget(_xp_bar(done, needed, size_hint_y=0.26))
-            row.add_widget(_label(f"{done}/{needed} vers niv. {level + 1}",
-                                  _DIM, size_hint_y=0.32))
+            row.add_widget(_xp_bar(done, needed, size_hint_y=0.18))
+            row.add_widget(_label(f"{done} / {needed} xp  vers niv. "
+                                  f"{level + 1}", _DIM, halign="center",
+                                  size_hint_y=0.26, scale=0.78))
             self.hero_box.add_widget(row)
 
         note = _label("Chaque aptitude monte par les actions qui la "
