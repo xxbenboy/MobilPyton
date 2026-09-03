@@ -50,6 +50,42 @@ def _fit(label, ratio=0.55):
     return label
 
 
+class _XpBar(Label):
+    """Un texte pose SUR une barre de progression.
+
+    La barre est dans `canvas.before` : le texte ("200/320") se lit donc
+    par-dessus, et l'on voit d'un coup d'oeil ou en est le niveau sans
+    avoir a comparer deux nombres."""
+
+    def __init__(self, color=(0.42, 0.82, 0.52, 0.55), **kwargs):
+        kwargs.setdefault("halign", "center")
+        kwargs.setdefault("valign", "middle")
+        super().__init__(**kwargs)
+        self._part = 0.0
+        with self.canvas.before:
+            Color(1, 1, 1, 0.10)
+            self._back = RoundedRectangle(radius=[dp(5)])
+            Color(*color)
+            self._fill = RoundedRectangle(radius=[dp(5)])
+        self.bind(pos=self._sync, size=self._sync)
+        self._sync()
+
+    def set_progress(self, done, needed, text=None):
+        self._part = (max(0.0, min(1.0, done / float(needed)))
+                      if needed else 0.0)
+        self.text = text if text is not None else f"{done}/{needed}"
+        self._sync()
+
+    def _sync(self, *_):
+        self._back.pos = self.pos
+        self._back.size = self.size
+        self._fill.pos = self.pos
+        # Une barre vide garderait ses coins arrondis et ressemblerait a un
+        # petit point : mieux vaut ne rien dessiner du tout.
+        self._fill.size = (self.width * self._part if self._part > 0 else 0,
+                           self.height)
+
+
 class AllocateScreen(Screen):
     """Repartition des points avant de lancer la partie."""
 
@@ -74,7 +110,11 @@ class AllocateScreen(Screen):
             text="Un niveau coute deux fois plus que le precedent : "
                  "20, 40, 80, 160...",
             color=_DIM, size_hint=(1, 0.055)), 0.016))
-        self.remaining = scale_font(Label(text="", size_hint=(1, 0.07)), 0.022)
+        # Ce qu'il reste a placer, sur une barre qui montre la part deja
+        # affectee : le nombre seul ne dit pas si l'on en est au debut ou a
+        # la fin.
+        self.remaining = _fit(_XpBar(bold=True, color=(0.85, 0.70, 0.35, 0.45),
+                                     size_hint=(1, 0.085)), 0.50)
         column.add_widget(self.remaining)
 
         scroll = ScrollView(size_hint=(1, 0.61))
@@ -121,7 +161,7 @@ class AllocateScreen(Screen):
         row.bind(pos=lambda w, *_: setattr(bg, "pos", w.pos),
                  size=lambda w, *_: setattr(bg, "size", w.size))
 
-        texts = BoxLayout(orientation="vertical", size_hint_x=0.52)
+        texts = BoxLayout(orientation="vertical", size_hint_x=0.46)
         texts.add_widget(_fit(Label(text=stats_mod.STAT_NAMES[key], bold=True,
                                     color=_GOLD, halign="left",
                                     valign="middle"), 0.60))
@@ -133,15 +173,21 @@ class AllocateScreen(Screen):
         minus.bind(on_release=lambda _w, k=key: self._change(k, -1))
         row.add_widget(minus)
 
+        # Le niveau au-dessus, l'avancee vers le suivant en dessous.
+        gauge = BoxLayout(orientation="vertical", spacing=dp(2),
+                          size_hint_x=0.28)
         value = _fit(Label(text="niv. 0", bold=True, halign="center",
-                           valign="middle", size_hint_x=0.22), 0.40)
-        row.add_widget(value)
+                           valign="middle"), 0.62)
+        gauge.add_widget(value)
+        bar = _fit(_XpBar(), 0.58)
+        gauge.add_widget(bar)
+        row.add_widget(gauge)
 
         plus = scale_font(StyledButton(text="+", size_hint_x=0.13), 0.03)
         plus.bind(on_release=lambda _w, k=key: self._change(k, +1))
         row.add_widget(plus)
 
-        self._rows[key] = (value, minus, plus)
+        self._rows[key] = (value, bar, minus, plus)
         return row
 
     # ------------------------------------------------------------------ #
@@ -181,16 +227,21 @@ class AllocateScreen(Screen):
 
     def _refresh(self):
         left = self._left()
-        self.remaining.text = (f"{left} xp a placer"
-                               if left else "Toute l'experience est placee")
+        placed = stats_mod.START_XP - left
+        self.remaining.set_progress(
+            placed, stats_mod.START_XP,
+            text=(f"Reste {left} xp a placer   ({placed}/"
+                  f"{stats_mod.START_XP})" if left
+                  else f"Toute l'experience est placee   "
+                       f"({stats_mod.START_XP}/{stats_mod.START_XP})"))
         self.remaining.color = _GOLD if left else (0.60, 0.90, 0.65, 1)
-        for key, (value, minus, plus) in self._rows.items():
+        for key, (value, bar, minus, plus) in self._rows.items():
             spent = self._spent[key]
             level, rest = stats_mod.level_from_xp(spent)
             # Le niveau d'abord : c'est lui qui compte, l'experience placee
             # n'est que le moyen d'y arriver.
-            value.text = (f"niv. {level}\n{rest}/{stats_mod.xp_needed(level)}"
-                          if spent else "niv. 0")
+            value.text = f"niv. {level}"
+            bar.set_progress(rest, stats_mod.xp_needed(level))
             minus.disabled = spent < stats_mod.XP_STEP
             plus.disabled = left < stats_mod.XP_STEP
         # On ne part pas en laissant de l'experience derriere soi : elle ne
