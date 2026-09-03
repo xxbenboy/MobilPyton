@@ -1,11 +1,19 @@
-"""Ecran INVENTAIRE : ce que le personnage PORTE et ce qu'il TRANSPORTE.
+"""Ecran INVENTAIRE : ce qui est A PORTEE, ce qu'on PORTE, ce qu'on TRANSPORTE.
 
-Deux colonnes :
-- a gauche l'EQUIPEMENT, un emplacement par piece (casque, chandail, gants,
-  pantalon, chaussures, sac a dos). Un emplacement vide reste affiche, pour
-  qu'on voie tout de suite ce qui manque ;
+Trois colonnes :
+- a gauche, les objets AU SOL de la case. Meme source que le menu Craft
+  (state.ground_here()), donc les deux listes montrent toujours la meme
+  chose ;
+- au milieu, deux menus a deux sous-menus chacun :
+    Equipement -> Tenue (la silhouette et ses emplacements)
+               -> Statistiques (ce que chaque piece apporte)
+    Personnage -> Apparence (le personnage habille, juste a regarder)
+               -> Aptitudes (niveaux et experience)
 - a droite le contenu du SAC A DOS. Sans sac, il n'y a aucune place : la
   colonne l'explique au lieu d'afficher une grille vide.
+
+En bas, les deux MAINS. Un objet se glisse librement d'une section a
+l'autre : sol, mains, sac, corps.
 
 Au depart le personnage porte ses vetements de rescape (chandail, pantalon,
 chaussures) et n'a pas de sac : il ne transporte donc que ce qu'il tient dans
@@ -62,6 +70,12 @@ _CELL_W = 182           # largeur d'une case (celle d'une case du sac)
 # la silhouette (voir _cell_size).
 _STATS_SHARE = 0.26
 _STAT_ROW = 120         # hauteur d'une ligne de statistique
+
+# Les deux menus du milieu, et leurs sous-menus dans l'ordre des boutons.
+_SUBTABS = {
+    "equip": (("tenue", "Tenue"), ("stats", "Statistiques")),
+    "perso": (("apparence", "Apparence"), ("stats", "Aptitudes")),
+}
 _CELL_H = _ICON_SIDE + _CELL_LABEL + _NAME_LABEL
 _BAG_CELL_H = _ICON_SIDE + _NAME_LABEL
 
@@ -206,6 +220,15 @@ def _item_text(state, name, worn=False):
     return text
 
 
+def _scroll_box():
+    """Un ScrollView et la colonne verticale qu'il fait defiler."""
+    scroll = ScrollView(size_hint=(1, 1))
+    box = BoxLayout(orientation="vertical", spacing=dp(6), size_hint_y=None)
+    box.bind(minimum_height=box.setter("height"))
+    scroll.add_widget(box)
+    return scroll, box
+
+
 def _label(text, color=(0.92, 0.92, 0.95, 1), halign="left", scale=1.0,
            **kwargs):
     lbl = Label(text=text, color=color, halign=halign, valign="middle",
@@ -250,42 +273,60 @@ class InventoryScreen(Screen):
         body = BoxLayout(orientation="horizontal", spacing=dp(10),
                          size_hint=(1, 0.76))
 
-        # ---- Gauche : les statistiques cumulees ----
-        # Une simple liste : elle a besoin de moins de largeur que les deux
-        # autres, qui gardent entre elles leur proportion d'avant (moitie
-        # moitie).
-        stats = BoxLayout(orientation="vertical", spacing=dp(6),
-                          size_hint_x=_STATS_SHARE)
-        # Deux onglets : ce que vaut le PERSONNAGE, et ce que lui apporte son
-        # EQUIPEMENT. Les deux repondent a des questions differentes, les
-        # melanger rendrait la colonne illisible.
-        tabs = BoxLayout(orientation="horizontal", spacing=dp(4),
-                         size_hint=(1, 0.10))
-        self.tab_buttons = {}
-        for key, label in (("perso", "Personnage"), ("equip", "Equipement")):
-            btn = scale_font(StyledButton(text=label), 0.018)
-            btn.bind(on_release=lambda _w, k=key: self._show_tab(k))
-            tabs.add_widget(btn)
-            self.tab_buttons[key] = btn
-        stats.add_widget(tabs)
-        self._tab = "perso"
-        sc0 = ScrollView(size_hint=(1, 0.90))
-        self.stats_box = BoxLayout(orientation="vertical", spacing=dp(6),
-                                   size_hint_y=None)
-        self.stats_box.bind(minimum_height=self.stats_box.setter("height"))
-        sc0.add_widget(self.stats_box)
-        stats.add_widget(sc0)
-        body.add_widget(stats)
+        # ---- Gauche : ce qui traine A PROXIMITE ----
+        # Meme source que le menu Craft (state.ground_here()) : les deux
+        # listes montrent donc toujours la meme chose.
+        near = BoxLayout(orientation="vertical", spacing=dp(6),
+                         size_hint_x=_STATS_SHARE)
+        self.near_title = scale_font(Label(text="A proximite", bold=True,
+                                     size_hint=(1, 0.09)), 0.022)
+        near.add_widget(self.near_title)
+        sc0 = self.ground_scroll = _make_highlightable(ScrollView(
+            size_hint=(1, 0.91)))
+        self.ground_box = BoxLayout(orientation="vertical", spacing=dp(4),
+                                    size_hint_y=None)
+        self.ground_box.bind(minimum_height=self.ground_box.setter("height"))
+        sc0.add_widget(self.ground_box)
+        near.add_widget(sc0)
+        body.add_widget(near)
 
-        # ---- Milieu : equipement porte ----
+        # ---- Milieu : deux menus, deux sous-menus chacun ----
         rest = (1.0 - _STATS_SHARE) / 2.0
-        left = BoxLayout(orientation="vertical", spacing=dp(6),
-                         size_hint_x=rest)
-        left.add_widget(scale_font(Label(text="Equipement", bold=True,
-                        size_hint=(1, 0.09)), 0.022))
-        self.equip_box = _BodyPanel(size_hint=(1, 0.91))
-        left.add_widget(self.equip_box)
-        body.add_widget(left)
+        center = BoxLayout(orientation="vertical", spacing=dp(4),
+                           size_hint_x=rest)
+        self._main = "equip"
+        self._sub = {"equip": "tenue", "perso": "apparence"}
+
+        mrow = BoxLayout(orientation="horizontal", spacing=dp(4),
+                         size_hint=(1, 0.09))
+        self.main_buttons = {}
+        for key, label in (("equip", "Equipement"), ("perso", "Personnage")):
+            btn = scale_font(StyledButton(text=label, bold=True), 0.018)
+            btn.bind(on_release=lambda _w, k=key: self._show_main(k))
+            mrow.add_widget(btn)
+            self.main_buttons[key] = btn
+        center.add_widget(mrow)
+
+        # Deux boutons seulement : leur libelle change avec le menu choisi.
+        srow = BoxLayout(orientation="horizontal", spacing=dp(4),
+                         size_hint=(1, 0.08))
+        self.sub_buttons = []
+        for i in range(2):
+            btn = scale_font(StyledButton(text=""), 0.016)
+            btn.bind(on_release=lambda _w, i=i: self._show_sub(i))
+            srow.add_widget(btn)
+            self.sub_buttons.append(btn)
+        center.add_widget(srow)
+
+        self.content = BoxLayout(size_hint=(1, 0.83))
+        center.add_widget(self.content)
+        body.add_widget(center)
+
+        # Les quatre panneaux, crees une fois et permutes dans `content`.
+        self.equip_box = _BodyPanel(size_hint=(1, 1))
+        self.avatar_box = _BodyPanel(size_hint=(1, 1))
+        self.hero_panel, self.hero_box = _scroll_box()
+        self.gear_panel, self.gear_box = _scroll_box()
 
         # ---- Droite : contenu du sac ----
         right = BoxLayout(orientation="vertical", spacing=dp(6),
@@ -315,9 +356,9 @@ class InventoryScreen(Screen):
         col.add_widget(hands)
 
         # Message d'aide / refus (pourquoi un depot n'a pas marche).
-        self.hint = _label("Glisse un objet entre tes mains, ton sac et ton "
-                           "equipement : les cases ou tu peux le lacher "
-                           "clignotent.", _DIM, halign="center",
+        self.hint = _label("Glisse un objet entre le sol, tes mains, ton sac "
+                           "et ton equipement : les cases ou tu peux le "
+                           "lacher clignotent.", _DIM, halign="center",
                            size_hint=(1, 0.05))
         col.add_widget(self.hint)
 
@@ -341,6 +382,7 @@ class InventoryScreen(Screen):
         # Cibles du glisser-deposer, reconstruites a chaque rafraichissement.
         self._equip_slots = []
         self._bag_cells = []
+        self._ground_cells = []
         # Emplacement mis en valeur pendant un glisser, et son clignotement.
         # Cibles qui clignotent pendant un glisser.
         self._hl_widgets = []
@@ -349,6 +391,7 @@ class InventoryScreen(Screen):
         # Les cases d'equipement ont une taille FIXE (celle d'une case du
         # sac) : il faut la recalculer quand le panneau change de taille.
         self.equip_box.bind(size=self._size_equip_slots)
+        self._sync_tabs()
         self.add_widget(root)
 
     # ------------------------------------------------------------------ #
@@ -376,6 +419,8 @@ class InventoryScreen(Screen):
         state = App.get_running_app().game_state
         if state is None:
             return
+        self._fill_ground(state)
+        self._fill_avatar(state)
         self._fill_stats(state)
         self._fill_equipment(state)
         self._fill_bag(state)
@@ -433,7 +478,7 @@ class InventoryScreen(Screen):
     def _start_drag(self, touch):
         """Saisit l'objet sous le doigt.
 
-        Trois origines possibles : une main, une case du sac, ou une piece
+        Quatre origines : le sol, une main, une case du sac, ou une piece
         PORTEE (on la retire alors de la silhouette)."""
         source = None
         for widget in self._equip_slots:
@@ -445,6 +490,9 @@ class InventoryScreen(Screen):
         for cell in self._bag_cells:
             if cell.item and _hit(cell, touch):
                 source = ("bag", cell.bag_index, cell.item)
+        for cell in self._ground_cells:
+            if cell.item and _hit(cell, touch):
+                source = ("ground", cell.item, cell.item)
         if source is None:
             return False
         name = source[2]
@@ -465,7 +513,8 @@ class InventoryScreen(Screen):
 
     def _targets(self):
         """Tout ce qui peut clignoter, pour tout eteindre d'un coup."""
-        return list(self._equip_slots) + list(self.hand_slots) + [self.bag_scroll]
+        return (list(self._equip_slots) + list(self.hand_slots)
+                + [self.bag_scroll, self.ground_scroll])
 
     def _highlight_for(self, kind, name):
         """Fait clignoter TOUTES les destinations possibles de l'objet saisi.
@@ -490,6 +539,9 @@ class InventoryScreen(Screen):
         if (kind != "bag" and state.bag_free() > 0
                 and not (kind == "equip" and slot == "sac")):
             targets.append(self.bag_scroll)
+        # Le SOL accepte tout : on peut toujours poser un objet par terre.
+        if kind != "ground":
+            targets.append(self.ground_scroll)
 
         for widget in self._targets():
             widget.set_highlight(False)
@@ -557,6 +609,12 @@ class InventoryScreen(Screen):
             if kind == "hand":
                 state.equip_from_hand(index)
                 return f"{label} equipe."
+            if kind == "ground":
+                # Depuis le SOL : la piece remplacee tombe a sa place.
+                spilled = state.ground_equip(name)
+                if spilled is None:
+                    return ""
+                return f"{label} ramasse et equipe."
             # Depuis le SAC : la piece remplacee prend sa place dedans.
             spilled = state.equip_from_bag(index)
             if spilled is None:
@@ -567,23 +625,40 @@ class InventoryScreen(Screen):
             return f"{label} equipe."
         # ---- vers le SAC ----
         if _hit(self.bag_scroll, touch):
-            if kind == "equip":
-                if index == "sac":
-                    return "Le sac a dos ne peut pas se ranger dans lui-meme."
-                if state.bag_capacity() <= 0:
-                    return "Aucun sac a dos pour ranger cet objet."
-                if state.bag_free() <= 0:
-                    return "Le sac est plein."
-                state.unequip_to_bag(index)
-                return f"{label} retire et range dans le sac."
-            if kind != "hand":
+            if kind == "bag":
                 return ""
+            if kind == "equip" and index == "sac":
+                return "Le sac a dos ne peut pas se ranger dans lui-meme."
             if state.bag_capacity() <= 0:
                 return "Aucun sac a dos pour ranger cet objet."
             if state.bag_free() <= 0:
                 return "Le sac est plein."
+            if kind == "equip":
+                state.unequip_to_bag(index)
+                return f"{label} retire et range dans le sac."
+            if kind == "ground":
+                state.ground_to_bag(name)
+                return f"{label} ramasse dans le sac."
             state.bag_store(index)
             return f"{label} range dans le sac."
+        # ---- vers le SOL : on peut toujours poser un objet par terre ----
+        if _hit(self.ground_scroll, touch):
+            if kind == "hand":
+                state.drop_from_hands(index)
+                return f"{label} pose au sol."
+            if kind == "bag":
+                state.bag_drop(index)
+                return f"{label} sorti du sac, pose au sol."
+            if kind == "equip":
+                spilled = state.unequip_to_ground(index)
+                if spilled is None:
+                    return ""
+                kept = state.bag_fill(name)
+                if kept and kept[0] > 0:
+                    return (f"{label} pose au sol — ses {kept[0]} objet(s) "
+                            f"restent dedans.")
+                return f"{label} retire et pose au sol."
+            return ""
         # ---- vers une MAIN (on ressort du sac, ou on se deshabille) ----
         for slot in self.hand_slots:
             if not _hit(slot, touch):
@@ -604,18 +679,42 @@ class InventoryScreen(Screen):
                     return (f"{label} retire — {spilled} objet(s) tombent "
                             f"au sol.")
                 return f"{label} retire, en main."
+            if kind == "ground":
+                state.take_from_ground(name, slot.hand)
+                return f"{label} ramasse."
             if kind != "bag":
                 return ""
             state.bag_take(index, slot.hand)
             return f"{label} repris en main."
         return ""
 
-    def _show_tab(self, key):
-        """Bascule entre les aptitudes du personnage et l'apport du materiel."""
-        self._tab = key
-        state = App.get_running_app().game_state
-        if state is not None:
-            self._fill_stats(state)
+    def _show_main(self, key):
+        """Passe d'un menu a l'autre, en gardant le sous-menu de chacun."""
+        self._main = key
+        self._sync_tabs()
+
+    def _show_sub(self, index):
+        self._sub[self._main] = _SUBTABS[self._main][index][0]
+        self._sync_tabs()
+
+    def _sync_tabs(self):
+        """Met les boutons a jour et pose le bon panneau dans la fenetre."""
+        for key, btn in self.main_buttons.items():
+            # Le menu OUVERT est celui qu'on ne peut pas rechoisir.
+            btn.disabled = (key == self._main)
+        subs = _SUBTABS[self._main]
+        for i, btn in enumerate(self.sub_buttons):
+            btn.text = subs[i][1]
+            btn.disabled = (subs[i][0] == self._sub[self._main])
+        panneau = {
+            ("equip", "tenue"): self.equip_box,
+            ("equip", "stats"): self.gear_panel,
+            ("perso", "apparence"): self.avatar_box,
+            ("perso", "stats"): self.hero_panel,
+        }[(self._main, self._sub[self._main])]
+        if self.content.children[:1] != [panneau]:
+            self.content.clear_widgets()
+            self.content.add_widget(panneau)
 
     def _panel_row(self, height_ratio=1.0):
         """Ligne encadree, commune aux deux onglets."""
@@ -630,15 +729,16 @@ class InventoryScreen(Screen):
         return row
 
     def _fill_stats(self, state):
-        """Remplit la colonne selon l'onglet choisi."""
-        for key, btn in self.tab_buttons.items():
-            # L'onglet ACTIF est celui qu'on ne peut pas rechoisir.
-            btn.disabled = (key == self._tab)
-        self.stats_box.clear_widgets()
-        if self._tab == "equip":
-            self._fill_gear_stats(state)
-        else:
-            self._fill_hero_stats(state)
+        """Remplit les DEUX panneaux de statistiques.
+
+        On les garnit tous les deux a chaque rafraichissement : passer d'un
+        sous-menu a l'autre n'a alors rien a recalculer, et aucun ne peut
+        montrer un etat perime."""
+        self.hero_box.clear_widgets()
+        self.gear_box.clear_widgets()
+        self._fill_hero_stats(state)
+        self._fill_gear_stats(state)
+        self._sync_tabs()
 
     def _fill_hero_stats(self, state):
         """Une ligne par aptitude : son niveau, et l'experience en cours."""
@@ -664,12 +764,12 @@ class InventoryScreen(Screen):
             row.add_widget(_xp_bar(done, needed, size_hint_y=0.26))
             row.add_widget(_label(f"{done}/{needed} vers niv. {level + 1}",
                                   _DIM, size_hint_y=0.32))
-            self.stats_box.add_widget(row)
+            self.hero_box.add_widget(row)
 
         note = _label("Chaque aptitude monte par les actions qui la "
                       "sollicitent.", _DIM, halign="center",
                       size_hint_y=None, height=dh(_STAT_ROW * 0.6))
-        self.stats_box.add_widget(note)
+        self.hero_box.add_widget(note)
 
     def _fill_gear_stats(self, state):
         """Ce que chaque piece portee apporte.
@@ -679,7 +779,7 @@ class InventoryScreen(Screen):
         porte = [(slot, state.equipment[slot]) for slot in items.EQUIP_SLOTS
                  if state.equipment.get(slot)]
         if not porte:
-            self.stats_box.add_widget(
+            self.gear_box.add_widget(
                 _label("Tu ne portes rien.", _DIM, halign="center",
                        size_hint_y=None, height=dh(_STAT_ROW)))
             return
@@ -698,7 +798,7 @@ class InventoryScreen(Screen):
         row.add_widget(_label(resume or "Aucun bonus pour l'instant.",
                               _BONUS if totaux else _DIM, size_hint_y=0.66,
                               scale=0.80))
-        self.stats_box.add_widget(row)
+        self.gear_box.add_widget(row)
 
         # ---- Puis piece par piece ----
         for slot, worn in porte:
@@ -718,7 +818,7 @@ class InventoryScreen(Screen):
             row.add_widget(_label(detail or "N'apporte aucun bonus.",
                                   _BONUS if detail else _DIM,
                                   size_hint_y=0.48, scale=0.80))
-            self.stats_box.add_widget(row)
+            self.gear_box.add_widget(row)
 
     def _fill_equipment(self, state):
         """Pose une case par emplacement, en face de sa partie du corps."""
@@ -752,9 +852,63 @@ class InventoryScreen(Screen):
             widget.size = (width, height)
         icon = side
         label = height * (_NAME_LABEL / _CELL_H)
-        for cell in self._bag_cells:
+        for cell in self._bag_cells + self._ground_cells:
             cell.name_label.height = label
             cell.height = icon + label
+
+    def _fill_avatar(self, state):
+        """Le personnage tel qu'il est habille, juste pour le regarder.
+
+        En attendant un vrai dessin de personnage, on reprend la silhouette
+        de l'equipement et on pose l'image de chaque piece portee sur la
+        partie du corps qu'elle habille. Rien n'y est cliquable : cet ecran
+        ne sert qu'a se voir."""
+        self.avatar_box.clear_widgets()
+        porte = 0
+        for slot in items.EQUIP_SLOTS:
+            worn = state.equipment.get(slot)
+            if not worn:
+                continue
+            porte += 1
+            _sx, _sy, bx, by = _SLOT_LAYOUT[slot]
+            self.avatar_box.add_widget(ItemIcon(
+                worn, show_name=False, size_hint=(0.22, 0.16),
+                pos_hint={"center_x": bx, "center_y": by}))
+        self.avatar_box.add_widget(_label(
+            f"{porte} piece(s) portee(s)" if porte else "Aucun vetement porte",
+            _DIM, halign="center", size_hint=(1, 0.08),
+            pos_hint={"center_x": 0.5, "y": 0.0}))
+
+    def _fill_ground(self, state):
+        """Ce qui traine sur la case, comme dans le menu Craft.
+
+        Meme source, donc les deux listes ne peuvent pas diverger. Chaque
+        case se glisse vers la main, le sac ou le corps."""
+        self.ground_box.clear_widgets()
+        self._ground_cells = []
+        ground = state.ground_here()
+        self.near_title.text = ("A proximite" if not ground
+                                else f"A proximite ({sum(ground.values())})")
+        if not ground:
+            self.ground_box.add_widget(
+                _label("Rien au sol ici.", _DIM, halign="center",
+                       size_hint_y=None, height=dh(160)))
+            return
+        grid = GridLayout(cols=4, spacing=dp(3), size_hint_y=None)
+        grid.bind(minimum_height=grid.setter("height"))
+        for name, count in sorted(ground.items()):
+            cell = BoxLayout(orientation="vertical", size_hint_y=None,
+                             height=dh(_BAG_CELL_H))
+            cell.item = name
+            cell.count = count
+            self._ground_cells.append(cell)
+            cell.add_widget(ItemIcon(name, show_name=False))
+            cell.name_label = _label(
+                items.display_name(name) + (f" x{count}" if count > 1 else ""),
+                halign="center", size_hint_y=None, height=dh(_NAME_LABEL))
+            cell.add_widget(cell.name_label)
+            grid.add_widget(cell)
+        self.ground_box.add_widget(grid)
 
     def _fill_bag(self, state):
         self.bag_box.clear_widgets()

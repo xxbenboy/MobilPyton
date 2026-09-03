@@ -607,23 +607,92 @@ class GameState:
             self.ground_wear.pop(self._cell_key(), None)
         return worst
 
+    def _pull_ground(self, item):
+        """Retire UN exemplaire du sol et renvoie son usure, ou None.
+
+        Point de passage unique pour tout ce qui prend au sol : la main, le
+        sac, l'equipement. Sans lui, chaque appelant devrait refaire le
+        meme menage sur `ground` et `ground_wear`, et finirait par en
+        oublier un."""
+        g = self.ground.get(self._cell_key(), {})
+        if g.get(item, 0) <= 0:
+            return None
+        g[item] -= 1
+        if g[item] <= 0:
+            del g[item]
+        if not g:
+            self.ground.pop(self._cell_key(), None)
+        return self._take_ground_wear(item)
+
     def take_from_ground(self, item, hand):
         """Ramasse 1 objet du sol vers la main donnee (0=gauche, 1=droite).
 
         Echoue si la main visee est deja occupee ou si l'objet n'est plus la."""
         if hand not in (0, 1) or self.hands[hand] is not None:
             return False
-        g = self.ground.get(self._cell_key(), {})
-        if g.get(item, 0) <= 0:
+        wear = self._pull_ground(item)
+        if wear is None:
             return False
-        g[item] -= 1
-        if g[item] <= 0:
-            del g[item]
-        if not g:
-            self.ground.pop(self._cell_key(), None)
-        self.set_hand(hand, item, self._take_ground_wear(item))
+        self.set_hand(hand, item, wear)
         self.gain_xp("ramasser")
         return True
+
+    def ground_to_bag(self, item):
+        """Ramasse 1 objet du sol DIRECTEMENT dans le sac."""
+        if self.bag_free() <= 0:
+            return False
+        wear = self._pull_ground(item)
+        if wear is None:
+            return False
+        self.bag.append(item)
+        self.bag_wear.append(wear)
+        self.gain_xp("ramasser")
+        return True
+
+    def ground_equip(self, item):
+        """Porte DIRECTEMENT une piece posee au sol.
+
+        La piece remplacee tombe au sol a sa place : on echange, sans avoir
+        besoin d'une main libre."""
+        slot = items.equip_slot(item)
+        if slot is None:
+            return None
+        if self._pull_ground(item) is None:
+            return None
+        previous = self.equipment.get(slot)
+        self.equipment[slot] = item
+        if previous is not None:
+            self.add_ground(previous)
+        spilled = (self._swap_bag(previous, item) if slot == "sac"
+                   else self._spill_bag())
+        self.add_log(f"{items.display_name(item)} equipe")
+        return spilled
+
+    def bag_drop(self, index):
+        """Sort du sac un objet et le pose AU SOL."""
+        if not (0 <= index < len(self.bag)):
+            return False
+        wear = self.bag_wear.pop(index) if index < len(self.bag_wear) else 0.0
+        self.add_ground(self.bag.pop(index), wear=wear)
+        return True
+
+    def unequip_to_ground(self, slot):
+        """Retire une piece portee et la pose au sol.
+
+        Comme pour un retrait en main, un SAC garde son contenu : il l'attend
+        et le rend des qu'on le remet."""
+        name = self.equipment.get(slot)
+        if name is None:
+            return None
+        self.equipment[slot] = None
+        self.add_ground(name)
+        if slot == "sac":
+            self._stash_bag(name)
+            spilled = 0
+        else:
+            spilled = self._spill_bag()
+        self.add_log(f"{items.display_name(name)} retire")
+        return spilled
 
     def drop_from_hands(self, index):
         """Depose au sol l'objet tenu dans la main donnee (0=gauche, 1=droite)."""
