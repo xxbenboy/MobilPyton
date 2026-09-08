@@ -2,16 +2,18 @@
 TITRE A DEUX VOLETS : passer d'un ecran a son voisin d'un seul toucher.
 
 L'inventaire et le craft montrent les memes objets sous deux angles : ce qu'on
-porte d'un cote, ce qu'on peut en faire de l'autre. On passait par "Retour"
-puis un autre bouton pour aller de l'un a l'autre. Ils partagent desormais un
-titre unique, ou le volet OUVERT est en surbrillance et le volet FERME reste
-sombre -- et cliquable pour y basculer.
+porte d'un cote, ce qu'on peut en faire de l'autre. Ils partagent donc un titre
+unique, ou le volet OUVERT est en surbrillance et le volet FERME reste sombre
+-- et cliquable pour y basculer.
 
-    INVENTAIRE / craft      (sur l'ecran inventaire)
-    CRAFT / inventaire      (sur l'ecran craft)
+    INVENTAIRE / craft      sur l'ecran inventaire
+    inventaire / CRAFT      sur l'ecran craft
 
-L'ecran ouvert se nomme donc toujours EN PREMIER : on lit d'abord ou l'on est,
-puis ou l'on peut aller.
+Les deux mots ne bougent JAMAIS de place : "inventaire" est toujours a gauche,
+"craft" toujours a droite. Seule la surbrillance se deplace. C'est ce qui
+permet de faire l'aller-retour sans reflechir -- si les mots echangeaient leur
+position a chaque bascule, le doigt taperait sur le mot qu'on vient de
+quitter, et on reviendrait sur ses pas.
 """
 from kivy.uix.behaviors import ButtonBehavior
 from kivy.uix.boxlayout import BoxLayout
@@ -28,78 +30,97 @@ OPEN_COLOR = (0.96, 0.82, 0.45, 1)
 CLOSED_COLOR = (0.52, 0.46, 0.36, 1)
 # Barre oblique de separation, discrete.
 SEP_COLOR = (0.45, 0.40, 0.32, 1)
-
 # Fond de surbrillance du volet ouvert.
 OPEN_BG = (0.96, 0.82, 0.45, 0.13)
 
-
-def _fit(label):
-    """Cale le texte dans sa boite (sans quoi halign ne sert a rien)."""
-    def _update(*_):
-        label.text_size = label.size
-    label.bind(pos=_update, size=_update)
-    _update()
-    return label
+# Les deux volets, DANS L'ORDRE D'AFFICHAGE : (nom d'ecran, libelle).
+# L'ordre est fixe une fois pour toutes -- c'est tout l'interet.
+PANES = (("inventory", "INVENTAIRE"), ("craft", "CRAFT"))
 
 
-class _Closed(ButtonBehavior, Label):
-    """Volet FERME : on peut taper dessus pour ouvrir l'autre ecran.
+class _Half(ButtonBehavior, Label):
+    """Un volet du titre.
 
     Herite de ButtonBehavior comme le reste du jeu : c'est lui qui sait deja
     distinguer un vrai tap d'un doigt qui glisse."""
 
 
 class MenuToggle(BoxLayout):
-    """Titre a deux volets. `other_screen` est le nom de l'ecran a ouvrir."""
+    """Titre a deux volets. `current` = nom de l'ecran ouvert."""
 
-    def __init__(self, screen, open_name, closed_name, other_screen, **kwargs):
+    def __init__(self, screen, current, **kwargs):
         kwargs.setdefault("orientation", "horizontal")
         super().__init__(**kwargs)
         self.screen = screen
-        self.other_screen = other_screen
+        self.current = current
 
-        self._open = _fit(Label(text=open_name, bold=True, color=OPEN_COLOR,
-                                halign="right", valign="middle",
-                                size_hint_x=0.47))
-        # Surbrillance du volet ouvert : une plaque douce derriere le texte.
-        with self._open.canvas.before:
+        # La plaque de surbrillance vit dans le canvas du TITRE, pas dans
+        # celui d'un volet : elle doit pouvoir glisser de l'un a l'autre.
+        with self.canvas.before:
             Color(*OPEN_BG)
-            self._open_bg = RoundedRectangle(radius=[dp(8)])
-        # `texture_size` compte autant que la taille : la plaque epouse le
-        # texte, qui n'est mesure qu'une fois la police calculee.
-        self._open.bind(pos=self._sync_bg, size=self._sync_bg,
-                        texture_size=self._sync_bg)
+            self._bg = RoundedRectangle(radius=[dp(8)])
 
-        sep = _fit(Label(text="/", color=SEP_COLOR, halign="center",
-                         valign="middle", size_hint_x=0.06))
-
-        self._closed = _fit(_Closed(text=closed_name, bold=True,
-                                    color=CLOSED_COLOR, halign="left",
-                                    valign="middle", size_hint_x=0.47))
-        self._closed.bind(on_release=self._go)
-
-        for lbl in (self._open, sep, self._closed):
-            scale_font(lbl)
+        self._halves = {}
+        for i, (name, text) in enumerate(PANES):
+            first = (i == 0)
+            lbl = _Half(text=text, bold=True, size_hint_x=0.47,
+                        halign="right" if first else "left", valign="middle")
+            lbl.bind(on_release=lambda _w, n=name: self._go(n))
+            self._halves[name] = lbl
+            if not first:
+                self.add_widget(self._sep())
             self.add_widget(lbl)
-        # Pose la plaque tout de suite : la laisser au seul jeu des liaisons
-        # la laisserait sans taille tant que rien ne bouge.
+            self._fit(lbl)
+
+        for lbl in self._halves.values():
+            scale_font(lbl)
+        self._apply()
+
+    def _sep(self):
+        sep = Label(text="/", color=SEP_COLOR, halign="center",
+                    valign="middle", size_hint_x=0.06)
+        self._fit(sep)
+        scale_font(sep)
+        return sep
+
+    def _fit(self, label):
+        """Cale le texte dans sa boite (sans quoi halign ne sert a rien)."""
+        def _update(*_):
+            label.text_size = label.size
+            self._sync_bg()
+        label.bind(pos=_update, size=_update, texture_size=_update)
+        _update()
+
+    def set_current(self, current):
+        """Change le volet ouvert sans reconstruire le titre."""
+        self.current = current
+        self._apply()
+
+    def _apply(self):
+        for name, lbl in self._halves.items():
+            lbl.color = OPEN_COLOR if name == self.current else CLOSED_COLOR
         self._sync_bg()
 
-    def _sync_bg(self, *_):
-        """La plaque epouse le TEXTE, pas toute la moitie de l'ecran : sur un
-        titre aligne a droite, un fond pleine largeur laisserait une grande
-        zone eclairee et vide a gauche."""
-        lbl = self._open
+    def _sync_bg(self):
+        """La plaque epouse le TEXTE du volet ouvert, pas toute sa moitie.
+
+        Sur un titre aligne contre le milieu, une plaque pleine largeur
+        laisserait une grande zone eclairee et vide du cote du bord."""
+        lbl = self._halves.get(self.current)
+        if lbl is None:
+            return
         tw, th = lbl.texture_size
         pad_x, pad_y = dp(14), dp(6)
         w = min(lbl.width, tw + pad_x * 2)
         h = min(lbl.height, th + pad_y * 2)
-        # Aligne a droite, comme le texte du volet ouvert.
-        self._open_bg.pos = (lbl.right - w, lbl.center_y - h / 2.0)
-        self._open_bg.size = (w, h)
+        # La plaque suit l'alignement du texte : contre le milieu du titre.
+        x = lbl.right - w if lbl.halign == "right" else lbl.x
+        self._bg.pos = (x, lbl.center_y - h / 2.0)
+        self._bg.size = (w, h)
 
-    def _go(self, *_):
+    def _go(self, name):
+        # Le volet OUVERT ne mene nulle part : on est deja dessus.
         # `manager` est encore vide tant que l'ecran n'a pas ete ajoute au
-        # gestionnaire : on ne bascule que s'il existe vraiment.
-        if self.screen.manager is not None:
-            self.screen.manager.current = self.other_screen
+        # gestionnaire -- on ne bascule que s'il existe vraiment.
+        if name != self.current and self.screen.manager is not None:
+            self.screen.manager.current = name

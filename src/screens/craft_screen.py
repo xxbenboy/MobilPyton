@@ -127,10 +127,9 @@ class CraftScreen(Screen):
                         size_hint=(0.96, 0.96),
                         pos_hint={"center_x": 0.5, "center_y": 0.5})
 
-        # Titre a deux volets : "CRAFT / inventaire". Taper le volet sombre
-        # bascule sur l'inventaire.
-        col.add_widget(MenuToggle(self, "CRAFT", "INVENTAIRE", "inventory",
-                                  size_hint=(1, 0.08)))
+        # Titre a deux volets : "inventaire / CRAFT". Les deux mots gardent
+        # toujours la meme place, seule la surbrillance change d'ecran.
+        col.add_widget(MenuToggle(self, "craft", size_hint=(1, 0.08)))
 
         body = BoxLayout(orientation="horizontal", spacing=dp(10),
                          size_hint=(1, 0.82))

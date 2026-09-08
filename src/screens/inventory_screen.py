@@ -149,13 +149,23 @@ def _row_font(w, *_):
 
 
 def _hit(widget, touch):
-    """Le doigt est-il sur ce widget ?
+    """Le doigt est-il sur ce widget, et ce widget est-il VISIBLE ?
 
     On passe par to_window() : un widget place dans un ScrollView a des
     coordonnees LOCALES (le ScrollView applique une translation a ses
     enfants), et collide_point() les comparerait a des coordonnees d'ecran.
-    Le test echouait donc systematiquement pour les cases du sac."""
+    Le test echouait donc systematiquement pour les cases du sac.
+
+    get_root_window() ecarte ce qui n'est PLUS A L'ECRAN. Changer de
+    sous-menu remplace le panneau affiche (voir _sync_tabs) : le panneau
+    quitte l'arbre, mais ses cases gardent leur parent -- donc leur ancien
+    parent -- et repondaient encore au doigt. On pouvait ainsi attraper une
+    piece d'equipement en glissant sur la zone qu'elle occupait avant, alors
+    que l'ecran montrait les aptitudes. Un widget detache n'a plus de fenetre
+    racine : il ne peut plus etre ni saisi, ni vise comme destination."""
     if widget is None or widget.parent is None:
+        return False
+    if widget.get_root_window() is None:
         return False
     x, y = widget.to_window(widget.x, widget.y)
     return (x <= touch.x <= x + widget.width
@@ -271,10 +281,9 @@ class InventoryScreen(Screen):
         col = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(8),
                         size_hint=(0.96, 0.96),
                         pos_hint={"center_x": 0.5, "center_y": 0.5})
-        # Titre a deux volets : "INVENTAIRE / craft". Taper le volet sombre
-        # bascule sur l'ecran de craft.
-        col.add_widget(MenuToggle(self, "INVENTAIRE", "CRAFT", "craft",
-                                  size_hint=(1, 0.07)))
+        # Titre a deux volets : "INVENTAIRE / craft". Les deux mots gardent
+        # toujours la meme place, seule la surbrillance change d'ecran.
+        col.add_widget(MenuToggle(self, "inventory", size_hint=(1, 0.07)))
 
         # Les cases d'equipement occupent trois rangees : cette section a
         # besoin de hauteur, elle en prend sur les mains et le bas d'ecran.

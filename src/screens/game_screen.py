@@ -443,7 +443,6 @@ class GameScreen(Screen):
         self.grid.bind(minimum_width=self.grid.setter("width"))
         root.add_widget(self.grid)
         self._action_buttons = []   # (bouton, action)
-        self.craft_btn = None
         self._action_visible = None  # cle des actions visibles (pour rebuild)
         # Sous-menu "Action" : quand True, "Chercher a manger" et "Boire"
         # sont affiches en plus dans la grille. Toggle via le bouton Action.
@@ -452,11 +451,12 @@ class GameScreen(Screen):
         self._action_btn_widget = None     # bouton Action (toggle)
         self._action_submenu_btns = []     # boutons Manger / Boire
 
-        # ---- Bouton CARTE (bas a gauche) ----
-        # Cellule ETROITE, plaquee au bord : le logo (taille basee sur la
-        # HAUTEUR) ne change pas, mais se rapproche du bord de l'ecran.
+        # ---- Bouton CARTE (bas a gauche, TROISIEME du trio) ----
+        # Le trio du bas se lit Proximite / Inv.-Craft / Carte : on va du plus
+        # immediat (ce qu'on a sous la main) au plus lointain (le monde).
+        # Proximite finit a x=0.160, +0.034 = 0.194.
         map_cell = BoxLayout(orientation="vertical", spacing=2, size_hint=(0.06, 0.16),
-                             pos_hint={"x": 0.006, "y": 0.012})
+                             pos_hint={"x": 0.194, "y": 0.012})
         map_area = AnchorLayout(size_hint=(1, 0.66))
         self.map_btn = IconButton(icon="map", size_hint=(None, None))
         def _map_square(a, *_):
@@ -469,14 +469,13 @@ class GameScreen(Screen):
         map_cell.add_widget(_button_label("Carte"))
         root.add_widget(map_cell)
 
-        # ---- Bouton PROXIMITE (a droite de Carte) ----
+        # ---- Bouton PROXIMITE (bas a gauche, PREMIER du trio) ----
         # Toujours disponible : elle ouvre la grille de la case, ou l'on
         # choisit un objet pose pour s'en servir.
-        # Ecart Carte<->Proximite = ecart Deplacer<->Menu (0.034 en fraction
-        # de largeur d'ecran) : Carte finit a x=0.066, +0.034 = 0.100.
+        # PREMIER du trio, plaque au bord de l'ecran.
         prox_cell = BoxLayout(orientation="vertical", spacing=2,
                               size_hint=(0.06, 0.16),
-                              pos_hint={"x": 0.100, "y": 0.012})
+                              pos_hint={"x": 0.006, "y": 0.012})
         prox_area = AnchorLayout(size_hint=(1, 0.66))
         self.prox_btn = IconButton(icon="hand", size_hint=(None, None))
         def _prox_square(a, *_):
@@ -489,11 +488,14 @@ class GameScreen(Screen):
         prox_cell.add_widget(_button_label("Proximite"))
         root.add_widget(prox_cell)
 
-        # ---- Bouton INVENTAIRE (a droite de Proximite) ----
-        # Proximite finit a x=0.160, +0.034 = 0.194.
+        # ---- Bouton INV./CRAFT (deuxieme du trio) ----
+        # Il mene a l'inventaire, dont le titre bascule vers le craft : un seul
+        # bouton pour les deux ecrans, d'ou son nom.
+        # Ecart entre boutons = ecart Deplacer<->Menu (0.034 en fraction de
+        # largeur d'ecran) : Proximite finit a x=0.066, +0.034 = 0.100.
         inv_cell = BoxLayout(orientation="vertical", spacing=2,
                              size_hint=(0.06, 0.16),
-                             pos_hint={"x": 0.194, "y": 0.012})
+                             pos_hint={"x": 0.100, "y": 0.012})
         inv_area = AnchorLayout(size_hint=(1, 0.66))
         self.inv_btn = IconButton(icon="bag", size_hint=(None, None))
 
@@ -504,7 +506,7 @@ class GameScreen(Screen):
         self.inv_btn.bind(on_release=self._go_inventory)
         inv_area.add_widget(self.inv_btn)
         inv_cell.add_widget(inv_area)
-        inv_cell.add_widget(_button_label("Inventaire"))
+        inv_cell.add_widget(_button_label("Inv./Craft"))
         root.add_widget(inv_cell)
 
         # ---- Bouton MENU (bas a droite) ----
@@ -734,10 +736,12 @@ class GameScreen(Screen):
         has_gourde = any(state.has_item(g) for g in items.GOURDE_ITEMS)
         has_trees = bool(state.trees_here())
         by_label = {a["label"]: a for a in ACTIONS}
-        # Ordre voulu : colonne gauche = Explorer / Se reposer / Action /
-        # Craft (4 lignes), puis actions conditionnelles dans les colonnes
-        # suivantes. "ACTION" = bouton sous-menu, None = bouton Craft.
-        order = ["Explorer", "Se reposer", "ACTION", None]
+        # Ordre voulu : colonne gauche = Explorer / Se reposer / Action,
+        # puis actions conditionnelles a la suite (remplissage haut->bas puis
+        # colonne suivante). "ACTION" = bouton sous-menu.
+        # Le craft n'a plus de bouton ici : on y accede par le bas de l'ecran,
+        # ou "Inv./Craft" ouvre l'inventaire et son titre bascule vers lui.
+        order = ["Explorer", "Se reposer", "ACTION"]
         # "Couper du bois" occupe une place de choix TANT QU'IL Y A DES ARBRES
         # a abattre ici. Ailleurs, elle n'encombre pas la grille : elle se
         # range dans le sous-menu Action, avec Manger et Boire.
@@ -751,11 +755,6 @@ class GameScreen(Screen):
         order += submenu
         order.append("Remplir gourde")
         for label in order:
-            if label is None:
-                self.craft_btn = add_cell(
-                    "craft", "Craft",
-                    lambda *_: setattr(self.manager, "current", "craft"))
-                continue
             if label == "ACTION":
                 # Bouton special : toggle sous-menu Manger/Boire.
                 self._action_btn_widget = add_cell(
@@ -1671,10 +1670,9 @@ class GameScreen(Screen):
             self.map_btn.disabled = False
             self.map_btn.opacity = (1.0 if state.debug
                                     or state.has_item(items.MAP_ITEM) else 0.45)
-        self.craft_btn.disabled = self._ff_active
         self.back_btn.disabled = self._ff_active
         self.move_btn.disabled = self._ff_active
-        # Proximite : toujours disponible (comme Carte ou Craft). Elle ouvre
+        # Proximite : toujours disponible (comme Carte). Elle ouvre
         # la grille de la case, meme si rien n'y est encore pose : c'est aussi
         # une facon de regarder ce qu'on a autour de soi.
         self.prox_btn.disabled = self._ff_active
