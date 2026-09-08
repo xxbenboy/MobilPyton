@@ -1,10 +1,14 @@
 """
-Ecran PROXIMITE & CRAFT.
+Ecran CRAFT : ce qu'on peut FABRIQUER avec ce qu'on a sous la main.
 
-- Mains : les 2 objets tenus (bouton "Deposer" pour les poser au sol).
-- Au sol : les objets presents sur la case (avec leur nombre) ; bouton
-  "Prendre" pour les ramasser (si les mains ne sont pas pleines).
+- A portee : les 2 objets tenus (bouton "Deposer" pour les poser au sol) et
+  les objets presents sur la case (avec leur nombre ; bouton "Prendre" pour
+  les ramasser, si les mains ne sont pas pleines).
 - Recettes : ce qu'on peut fabriquer avec les objets en mains + au sol.
+
+Le titre est un TITRE A DEUX VOLETS partage avec l'inventaire : les deux
+ecrans montrent les memes objets sous deux angles, on passe de l'un a l'autre
+en tapant le volet sombre (voir src/widgets/menu_toggle.py).
 
 Les objets sont affiches via leur image (assets/items/<nom>.png) ou un "?".
 """
@@ -27,6 +31,7 @@ from src.widgets.item_info import show_item_info, TappableIcon
 from src.widgets.durability_bar import DurabilityBar
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font, dh
+from src.widgets.menu_toggle import MenuToggle
 
 
 def _panel(widget, alpha=0.45):
@@ -122,15 +127,20 @@ class CraftScreen(Screen):
                         size_hint=(0.96, 0.96),
                         pos_hint={"center_x": 0.5, "center_y": 0.5})
 
-        col.add_widget(scale_font(Label(text="PROXIMITE & CRAFT", bold=True,
-                       color=(0.96, 0.82, 0.45, 1), size_hint=(1, 0.08)), 0.03))
+        # Titre a deux volets : "CRAFT / inventaire". Taper le volet sombre
+        # bascule sur l'inventaire.
+        col.add_widget(MenuToggle(self, "CRAFT", "INVENTAIRE", "inventory",
+                                  size_hint=(1, 0.08)))
 
         body = BoxLayout(orientation="horizontal", spacing=dp(10),
                          size_hint=(1, 0.82))
 
         # ---- Gauche : sol + objets en main ----
         left = BoxLayout(orientation="vertical", spacing=dp(6), size_hint_x=0.5)
-        left.add_widget(scale_font(Label(text="Inventaire", bold=True,
+        # "A portee" et non "Inventaire" : le titre du haut porte deja ce mot,
+        # mais pour DESIGNER L'AUTRE ECRAN. Deux "Inventaire" sur le meme
+        # ecran, l'un qui navigue et l'autre non, se marchaient dessus.
+        left.add_widget(scale_font(Label(text="A portee", bold=True,
                         size_hint=(1, 0.10)), 0.022))
         sc1 = ScrollView(size_hint=(1, 0.90))
         self.inventory_box = BoxLayout(orientation="vertical", spacing=dp(4),

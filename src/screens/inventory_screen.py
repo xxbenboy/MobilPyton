@@ -15,6 +15,10 @@ Trois colonnes :
 En bas, les deux MAINS. Un objet se glisse librement d'une section a
 l'autre : sol, mains, sac, corps.
 
+Le titre est un TITRE A DEUX VOLETS partage avec le craft : les deux ecrans
+montrent les memes objets sous deux angles, on passe de l'un a l'autre en
+tapant le volet sombre (voir src/widgets/menu_toggle.py).
+
 Au depart le personnage porte ses vetements de rescape (chandail, pantalon,
 chaussures) et n'a pas de sac : il ne transporte donc que ce qu'il tient dans
 ses mains.
@@ -43,6 +47,7 @@ from src.widgets.item_icon import ItemIcon
 from src.widgets.item_info import show_item_info
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font, dh
+from src.widgets.menu_toggle import MenuToggle
 
 # Tolerance, en pixels, sous laquelle un toucher est un TAP et non un
 # glisser. Un doigt bouge toujours un peu : sans cette marge, ouvrir une
@@ -266,8 +271,10 @@ class InventoryScreen(Screen):
         col = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(8),
                         size_hint=(0.96, 0.96),
                         pos_hint={"center_x": 0.5, "center_y": 0.5})
-        col.add_widget(scale_font(Label(text="INVENTAIRE", bold=True,
-                       color=_GOLD, size_hint=(1, 0.07)), 0.03))
+        # Titre a deux volets : "INVENTAIRE / craft". Taper le volet sombre
+        # bascule sur l'ecran de craft.
+        col.add_widget(MenuToggle(self, "INVENTAIRE", "CRAFT", "craft",
+                                  size_hint=(1, 0.07)))
 
         # Les cases d'equipement occupent trois rangees : cette section a
         # besoin de hauteur, elle en prend sur les mains et le bas d'ecran.
