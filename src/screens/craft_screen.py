@@ -55,15 +55,19 @@ def _btn_font(w, *_):
 
 
 def _recipe_text_font(w, *_):
-    """Police du texte d'une recette : 1.5x sa taille d'origine.
+    """Police du texte d'une recette.
 
-    A l'origine le texte remplissait une ligne haute de dh(70). On garde cette
-    reference (independante de la hauteur AGRANDIE de la rangee, sinon le texte
-    grossirait bien plus que voulu) et on la multiplie par 1.5. dh(70) est relu
-    a chaque appel -> le texte reste responsive au redimensionnement.
+    Le texte remplit une ligne haute de dh(70). Cette reference est
+    independante de la hauteur AGRANDIE de la rangee, sinon le texte
+    grossirait bien plus que voulu ; dh(70) est relu a chaque appel, donc le
+    texte suit le redimensionnement de la fenetre.
+
+    Il portait un facteur 1.5, cale du temps ou les recettes occupaient la
+    MOITIE de l'ecran. Elles tiennent maintenant dans une colonne de 37 % :
+    a la meme taille, le texte y etait enorme.
     """
     lines = (w.text or "").count("\n") + 1
-    w.font_size = max(10, dh(70) * 0.78 / lines * 1.5)
+    w.font_size = max(10, dh(70) * 0.78 / lines)
 
 
 def _fit_button_font(btn, *_):
@@ -84,13 +88,15 @@ def _fit_button_font(btn, *_):
 
 
 def _inv_label_font(w, *_):
-    """Police d'un libelle d'inventaire (nom de main / "A proximite") : 1.5x sa
-    taille d'origine (0.4 d'une rangee de dh(140), ancree sur dh(140) pour rester
-    a 1.5x malgre la rangee plus haute), MAIS reduite si besoin pour tenir sur
-    UNE seule ligne dans sa largeur (sinon un libelle long deborde sur 2 lignes)."""
+    """Police d'un libelle (nom de main...), reduite si besoin pour tenir sur
+    UNE seule ligne dans sa largeur -- sinon un libelle long deborde sur deux.
+
+    Comme pour les recettes, le facteur 1.5 d'origine datait de la mise en
+    page en deux moities et rendait le texte trop gros dans les colonnes
+    etroites d'aujourd'hui."""
     if w.width <= 1:
         return
-    target = dh(140) * 0.4 * 1.5
+    target = dh(140) * 0.4
     # Mesure la largeur naturelle du texte a la taille cible, sans contrainte.
     w.text_size = (None, None)
     w.font_size = target
@@ -375,7 +381,7 @@ class CraftScreen(Screen):
             head = StyledButton(
                 text=f"{'-' if opened else '+'}  {category}   "
                      f"({ready}/{len(group)})",
-                halign="left", bold=True, size_hint_y=None, height=dh(110))
+                halign="left", bold=True, size_hint_y=None, height=dh(84))
             head.bind(size=_btn_font)
             head.bind(on_release=lambda _w, c=category: self._toggle_cat(c))
             head.selected = opened          # categorie depliee = allumee

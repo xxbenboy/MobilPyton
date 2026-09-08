@@ -44,10 +44,12 @@ BORDER_OFF = (0.58, 0.58, 0.62, 0.32)
 TEXT_IDLE = (0.95, 0.96, 1, 1)
 TEXT_OFF = (0.62, 0.62, 0.66, 0.55)      # texte pali : le gris se lit de loin
 
-# Epaisseurs de contour. Le bouton choisi est plus epais : c'est lui qu'on
-# doit reperer sans chercher.
-LINE_W = dp(2.0)
-LINE_W_ON = dp(2.8)
+# Epaisseurs de contour. Le bouton choisi reste le plus epais : c'est lui
+# qu'on doit reperer sans chercher. Volontairement FINES : un trait epais
+# alourdit un ecran qui compte beaucoup de boutons, et mange la place du
+# texte sur un petit bouton.
+LINE_W = dp(1.2)
+LINE_W_ON = dp(1.8)
 RADIUS = dp(16)
 
 
