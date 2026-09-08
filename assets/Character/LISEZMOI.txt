@@ -12,9 +12,19 @@ derivee de l'aspect de l'image).
 ----------------------------------------------------------------
 ETATS et IMAGES ATTENDUES
 ----------------------------------------------------------------
-    HandHUD.png    -> Etat 'haut' : paumes vers le haut (defaut)
+    HandIdle.png   -> Main VIDE, au repos
+    HandHUD.png    -> Main qui TIENT un objet (paume ouverte)
     HandEx1.png    -> Etat 'ex1' : exploration phase 1 et 3 (debut/fin)
     HandEx2.png    -> Etat 'ex2' : exploration phase 2 (milieu)
+
+AU REPOS, CHAQUE MAIN A SA POSE. Le jeu ne choisit pas une image pour
+les deux mains, mais une par main :
+- main vide            -> HandIdle
+- main qui tient       -> HandHUD (l'objet se pose dans le creux de la
+                          paume, voir plus bas)
+Les deux mains sont donc TOUJOURS visibles au repos. Comme chaque image
+contient les deux mains, le jeu n'en prend que la moitie utile : les
+mains doivent donc rester CHACUNE DE SON COTE du milieu de l'image.
 
 PENDANT UNE EXPLORATION, le jeu CYCLE entre les 3 images :
 - 1/3 du temps au debut    -> HandEx1
@@ -39,6 +49,15 @@ CONSEILS POUR LES IMAGES
 - COHERENCE entre images d'un meme groupe (ex. HandEx1/Ex2) : les
   mains au MEME endroit dans toutes les images, sinon l'animation
   saute. Recommande : meme dimensions + positions identiques.
+- Le fond doit etre VRAIMENT TRANSPARENT, pas blanc : un fond blanc
+  recouvrirait tout le decor. Detoure en partant des BORDS de l'image,
+  pas au seuil de clarte, sinon les reflets clairs de la peau se
+  trouent.
+- Efface les filigranes du genre "Made with AI" : ils font partie de
+  l'image et s'afficheraient en plein ecran.
+- Verifie qu'aucun trait ne traverse le bas (bord de table, ombre
+  portee sur toute la largeur) : il deviendrait une barre en travers
+  de l'ecran.
 - Apres ajout : pousse le projet (envoyer-sur-github.bat) pour que
   les images soient incluses dans l'APK.
 

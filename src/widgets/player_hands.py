@@ -5,8 +5,16 @@ UNE SEULE IMAGE par etat du joueur : un HUD plein ecran dans lequel les
 mains sont deja positionnees au bon endroit (en bas). Le HUD est dessine
 sur toute la surface du widget (== plein ecran).
 
-Plusieurs etats possibles via HUD_IMAGES (par ex. paumes vers le haut,
-main qui tient un outil, etc.) ; pour l'instant un seul etat : 'haut'.
+AU REPOS, chaque main a sa propre pose, et les deux sont TOUJOURS visibles :
+- une main VIDE prend la pose de repos ('idle') ;
+- une main qui TIENT quelque chose garde la paume ouverte ('haut'), car
+  c'est dans ce creux que l'objet est pose.
+Une main vide n'etait auparavant pas dessinee du tout : on ne voyait ses
+mains qu'en portant quelque chose. Comme chaque image contient les deux
+mains, on n'en prend que la moitie utile (voir _draw_half).
+
+PENDANT UNE ACTION (exploration...), l'animation prend le dessus et montre
+les deux mains ensemble, quel que soit ce qu'elles tiennent.
 
 Les objets tenus (set_items) sont dessines AU-DESSUS du HUD, aux
 positions correspondant aux mains dans l'image (HAND_FX / ITEM_FY).
@@ -28,10 +36,17 @@ CHARACTER_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", "assets",
 # les mains deja positionnees en bas. Le HUD est etire pour remplir
 # la totalite du widget.
 HUD_IMAGES = {
-    'haut': 'HandHUD.png',     # par defaut (paumes vers le haut)
+    'haut': 'HandHUD.png',     # paume ouverte : une main qui TIENT un objet
+    'idle': 'HandIdle.png',    # main VIDE, au repos
     'ex1': 'HandEx1.png',      # exploration : phases 1 et 3 (debut et fin)
     'ex2': 'HandEx2.png',      # exploration : phase 2 (milieu)
 }
+
+# Etat de REPOS : le joueur ne fait rien de particulier. Les autres etats sont
+# des animations d'action.
+REST_STATE = 'haut'
+# Pose d'une main vide au repos.
+IDLE_STATE = 'idle'
 
 _TEX_CACHE = {}
 _ITEM_TEX = {}
@@ -113,46 +128,47 @@ class PlayerHands(Widget):
         self.canvas.clear()
         if self.width <= 0 or self.height <= 0:
             return
-        tex = _hud_texture(self._state)
-        if tex is not None:
-            # En etat 'haut' (repos), on n'affiche QUE les mains qui
-            # tiennent un objet (les mains vides sont cachees).
-            # Dans tout autre etat (= animation, ex. 'ex1'/'ex2'), on
-            # dessine TOUJOURS les 2 mains (l'animation montre les mains
-            # en action, independamment des objets).
-            animating = self._state != 'haut'
-            if animating:
-                show_left, show_right = True, True
-            else:
-                show_left = self._items[0] is not None
-                show_right = self._items[1] is not None
-
-            if show_left or show_right:
+        if self._state != REST_STATE:
+            # ANIMATION (exploration...) : les deux mains sont en action, on
+            # pose l'image entiere sans se soucier de ce qu'elles tiennent.
+            tex = _hud_texture(self._state)
+            if tex is not None:
                 tw, th = max(1, tex.width), max(1, tex.height)
-                total_w = self.width
-                total_h = total_w * th / tw
                 with self.canvas:
                     Color(1, 1, 1, 1)
-                    if show_left and show_right:
-                        # 2 mains : on dessine l'image entiere.
-                        Rectangle(texture=tex, pos=self.pos,
-                                  size=(total_w, total_h))
-                    else:
-                        # Une seule main : on dessine LA MOITIE
-                        # correspondante au bon endroit a l'ecran
-                        # (gauche ou droite). Le HUD reste a la meme
-                        # echelle, juste la moitie est masquee.
-                        half_tw = tw // 2
-                        if show_left:
-                            sub = tex.get_region(0, 0, half_tw, th)
-                            Rectangle(texture=sub, pos=self.pos,
-                                      size=(total_w / 2, total_h))
-                        else:
-                            sub = tex.get_region(half_tw, 0, half_tw, th)
-                            Rectangle(texture=sub,
-                                      pos=(self.x + total_w / 2, self.y),
-                                      size=(total_w / 2, total_h))
+                    Rectangle(texture=tex, pos=self.pos,
+                              size=(self.width, self.width * th / tw))
+        else:
+            # AU REPOS, chaque main a SA pose. Une main vide n'etait pas
+            # dessinee du tout : le joueur ne voyait ses mains qu'en portant
+            # quelque chose. Elle prend maintenant la pose de repos.
+            # La main qui TIENT garde la paume ouverte : c'est dans ce creux
+            # que l'objet est pose (voir HAND_FX / ITEM_FY), et il flotterait
+            # sur des doigts refermes.
+            for i in (0, 1):
+                self._draw_half(i, REST_STATE if self._items[i] is not None
+                                else IDLE_STATE)
         self._draw_items()
+
+    def _draw_half(self, index, state):
+        """Dessine UNE main (0 = gauche, 1 = droite) dans la pose demandee.
+
+        Chaque image contient les deux mains : on n'en prend que la moitie
+        correspondante, posee a sa place a l'ecran. L'echelle ne change pas,
+        seule l'autre moitie est ecartee."""
+        tex = _hud_texture(state)
+        if tex is None:
+            return
+        tw, th = max(1, tex.width), max(1, tex.height)
+        half = tw // 2
+        total_w = self.width
+        total_h = total_w * th / tw
+        sub = tex.get_region(index * half, 0, half, th)
+        with self.canvas:
+            Color(1, 1, 1, 1)
+            Rectangle(texture=sub,
+                      pos=(self.x + index * total_w / 2, self.y),
+                      size=(total_w / 2, total_h))
 
     def _draw_items(self):
         """Dessine les objets tenus au-dessus du HUD."""
