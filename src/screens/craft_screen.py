@@ -30,8 +30,17 @@ from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.item_info import show_item_info, TappableIcon
 from src.widgets.durability_bar import DurabilityBar
 from src.widgets.styled_button import StyledButton
-from src.widgets.responsive import scale_font, dh
+from src.widgets.responsive import (scale_font, dh, SIDE_SHARE,
+                                    center_share, ROW_TITLE, ROW_BODY,
+                                    ROW_HANDS, ROW_HINT, ROW_BACK,
+                                    COL_TITLE, COL_LIST)
 from src.widgets.menu_toggle import MenuToggle
+
+# Gris des textes secondaires, comme dans l'inventaire.
+_DIM = (0.62, 0.64, 0.70, 1)
+# Hauteur d'une case du sol : l'image et son nom, puis les deux boutons.
+_GROUND_CELL_H = 236
+_BAG_CELL_H = 170
 
 
 def _panel(widget, alpha=0.45):
@@ -129,41 +138,76 @@ class CraftScreen(Screen):
 
         # Titre a deux volets : "inventaire / CRAFT". Les deux mots gardent
         # toujours la meme place, seule la surbrillance change d'ecran.
-        col.add_widget(MenuToggle(self, "craft", size_hint=(1, 0.08)))
+        col.add_widget(MenuToggle(self, "craft", size_hint=(1, ROW_TITLE)))
 
+        # TROIS COLONNES, aux memes mesures que l'inventaire (gabarit commun
+        # dans responsive.py) : a proximite / recettes / sac a dos. Basculer
+        # d'un ecran a l'autre ne deplace donc aucune colonne -- on retrouve
+        # chaque chose exactement ou on l'avait laissee.
         body = BoxLayout(orientation="horizontal", spacing=dp(10),
-                         size_hint=(1, 0.82))
+                         size_hint=(1, ROW_BODY))
 
-        # ---- Gauche : sol + objets en main ----
-        left = BoxLayout(orientation="vertical", spacing=dp(6), size_hint_x=0.5)
-        # "A portee" et non "Inventaire" : le titre du haut porte deja ce mot,
-        # mais pour DESIGNER L'AUTRE ECRAN. Deux "Inventaire" sur le meme
-        # ecran, l'un qui navigue et l'autre non, se marchaient dessus.
-        left.add_widget(scale_font(Label(text="A portee", bold=True,
-                        size_hint=(1, 0.10)), 0.022))
-        sc1 = ScrollView(size_hint=(1, 0.90))
-        self.inventory_box = BoxLayout(orientation="vertical", spacing=dp(4),
-                                       size_hint_y=None)
-        self.inventory_box.bind(minimum_height=self.inventory_box.setter("height"))
-        sc1.add_widget(self.inventory_box)
-        left.add_widget(sc1)
-        body.add_widget(left)
+        # ---- Gauche : ce qui traine A PROXIMITE ----
+        near = BoxLayout(orientation="vertical", spacing=dp(6),
+                         size_hint_x=SIDE_SHARE)
+        self.near_title = scale_font(Label(text="A proximite", bold=True,
+                                     size_hint=(1, COL_TITLE)), 0.022)
+        near.add_widget(self.near_title)
+        sc0 = ScrollView(size_hint=(1, COL_LIST))
+        self.ground_box = BoxLayout(orientation="vertical", spacing=dp(4),
+                                    size_hint_y=None)
+        self.ground_box.bind(minimum_height=self.ground_box.setter("height"))
+        sc0.add_widget(self.ground_box)
+        near.add_widget(sc0)
+        body.add_widget(near)
 
-        # ---- Droite : recettes ----
-        right = BoxLayout(orientation="vertical", spacing=dp(6), size_hint_x=0.5)
-        right.add_widget(scale_font(Label(text="Recettes", bold=True,
-                         size_hint=(1, 0.10)), 0.022))
-        sc2 = ScrollView(size_hint=(1, 0.90))
+        rest = center_share()
+
+        # ---- Milieu : les RECETTES ----
+        center = BoxLayout(orientation="vertical", spacing=dp(6),
+                           size_hint_x=rest)
+        center.add_widget(scale_font(Label(text="Recettes", bold=True,
+                                     size_hint=(1, COL_TITLE)), 0.022))
+        sc1 = ScrollView(size_hint=(1, COL_LIST))
         self.recipe_box = BoxLayout(orientation="vertical", spacing=dp(6),
                                     size_hint_y=None)
         self.recipe_box.bind(minimum_height=self.recipe_box.setter("height"))
-        sc2.add_widget(self.recipe_box)
+        sc1.add_widget(self.recipe_box)
+        center.add_widget(sc1)
+        body.add_widget(center)
+
+        # ---- Droite : le SAC A DOS ----
+        # Il compte comme matiere premiere (voir GameState.craft_pool) : ce
+        # qu'on transporte se fabrique sans avoir a le poser par terre. Ses
+        # cases n'ont donc pas de bouton -- il n'y a rien a en sortir.
+        right = BoxLayout(orientation="vertical", spacing=dp(6),
+                          size_hint_x=rest)
+        self.bag_title = scale_font(Label(text="Sac a dos", bold=True,
+                                    size_hint=(1, COL_TITLE)), 0.022)
+        right.add_widget(self.bag_title)
+        sc2 = ScrollView(size_hint=(1, COL_LIST))
+        self.bag_box = BoxLayout(orientation="vertical", spacing=dp(4),
+                                 size_hint_y=None)
+        self.bag_box.bind(minimum_height=self.bag_box.setter("height"))
+        sc2.add_widget(self.bag_box)
         right.add_widget(sc2)
         body.add_widget(right)
 
         col.add_widget(body)
 
-        back = scale_font(StyledButton(text="Retour", size_hint=(1, 0.10)), 0.022)
+        # ---- En bas : les MAINS, a la meme place que dans l'inventaire ----
+        self.hands_row = BoxLayout(orientation="horizontal", spacing=dp(8),
+                                   size_hint=(1, ROW_HANDS))
+        col.add_widget(self.hands_row)
+
+        self.hint = scale_font(Label(
+            text="Le sac compte comme matiere : pas besoin d'en sortir les "
+                 "objets pour fabriquer.", color=_DIM, halign="center",
+            size_hint=(1, ROW_HINT)), 0.016)
+        col.add_widget(self.hint)
+
+        back = scale_font(StyledButton(text="Retour",
+                                       size_hint=(1, ROW_BACK)), 0.022)
         back.bind(on_release=lambda *_: setattr(self.manager, "current", "game"))
         col.add_widget(back)
 
@@ -201,91 +245,127 @@ class CraftScreen(Screen):
         state = App.get_running_app().game_state
         if state is None:
             return
+        self._fill_hands(state)
+        self._fill_ground(state)
+        self._fill_bag(state)
+        self._fill_recipes(state)
 
-        # Inventaire (mains + sol)
-        self.inventory_box.clear_widgets()
+    # ------------------------------------------------------------------ #
+    def _fill_hands(self, state):
+        """Les deux mains, en bas de l'ecran : deposer, equiper.
 
-        hand_names = ["Main gauche", "Main droite"]
-
-        # Objets TENUS : un bouton "Deposer" par main occupee.
-        for i, item in enumerate(state.hands):
+        Elles etaient melangees aux objets du sol dans une seule colonne. Ici
+        elles occupent la meme bande que dans l'inventaire : d'un ecran a
+        l'autre, la main gauche reste la main gauche, au meme endroit."""
+        self.hands_row.clear_widgets()
+        for i, titre in enumerate(("Main gauche", "Main droite")):
+            cell = BoxLayout(orientation="horizontal", spacing=dp(6),
+                             padding=(dp(8), dp(4)))
+            _panel(cell, alpha=0.30)
+            item = state.hands[i]
             if item is None:
+                vide = Label(text=f"{titre}\nvide", halign="center",
+                             valign="middle", color=_DIM)
+                vide.bind(size=_inv_label_font)
+                _inv_label_font(vide)
+                cell.add_widget(vide)
+                self.hands_row.add_widget(cell)
                 continue
-            # Rangee plus HAUTE + icone plus large -> image agrandie au maximum.
-            row = BoxLayout(orientation="horizontal", spacing=dp(6),
-                            size_hint_y=None, height=dh(200))
             # Pour un OUTIL, l'image est surmontee de sa barre de solidite.
             health = state.tool_health(i)
             if health is None:
-                row.add_widget(TappableIcon(item, self._info, size_hint_x=0.30))
+                cell.add_widget(TappableIcon(item, self._info,
+                                             size_hint_x=0.34))
             else:
-                col = BoxLayout(orientation="vertical", spacing=dp(3),
-                                size_hint_x=0.30)
-                col.add_widget(TappableIcon(item, self._info))
+                box = BoxLayout(orientation="vertical", spacing=dp(3),
+                                size_hint_x=0.34)
+                box.add_widget(TappableIcon(item, self._info))
                 bar = DurabilityBar(size_hint_y=None, height=dh(14))
                 bar.set_value(health)
-                col.add_widget(bar)
-                row.add_widget(col)
-            # Un vetement ou un sac se PORTE : on ajoute alors "Equiper" a
-            # cote de "Deposer", en resserrant le libelle pour faire la place.
-            equipable = state.can_equip(i)
-            lbl = Label(text=hand_names[i], halign="left", valign="middle",
-                        size_hint_x=0.22 if equipable else 0.33,
-                        color=(0.96, 0.82, 0.45, 1))
+                box.add_widget(bar)
+                cell.add_widget(box)
+            lbl = Label(text=titre, halign="left", valign="middle",
+                        size_hint_x=0.28, color=(0.96, 0.82, 0.45, 1))
             lbl.bind(size=_inv_label_font)
             _inv_label_font(lbl)
-            row.add_widget(lbl)
-            if equipable:
-                eq = StyledButton(text="Equiper", size_hint_x=0.24, bold=True)
+            cell.add_widget(lbl)
+            # Boutons empiles : la bande est basse et large, deux boutons
+            # cote a cote y seraient des timbres-poste.
+            btns = BoxLayout(orientation="vertical", spacing=dp(3),
+                             size_hint_x=0.38)
+            if state.can_equip(i):
+                eq = StyledButton(text="Equiper", bold=True)
                 eq.bind(size=_btn_font)
                 eq.bind(on_release=lambda _w, idx=i: self._equip(idx))
-                row.add_widget(eq)
-            drop = StyledButton(text="Deposer", bold=True,
-                                size_hint_x=0.24 if equipable else 0.37)
+                btns.add_widget(eq)
+            drop = StyledButton(text="Deposer", bold=True)
             drop.bind(size=_btn_font)
             drop.bind(on_release=lambda _w, idx=i: self._drop(idx))
-            row.add_widget(drop)
-            self.inventory_box.add_widget(row)
+            btns.add_widget(drop)
+            cell.add_widget(btns)
+            self.hands_row.add_widget(cell)
 
-        # Objets AU SOL : deux boutons -> prendre dans la main gauche / droite
-        # (desactives si la main visee est deja occupee).
+    def _fill_ground(self, state):
+        """Ce qui traine sur la case. Meme source que l'inventaire
+        (state.ground_here()) : les deux listes ne peuvent pas diverger."""
+        self.ground_box.clear_widgets()
         ground = state.ground_here()
+        self.near_title.text = ("A proximite" if not ground
+                                else f"A proximite ({sum(ground.values())})")
+        if not ground:
+            self.ground_box.add_widget(scale_font(Label(
+                text="Rien au sol ici.", color=_DIM, halign="center",
+                size_hint_y=None, height=dh(160)), 0.018))
+            return
         for name, count in sorted(ground.items()):
-            # Rangee plus HAUTE + icone plus large -> image agrandie au maximum.
-            row = BoxLayout(orientation="horizontal", spacing=dp(6),
-                            size_hint_y=None, height=dh(200))
-            row.add_widget(TappableIcon(name, self._info, count=count,
-                                        size_hint_x=0.30))
-            lbl = Label(text="À proximité", halign="left", valign="middle",
-                        size_hint_x=0.30, color=(0.96, 0.82, 0.45, 1))
-            lbl.bind(size=_inv_label_font)
-            _inv_label_font(lbl)
-            row.add_widget(lbl)
-            # Deux boutons 2x moins larges : ensemble ils occupent la place d'un
-            # seul bouton. Desactives si la main est occupee ou si l'objet ne
-            # peut pas etre tenu en main.
+            cell = BoxLayout(orientation="vertical", spacing=dp(2),
+                             size_hint_y=None, height=dh(_GROUND_CELL_H))
+            cell.add_widget(TappableIcon(name, self._info, count=count))
+            # Deux boutons pour prendre en main. Desactives si la main visee
+            # est occupee, ou si l'objet ne se tient pas en main.
             hand_ok = items.is_hand_collectable(name)
-            for hand_idx, text in ((0, "Prendre\nmain gauche"),
-                                   (1, "Prendre\nmain droite")):
-                take = StyledButton(text=text, halign="center", size_hint_x=0.20,
-                                    bold=True)
+            row = BoxLayout(orientation="horizontal", spacing=dp(3),
+                            size_hint_y=None, height=dh(56))
+            for hand_idx, text in ((0, "Main G"), (1, "Main D")):
+                take = StyledButton(text=text, bold=True)
                 take.bind(size=_btn_font)
-                take.disabled = (state.hands[hand_idx] is not None) or not hand_ok
+                take.disabled = ((state.hands[hand_idx] is not None)
+                                 or not hand_ok)
                 take.bind(on_release=lambda _w, n=name, h=hand_idx:
                           self._take(n, h))
                 row.add_widget(take)
-            self.inventory_box.add_widget(row)
+            cell.add_widget(row)
+            self.ground_box.add_widget(cell)
 
-        # Rien dans les mains ni au sol.
-        if all(h is None for h in state.hands) and not ground:
-            lbl = scale_font(Label(text="Rien à proximité.",
-                             color=(0.8, 0.8, 0.85, 1), size_hint_y=None,
-                             height=dh(40)), 0.018)
-            self.inventory_box.add_widget(lbl)
+    def _fill_bag(self, state):
+        """Le sac a dos. Ses objets servent de matiere premiere tels quels :
+        aucun bouton, il n'y a rien a en sortir pour fabriquer."""
+        self.bag_box.clear_widgets()
+        capacity = state.bag_capacity()
+        if capacity <= 0:
+            self.bag_title.text = "Sac a dos"
+            self.bag_box.add_widget(scale_font(Label(
+                text="Aucun sac a dos.\nTu ne transportes que ce que tu "
+                     "tiens dans tes mains.", color=_DIM, halign="center",
+                size_hint_y=None, height=dh(220)), 0.018))
+            return
+        self.bag_title.text = f"Sac a dos ({len(state.bag)}/{capacity})"
+        if not state.bag:
+            self.bag_box.add_widget(scale_font(Label(
+                text="Sac vide.", color=_DIM, halign="center",
+                size_hint_y=None, height=dh(160)), 0.018))
+            return
+        grid = GridLayout(cols=3, spacing=dp(3), size_hint_y=None)
+        grid.bind(minimum_height=grid.setter("height"))
+        for name in state.bag:
+            grid.add_widget(TappableIcon(name, self._info, size_hint_y=None,
+                                         height=dh(_BAG_CELL_H)))
+        self.bag_box.add_widget(grid)
 
-        # Recettes, rangees par CATEGORIE repliable. Tout est replie a
-        # l'ouverture de l'ecran : la liste tient alors en quelques lignes,
-        # et le joueur deplie seulement ce qui l'interesse.
+    def _fill_recipes(self, state):
+        """Recettes, rangees par CATEGORIE repliable. Tout est replie a
+        l'ouverture de l'ecran : la liste tient alors en quelques lignes, et
+        le joueur deplie seulement ce qui l'interesse."""
         self.recipe_box.clear_widgets()
         pool = state.craft_pool()
         for category in items.RECIPE_CATEGORIES:

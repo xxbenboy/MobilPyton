@@ -46,7 +46,10 @@ from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.item_icon import ItemIcon
 from src.widgets.item_info import show_item_info
 from src.widgets.styled_button import StyledButton
-from src.widgets.responsive import scale_font, dh
+from src.widgets.responsive import (scale_font, dh, SIDE_SHARE,
+                                    center_share, ROW_TITLE, ROW_BODY,
+                                    ROW_HANDS, ROW_HINT, ROW_BACK,
+                                    COL_TITLE, COL_LIST)
 from src.widgets.menu_toggle import MenuToggle
 
 # Tolerance, en pixels, sous laquelle un toucher est un TAP et non un
@@ -74,7 +77,6 @@ _CELL_W = 182           # largeur d'une case (celle d'une case du sac)
 # partage a egalite entre l'equipement et le sac, comme avant qu'elle
 # existe. 0.26 laisse aux cases d'equipement la place de ne pas mordre sur
 # la silhouette (voir _cell_size).
-_STATS_SHARE = 0.26
 _STAT_ROW = 120         # hauteur d'une ligne de statistique
 
 # Les deux menus du milieu, et leurs sous-menus dans l'ordre des boutons.
@@ -283,23 +285,23 @@ class InventoryScreen(Screen):
                         pos_hint={"center_x": 0.5, "center_y": 0.5})
         # Titre a deux volets : "INVENTAIRE / craft". Les deux mots gardent
         # toujours la meme place, seule la surbrillance change d'ecran.
-        col.add_widget(MenuToggle(self, "inventory", size_hint=(1, 0.07)))
+        col.add_widget(MenuToggle(self, "inventory", size_hint=(1, ROW_TITLE)))
 
         # Les cases d'equipement occupent trois rangees : cette section a
         # besoin de hauteur, elle en prend sur les mains et le bas d'ecran.
         body = BoxLayout(orientation="horizontal", spacing=dp(10),
-                         size_hint=(1, 0.76))
+                         size_hint=(1, ROW_BODY))
 
         # ---- Gauche : ce qui traine A PROXIMITE ----
         # Meme source que le menu Craft (state.ground_here()) : les deux
         # listes montrent donc toujours la meme chose.
         near = BoxLayout(orientation="vertical", spacing=dp(6),
-                         size_hint_x=_STATS_SHARE)
+                         size_hint_x=SIDE_SHARE)
         self.near_title = scale_font(Label(text="A proximite", bold=True,
-                                     size_hint=(1, 0.09)), 0.022)
+                                     size_hint=(1, COL_TITLE)), 0.022)
         near.add_widget(self.near_title)
         sc0 = self.ground_scroll = _make_highlightable(ScrollView(
-            size_hint=(1, 0.91)))
+            size_hint=(1, COL_LIST)))
         self.ground_box = BoxLayout(orientation="vertical", spacing=dp(4),
                                     size_hint_y=None)
         self.ground_box.bind(minimum_height=self.ground_box.setter("height"))
@@ -308,7 +310,7 @@ class InventoryScreen(Screen):
         body.add_widget(near)
 
         # ---- Milieu : deux menus, deux sous-menus chacun ----
-        rest = (1.0 - _STATS_SHARE) / 2.0
+        rest = center_share()
         center = BoxLayout(orientation="vertical", spacing=dp(4),
                            size_hint_x=rest)
         self._main = "equip"
@@ -349,10 +351,10 @@ class InventoryScreen(Screen):
         right = BoxLayout(orientation="vertical", spacing=dp(6),
                           size_hint_x=rest)
         self.bag_title = scale_font(Label(text="Sac a dos", bold=True,
-                                    size_hint=(1, 0.09)), 0.022)
+                                    size_hint=(1, COL_TITLE)), 0.022)
         right.add_widget(self.bag_title)
         sc2 = self.bag_scroll = _make_highlightable(ScrollView(
-            size_hint=(1, 0.91)))
+            size_hint=(1, COL_LIST)))
         self.bag_box = BoxLayout(orientation="vertical", spacing=dp(4),
                                  size_hint_y=None)
         self.bag_box.bind(minimum_height=self.bag_box.setter("height"))
@@ -364,7 +366,7 @@ class InventoryScreen(Screen):
 
         # ---- Les MAINS, en bas : source du glisser-deposer ----
         hands = BoxLayout(orientation="horizontal", spacing=dp(8),
-                          size_hint=(1, 0.16))
+                          size_hint=(1, ROW_HANDS))
         self.hand_slots = []
         for i, titre in enumerate(("Main gauche", "Main droite")):
             slot = _HandSlot(i, titre)
@@ -376,10 +378,11 @@ class InventoryScreen(Screen):
         self.hint = _label("Glisse un objet entre le sol, tes mains, ton sac "
                            "et ton equipement : les cases ou tu peux le "
                            "lacher clignotent.", _DIM, halign="center",
-                           size_hint=(1, 0.05))
+                           size_hint=(1, ROW_HINT))
         col.add_widget(self.hint)
 
-        back = scale_font(StyledButton(text="Retour", size_hint=(1, 0.09)), 0.022)
+        back = scale_font(StyledButton(text="Retour",
+                                       size_hint=(1, ROW_BACK)), 0.022)
         back.bind(on_release=lambda *_: setattr(self.manager, "current", "game"))
         col.add_widget(back)
 

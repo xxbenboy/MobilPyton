@@ -443,6 +443,9 @@ class GameScreen(Screen):
         self.grid.bind(minimum_width=self.grid.setter("width"))
         root.add_widget(self.grid)
         self._action_buttons = []   # (bouton, action)
+        # Bouton Inv./Craft : il vit dans la grille d'actions, donc il est
+        # recree a chaque reconstruction de celle-ci.
+        self.inv_btn = None
         self._action_visible = None  # cle des actions visibles (pour rebuild)
         # Sous-menu "Action" : quand True, "Chercher a manger" et "Boire"
         # sont affiches en plus dans la grille. Toggle via le bouton Action.
@@ -451,12 +454,14 @@ class GameScreen(Screen):
         self._action_btn_widget = None     # bouton Action (toggle)
         self._action_submenu_btns = []     # boutons Manger / Boire
 
-        # ---- Bouton CARTE (bas a gauche, TROISIEME du trio) ----
-        # Le trio du bas se lit Proximite / Inv.-Craft / Carte : on va du plus
-        # immediat (ce qu'on a sous la main) au plus lointain (le monde).
-        # Proximite finit a x=0.160, +0.034 = 0.194.
+        # ---- Bouton CARTE (bas a gauche, DEUXIEME) ----
+        # Le bas ne garde que Proximite et Carte : on va du plus immediat (ce
+        # qu'on a sous la main) au plus lointain (le monde). Inv./Craft a
+        # rejoint la colonne d'actions, avec les autres.
+        # Ecart entre boutons = ecart Deplacer<->Menu (0.034 en fraction de
+        # largeur d'ecran) : Proximite finit a x=0.066, +0.034 = 0.100.
         map_cell = BoxLayout(orientation="vertical", spacing=2, size_hint=(0.06, 0.16),
-                             pos_hint={"x": 0.194, "y": 0.012})
+                             pos_hint={"x": 0.100, "y": 0.012})
         map_area = AnchorLayout(size_hint=(1, 0.66))
         self.map_btn = IconButton(icon="map", size_hint=(None, None))
         def _map_square(a, *_):
@@ -469,10 +474,9 @@ class GameScreen(Screen):
         map_cell.add_widget(_button_label("Carte"))
         root.add_widget(map_cell)
 
-        # ---- Bouton PROXIMITE (bas a gauche, PREMIER du trio) ----
+        # ---- Bouton PROXIMITE (bas a gauche, PREMIER) ----
         # Toujours disponible : elle ouvre la grille de la case, ou l'on
-        # choisit un objet pose pour s'en servir.
-        # PREMIER du trio, plaque au bord de l'ecran.
+        # choisit un objet pose pour s'en servir. Plaque au bord de l'ecran.
         prox_cell = BoxLayout(orientation="vertical", spacing=2,
                               size_hint=(0.06, 0.16),
                               pos_hint={"x": 0.006, "y": 0.012})
@@ -487,27 +491,6 @@ class GameScreen(Screen):
         prox_cell.add_widget(prox_area)
         prox_cell.add_widget(_button_label("Proximite"))
         root.add_widget(prox_cell)
-
-        # ---- Bouton INV./CRAFT (deuxieme du trio) ----
-        # Il mene a l'inventaire, dont le titre bascule vers le craft : un seul
-        # bouton pour les deux ecrans, d'ou son nom.
-        # Ecart entre boutons = ecart Deplacer<->Menu (0.034 en fraction de
-        # largeur d'ecran) : Proximite finit a x=0.066, +0.034 = 0.100.
-        inv_cell = BoxLayout(orientation="vertical", spacing=2,
-                             size_hint=(0.06, 0.16),
-                             pos_hint={"x": 0.100, "y": 0.012})
-        inv_area = AnchorLayout(size_hint=(1, 0.66))
-        self.inv_btn = IconButton(icon="bag", size_hint=(None, None))
-
-        def _inv_square(a, *_):
-            s = a.height * 0.94
-            self.inv_btn.size = (s, s)
-        inv_area.bind(size=_inv_square)
-        self.inv_btn.bind(on_release=self._go_inventory)
-        inv_area.add_widget(self.inv_btn)
-        inv_cell.add_widget(inv_area)
-        inv_cell.add_widget(_button_label("Inv./Craft"))
-        root.add_widget(inv_cell)
 
         # ---- Bouton MENU (bas a droite) ----
         menu_cell = BoxLayout(orientation="vertical", spacing=2, size_hint=(0.06, 0.16),
@@ -736,12 +719,11 @@ class GameScreen(Screen):
         has_gourde = any(state.has_item(g) for g in items.GOURDE_ITEMS)
         has_trees = bool(state.trees_here())
         by_label = {a["label"]: a for a in ACTIONS}
-        # Ordre voulu : colonne gauche = Explorer / Se reposer / Action,
-        # puis actions conditionnelles a la suite (remplissage haut->bas puis
-        # colonne suivante). "ACTION" = bouton sous-menu.
-        # Le craft n'a plus de bouton ici : on y accede par le bas de l'ecran,
-        # ou "Inv./Craft" ouvre l'inventaire et son titre bascule vers lui.
-        order = ["Explorer", "Se reposer", "ACTION"]
+        # Ordre voulu : colonne gauche = Explorer / Se reposer / Action /
+        # Inv.-Craft (4 lignes), puis actions conditionnelles dans les colonnes
+        # suivantes (remplissage haut->bas puis colonne suivante).
+        # "ACTION" = bouton sous-menu, "INVENTAIRE" = bouton Inv./Craft.
+        order = ["Explorer", "Se reposer", "ACTION", "INVENTAIRE"]
         # "Couper du bois" occupe une place de choix TANT QU'IL Y A DES ARBRES
         # a abattre ici. Ailleurs, elle n'encombre pas la grille : elle se
         # range dans le sous-menu Action, avec Manger et Boire.
@@ -755,6 +737,12 @@ class GameScreen(Screen):
         order += submenu
         order.append("Remplir gourde")
         for label in order:
+            if label == "INVENTAIRE":
+                # Un seul bouton pour les deux ecrans : il ouvre l'inventaire,
+                # dont le titre bascule vers le craft.
+                self.inv_btn = add_cell("bag", "Inv./Craft",
+                                        self._go_inventory)
+                continue
             if label == "ACTION":
                 # Bouton special : toggle sous-menu Manger/Boire.
                 self._action_btn_widget = add_cell(
@@ -1677,7 +1665,8 @@ class GameScreen(Screen):
         # une facon de regarder ce qu'on a autour de soi.
         self.prox_btn.disabled = self._ff_active
         self.prox_btn.opacity = 1.0
-        self.inv_btn.disabled = self._ff_active
+        if self.inv_btn is not None:
+            self.inv_btn.disabled = self._ff_active
 
         self.background.set_seconds(state.time_seconds)
         # Assombrit le decor selon l'heure (voile de nuit). Sa TEINTE suit

@@ -862,15 +862,20 @@ class GameState:
         return False
 
     def wear_tool_nearby(self, name, amount):
-        """Use un outil A PROXIMITE : celui en main d'abord, sinon un du sol.
-        Renvoie True s'il casse (il disparait alors)."""
+        """Use un outil A PROXIMITE : celui en main d'abord, sinon un du sol,
+        sinon un du SAC. Renvoie True s'il casse (il disparait alors).
+
+        Le sac doit etre fouille ici aussi : il fournit des ingredients (voir
+        craft_pool), donc une recette peut etre declaree faisable grace a un
+        outil qui s'y trouve. Sans cela, cet outil-la servirait sans jamais
+        s'user -- et ne casserait jamais."""
         if amount <= 0:
             return False
         hand = self.hand_holding(name)
         if hand is not None:
             return self.use_tool(hand, amount)
         if self.ground_here().get(name, 0) <= 0:
-            return False
+            return self._wear_tool_bag(name, amount)
         wear = self._take_ground_wear(name) + amount
         if wear >= 1.0 - 1e-9:
             key = self._cell_key()
@@ -883,6 +888,23 @@ class GameState:
             self.add_log(f"{items.display_name(name)} casse")
             return True
         self._push_ground_wear(name, wear)
+        return False
+
+    def _wear_tool_bag(self, name, amount):
+        """Use l'exemplaire range dans le SAC. True s'il casse (il est alors
+        retire du sac)."""
+        i = self._bag_index(name)
+        if i is None:
+            return False
+        wear = (self.bag_wear[i] if i < len(self.bag_wear) else 0.0) + amount
+        if wear >= 1.0 - 1e-9:
+            self.bag.pop(i)
+            if i < len(self.bag_wear):
+                self.bag_wear.pop(i)
+            self.add_log(f"{items.display_name(name)} casse")
+            return True
+        if i < len(self.bag_wear):
+            self.bag_wear[i] = wear
         return False
 
     def hand_holding(self, name):
@@ -1322,7 +1344,11 @@ class GameState:
         return best
 
     def consume_nearby(self, name):
-        """Retire un exemplaire de l'objet : au SOL d'abord, puis en main."""
+        """Retire un exemplaire de l'objet : au SOL d'abord, puis en main,
+        puis dans le SAC.
+
+        Cet ordre garde les mains libres le plus longtemps possible, et ne
+        touche au sac qu'en dernier : ce qu'on a range, on l'a range expres."""
         key = self._cell_key()
         g = self.ground.get(key, {})
         if g.get(name, 0) > 0:
@@ -1337,7 +1363,7 @@ class GameState:
             if self.hands[i] == name:
                 self.set_hand(i, None)
                 return True
-        return False
+        return self._take_bag(name) is not None
 
     def fire_starter_hand(self):
         """Main tenant le MEILLEUR allume-feu, ou None si aucune n'en a."""
@@ -1454,14 +1480,44 @@ class GameState:
         return self.ground_here().get(name, 0) > 0
 
     def craft_pool(self):
-        """Objets disponibles pour le craft = mains + sol de la case."""
+        """Objets disponibles pour le craft = mains + sol de la case + SAC.
+
+        Le sac compte comme le reste : ce qu'on transporte est a portee de
+        main, il n'y a aucune raison de devoir le poser par terre avant de
+        s'en servir."""
         pool = {}
         for it in self.hands:
             if it is not None:
                 pool[it] = pool.get(it, 0) + 1
         for it, c in self.ground_here().items():
             pool[it] = pool.get(it, 0) + c
+        for it in self.bag:
+            pool[it] = pool.get(it, 0) + 1
         return pool
+
+    def _bag_index(self, name):
+        """Emplacement du sac contenant l'exemplaire le PLUS USE, ou None.
+
+        Meme regle qu'au sol : on entame le plus abime en premier, pour garder
+        ses outils neufs sans avoir a y penser."""
+        best = None
+        for i, it in enumerate(self.bag):
+            if it != name:
+                continue
+            wear = self.bag_wear[i] if i < len(self.bag_wear) else 0.0
+            if best is None or wear > best[1]:
+                best = (i, wear)
+        return None if best is None else best[0]
+
+    def _take_bag(self, name):
+        """Sort un exemplaire du SAC et renvoie son usure. None s'il n'y en a
+        pas. `bag_wear` suit `bag` emplacement par emplacement : les deux sont
+        donc retires ensemble."""
+        i = self._bag_index(name)
+        if i is None:
+            return None
+        self.bag.pop(i)
+        return self.bag_wear.pop(i) if i < len(self.bag_wear) else 0.0
 
     def recipe_choice(self, recipe):
         """Matiere retenue parmi les alternatives ("any_of") d'une recette.
@@ -1493,7 +1549,7 @@ class GameState:
         return self.recipe_tool_ok(recipe)
 
     def do_craft(self, recipe):
-        """Fabrique : consomme les ingredients (sol d'abord, puis mains).
+        """Fabrique : consomme les ingredients (sol, puis mains, puis sac).
 
         En mode DEBUG le craft ne peut jamais echouer (voir can_craft), mais
         les ingredients REELLEMENT presents sont quand meme consommes : ce
@@ -1519,6 +1575,10 @@ class GameState:
                 if self.hands[i] == item:
                     self.set_hand(i, None)
                     need -= 1
+            # Enfin dans le SAC : ce qu'on transporte sert de matiere comme le
+            # reste, sans avoir a le sortir d'abord.
+            while need > 0 and self._take_bag(item) is not None:
+                need -= 1
             if not g:
                 self.ground.pop(self._cell_key(), None)
         # Matiere au CHOIX (feuille ou herbe...) : une seule est consommee.

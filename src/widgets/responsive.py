@@ -61,3 +61,34 @@ def scale_font(widget, fraction=None, minimum=10):
     _update()
     widget.bind(height=_update, text=_update)
     return widget
+
+
+# --------------------------------------------------------------------- #
+# GABARIT COMMUN AUX ECRANS INVENTAIRE ET CRAFT
+# --------------------------------------------------------------------- #
+# Les deux ecrans se repondent par un titre a deux volets : on passe de l'un
+# a l'autre d'un seul toucher. Leurs colonnes doivent donc tomber EXACTEMENT
+# au meme endroit, sinon tout saute a chaque bascule. Les mesures vivent ici,
+# a un seul endroit, plutot qu'en double dans les deux fichiers ou elles
+# auraient fini par diverger.
+#
+# Ce sont des poids de BoxLayout vertical : Kivy les normalise par leur SOMME.
+# Ils valent donc les uns par rapport aux autres, et il ne sert a rien de
+# chercher a les faire totaliser 1 -- mais les deux ecrans doivent porter la
+# MEME LISTE, sinon les hauteurs different.
+SIDE_SHARE = 0.26          # largeur de la colonne de gauche (a proximite)
+
+ROW_TITLE = 0.07           # le titre a deux volets
+ROW_BODY = 0.76            # les trois colonnes
+ROW_HANDS = 0.16           # les deux mains, en bas
+ROW_HINT = 0.05            # la ligne d'explication
+ROW_BACK = 0.09            # le bouton Retour
+
+COL_TITLE = 0.09           # titre d'une colonne
+COL_LIST = 0.91            # sa liste, dessous
+
+
+def center_share():
+    """Largeur des colonnes du CENTRE et de DROITE : elles se partagent a
+    egalite tout ce que la colonne de gauche ne prend pas."""
+    return (1.0 - SIDE_SHARE) / 2.0
