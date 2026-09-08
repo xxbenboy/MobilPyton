@@ -29,7 +29,7 @@ from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.item_info import show_item_info, TappableIcon
 from src.widgets.durability_bar import DurabilityBar
-from src.widgets.styled_button import StyledButton
+from src.widgets.styled_button import StyledButton, TabButton
 from src.widgets.panels import panel
 from src.widgets.responsive import (scale_font, dh, SIDE_SHARE,
                                     center_share, ROW_TITLE, ROW_BODY,
@@ -378,7 +378,7 @@ class CraftScreen(Screen):
                 continue
             ready = sum(1 for r in group if state.can_craft(r))
             opened = category in self._open_cats
-            head = StyledButton(
+            head = TabButton(
                 text=f"{'-' if opened else '+'}  {category}   "
                      f"({ready}/{len(group)})",
                 halign="left", bold=True, size_hint_y=None, height=dh(84))

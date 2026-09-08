@@ -19,7 +19,7 @@ FILL = (0, 0, 0)
 # Contour : un gris clair discret mais franc. Assez pale pour ne pas attirer
 # l'oeil, assez net pour dessiner le bord sur n'importe quel fond.
 BORDER = (0.72, 0.75, 0.82, 0.42)
-BORDER_W = dp(1.4)
+BORDER_W = dp(1.1)
 RADIUS = dp(12)
 
 

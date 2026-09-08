@@ -37,7 +37,7 @@ from src.widgets.player_hands import PlayerHands
 from src.widgets.insects import InsectLayer, FireflyLayer
 from src.widgets.weather import WeatherLayer, LightningLayer
 from src.widgets.icon_button import IconButton
-from src.widgets.styled_button import StyledButton
+from src.widgets.styled_button import StyledButton, TabButton
 from src.widgets.panels import panel
 from src.widgets.item_icon import ItemIcon
 from src.widgets.stat_circle import StatCircle
@@ -402,7 +402,7 @@ class GameScreen(Screen):
                                     size_hint=(0.07, 0.12),
                                     pos_hint={"right": 0.925, "top": 0.99})
         _add_panel(self.panel_btns, alpha=0.28)
-        self.effect_btn = scale_font(StyledButton(text="Effet"), 0.02)
+        self.effect_btn = scale_font(TabButton(text="Effet"), 0.02)
         self.effect_btn.bind(on_release=lambda *_: self._toggle_panel("effects"))
         self.panel_btns.add_widget(self.effect_btn)
         root.add_widget(self.panel_btns)

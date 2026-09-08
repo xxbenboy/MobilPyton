@@ -45,7 +45,7 @@ from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.item_icon import ItemIcon
 from src.widgets.item_info import show_item_info
-from src.widgets.styled_button import StyledButton
+from src.widgets.styled_button import StyledButton, TabButton
 from src.widgets.panels import panel
 from src.widgets.responsive import (scale_font, dh, SIDE_SHARE,
                                     center_share, ROW_TITLE, ROW_BODY,
@@ -317,7 +317,7 @@ class InventoryScreen(Screen):
                          size_hint=(1, 0.09))
         self.main_buttons = {}
         for key, label in (("equip", "Equipement"), ("perso", "Personnage")):
-            btn = scale_font(StyledButton(text=label, bold=True), 0.018)
+            btn = scale_font(TabButton(text=label, bold=True), 0.018)
             btn.bind(on_release=lambda _w, k=key: self._show_main(k))
             mrow.add_widget(btn)
             self.main_buttons[key] = btn
@@ -328,7 +328,7 @@ class InventoryScreen(Screen):
                          size_hint=(1, 0.08))
         self.sub_buttons = []
         for i in range(2):
-            btn = scale_font(StyledButton(text=""), 0.016)
+            btn = scale_font(TabButton(text=""), 0.016)
             btn.bind(on_release=lambda _w, i=i: self._show_sub(i))
             srow.add_widget(btn)
             self.sub_buttons.append(btn)
