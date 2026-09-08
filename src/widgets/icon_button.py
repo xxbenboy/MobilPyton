@@ -11,7 +11,7 @@ from kivy.core.image import Image as CoreImage
 from kivy.graphics import (Color, Ellipse, Rectangle, RoundedRectangle,
                            Triangle, Line)
 
-from src.widgets.styled_button import StyledButton
+from src.widgets.styled_button import StyledButton, RADIUS
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 BUTTONS_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", "assets",
@@ -238,16 +238,30 @@ class IconButton(StyledButton):
         # Boutons noir / gris : les logos colores ressortent mieux.
         self.set_palette(idle=(0.11, 0.11, 0.12, 0.96),
                          down=(0.32, 0.32, 0.35, 0.98),
-                         off=(0.07, 0.07, 0.08, 0.75),
-                         border=(0.65, 0.65, 0.70, 0.55))
+                         off=(0.10, 0.10, 0.11, 0.60),
+                         border=(0.78, 0.78, 0.84, 0.80))
         self.icon = icon
         self.text = ""                              # pas de texte sur le bouton
-        self.bind(pos=self._draw_icon, size=self._draw_icon)
+        # Le logo doit etre redessine quand l'etat change, pas seulement quand
+        # le bouton bouge : un logo reste sinon eclatant sur un bouton eteint.
+        self.bind(pos=self._draw_icon, size=self._draw_icon,
+                  disabled=self._draw_icon, selected=self._draw_icon)
 
     def _draw_icon(self, *_):
         self.canvas.after.clear()
         if self.width <= 0 or self.height <= 0:
             return
+        self._paint_icon()
+        if self.disabled:
+            # VOILE gris par-dessus le logo. Chaque logo pose ses propres
+            # couleurs (une pomme rouge, une flamme orange...) : impossible de
+            # les palir en amont, il faut donc les recouvrir apres coup.
+            with self.canvas.after:
+                Color(0.14, 0.14, 0.16, 0.62)
+                RoundedRectangle(pos=self.pos, size=self.size,
+                                 radius=[RADIUS])
+
+    def _paint_icon(self):
         # 1) Image personnalisee (assets/buttons/<nom>.png) si elle existe.
         path = button_image_path(self.icon)
         if path:

@@ -38,6 +38,7 @@ from src.widgets.insects import InsectLayer, FireflyLayer
 from src.widgets.weather import WeatherLayer, LightningLayer
 from src.widgets.icon_button import IconButton
 from src.widgets.styled_button import StyledButton
+from src.widgets.panels import panel
 from src.widgets.item_icon import ItemIcon
 from src.widgets.stat_circle import StatCircle
 from src.widgets.durability_bar import DurabilityBar
@@ -167,15 +168,8 @@ def _action_available(state, action):
 
 
 def _add_panel(widget, alpha=0.34):
-    """Ajoute un panneau translucide arrondi derriere un widget."""
-    with widget.canvas.before:
-        Color(0, 0, 0, alpha)
-        rect = RoundedRectangle(radius=[dp(14)])
-
-    def _sync(*_):
-        rect.pos = widget.pos
-        rect.size = widget.size
-    widget.bind(pos=_sync, size=_sync)
+    """Panneau translucide arrondi, CONTOURE, derriere un widget."""
+    return panel(widget, alpha=alpha, radius=dp(14))
 
 
 def _button_label(text):
@@ -748,6 +742,8 @@ class GameScreen(Screen):
                 self._action_btn_widget = add_cell(
                     "actions", "Action",
                     lambda *_: self._toggle_action_submenu())
+                # Allume tant que le sous-menu est deplie.
+                self._action_btn_widget.selected = self._action_submenu_visible
                 continue
             action = by_label[label]
             if action.get("need_gourde") and not has_gourde:
@@ -772,6 +768,9 @@ class GameScreen(Screen):
         if mode is None and self._panel_mode == "effects":
             self._fly_panel_effects()
         self._panel_mode = mode
+        # Le bouton reste ALLUME tant que son panneau est ouvert : on voit
+        # d'ou vient le panneau, et par ou le refermer.
+        self.effect_btn.selected = (mode == "effects")
         self.side_panel.clear_widgets()
         self._effect_names = None          # force la reconstruction des effets
         self._effect_circles = {}

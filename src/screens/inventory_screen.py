@@ -46,6 +46,7 @@ from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.item_icon import ItemIcon
 from src.widgets.item_info import show_item_info
 from src.widgets.styled_button import StyledButton
+from src.widgets.panels import panel
 from src.widgets.responsive import (scale_font, dh, SIDE_SHARE,
                                     center_share, ROW_TITLE, ROW_BODY,
                                     ROW_HANDS, ROW_HINT, ROW_BACK,
@@ -122,11 +123,7 @@ def _cell_size(panel):
 
 
 def _panel(widget, alpha=0.45):
-    with widget.canvas.before:
-        Color(0, 0, 0, alpha)
-        rect = RoundedRectangle(radius=[dp(12)])
-    widget.bind(pos=lambda w, *_: setattr(rect, "pos", w.pos),
-                size=lambda w, *_: setattr(rect, "size", w.size))
+    return panel(widget, alpha=alpha)
 
 
 def _row_font(w, *_):
@@ -724,13 +721,16 @@ class InventoryScreen(Screen):
 
     def _sync_tabs(self):
         """Met les boutons a jour et pose le bon panneau dans la fenetre."""
+        # L'onglet ouvert est SELECTIONNE (or, contour epais), pas desactive.
+        # Il l'etait, et se peignait donc en gris terne comme un bouton en
+        # panne : l'ecran donnait l'impression que l'onglet courant etait
+        # celui qu'on ne pouvait PAS ouvrir, exactement l'inverse.
         for key, btn in self.main_buttons.items():
-            # Le menu OUVERT est celui qu'on ne peut pas rechoisir.
-            btn.disabled = (key == self._main)
+            btn.selected = (key == self._main)
         subs = _SUBTABS[self._main]
         for i, btn in enumerate(self.sub_buttons):
             btn.text = subs[i][1]
-            btn.disabled = (subs[i][0] == self._sub[self._main])
+            btn.selected = (subs[i][0] == self._sub[self._main])
         panneau = {
             ("equip", "tenue"): self.equip_box,
             ("equip", "stats"): self.gear_panel,

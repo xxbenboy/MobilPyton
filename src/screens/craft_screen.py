@@ -30,6 +30,7 @@ from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.item_info import show_item_info, TappableIcon
 from src.widgets.durability_bar import DurabilityBar
 from src.widgets.styled_button import StyledButton
+from src.widgets.panels import panel
 from src.widgets.responsive import (scale_font, dh, SIDE_SHARE,
                                     center_share, ROW_TITLE, ROW_BODY,
                                     ROW_HANDS, ROW_HINT, ROW_BACK,
@@ -44,11 +45,7 @@ _BAG_CELL_H = 170
 
 
 def _panel(widget, alpha=0.45):
-    with widget.canvas.before:
-        Color(0, 0, 0, alpha)
-        rect = RoundedRectangle(radius=[dp(12)])
-    widget.bind(pos=lambda w, *_: setattr(rect, "pos", w.pos),
-                size=lambda w, *_: setattr(rect, "size", w.size))
+    return panel(widget, alpha=alpha)
 
 
 def _btn_font(w, *_):
@@ -381,6 +378,7 @@ class CraftScreen(Screen):
                 halign="left", bold=True, size_hint_y=None, height=dh(110))
             head.bind(size=_btn_font)
             head.bind(on_release=lambda _w, c=category: self._toggle_cat(c))
+            head.selected = opened          # categorie depliee = allumee
             self.recipe_box.add_widget(head)
             if not opened:
                 continue
