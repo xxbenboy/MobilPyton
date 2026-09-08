@@ -28,6 +28,7 @@ from kivy.metrics import dp
 
 from src.widgets.animated_background import (AnimatedBackground,
                                             night_darkness, night_factor)
+from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.installed_layer import grid_to_screen
 
@@ -1681,8 +1682,14 @@ class GameScreen(Screen):
         self.inv_btn.disabled = self._ff_active
 
         self.background.set_seconds(state.time_seconds)
-        # Assombrit le decor selon l'heure (voile de nuit).
+        # Assombrit le decor selon l'heure (voile de nuit). Sa TEINTE suit
+        # l'heure elle aussi : chaude au couchant, bleue en pleine nuit. Un
+        # voile toujours bleu marine donnait un crepuscule froid alors que le
+        # ciel, lui, flambait.
+        self._night_color.rgb = daylight.veil_color(state.time_seconds)
         self._night_color.a = night_darkness(state.time_seconds)
+        # Le decor suit le soleil : couleur de la lumiere et ombres portees.
+        self.scenery.set_daylight(state.time_seconds)
         # Releve jour/nuit de la petite faune : les insectes de jour s'effacent
         # a mesure que la nuit tombe, les lucioles apparaissent (et l'inverse
         # au lever du jour).
@@ -1698,6 +1705,8 @@ class GameScreen(Screen):
         weather = state.effective_weather()
         self.weather_layer.set_weather(weather, state.fog_active())
         self.lightning.set_weather(weather)
+        # Le vent de la meteo courbe la vegetation du decor.
+        self.scenery.set_wind(weather)
         # Le CIEL aussi : nuages, grisaille, disparition du soleil (le fond
         # gere lui-meme la transition progressive).
         self.background.set_weather(weather)

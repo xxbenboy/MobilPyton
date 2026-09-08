@@ -18,8 +18,16 @@ COMMENT CA MARCHE
 - BaseColor (_B) presente  -> elle habille la surface ; sinon couleur plane de
   repli (le jeu reste joli meme sans aucune image).
 - Au moins une carte Normal (_R) presente -> un ECLAIRAGE PAR RELIEF s'active
-  automatiquement (les creux/bosses reagissent a la lumiere). Sans aucune carte
-  Normal, l'eclairage ne s'active pas (rendu identique a avant, zero risque).
+  (les creux/bosses reagissent a la lumiere). Sans carte Normal, le relief est
+  exactement nul : le rendu reste celui d'avant, zero risque.
+- La LUMIERE SUIT L'HEURE. Le soleil se leve a gauche, culmine a midi, se
+  couche a droite, puis la lune prend le relais ; la couleur de la lumiere va
+  du rose de l'aube a l'orange du couchant et au bleu de la nuit. Une carte
+  Normal prend donc tout son sens : c'est elle qui fait que les creux d'un sol
+  s'ombrent d'un cote le matin et de l'autre le soir.
+  -> Dessine tes BaseColor en lumiere NEUTRE, a plat, SANS ombre peinte
+     dedans : le jeu s'occupe de l'eclairage. Une texture deja ombree
+     jurerait aux heures ou l'ombre tombe de l'autre cote.
 - Packed (_P) : le canal ROUGE est utilise comme occlusion ambiante (assombrit
   les creux). Les autres canaux sont reserves (rugosite/metallique).
 - Compat : un ancien fichier  <nom>.png  (sans suffixe) est lu comme BaseColor.
@@ -56,5 +64,6 @@ CONSEILS IMPORTANTS
 - Apres ajout : pousse le projet (envoyer-sur-github.bat) pour inclure les
   images dans l'APK.
 
-Reglages (direction de la lumiere, activation) : src/widgets/pbr.py
+Reglages du shader (force du relief, activation) : src/widgets/pbr.py
+Course du soleil, couleur de la lumiere et ombres : src/widgets/daylight.py
 Correspondance noms <-> surfaces + couleurs de repli : src/widgets/textures.py

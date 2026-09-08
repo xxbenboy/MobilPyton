@@ -37,6 +37,7 @@ from kivy.metrics import dp
 from src import items
 from src import stats as stats_mod
 from src.widgets.animated_background import AnimatedBackground, night_darkness
+from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.item_icon import ItemIcon
 from src.widgets.item_info import show_item_info
@@ -400,7 +401,12 @@ class InventoryScreen(Screen):
         if state is not None:
             self.background.set_seconds(state.time_seconds)
             self.background.set_weather(state.effective_weather())
+            self.scenery.set_wind(state.effective_weather())
+            # Le voile de nuit prend AUSSI la teinte de l'heure, et le decor
+            # suit le soleil (couleur de la lumiere, ombres portees).
+            self._night_color.rgb = daylight.veil_color(state.time_seconds)
             self._night_color.a = night_darkness(state.time_seconds)
+            self.scenery.set_daylight(state.time_seconds)
             zone = state.current_zone()
             key = (zone, state.player_x, state.player_y)
             if key != self._scene_key:

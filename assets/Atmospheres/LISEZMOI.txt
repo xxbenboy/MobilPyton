@@ -1,33 +1,49 @@
 IMAGES DU CIEL ET DES ASTRES (Atmospheres)
 ==========================================
 
-⚠️  STATUT : DOSSIER RESERVE, BRANCHEMENT CODE PAS ENCORE FAIT.
-Ce dossier existe pour accueillir les futures images du ciel (soleil,
-lune, etoiles, nuages). Le code de chargement n'est PAS encore en
-place : ajouter une image ici ne fait RIEN pour l'instant.
+STATUT : BRANCHE. Deposer une image ici la fait apparaitre dans le jeu, sans
+toucher au code. Sans image, le ciel garde ses disques dessines : rien ne
+casse.
 
-Quand tu seras pret a ajouter des images, dis-le moi et j'ajouterai
-le branchement dans src/widgets/animated_background.py.
-
-(Le NOM du dossier "Atmospheres" est sans accent volontairement : evite
-les problemes au build Android.)
+    assets/Atmospheres/<nom>.png     (ou .jpg / .jpeg)
 
 ----------------------------------------------------------------
-IMAGES PREVUES (a generer / fournir quand demande)
+LES NOMS
 ----------------------------------------------------------------
-    sun.png      -> Soleil (disque jaune dore)
-    moon.png     -> Lune (disque blanc)
-
-Possible extensions futures : nuages anims (cloud_*.png), etoiles, etc.
+    sun.png      Soleil
+    moon.png     Lune (voir la remarque importante plus bas)
 
 ----------------------------------------------------------------
-CONSEILS DE FORMAT (pour anticiper)
+LA LUNE : DESSINE-LA PLEINE
 ----------------------------------------------------------------
-- Format conseille : PNG CARRE 512x512, fond TRANSPARENT.
-- Centre bien l'astre dans le carre : le jeu prendra toute l'image.
-- Le HALO du soleil restera anime au canvas (transparence variable
-  selon l'heure) ; le soleil sera dessine PAR-DESSUS le halo.
-- Les NUAGES et les ETOILES sont animes procedurellement (canvas) ;
-  pas de remplacement par image prevu pour l'instant.
+Le jeu suit un vrai cycle lunaire de 29,5 jours, et il ne dessine QUE la
+portion eclairee du disque : c'est ce qui donne les croissants et les
+quartiers, sans disque grisatre sur la face sombre.
+
+Ton image est plaquee sur cette portion. Autrement dit :
+
+    -> fournis une PLEINE LUNE, disque entier, centre dans l'image ;
+    -> le jeu la DECOUPE tout seul selon la phase du jour.
+
+Un croissant montrera donc le vrai bord de ta lune, avec ses mers et ses
+crateres au bon endroit. Ne dessine PAS un croissant toi-meme : il serait
+recoupe une deuxieme fois.
+
+----------------------------------------------------------------
+FORMAT
+----------------------------------------------------------------
+- PNG CARRE 512 x 512, fond TRANSPARENT.
+- L'astre doit toucher les bords du cadre et etre bien CENTRE : le jeu
+  considere que le disque occupe toute l'image. Une lune dessinee petite
+  au milieu d'une grande marge vide serait decoupee de travers.
+- Le HALO reste anime au canvas (il grandit et palit selon l'heure et la
+  phase) et se dessine DERRIERE ton image : ne peins pas de halo dedans.
+
+----------------------------------------------------------------
+CE QUI RESTE DESSINE (ne pas fournir d'image)
+----------------------------------------------------------------
+    Le degrade du ciel, les nuages, les etoiles, les etoiles filantes.
+    Tous sont animes et changent de couleur d'heure en heure.
 
 Le ciel est gere dans : src/widgets/animated_background.py
+Le chargement des images : src/widgets/atmosphere.py

@@ -52,6 +52,7 @@ uniform sampler2D texture0;     /* BaseColor (unite 0, liee par Kivy) */
 uniform sampler2D pbr_normal;   /* Normal   (unite 1) */
 uniform sampler2D pbr_packed;   /* Packed   (unite 2) : R = occlusion */
 uniform vec3 pbr_light;
+uniform vec3 pbr_tint;          /* COULEUR de la lumiere (1,1,1 = neutre) */
 uniform float pbr_relief;
 uniform float pbr_ao;
 uniform float pbr_brightness;
@@ -67,7 +68,7 @@ void main(void) {
     float lit = 1.0 + pbr_relief * (diff - ref);
     float ao = mix(1.0, texture2D(pbr_packed, tex_coord0).r, pbr_ao);
     lit = clamp(lit * ao * pbr_brightness, 0.0, 2.0);
-    gl_FragColor = vec4(base.rgb * lit, base.a);
+    gl_FragColor = vec4(base.rgb * lit * pbr_tint, base.a);
 }
 """
 
@@ -105,9 +106,22 @@ def setup(render_context):
     render_context["pbr_normal"] = 1
     render_context["pbr_packed"] = 2
     render_context["pbr_light"] = [float(v) for v in LIGHT]
+    render_context["pbr_tint"] = [1.0, 1.0, 1.0]
     render_context["pbr_relief"] = float(RELIEF)
     render_context["pbr_ao"] = float(AO_STRENGTH)
     render_context["pbr_brightness"] = float(BRIGHTNESS)
+
+
+def set_light(render_context, direction, tint):
+    """Change la lumiere d'une scene deja construite : direction du relief et
+    COULEUR de la lumiere.
+
+    Ne redessine rien -- ce sont deux uniformes du shader. C'est ce qui permet
+    au decor de suivre l'heure (dore le matin, orange au couchant, bleu la
+    nuit) sans reconstruire les centaines de formes de la scene a chaque
+    minute de jeu."""
+    render_context["pbr_light"] = [float(v) for v in direction]
+    render_context["pbr_tint"] = [float(v) for v in tint]
 
 
 def bind_maps(normal_tex, packed_tex):

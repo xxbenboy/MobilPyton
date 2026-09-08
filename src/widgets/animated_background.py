@@ -20,6 +20,8 @@ from kivy.graphics import Color, Rectangle, Ellipse, Mesh, Line
 from kivy.graphics.texture import Texture
 from kivy.metrics import dp
 
+from src.widgets import atmosphere
+
 SECONDS_PER_DAY = 24 * 3600
 
 # 24h en 4 minutes (240 s) => 360 secondes de jeu par seconde reelle.
@@ -265,10 +267,14 @@ class AnimatedBackground(Widget):
             self._shoot = Line(width=dp(1.5), cap="round")
 
             # 3. Soleil (avec halo) et Lune.
+            # Le HALO reste dessine au canvas (sa transparence varie avec
+            # l'heure) ; l'image du soleil, si elle existe, se pose dessus.
             self._sun_glow_c = Color(1.0, 0.92, 0.55, 0.0)
             self._sun_glow = Ellipse()
-            self._sun_c = Color(1.0, 0.95, 0.6, 0.0)
-            self._sun = Ellipse()
+            sun_tex = atmosphere.sprite("sun")
+            self._sun_c = Color(1, 1, 1, 0.0) if sun_tex is not None \
+                else Color(1.0, 0.95, 0.6, 0.0)
+            self._sun = Ellipse(texture=sun_tex)
             # Lune : halo lumineux (plusieurs cercles de plus en plus
             # diffus), puis UNIQUEMENT la portion eclairee, dessinee comme
             # un maillage (voir _place_moon). Rien n'est dessine pour la
@@ -277,8 +283,10 @@ class AnimatedBackground(Widget):
             for _mult, _a in _MOON_HALO:
                 self._moon_glow.append((Color(0.85, 0.90, 1.0, 0.0),
                                         Ellipse()))
-            self._moon_c = Color(0.97, 0.98, 1.0, 0.0)
-            self._moon = Mesh(mode="triangle_strip")
+            moon_tex = atmosphere.sprite("moon")
+            self._moon_c = Color(1, 1, 1, 0.0) if moon_tex is not None \
+                else Color(0.97, 0.98, 1.0, 0.0)
+            self._moon = Mesh(mode="triangle_strip", texture=moon_tex)
             # Les indices ne changent jamais : on les pose une fois pour
             # toutes (seuls les sommets sont recalcules a chaque frame).
             self._moon.indices = list(range(2 * (_MOON_STEPS + 1)))
@@ -439,8 +447,13 @@ class AnimatedBackground(Widget):
                 x_in, x_out = k * xc, xc
             else:                               # eclairee a gauche
                 x_in, x_out = -k * xc, -xc
-            verts += [cx + x_in, y, 0.0, 0.0,
-                      cx + x_out, y, 0.0, 0.0]
+            # Coordonnees d'image : le disque entier occupe l'image entiere.
+            # La phase DECOUPE donc l'image au lieu de la deformer -- un
+            # croissant montre bien le bord de la vraie lune. Sans image,
+            # Kivy ignore ces valeurs : rien ne change.
+            v = 0.5 + (y - cy) / (2.0 * r)
+            verts += [cx + x_in, y, 0.5 + x_in / (2.0 * r), v,
+                      cx + x_out, y, 0.5 + x_out / (2.0 * r), v]
         self._moon.vertices = verts
 
     def _start_shooting_star(self):

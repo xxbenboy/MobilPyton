@@ -16,6 +16,7 @@ from kivy.graphics import Color, Rectangle
 
 from src import world
 from src.widgets.animated_background import AnimatedBackground, night_darkness
+from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.minimap import MiniMap
 from src.widgets.styled_button import StyledButton
@@ -122,8 +123,12 @@ class MapScreen(Screen):
         )
         self.background.set_seconds(state.time_seconds)
         self.background.set_weather(state.effective_weather())
-        # Voile de nuit synchronise sur l'heure (alpha 0 le jour, max nuit).
+        self.scenery.set_wind(state.effective_weather())
+        # Le voile de nuit prend AUSSI la teinte de l'heure, et le decor
+        # suit le soleil (couleur de la lumiere, ombres portees).
+        self._night_color.rgb = daylight.veil_color(state.time_seconds)
         self._night_color.a = night_darkness(state.time_seconds)
+        self.scenery.set_daylight(state.time_seconds)
         # Fond = vue VERS LE BAS du sol de la zone (on regarde la carte/le sol).
         key = (zone, state.player_x, state.player_y)
         if key != self._scene_key:

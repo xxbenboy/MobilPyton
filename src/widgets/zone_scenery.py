@@ -10,6 +10,12 @@ seulement une bande en bas. On voit donc :
 
 `set_scene(zone_type, seed)` change la scene. Redessine seulement quand la zone
 change (pas a chaque frame).
+
+`set_daylight(secondes)` fait suivre l'HEURE a la scene : couleur de la
+lumiere et ombres portees. Il ne redessine RIEN -- il ne fait que retoucher
+deux uniformes du shader et repositionner les ombres deja en place. C'est ce
+qui permet au decor de vivre au fil de la journee sans reconstruire ses
+centaines de formes a chaque minute.
 """
 import math
 import random
@@ -20,7 +26,7 @@ from kivy.graphics import (Color, Ellipse, Rectangle, Triangle, Line, Quad,
                            Mesh, RenderContext, PushMatrix, PopMatrix, Rotate)
 
 from src import world
-from src.widgets import textures, pbr
+from src.widgets import textures, pbr, foliage, daylight
 from src.widgets.textures import paint, paint_color, tiled_coords
 from src.widgets.installed_layer import grid_to_screen
 
@@ -50,6 +56,57 @@ _FLAME_TONGUES = ((-0.20, 0.62, (0.90, 0.32, 0.07, 1)),
 # Cadence de l'animation du feu. 30 images/s suffisent largement pour un
 # vacillement credible, et c'est deux fois moins de travail que 60.
 _FLAME_FPS = 30.0
+
+# --- BALANCEMENT DE LA VEGETATION ----------------------------------------- #
+# Une scene compte jusqu'a 130 touffes d'herbe de 5 brins : les animer toutes
+# ferait 650 formes a repositionner par image, bien trop pour un telephone.
+# On n'anime donc que les touffes du PREMIER PLAN (les plus grandes, celles
+# qu'on regarde), et a cadence reduite : le reste est immobile et personne ne
+# le remarque, parce que le regard suit ce qui bouge devant.
+SWAY = True
+_SWAY_MAX = 30          # nombre de brins animes au plus
+_SWAY_FPS = 15.0        # images par seconde du balancement
+# Amplitude du balancement, en fraction de la HAUTEUR du brin (a vent 1.0) :
+# un brin haut se courbe donc plus qu'un brin ras, comme en vrai.
+_SWAY_AMPLITUDE = 0.06
+# Inclinaison PERMANENTE dans le sens du vent : l'herbe ne revient jamais tout
+# a fait droite tant qu'il souffle, elle oscille autour d'une position penchee.
+_SWAY_BIAS = 0.35
+
+# Force du vent par meteo : le decor se courbe quand il souffle.
+_WIND = {"clair": 0.55, "nuageux": 0.9, "pluie": 1.5, "neige": 1.0,
+         "orage": 2.6, "blizzard": 3.0}
+_WIND_DEFAULT = 0.8
+
+# Ombre portee : aplatissement de l'ellipse (x la largeur de l'objet).
+_SHADOW_FLAT = 0.30
+
+# Fleurs de plaine : couleur de repli ET image correspondante. On tire la
+# PAIRE d'un coup : sans cela, une fleur tiree "jaune" pouvait se voir poser
+# l'image d'une fleur rouge.
+_FLOWERS = (((1.00, 1.00, 0.92, 1), "flower_white"),
+            ((0.96, 0.85, 0.28, 1), "flower_yellow"),
+            ((0.92, 0.42, 0.52, 1), "flower_red"),
+            ((0.72, 0.52, 0.92, 1), "flower_purple"),
+            ((0.46, 0.58, 0.94, 1), "flower_blue"))
+
+# Image du decor propre a chaque zone : une pierre de foret est moussue, une
+# pierre de montagne est nue. Le decor pioche ici plutot que de coder le nom
+# en dur a chaque appel.
+_ZONE_SPRITES = {
+    "Foret":    {"stone": "stone_forest", "branch": "branch_forest",
+                 "bush": "bush_forest", "plant": "fern",
+                 "mushroom": "mushroom_forest"},
+    "Plaine":   {"stone": "stone_plain", "branch": "branch_plain",
+                 "bush": "bush_plain", "plant": "plant_leafy",
+                 "mushroom": "mushroom_forest"},
+    "Montagne": {"stone": "stone_mountain", "branch": "branch_plain",
+                 "bush": "bush_plain", "plant": "plant_leafy",
+                 "mushroom": "mushroom_forest"},
+    "Lac":      {"stone": "pebble", "branch": "branch_plain",
+                 "bush": "bush_plain", "plant": "plant_leafy",
+                 "mushroom": "mushroom_forest"},
+}
 
 
 class ZoneScenery(Widget):
@@ -88,15 +145,75 @@ class ZoneScenery(Widget):
         self._flames = []
         self._flame_ev = None
         self._flame_t = 0.0
-        # Eclairage par cartes de normales : actif seulement si des cartes
-        # Normal existent (sinon canvas normal, aucun risque, rendu inchange).
-        self._pbr = pbr.LIGHTING and textures.has_any_normal()
+        # Heure de la scene (midi par defaut) : commande la couleur de la
+        # lumiere et la direction des ombres.
+        self._seconds = 12 * 3600.0
+        # Ombres portees deja dessinees : on les DEPLACE quand le soleil
+        # tourne, au lieu de reconstruire la scene.
+        self._shadows = []
+        # Touffes animees par le vent + leur horloge (voir SWAY).
+        self._sway = []
+        self._sway_ev = None
+        self._sway_t = 0.0
+        self._wind = _WIND_DEFAULT
+        # Eclairage par shader. Il est desormais installe DES QUE l'eclairage
+        # est actif, et non plus seulement quand des cartes de normales
+        # existent : c'est lui qui porte aussi la COULEUR de la lumiere (doree
+        # le matin, orange au couchant, bleue la nuit), qui doit fonctionner
+        # meme sans aucune texture. Sans carte Normal, les cartes neutres
+        # rendent le relief exactement nul : le rendu reste celui d'avant.
+        self._pbr = pbr.LIGHTING
         if self._pbr:
             self.canvas = RenderContext(use_parent_projection=True,
                                         use_parent_modelview=True,
                                         use_parent_frag_modelview=True)
             pbr.setup(self.canvas)
         self.bind(pos=self._redraw, size=self._redraw)
+
+    # -- heure du jour : lumiere et ombres ------------------------------- #
+    def set_daylight(self, seconds):
+        """Cale la scene sur l'heure : couleur de la lumiere et ombres.
+
+        Aucune forme n'est recreee : on retouche les uniformes du shader et on
+        replace les ombres existantes. Appelable a chaque rafraichissement sans
+        crainte."""
+        self._seconds = float(seconds)
+        self._apply_light()
+        off, length, alpha = daylight.shadow(self._seconds)
+        for sh in self._shadows:
+            self._place_shadow(sh, off, length, alpha)
+
+    def set_wind(self, kind):
+        """Force du vent, d'apres la meteo : le decor se courbe davantage."""
+        self._wind = _WIND.get(kind, _WIND_DEFAULT)
+
+    def _apply_light(self):
+        if self._pbr:
+            pbr.set_light(self.canvas, daylight.light_dir(self._seconds),
+                          daylight.light_tint(self._seconds))
+
+    def _place_shadow(self, sh, off, length, alpha):
+        """Etire et decale une ombre selon la position de l'astre."""
+        w = sh["w"] * length
+        h = sh["w"] * _SHADOW_FLAT
+        cx = sh["cx"] + off * sh["w"]
+        sh["e"].pos = (cx - w / 2.0, sh["y"] - h / 2.0)
+        sh["e"].size = (w, h)
+        sh["c"].a = alpha * sh["k"]
+
+    def _shadow(self, cx, base, width, opacity=1.0):
+        """Ombre portee au sol, orientee par l'heure.
+
+        A appeler DANS un bloc `with canvas`, AVANT l'element lui-meme. Avant,
+        chaque element ecrivait son ombre en dur, toujours au meme endroit et
+        a la meme opacite : a midi comme au couchant, toutes les ombres
+        tombaient du meme cote. Elles sont desormais enregistrees ici et
+        suivent le soleil (voir set_daylight)."""
+        off, length, alpha = daylight.shadow(self._seconds)
+        sh = {"c": Color(0, 0, 0, 0), "e": Ellipse(),
+              "cx": cx, "y": base, "w": float(width), "k": opacity}
+        self._shadows.append(sh)
+        self._place_shadow(sh, off, length, alpha)
 
     # -- liaison des cartes PBR (normal/packed) pour une surface ---------- #
     def _bind_pbr(self, name):
@@ -333,6 +450,71 @@ class ZoneScenery(Widget):
         for fl in self._flames:
             self._shape_flame(fl, self._flame_t)
 
+    # -- balancement de la vegetation ----------------------------------- #
+    def _keep_tallest_sway(self):
+        """Ne garde que les touffes du PREMIER PLAN pour l'animation.
+
+        Les autres restent dessinees, simplement immobiles : on lache juste
+        leurs references. C'est ce qui garde le cout du vent constant, que la
+        scene compte dix touffes ou cent trente."""
+        if len(self._sway) > _SWAY_MAX:
+            self._sway.sort(key=lambda bl: bl["h"], reverse=True)
+            del self._sway[_SWAY_MAX:]
+
+    def _sync_sway_clock(self):
+        """L'horloge du vent ne tourne que s'il y a quelque chose a balancer."""
+        self._keep_tallest_sway()
+        if self._sway and self._sway_ev is None:
+            self._sway_ev = Clock.schedule_interval(self._tick_sway,
+                                                    1.0 / _SWAY_FPS)
+        elif not self._sway and self._sway_ev is not None:
+            self._sway_ev.cancel()
+            self._sway_ev = None
+
+    def _tick_sway(self, dt):
+        """Courbe la pointe de chaque brin. La BASE ne bouge pas : un brin
+        d'herbe plie, il ne glisse pas sur le sol."""
+        # Chaque ecran a son propre decor, mais un seul est AFFICHE : inutile
+        # de faire onduler l'herbe des quatre autres, que personne ne voit.
+        if self.get_root_window() is None:
+            return
+        self._sway_t += dt
+        push = _SWAY_AMPLITUDE * self._wind
+        for bl in self._sway:
+            t = self._sway_t * bl["speed"] + bl["phase"]
+            wave = _SWAY_BIAS + math.sin(t) + 0.35 * math.sin(t * 2.3 + 1.1)
+            dx = wave * push * bl["h"]
+            bl["tri"].points = [bl["x0"], bl["y"], bl["x1"], bl["y"],
+                                bl["tipx"] + dx, bl["tipy"]]
+
+    # -- image du decor (si elle a ete fournie) -------------------------- #
+    def _zs(self, key):
+        """Nom de l'image de cet element pour la ZONE en cours."""
+        return _ZONE_SPRITES.get(self._zone,
+                                 _ZONE_SPRITES["Foret"]).get(key)
+
+    def _sprite(self, name, cx, base, height):
+        """Dessine l'IMAGE de cet element, posee par son BAS sur (cx, base).
+
+        Renvoie Vrai si une image existait et a ete dessinee ; Faux si aucune
+        image n'a ete fournie, auquel cas l'appelant garde son dessin
+        geometrique d'origine. C'est ce qui rend les images facultatives : le
+        jeu tourne a l'identique sans elles, et s'habille au fur et a mesure
+        qu'on en depose.
+
+        La VARIANTE est deduite de la position : deux elements voisins ne
+        prennent pas la meme image, et un element garde la sienne quand la
+        scene est redessinee."""
+        if not name:
+            return False
+        tex = foliage.sprite(name, int(abs(cx) * 7.13 + abs(base) * 3.71))
+        if tex is None:
+            return False
+        w, h = foliage.size_for(tex, height)
+        Color(1, 1, 1, 1)
+        Rectangle(pos=(cx - w / 2.0, base), size=(w, h), texture=tex)
+        return True
+
     def set_ground(self, zone_type, seed=0):
         """Vue VERS LE BAS : on regarde le sol, qui remplit tout l'ecran."""
         self._zone = zone_type
@@ -347,8 +529,12 @@ class ZoneScenery(Widget):
             return
         # Les anciennes instructions de flamme viennent d'etre effacees avec
         # le canvas : on repart d'une liste vide (elle sera remplie par
-        # _fire_pit pour chaque foyer allume de la scene).
+        # _fire_pit pour chaque foyer allume de la scene). Idem pour les
+        # ombres portees et les touffes balancees par le vent, qui gardent des
+        # references vers des instructions qui n'existent plus.
         self._flames = []
+        self._shadows = []
+        self._sway = []
         # Reinitialise le comptage des objets recoltables pour cette passe.
         self._ord = {}
         self._harvest_total = {}
@@ -373,7 +559,9 @@ class ZoneScenery(Widget):
         self.harvest_total = dict(self._harvest_total)
         self.harvest_max = {n: min(self._avail_for(n), t)
                             for n, t in self.harvest_total.items() if t > 0}
+        self._apply_light()
         self._sync_flame_clock()
+        self._sync_sway_clock()
 
     # -- helpers textures (surface plane texturee, sinon couleur de repli) - #
     def _trect(self, name, x, y, w, h, tile_px=None):
@@ -422,6 +610,8 @@ class ZoneScenery(Widget):
                 gx = x0 + rng.uniform(0, 1) * w
                 gy = y0 + rng.uniform(0, 1) * h
                 r = rng.uniform(0.03, 0.06) * h
+                if self._sprite("lily_pad", gx, gy - r * 0.8, r * 1.6):
+                    continue
                 Color(0.16, 0.40, 0.20, 1)
                 Ellipse(pos=(gx - r, gy - r * 0.8), size=(r * 2, r * 1.6))
             return
@@ -461,13 +651,14 @@ class ZoneScenery(Widget):
                                  rng.choice(greens), scale=0.8)
             for _ in range(rng.randint(8, 14)):        # petites pierres
                 gx, gy = rnd()
-                self._stone(gx, gy, rng.uniform(0.015, 0.035) * h)
+                self._stone(gx, gy, rng.uniform(0.015, 0.035) * h,
+                            sprite=self._zs("stone"))
             for _ in range(rng.randint(5, 9)):          # fleurs (peu nombreuses)
                 gx, gy = rnd()
-                col = rng.choice([(1, 1, 0.9, 1), (0.96, 0.85, 0.28, 1),
-                                  (0.9, 0.45, 0.55, 1), (0.72, 0.52, 0.92, 1)])
+                col, fsprite = rng.choice(_FLOWERS)
                 r = rng.uniform(0.018, 0.032) * h
-                self._flower(gx, gy, r, col, petals=rng.choice((5, 6)))
+                self._flower(gx, gy, r, col, petals=rng.choice((5, 6)),
+                             sprite=fsprite)
         elif zone == "Foret":
             leaves = [(0.45, 0.32, 0.14, 1), (0.36, 0.40, 0.16, 1),
                       (0.52, 0.38, 0.18, 1), (0.30, 0.26, 0.12, 1)]
@@ -477,25 +668,32 @@ class ZoneScenery(Widget):
                            rng.choice(leaves))
             for _ in range(rng.randint(10, 16)):       # brindilles
                 gx, gy = rnd()
-                self._branch(gx, gy, rng.uniform(0.05, 0.10) * w)
+                self._branch(gx, gy, rng.uniform(0.05, 0.10) * w,
+                             sprite=self._zs("branch"))
             for _ in range(45):                        # touffes sombres
                 gx, gy = rnd()
                 self._grass_tuft(gx, gy, rng.uniform(0.03, 0.07) * h,
                                  (0.12, 0.22, 0.13, 1), scale=0.7)
             for _ in range(rng.randint(8, 14)):        # pierres mousseuses
                 gx, gy = rnd()
-                self._stone(gx, gy, rng.uniform(0.02, 0.045) * h)
+                self._stone(gx, gy, rng.uniform(0.02, 0.045) * h,
+                            sprite=self._zs("stone"))
         else:                                          # Montagne (rocaille)
             for _ in range(rng.randint(45, 65)):       # rochers / galets
                 gx, gy = rnd()
-                self._stone(gx, gy, rng.uniform(0.02, 0.06) * h)
+                self._stone(gx, gy, rng.uniform(0.02, 0.06) * h,
+                            sprite=self._zs("stone"))
             for _ in range(rng.randint(8, 14)):        # touffes rares
                 gx, gy = rnd()
                 self._grass_tuft(gx, gy, rng.uniform(0.03, 0.06) * h,
                                  (0.22, 0.34, 0.16, 1), scale=0.7)
 
     # -- helpers -------------------------------------------------------- #
-    def _pine(self, cx, base, tw, th, color):
+    def _pine(self, cx, base, tw, th, color, shadow=True):
+        if shadow:
+            self._shadow(cx, base, tw * 0.9)
+        if self._sprite("pine_tree", cx, base, th):
+            return
         tex = paint_color("foliage", color)
         self._bind_pbr("foliage")
         Triangle(points=[cx - tw / 2, base, cx + tw / 2, base,
@@ -505,7 +703,9 @@ class ZoneScenery(Widget):
                  texture=tex)
         self._reset_pbr()
 
-    def _grass_tuft(self, cx, base, height, color, scale=1.0):
+    def _grass_tuft(self, cx, base, height, color, scale=1.0, sprite=None):
+        if self._sprite(sprite, cx, base, height * 1.15):
+            return
         bw = max(1.2, self.width * 0.0035 * scale)
         r, g, b, a = color
         # 5 brins fins en eventail, longueurs/inclinaisons/teintes variees.
@@ -514,15 +714,24 @@ class ZoneScenery(Widget):
                                (1.3, 0.70, 0.60)):
             bx = cx + off * bw
             tipx = bx + lean * bw * 2.4
+            tipy = base + height * hsc
             sh = 0.88 + 0.24 * ((off + 1.3) / 2.6)        # nuance par brin
             Color(min(1.0, r * sh), min(1.0, g * sh), min(1.0, b * sh), a)
-            Triangle(points=[bx - bw, base, bx + bw, base,
-                             tipx, base + height * hsc])
+            tri = Triangle(points=[bx - bw, base, bx + bw, base, tipx, tipy])
+            if SWAY:
+                # Chaque brin garde sa propre allure et son propre depart : une
+                # touffe qui ondulerait d'un seul bloc ferait carton-pate.
+                self._sway.append({
+                    "tri": tri, "x0": bx - bw, "x1": bx + bw, "y": base,
+                    "tipx": tipx, "tipy": tipy, "h": height * hsc,
+                    "speed": 1.5 + 0.55 * hsc + 0.3 * off,
+                    "phase": (cx * 0.11 + base * 0.07 + off * 1.9) % 6.28})
 
-    def _bush(self, cx, cy, r, color):
+    def _bush(self, cx, cy, r, color, sprite=None):
         cr, cg, cb, ca = color
-        Color(0, 0, 0, 0.16)                              # ombre au sol
-        Ellipse(pos=(cx - r * 1.3, cy - r * 0.4), size=(r * 2.6, r * 0.6))
+        self._shadow(cx, cy - r * 0.1, r * 2.6)           # ombre au sol
+        if self._sprite(sprite, cx, cy - r * 0.35, r * 2.1):
+            return
         self._bind_pbr("foliage")
         dtex = paint_color("foliage", (cr * 0.7, cg * 0.7, cb * 0.7, 1))  # masse sombre
         Ellipse(pos=(cx - r * 1.4, cy - r * 0.3), size=(r * 1.3, r * 1.0), texture=dtex)
@@ -534,26 +743,24 @@ class ZoneScenery(Widget):
         Ellipse(pos=(cx + r * 0.2, cy), size=(r * 1.1, r * 0.8), texture=ltex)
         self._reset_pbr()
 
-    def _tree(self, cx, base, th, leaf, trunk):
-        tw = max(2.0, self.width * 0.006)
-        btex = paint_color("bark", trunk)
-        self._bind_pbr("bark")
-        Rectangle(pos=(cx - tw / 2, base), size=(tw, th * 0.5), texture=btex)
-        self._reset_pbr()
-        ftex = paint_color("foliage", leaf)
-        self._bind_pbr("foliage")
-        r = th * 0.35
-        Ellipse(pos=(cx - r, base + th * 0.32), size=(r * 2, r * 2), texture=ftex)
-        self._reset_pbr()
-
     # -- scenes (plein cadre) ------------------------------------------- #
     def _leaf(self, cx, cy, size, color):
-        """Feuille morte au sol (litiere)."""
+        """Feuille morte au sol (litiere). Posee a plat : aucune ombre."""
+        if self._sprite("leaf_litter", cx, cy - size * 0.4, size * 0.8):
+            return
         Color(*color)
         Ellipse(pos=(cx - size, cy - size * 0.4), size=(size * 2, size * 0.8))
 
-    def _forest_tree(self, cx, base, th, scale):
-        """Arbre feuillu : tronc conique + amas de feuillage sombre."""
+    def _forest_tree(self, cx, base, th, scale, shadow=True):
+        """Arbre feuillu : tronc conique + amas de feuillage sombre.
+
+        `shadow` est coupe pour la ligne d'arbres de l'HORIZON : une ombre
+        portee n'a pas de sens a cette distance, et il y en aurait une
+        trentaine a replacer a chaque mouvement du soleil pour rien."""
+        if shadow:
+            self._shadow(cx, base, th * 0.45)
+        if self._sprite("forest_tree", cx, base, th):
+            return
         tw = max(2.0, self.width * 0.012 * scale)
         btex = paint_color("bark", (0.28, 0.19, 0.11, 1))
         self._bind_pbr("bark")
@@ -622,14 +829,6 @@ class ZoneScenery(Widget):
         def f_grass(gx, gb, gh, col, sc):
             return lambda: self._grass_tuft(gx, gb, gh, col, scale=sc)
 
-        def f_insect(ix, iy, sz, is_b, col):
-            def fn():
-                if is_b:
-                    self._butterfly(ix, iy, sz, col)
-                else:
-                    self._bee(ix, iy, sz)
-            return fn
-
         items = []   # (y_base, fonction) -> tri par profondeur
 
         # Litiere de feuilles mortes (beaucoup, en plaques). [recoltable: Feuille]
@@ -647,14 +846,16 @@ class ZoneScenery(Widget):
             r = rng.uniform(0.02, 0.05) * h * sc
             if not self._take_or_skip("Pierre") and not self._is_blocked(sx, sy):
                 items.append((sy, lambda sx=sx, sy=sy, r=r:
-                              self._stone(sx, sy, r)))
+                              self._stone(sx, sy, r,
+                                          sprite=self._zs("stone"))))
         # Branches au sol. [recoltable: Small_Stick]
         for _ in range(rng.randint(7, 11)):
             bx, by, sc, t = place(1.0, floor=_HARVEST_FLOOR)
             ln = rng.uniform(0.06, 0.13) * w * sc
             if not self._take_or_skip("Small_Stick") and not self._is_blocked(bx, by):
                 items.append((by - 0.12 * h, lambda bx=bx, by=by, ln=ln:
-                              self._branch(bx, by, ln)))
+                              self._branch(bx, by, ln,
+                                           sprite=self._zs("branch"))))
         # Herbe de sous-bois (sombre), en touffes (dense).
         for _ in range(130):
             fx = grass_pick() if rng.random() < 0.72 else None
@@ -669,7 +870,8 @@ class ZoneScenery(Widget):
             s = rng.uniform(0.05, 0.10) * h * sc
             if self._is_blocked(px, py, py + s * 1.05):
                 continue
-            items.append((py, lambda px=px, py=py, s=s: self._plant(px, py, s)))
+            items.append((py, lambda px=px, py=py, s=s:
+                          self._plant(px, py, s, sprite=self._zs("plant"))))
         # (Les buissons de sous-bois sont desormais des GROS elements places
         #  sur la grille 5x5, voir plus bas.)
         # Champignons (uniquement bruns pour l'instant).
@@ -682,7 +884,8 @@ class ZoneScenery(Widget):
                 if (not self._take_or_skip("Brown_Mushroom")
                         and not self._is_blocked(mx, my)):
                     items.append((my, lambda mx=mx, my=my, s=s, cap=cap:
-                                  self._mushroom(mx, my, s, cap)))
+                                  self._mushroom(mx, my, s, cap,
+                                                 sprite=self._zs("mushroom"))))
         # Arbres + buissons PROCHES : GROS elements positionnes sur la GRILLE
         # 5x5 (les memes cases sont interdites a l'installation d'un objet :
         # impossible de mettre un feu de camp sous un arbre).
@@ -703,7 +906,8 @@ class ZoneScenery(Widget):
                 r = (0.13 - 0.06 * depth) * jit.uniform(0.85, 1.15) * h
                 items.append((tb, lambda bx=tx, by=tb, r=r, g2=g2:
                               self._bush(bx, by, r,
-                                         (0.06 + g2, 0.16 + g2, 0.09, 1))))
+                                         (0.06 + g2, 0.16 + g2, 0.09, 1),
+                                         sprite=self._zs("bush"))))
         # Ligne d'arbres DENSE a l'horizon (lointains et petits) : HORS grille
         # (au-dela de la zone d'installation), purement decorative.
         m = rng.randint(24, 32)
@@ -715,11 +919,12 @@ class ZoneScenery(Widget):
                 tw = rng.uniform(0.03, 0.06) * w
                 th = rng.uniform(0.12, 0.22) * h
                 items.append((tb, lambda tx=tx, tb=tb, tw=tw, th=th:
-                              self._pine(tx, tb, tw, th, (0.09, 0.17, 0.11, 1))))
+                              self._pine(tx, tb, tw, th, (0.09, 0.17, 0.11, 1),
+                                         shadow=False)))
             else:
                 th = rng.uniform(0.12, 0.20) * h
                 items.append((tb, lambda tx=tx, tb=tb, th=th:
-                              self._forest_tree(tx, tb, th, 0.4)))
+                              self._forest_tree(tx, tb, th, 0.4, shadow=False)))
         # (Les insectes sont desormais une couche ANIMEE separee : InsectLayer.)
 
         items += self._installed_items()     # feu de camp... a leur profondeur
@@ -728,10 +933,10 @@ class ZoneScenery(Widget):
             fn()
 
     # -- objets recoltables / insectes (details) ----------------------- #
-    def _mushroom(self, cx, base, size, cap):
-        Color(0, 0, 0, 0.16)                             # ombre au sol
-        Ellipse(pos=(cx - size * 0.7, base - size * 0.04),
-                size=(size * 1.4, size * 0.28))
+    def _mushroom(self, cx, base, size, cap, sprite=None):
+        self._shadow(cx, base + size * 0.10, size * 1.4)  # ombre au sol
+        if self._sprite(sprite, cx, base, size * 1.45):
+            return
         Color(0.92, 0.88, 0.78, 1)                       # tige
         Rectangle(pos=(cx - size * 0.18, base), size=(size * 0.36, size * 0.9))
         Color(0, 0, 0, 0.18)                             # ombre sous le chapeau
@@ -746,6 +951,9 @@ class ZoneScenery(Widget):
                     size=(size * 0.14, size * 0.14))
 
     def _berries(self, cx, cy, r):
+        self._shadow(cx, cy - r * 0.2, r * 2.2)
+        if self._sprite("berries_bush", cx, cy - r * 0.3, r * 2.0):
+            return
         Color(0.10, 0.28, 0.13, 1)                       # buisson
         for off in (-0.6, 0.0, 0.6):
             Ellipse(pos=(cx + off * r - r * 0.6, cy - r * 0.3),
@@ -761,53 +969,11 @@ class ZoneScenery(Widget):
         """Ellipse CENTREE sur (ex, ey)."""
         Ellipse(pos=(ex - w / 2, ey - hh / 2), size=(w, hh))
 
-    def _butterfly(self, cx, cy, size, color):
-        r, g, b, a = color
-        # 2 paires d'ailes (superieure grande + inferieure petite) par cote,
-        # avec un liisere sombre, la couleur, puis une tache claire (motif).
-        for sgn in (-1, 1):
-            ux = cx + sgn * size * 0.52
-            lx = cx + sgn * size * 0.44
-            Color(r * 0.5, g * 0.5, b * 0.5, a)                 # liisere sombre
-            self._ell_c(ux, cy + size * 0.20, size * 1.04, size * 1.18)
-            self._ell_c(lx, cy - size * 0.42, size * 0.82, size * 0.82)
-            Color(r, g, b, a)                                   # membrane coloree
-            self._ell_c(ux, cy + size * 0.20, size * 0.9, size * 1.02)
-            self._ell_c(lx, cy - size * 0.42, size * 0.68, size * 0.68)
-            Color(min(1, r + 0.32), min(1, g + 0.32), min(1, b + 0.32), a)
-            self._ell_c(cx + sgn * size * 0.66, cy + size * 0.34,
-                        size * 0.3, size * 0.34)               # tache claire
-        Color(0.12, 0.10, 0.10, 1)                              # corps
-        self._ell_c(cx, cy - size * 0.05, size * 0.18, size * 1.28)
-        self._ell_c(cx, cy + size * 0.58, size * 0.24, size * 0.32)   # tete
-        wd = max(1.0, size * 0.05)                              # antennes
-        Line(points=[cx, cy + size * 0.66, cx - size * 0.24, cy + size * 1.0],
-             width=wd)
-        Line(points=[cx, cy + size * 0.66, cx + size * 0.24, cy + size * 1.0],
-             width=wd)
-        self._ell_c(cx - size * 0.24, cy + size * 1.0, size * 0.1, size * 0.1)
-        self._ell_c(cx + size * 0.24, cy + size * 1.0, size * 0.1, size * 0.1)
-
-    def _bee(self, cx, cy, size):
-        Color(0, 0, 0, 0.14)                              # petite ombre
-        self._ell_c(cx, cy - size * 0.5, size * 1.2, size * 0.3)
-        Color(0.92, 0.95, 1.0, 0.55)                      # 2 ailes translucides
-        self._ell_c(cx - size * 0.16, cy + size * 0.4, size * 0.7, size * 0.46)
-        self._ell_c(cx + size * 0.16, cy + size * 0.4, size * 0.7, size * 0.46)
-        Color(0.96, 0.74, 0.12, 1)                        # corps dore (ovale)
-        self._ell_c(cx, cy, size * 1.32, size * 0.84)
-        Color(0.12, 0.10, 0.08, 1)                        # rayures noires
-        for dx, hsc in ((-0.30, 0.7), (0.02, 0.86), (0.34, 0.66)):
-            self._ell_c(cx + dx * size, cy, size * 0.16, size * 0.84 * hsc)
-        Color(0.16, 0.13, 0.10, 1)                        # tete
-        self._ell_c(cx - size * 0.64, cy, size * 0.36, size * 0.52)
-        Color(0.30, 0.26, 0.20, 1)                        # dard
-        Line(points=[cx + size * 0.66, cy, cx + size * 0.9, cy],
-             width=max(1.0, size * 0.05))
-
-    def _flower(self, cx, cy, size, color, petals=5):
+    def _flower(self, cx, cy, size, color, petals=5, sprite=None):
         """Fleur : petales allonges disposes en etoile + coeur, au lieu d'un
         simple rond. `size` ~ rayon de la fleur."""
+        if self._sprite(sprite, cx, cy - size * 0.6, size * 2.6):
+            return
         r, g, b, a = color
         pw = size * 0.62                                   # largeur d'un petale
         pl = size * 1.25                                   # longueur d'un petale
@@ -831,9 +997,10 @@ class ZoneScenery(Widget):
         for dx, dy in ((-0.12, 0.08), (0.12, 0.06), (0.0, -0.12)):
             self._ell_c(cx + dx * size, cy + dy * size, size * 0.12, size * 0.12)
 
-    def _stone(self, cx, cy, r):
-        Color(0, 0, 0, 0.18)                              # ombre portee
-        Ellipse(pos=(cx - r * 1.05, cy - r * 0.35), size=(r * 2.1, r * 0.6))
+    def _stone(self, cx, cy, r, sprite=None):
+        self._shadow(cx, cy - r * 0.05, r * 2.1)          # ombre portee
+        if self._sprite(sprite, cx, cy, r * 1.5):
+            return
         Color(0.30, 0.31, 0.34, 1)                        # bas sombre
         Ellipse(pos=(cx - r, cy), size=(r * 2, r * 1.25))
         Color(0.46, 0.47, 0.51, 1)                        # corps
@@ -844,8 +1011,10 @@ class ZoneScenery(Widget):
         Line(points=[cx - r * 0.3, cy + r * 0.2,
                      cx + r * 0.1, cy + r * 0.95], width=1.0)
 
-    def _branch(self, cx, cy, length):
+    def _branch(self, cx, cy, length, sprite=None):
         wdt = max(1.5, length * 0.07)
+        if self._sprite(sprite, cx, cy - wdt, length * 0.30):
+            return
         Color(0, 0, 0, 0.14)                              # ombre
         Line(points=[cx - length / 2, cy - wdt * 0.6,
                      cx + length / 2, cy - wdt * 0.6 + length * 0.08],
@@ -865,7 +1034,10 @@ class ZoneScenery(Widget):
                      cx + length * 0.42, cy + wdt * 0.3 + length * 0.08],
              width=max(1.0, wdt * 0.35))
 
-    def _plant(self, cx, base, size):
+    def _plant(self, cx, base, size, sprite=None):
+        self._shadow(cx, base, size * 1.1, opacity=0.7)
+        if self._sprite(sprite, cx, base, size * 1.05):
+            return
         Color(0.18, 0.36, 0.16, 1)                       # tige
         Rectangle(pos=(cx - size * 0.06, base), size=(size * 0.12, size * 0.8))
         Color(0.24, 0.46, 0.20, 1)                       # feuilles
@@ -878,6 +1050,8 @@ class ZoneScenery(Widget):
 
     def _hay(self, cx, base, height, scale):
         """Touffe de foin (graminees dorees)."""
+        if self._sprite("hay", cx, base, height):
+            return
         bw = max(1.5, self.width * 0.004 * scale)
         Color(0.74, 0.64, 0.30, 1)
         for off, sc in ((-1.5, 0.8), (-0.7, 1.0), (0.0, 0.9),
@@ -888,6 +1062,8 @@ class ZoneScenery(Widget):
 
     def _wheat(self, cx, base, height, scale):
         """Epi de cereale : tige + grains."""
+        if self._sprite("wheat", cx, base, height):
+            return
         Color(0.80, 0.70, 0.34, 1)
         Line(points=[cx, base, cx, base + height], width=max(1.0, 2.0 * scale))
         Color(0.87, 0.74, 0.34, 1)
@@ -971,27 +1147,18 @@ class ZoneScenery(Widget):
         hay_pick = clusters(rng.randint(2, 3), 0.10)
         wheat_pick = clusters(rng.randint(2, 3), 0.10)
 
-        flowers = [(1, 1, 0.92, 1), (0.96, 0.85, 0.28, 1),
-                   (0.92, 0.42, 0.52, 1), (0.72, 0.52, 0.92, 1)]
 
         # Collines : crete lointaine (clair) puis champ proche (fonce) ondules.
         self._fill_curve(horizon_curve, "grass_far")
         self._fill_curve(field_curve, "grass")
 
         # Petites fabriques de "fonctions de dessin" (pour differer le rendu).
-        def f_grass(gx, gb, gh, col, sc, fcol, fr):
+        def f_grass(gx, gb, gh, col, sc, flower, fr):
             def fn():
                 self._grass_tuft(gx, gb, gh, col, scale=sc)
-                if fcol:
-                    self._flower(gx, gb + gh, fr * 2.4, fcol)
-            return fn
-
-        def f_insect(ix, iy, sz, is_b, col):
-            def fn():
-                if is_b:
-                    self._butterfly(ix, iy, sz, col)
-                else:
-                    self._bee(ix, iy, sz)
+                if flower:
+                    fcol, fsprite = flower
+                    self._flower(gx, gb + gh, fr * 2.4, fcol, sprite=fsprite)
             return fn
 
         # On collecte chaque element avec sa PROFONDEUR (= y de sa base), puis
@@ -1004,7 +1171,8 @@ class ZoneScenery(Widget):
             r = rng.uniform(0.018, 0.045) * h * sc
             if not self._take_or_skip("Pierre") and not self._is_blocked(sx, sy):
                 items.append((sy, lambda sx=sx, sy=sy, r=r:
-                              self._stone(sx, sy, r)))
+                              self._stone(sx, sy, r,
+                                          sprite=self._zs("stone"))))
         for _ in range(rng.randint(6, 9)):             # branches [Small_Stick]
             bx, by, sc, t = place(1.0, floor=_HARVEST_FLOOR)
             ln = rng.uniform(0.06, 0.12) * w * sc
@@ -1013,7 +1181,8 @@ class ZoneScenery(Widget):
             # l'herbe nettement plus proche (plus bas) passe devant.
             if not self._take_or_skip("Small_Stick") and not self._is_blocked(bx, by):
                 items.append((by - 0.12 * h, lambda bx=bx, by=by, ln=ln:
-                              self._branch(bx, by, ln)))
+                              self._branch(bx, by, ln,
+                                           sprite=self._zs("branch"))))
         # Buissons (taille humaine) : GROS elements positionnes sur la GRILLE
         # 5x5 (cases interdites a l'installation d'un objet).
         for kind, depth, bx, by, jit in self._iter_nature_big():
@@ -1021,12 +1190,13 @@ class ZoneScenery(Widget):
             r = (0.17 - 0.09 * depth) * jit.uniform(0.85, 1.15) * h
             col = (0.12 + g, 0.30 + g, 0.15, 1)
             items.append((by, lambda bx=bx, by=by, r=r, col=col:
-                          self._bush(bx, by, r, col)))
+                          self._bush(bx, by, r, col,
+                                     sprite=self._zs("bush"))))
         for _ in range(105):                           # gazon (en touffes) [Herbe]
             fx = grass_pick() if rng.random() < 0.72 else None  # amas + un peu partout
             gx, gb, sc, t = place(fx=fx, floor=_HARVEST_FLOOR)
             gh = rng.uniform(0.05, 0.16) * h * sc
-            fcol = rng.choice(flowers) if rng.random() < 0.10 else None
+            fcol = rng.choice(_FLOWERS) if rng.random() < 0.10 else None
             fr = max(1.5, w * 0.004 * sc)
             if (not self._take_or_skip("Herbe")
                     and not self._is_blocked(gx, gb, gb + gh)):
@@ -1047,7 +1217,8 @@ class ZoneScenery(Widget):
             s = rng.uniform(0.05, 0.09) * h * sc
             if self._is_blocked(px, py, py + s * 1.05):
                 continue
-            items.append((py, lambda px=px, py=py, s=s: self._plant(px, py, s)))
+            items.append((py, lambda px=px, py=py, s=s:
+                          self._plant(px, py, s, sprite=self._zs("plant"))))
 
         # --- Plantes de champ OPTIONNELLES (tirage generatif) ---
         if rng.random() < 0.75:                        # foin (en parcelles)
@@ -1105,10 +1276,10 @@ class ZoneScenery(Widget):
             rr = rng.uniform(0.015, 0.05) * h
             s = rng.uniform(-0.06, 0.06)
             if not self._take_or_skip("Pierre") and not self._is_blocked(sx, sy):
-                Color(0.45 + s, 0.44 + s, 0.49 + s, 1)
-                Ellipse(pos=(sx - rr, sy), size=(rr * 2.2, rr * 1.5))
+                if not self._sprite(self._zs("stone"), sx, sy, rr * 1.5):
+                    Color(0.45 + s, 0.44 + s, 0.49 + s, 1)
+                    Ellipse(pos=(sx - rr, sy), size=(rr * 2.2, rr * 1.5))
         # Plaques de neige en haut de la pente.
-        Color(0.92, 0.95, 1.0, 1)
         for _ in range(8):
             fx = rng.uniform(0.4, 1.0)
             sx = x0 + fx * w
@@ -1116,7 +1287,9 @@ class ZoneScenery(Widget):
             rr = rng.uniform(0.02, 0.05) * h
             if self._is_blocked(sx, sy, sy + rr * 1.2):
                 continue
-            Ellipse(pos=(sx - rr, sy), size=(rr * 2.4, rr * 1.2))
+            if not self._sprite("snow_patch", sx, sy, rr * 1.2):
+                Color(0.92, 0.95, 1.0, 1)
+                Ellipse(pos=(sx - rr, sy), size=(rr * 2.4, rr * 1.2))
         # Touffes rares sur la pente basse.
         for _ in range(8):
             sx = x0 + rng.uniform(0, 1) * w
@@ -1140,6 +1313,9 @@ class ZoneScenery(Widget):
             fn()
 
     def _big_rock(self, rx, ry, rr):
+        self._shadow(rx, ry + rr * 0.15, rr * 2.4)
+        if self._sprite("boulder", rx, ry, rr * 1.8):
+            return
         Color(0.38, 0.37, 0.43, 1)
         Ellipse(pos=(rx - rr, ry), size=(rr * 2.4, rr * 1.8))
 
@@ -1182,11 +1358,15 @@ class ZoneScenery(Widget):
                     and not self._is_blocked(gx, gb, gb + gh)):
                 items.append((gb, lambda gx=gx, gb=gb, gh=gh:
                               self._grass_tuft(gx, gb, gh,
-                                               (0.18, 0.38, 0.20, 1))))
+                                               (0.18, 0.38, 0.20, 1),
+                                               sprite="reed")))
         items.sort(key=lambda it: it[0], reverse=True)
         for _, fn in items:
             fn()
 
     def _pebble(self, rx, ry, rr):
+        self._shadow(rx, ry + rr * 0.1, rr * 2.2, opacity=0.8)
+        if self._sprite("pebble", rx, ry, rr * 1.4):
+            return
         Color(0.42, 0.40, 0.32, 1)
         Ellipse(pos=(rx - rr, ry), size=(rr * 2.4, rr * 1.4))
