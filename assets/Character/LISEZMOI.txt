@@ -51,7 +51,7 @@ AU-DESSUS du HUD a la position des mains. Les valeurs par defaut
 
     HAND_FX = (0.346, 0.654)  -> X des centres des paumes gauche/droite
                                   (fraction de la LARGEUR du widget)
-    ITEM_FY = 0.185            -> Y du creux des paumes (fraction de la
+    ITEM_FY = 0.225            -> Y du creux des paumes (fraction de la
                                   HAUTEUR du widget depuis le bas)
 
 Si les nouvelles images placent les mains a un endroit different,
