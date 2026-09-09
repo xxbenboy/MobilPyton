@@ -57,6 +57,12 @@ CONSEILS IMPORTANTS
 ----------------------------------------------------------------
 - Repetition PROPRE : images CARREES en PUISSANCE DE 2 (256x256 ou 512x512),
   "seamless" (bords qui se raccordent). Important sur telephone.
+- 512 x 512 SUFFIT, et c'est la taille a viser. Une tuile d'herbe est
+  affichee sur ~448 px a l'ecran (voir TILE_PX dans textures.py) : une
+  image de 512 est deja plus fine que ce qu'on en voit. Passer a 1024
+  quadruple le poids de l'APK sans rien ajouter a l'image -- pour les 11
+  surfaces, 21 Mo contre 81 Mo. Si tu generes en 1024, envoie quand meme :
+  je reduis avant integration.
 - Les 3 cartes d'une meme surface doivent avoir LA MEME taille / le meme cadrage
   (elles se superposent pixel par pixel).
 - La carte Normal doit etre au format "OpenGL" classique (bleu dominant).
