@@ -49,6 +49,7 @@ from src.widgets.styled_button import StyledButton, TabButton
 from src.widgets.panels import panel
 from src.widgets.hand_slot import (hands_row, empty_slot,
                                    item_text)
+from src.widgets.item_grid import fill_ground
 from src.widgets.responsive import (scale_font, dh, fit_text,
                                     TEXT_NORMAL, SIDE_SHARE,
                                     center_share, ROW_TITLE, ROW_BODY,
@@ -897,35 +898,13 @@ class InventoryScreen(Screen):
             pos_hint={"center_x": 0.5, "y": 0.0}))
 
     def _fill_ground(self, state):
-        """Ce qui traine sur la case, comme dans le menu Craft.
+        """Ce qui traine sur la case. Meme colonne que dans le craft (widget
+        partage) : les deux ecrans ne peuvent plus la dessiner autrement.
 
-        Meme source, donc les deux listes ne peuvent pas diverger. Chaque
-        case se glisse vers la main, le sac ou le corps."""
-        self.ground_box.clear_widgets()
-        self._ground_cells = []
-        ground = state.ground_here()
-        self.near_title.text = ("A proximite" if not ground
-                                else f"A proximite ({sum(ground.values())})")
-        if not ground:
-            self.ground_box.add_widget(
-                _label("Rien au sol ici.", _DIM, halign="center",
-                       size_hint_y=None, height=dh(160)))
-            return
-        grid = GridLayout(cols=4, spacing=dp(3), size_hint_y=None)
-        grid.bind(minimum_height=grid.setter("height"))
-        for name, count in sorted(ground.items()):
-            cell = BoxLayout(orientation="vertical", size_hint_y=None,
-                             height=dh(_BAG_CELL_H))
-            cell.item = name
-            cell.count = count
-            self._ground_cells.append(cell)
-            cell.add_widget(ItemIcon(name, show_name=False))
-            cell.name_label = _label(
-                items.display_name(name) + (f" x{count}" if count > 1 else ""),
-                halign="center", size_hint_y=None, height=dh(_NAME_LABEL))
-            cell.add_widget(cell.name_label)
-            grid.add_widget(cell)
-        self.ground_box.add_widget(grid)
+        Ici seulement, chaque case sert de point de DEPART a un glisser vers
+        la main, le sac ou le corps."""
+        self._ground_cells = fill_ground(self.ground_box, self.near_title,
+                                         state)
 
     def _fill_bag(self, state):
         self.bag_box.clear_widgets()

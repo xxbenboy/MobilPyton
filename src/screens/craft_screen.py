@@ -31,6 +31,7 @@ from src.widgets.item_info import show_item_info, TappableIcon
 from src.widgets.styled_button import StyledButton, TabButton
 from src.widgets.panels import panel
 from src.widgets.hand_slot import hands_row, item_text
+from src.widgets.item_grid import fill_ground
 from src.widgets.responsive import (scale_font, dh, fit_text, TEXT_NORMAL,
                                     TEXT_TITLE, TEXT_SMALL, SIDE_SHARE,
                                     center_share, ROW_TITLE, ROW_BODY,
@@ -40,8 +41,6 @@ from src.widgets.menu_toggle import MenuToggle
 
 # Gris des textes secondaires, comme dans l'inventaire.
 _DIM = (0.62, 0.64, 0.70, 1)
-# Hauteur d'une case du sol : l'image et son nom, puis les deux boutons.
-_GROUND_CELL_H = 236
 _BAG_CELL_H = 170
 
 
@@ -237,37 +236,13 @@ class CraftScreen(Screen):
             slot.set_item(name, item_text(state, name))
 
     def _fill_ground(self, state):
-        """Ce qui traine sur la case. Meme source que l'inventaire
-        (state.ground_here()) : les deux listes ne peuvent pas diverger."""
-        self.ground_box.clear_widgets()
-        ground = state.ground_here()
-        self.near_title.text = ("A proximite" if not ground
-                                else f"A proximite ({sum(ground.values())})")
-        if not ground:
-            self.ground_box.add_widget(fit_text(Label(
-                text="Rien au sol ici.", color=_DIM, halign="center",
-                valign="middle", size_hint_y=None, height=dh(120)),
-                wrap=True))
-            return
-        for name, count in sorted(ground.items()):
-            cell = BoxLayout(orientation="vertical", spacing=dp(2),
-                             size_hint_y=None, height=dh(_GROUND_CELL_H))
-            cell.add_widget(TappableIcon(name, self._info, count=count))
-            # Deux boutons pour prendre en main. Desactives si la main visee
-            # est occupee, ou si l'objet ne se tient pas en main.
-            hand_ok = items.is_hand_collectable(name)
-            row = BoxLayout(orientation="horizontal", spacing=dp(3),
-                            size_hint_y=None, height=dh(56))
-            for hand_idx, text in ((0, "Main G"), (1, "Main D")):
-                take = StyledButton(text=text, bold=True)
-                take.bind(size=_btn_font)
-                take.disabled = ((state.hands[hand_idx] is not None)
-                                 or not hand_ok)
-                take.bind(on_release=lambda _w, n=name, h=hand_idx:
-                          self._take(n, h))
-                row.add_widget(take)
-            cell.add_widget(row)
-            self.ground_box.add_widget(cell)
+        """Ce qui traine sur la case, exactement comme dans l'inventaire.
+
+        Il y avait ici une liste haute, avec deux boutons "Main G" / "Main D"
+        par objet pour le ramasser. On prend desormais un objet en le
+        GLISSANT, dans l'inventaire : ces boutons faisaient double emploi, et
+        donnaient a la colonne une forme differente de celle d'a cote."""
+        fill_ground(self.ground_box, self.near_title, state)
 
     def _fill_bag(self, state):
         """Le sac a dos. Ses objets servent de matiere premiere tels quels :
@@ -382,11 +357,6 @@ class CraftScreen(Screen):
     def _info(self, name):
         """Ouvre la fiche de l'objet sur lequel on vient de taper."""
         show_item_info(self._root, name)
-
-    def _take(self, name, hand):
-        App.get_running_app().game_state.take_from_ground(name, hand)
-        App.get_running_app().autosave()
-        self.refresh()
 
     def _craft(self, recipe):
         App.get_running_app().game_state.do_craft(recipe)
