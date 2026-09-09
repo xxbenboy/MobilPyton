@@ -33,7 +33,7 @@ SUFFIX_NORMAL = "_R"   # Normal (relief)
 # Couleur de repli par surface (si pas de BaseColor). Colle au rendu actuel.
 FALLBACKS = {
     "grass":            (0.26, 0.42, 0.19, 1),
-    "grass_far":        (0.36, 0.50, 0.26, 1),
+    # grass_far n'est pas ici : il EMPRUNTE tout a grass (voir ALIAS).
     "forest_floor":     (0.12, 0.15, 0.09, 1),
     "forest_floor_far": (0.18, 0.22, 0.13, 1),
     "rock":             (0.42, 0.41, 0.46, 1),
@@ -51,12 +51,39 @@ FALLBACKS = {
 DEFAULT_TILE = 256
 TILE_PX = {
     "grass": 448,        # ~1.75x la taille de base (256)
-    "grass_far": 448,
 }
 
 
+# ------------------------------------------------------------------ #
+# SURFACES EMPRUNTEES
+# ------------------------------------------------------------------ #
+# Certaines surfaces montrent LA MEME MATIERE qu'une autre, juste plus loin.
+# La crete de l'horizon en plaine, c'est de l'herbe -- la meme. Lui donner ses
+# propres images reviendrait a payer deux fois le meme poids dans l'APK pour
+# afficher deux fois la meme chose, et surtout a les desynchroniser : le jour
+# ou l'on remplace grass_B.png, la crete garderait l'ancienne herbe.
+#
+# Une surface empruntee reprend donc les trois cartes de sa source, avec un
+# ASSOMBRISSEMENT : c'est ce qui la detache du champ juste devant, et ce qui
+# dit "ca, c'est plus loin". La valeur multiplie la couleur (1.0 = identique).
+#
+#    nom emprunteur : (nom source, assombrissement)
+ALIAS = {
+    "grass_far": ("grass", 0.82),
+}
+
+
+def _alias(name):
+    """(surface qui fournit les images, assombrissement a appliquer)."""
+    return ALIAS.get(name, (name, 1.0))
+
+
 def tile_for(name):
-    return TILE_PX.get(name, DEFAULT_TILE)
+    """Taille d'une repetition. Une surface empruntee prend celle de sa
+    source : c'est la MEME image, elle doit se repeter au meme rythme."""
+    if name in TILE_PX:
+        return TILE_PX[name]
+    return TILE_PX.get(_alias(name)[0], DEFAULT_TILE)
 
 
 _CACHE = {}      # chemin -> texture (ou None)
@@ -102,18 +129,29 @@ def _find(name, suffix=""):
 
 
 def base_texture(name):
-    """BaseColor : <nom>_B, ou ancien <nom> (compat), sinon None."""
-    return _find(name, SUFFIX_BASE) or _find(name, "")
+    """BaseColor : <nom>_B, ou ancien <nom> (compat), sinon None.
+
+    Une surface EMPRUNTEE (voir ALIAS) va chercher celle de sa source, mais
+    seulement si sa source en a une : deposer un vrai grass_far_B.png reste
+    possible et reprend la main."""
+    src = _alias(name)[0]
+    return (_find(name, SUFFIX_BASE) or _find(name, "")
+            or (_find(src, SUFFIX_BASE) or _find(src, "") if src != name
+                else None))
 
 
 def normal_texture(name):
-    """Carte de normales : <nom>_R, sinon None."""
-    return _find(name, SUFFIX_NORMAL)
+    """Carte de normales : <nom>_R, sinon celle de la source, sinon None."""
+    src = _alias(name)[0]
+    return _find(name, SUFFIX_NORMAL) or (_find(src, SUFFIX_NORMAL)
+                                          if src != name else None)
 
 
 def packed_texture(name):
-    """Carte packed : <nom>_P, sinon None."""
-    return _find(name, SUFFIX_PACKED)
+    """Carte packed : <nom>_P, sinon celle de la source, sinon None."""
+    src = _alias(name)[0]
+    return _find(name, SUFFIX_PACKED) or (_find(src, SUFFIX_PACKED)
+                                          if src != name else None)
 
 
 def has_any_normal():
@@ -125,6 +163,14 @@ def has_any_normal():
 
 
 def fallback(name):
+    """Couleur de repli. Une surface empruntee derive la sienne de sa source,
+    avec le meme assombrissement que sa texture : les deux chemins (avec ou
+    sans images) donnent ainsi le meme rapport clair/sombre."""
+    if name not in FALLBACKS:
+        src, k = _alias(name)
+        if src != name:
+            r, g, b, a = FALLBACKS.get(src, (0.5, 0.5, 0.5, 1))
+            return (r * k, g * k, b * k, a)
     return FALLBACKS.get(name, (0.5, 0.5, 0.5, 1))
 
 
@@ -132,14 +178,16 @@ def paint(name, alpha=1.0):
     """A appeler DANS un bloc `with canvas`. Pose la couleur de dessin et
     renvoie la BaseColor a passer a la forme (texture=...), ou None si absente.
 
-    - BaseColor presente -> Color(1,1,1,alpha) (la texture fournit la couleur).
+    - BaseColor presente -> Color(k,k,k,alpha), ou k est l'assombrissement de
+      la surface (1 = la texture fournit la couleur telle quelle).
     - Sinon              -> Color(couleur de repli) (avec alpha)."""
     tex = base_texture(name)
     if tex is None:
         r, g, b, a = fallback(name)
         Color(r, g, b, a * alpha)
     else:
-        Color(1, 1, 1, alpha)
+        k = _alias(name)[1]
+        Color(k, k, k, alpha)
     return tex
 
 
@@ -149,7 +197,8 @@ def paint_color(name, color):
     if tex is None:
         Color(*color)
     else:
-        Color(1, 1, 1, color[3] if len(color) > 3 else 1)
+        k = _alias(name)[1]
+        Color(k, k, k, color[3] if len(color) > 3 else 1)
     return tex
 
 

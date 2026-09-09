@@ -37,7 +37,15 @@ NOMS DE SURFACES (a combiner avec _B / _R / _P)
 ----------------------------------------------------------------
 Sols / terrain :
     grass              herbe proche (plaine, sol vu d'en haut)
-    grass_far          herbe lointaine (crete a l'horizon)
+    grass_far          RIEN A FOURNIR : la crete de l'horizon reprend
+                       automatiquement les images de grass, assombries.
+                       C'est la meme herbe, vue de plus loin -- lui donner ses
+                       propres images doublerait le poids pour rien, et les
+                       deux se desynchroniseraient a la premiere retouche.
+                       (Si tu veux VRAIMENT une herbe differente au loin,
+                       depose quand meme grass_far_B/_R/_P : elles reprennent
+                       la main. Reglage de l'assombrissement : ALIAS dans
+                       src/widgets/textures.py.)
     forest_floor       sol de foret proche
     forest_floor_far   sol de foret lointain
     rock               roche (pente de montagne)
