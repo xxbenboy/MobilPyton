@@ -92,3 +92,73 @@ def center_share():
     """Largeur des colonnes du CENTRE et de DROITE : elles se partagent a
     egalite tout ce que la colonne de gauche ne prend pas."""
     return (1.0 - SIDE_SHARE) / 2.0
+
+
+# --------------------------------------------------------------------- #
+# TAILLE DU TEXTE : une seule regle pour tout le jeu
+# --------------------------------------------------------------------- #
+# `scale_font` fait REMPLIR LA HAUTEUR de sa boite au texte. C'est ce qu'on
+# veut pour un titre ou un bouton, dont la hauteur EST la taille voulue. Mais
+# applique a un message pose dans une boite haute, il donnait une police
+# enorme, qui debordait de sa colonne et se faisait rogner.
+#
+# `fit_text` part au contraire d'une taille de REFERENCE commune, puis la
+# reduit tant que le texte ne tient pas. Trois limites, la plus petite gagne :
+# la reference, la hauteur disponible par ligne, et la largeur reelle du texte
+# une fois rendu. Deux libelles ecrits a la meme echelle sortent donc a la
+# meme taille d'un ecran a l'autre.
+
+# Taille de reference : la hauteur d'une ligne de liste (dh(70)), dont le
+# texte occupe 46 %. Toutes les echelles ci-dessous en partent.
+TEXT_REF = 70
+TEXT_BASE = 0.46
+
+# Echelles courantes, pour que les memes roles gardent la meme taille partout.
+TEXT_TITLE = 1.30      # nom d'un objet, en-tete
+TEXT_NORMAL = 1.00     # texte courant
+TEXT_SMALL = 0.80      # detail, precision
+
+# Marges : on ne remplit jamais la boite a ras bord.
+_H_ROOM = 0.90
+_W_ROOM = 0.96
+# Bornes de la reduction quand le texte est renvoye a la ligne.
+_WRAP_STEPS = 12
+_WRAP_FACTOR = 0.92
+
+
+def fit_text(widget, scale=TEXT_NORMAL, wrap=False, minimum=9):
+    """Ecrit `widget` a la plus grande taille qui TIENNE dans sa boite.
+
+    `wrap=True` : le texte est renvoye a la ligne dans la largeur, et c'est sa
+    hauteur totale qui commande. A utiliser pour les phrases ; sans cela, un
+    message un peu long serait reduit a un filet illisible pour tenir sur une
+    seule ligne."""
+    def _update(*_):
+        if widget.width <= 1 or widget.height <= 1:
+            return
+        target = dh(TEXT_REF) * TEXT_BASE * scale
+        if wrap:
+            widget.text_size = (widget.width * _W_ROOM, None)
+            widget.font_size = max(minimum, target)
+            widget.texture_update()
+            steps = 0
+            while (widget.texture_size[1] > widget.height * _H_ROOM
+                   and widget.font_size > minimum and steps < _WRAP_STEPS):
+                widget.font_size = max(minimum,
+                                       widget.font_size * _WRAP_FACTOR)
+                widget.texture_update()
+                steps += 1
+            return
+        lines = (widget.text or "").count("\n") + 1
+        target = min(target, widget.height * _H_ROOM / lines)
+        widget.text_size = (None, None)
+        widget.font_size = target
+        widget.texture_update()
+        if widget.texture_size[0] > widget.width * _W_ROOM:
+            target = target * widget.width * _W_ROOM / widget.texture_size[0]
+        widget.font_size = max(minimum, target)
+        widget.text_size = (widget.width, widget.height)
+
+    _update()
+    widget.bind(size=_update, text=_update)
+    return widget

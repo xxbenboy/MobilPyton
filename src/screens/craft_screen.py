@@ -31,7 +31,8 @@ from src.widgets.item_info import show_item_info, TappableIcon
 from src.widgets.durability_bar import DurabilityBar
 from src.widgets.styled_button import StyledButton, TabButton
 from src.widgets.panels import panel
-from src.widgets.responsive import (scale_font, dh, SIDE_SHARE,
+from src.widgets.responsive import (scale_font, dh, fit_text, TEXT_NORMAL,
+                                    TEXT_TITLE, TEXT_SMALL, SIDE_SHARE,
                                     center_share, ROW_TITLE, ROW_BODY,
                                     ROW_HANDS, ROW_HINT, ROW_BACK,
                                     COL_TITLE, COL_LIST)
@@ -55,19 +56,8 @@ def _btn_font(w, *_):
 
 
 def _recipe_text_font(w, *_):
-    """Police du texte d'une recette.
-
-    Le texte remplit une ligne haute de dh(70). Cette reference est
-    independante de la hauteur AGRANDIE de la rangee, sinon le texte
-    grossirait bien plus que voulu ; dh(70) est relu a chaque appel, donc le
-    texte suit le redimensionnement de la fenetre.
-
-    Il portait un facteur 1.5, cale du temps ou les recettes occupaient la
-    MOITIE de l'ecran. Elles tiennent maintenant dans une colonne de 37 % :
-    a la meme taille, le texte y etait enorme.
-    """
-    lines = (w.text or "").count("\n") + 1
-    w.font_size = max(10, dh(70) * 0.78 / lines)
+    """Texte d'une recette : la taille courante du jeu (voir fit_text)."""
+    fit_text(w, TEXT_NORMAL)
 
 
 def _fit_button_font(btn, *_):
@@ -88,24 +78,8 @@ def _fit_button_font(btn, *_):
 
 
 def _inv_label_font(w, *_):
-    """Police d'un libelle (nom de main...), reduite si besoin pour tenir sur
-    UNE seule ligne dans sa largeur -- sinon un libelle long deborde sur deux.
-
-    Comme pour les recettes, le facteur 1.5 d'origine datait de la mise en
-    page en deux moities et rendait le texte trop gros dans les colonnes
-    etroites d'aujourd'hui."""
-    if w.width <= 1:
-        return
-    target = dh(140) * 0.4
-    # Mesure la largeur naturelle du texte a la taille cible, sans contrainte.
-    w.text_size = (None, None)
-    w.font_size = target
-    w.texture_update()
-    if w.texture_size[0] > w.width:
-        target = target * w.width / w.texture_size[0]
-        w.font_size = max(10, target)
-    # Largeur figee -> alignement a gauche, centre verticalement, 1 ligne.
-    w.text_size = (w.width, w.height)
+    """Libelle d'une main : un cran au-dessus du texte courant."""
+    fit_text(w, TEXT_TITLE)
 
 
 class CraftScreen(Screen):
@@ -203,10 +177,10 @@ class CraftScreen(Screen):
                                    size_hint=(1, ROW_HANDS))
         col.add_widget(self.hands_row)
 
-        self.hint = scale_font(Label(
+        self.hint = fit_text(Label(
             text="Le sac compte comme matiere : pas besoin d'en sortir les "
                  "objets pour fabriquer.", color=_DIM, halign="center",
-            size_hint=(1, ROW_HINT)), 0.016)
+            valign="middle", size_hint=(1, ROW_HINT)), TEXT_SMALL, wrap=True)
         col.add_widget(self.hint)
 
         back = scale_font(StyledButton(text="Retour",
@@ -269,7 +243,6 @@ class CraftScreen(Screen):
             if item is None:
                 vide = Label(text=f"{titre}\nvide", halign="center",
                              valign="middle", color=_DIM)
-                vide.bind(size=_inv_label_font)
                 _inv_label_font(vide)
                 cell.add_widget(vide)
                 self.hands_row.add_widget(cell)
@@ -289,7 +262,6 @@ class CraftScreen(Screen):
                 cell.add_widget(box)
             lbl = Label(text=titre, halign="left", valign="middle",
                         size_hint_x=0.28, color=(0.96, 0.82, 0.45, 1))
-            lbl.bind(size=_inv_label_font)
             _inv_label_font(lbl)
             cell.add_widget(lbl)
             # Boutons empiles : la bande est basse et large, deux boutons
@@ -316,9 +288,10 @@ class CraftScreen(Screen):
         self.near_title.text = ("A proximite" if not ground
                                 else f"A proximite ({sum(ground.values())})")
         if not ground:
-            self.ground_box.add_widget(scale_font(Label(
+            self.ground_box.add_widget(fit_text(Label(
                 text="Rien au sol ici.", color=_DIM, halign="center",
-                size_hint_y=None, height=dh(160)), 0.018))
+                valign="middle", size_hint_y=None, height=dh(120)),
+                wrap=True))
             return
         for name, count in sorted(ground.items()):
             cell = BoxLayout(orientation="vertical", spacing=dp(2),
@@ -347,16 +320,18 @@ class CraftScreen(Screen):
         capacity = state.bag_capacity()
         if capacity <= 0:
             self.bag_title.text = "Sac a dos"
-            self.bag_box.add_widget(scale_font(Label(
-                text="Aucun sac a dos.\nTu ne transportes que ce que tu "
+            self.bag_box.add_widget(fit_text(Label(
+                text="Aucun sac a dos. Tu ne transportes que ce que tu "
                      "tiens dans tes mains.", color=_DIM, halign="center",
-                size_hint_y=None, height=dh(220)), 0.018))
+                valign="middle", size_hint_y=None, height=dh(170)),
+                wrap=True))
             return
         self.bag_title.text = f"Sac a dos ({len(state.bag)}/{capacity})"
         if not state.bag:
-            self.bag_box.add_widget(scale_font(Label(
+            self.bag_box.add_widget(fit_text(Label(
                 text="Sac vide.", color=_DIM, halign="center",
-                size_hint_y=None, height=dh(160)), 0.018))
+                valign="middle", size_hint_y=None, height=dh(120)),
+                wrap=True))
             return
         grid = GridLayout(cols=3, spacing=dp(3), size_hint_y=None)
         grid.bind(minimum_height=grid.setter("height"))
@@ -438,9 +413,6 @@ class CraftScreen(Screen):
             txt = Label(
                 text=f"[b]{items.display_name(recipe['result'])}[/b]\n{ing}",
                 markup=True, halign="left", valign="middle", size_hint_x=0.44)
-            txt.bind(size=lambda w, *_: (
-                setattr(w, "text_size", (w.width, w.height)),
-                _recipe_text_font(w)))
             _recipe_text_font(txt)
             row.add_widget(txt)
             btn = StyledButton(text="Fabriquer", size_hint_x=0.26)

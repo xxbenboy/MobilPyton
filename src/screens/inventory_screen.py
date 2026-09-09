@@ -47,7 +47,8 @@ from src.widgets.item_icon import ItemIcon
 from src.widgets.item_info import show_item_info
 from src.widgets.styled_button import StyledButton, TabButton
 from src.widgets.panels import panel
-from src.widgets.responsive import (scale_font, dh, SIDE_SHARE,
+from src.widgets.responsive import (scale_font, dh, fit_text,
+                                    TEXT_NORMAL, SIDE_SHARE,
                                     center_share, ROW_TITLE, ROW_BODY,
                                     ROW_HANDS, ROW_HINT, ROW_BACK,
                                     COL_TITLE, COL_LIST)
@@ -127,24 +128,11 @@ def _panel(widget, alpha=0.45):
 
 
 def _row_font(w, *_):
-    """Police d'une ligne d'inventaire, ramenee si le texte deborde.
+    """Ligne d'inventaire. `font_scale` ecrit un nom plus gros qu'un detail.
 
-    Le texte peut compter plusieurs lignes (un sac affiche son remplissage
-    sous son nom) : la police est donc d'abord limitee par la hauteur
-    DISPONIBLE PAR LIGNE, puis reduite encore si une ligne est trop large."""
-    if w.width <= 1 or w.height <= 1:
-        return
-    lines = (w.text or "").count("\n") + 1
-    # `font_scale` permet d'ecrire une ligne plus grosse (un nom) ou plus
-    # petite (un detail) que la taille courante de l'inventaire.
-    target = min(dh(70) * 0.46 * getattr(w, "font_scale", 1.0),
-                 w.height * 0.90 / lines)
-    w.text_size = (None, None)
-    w.font_size = target
-    w.texture_update()
-    if w.texture_size[0] > w.width:
-        w.font_size = max(9, target * w.width / w.texture_size[0])
-    w.text_size = (w.width, w.height)
+    Delegue a la regle commune (responsive.fit_text) : l'inventaire et le
+    craft ecrivent ainsi a la meme taille, au lieu de chacun la sienne."""
+    fit_text(w, TEXT_NORMAL * getattr(w, "font_scale", 1.0))
 
 
 def _hit(widget, touch):
@@ -249,7 +237,6 @@ def _label(text, color=(0.92, 0.92, 0.95, 1), halign="left", scale=1.0,
     lbl = Label(text=text, color=color, halign=halign, valign="middle",
                 **kwargs)
     lbl.font_scale = scale
-    lbl.bind(size=_row_font, text=_row_font)
     _row_font(lbl)
     return lbl
 
