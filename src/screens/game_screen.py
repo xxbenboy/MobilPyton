@@ -629,16 +629,14 @@ class GameScreen(Screen):
         if whole and not state.time_frozen:
             state.tick(whole)
             state.advance_survival(whole)   # faim/soif/sommeil/vie derivent
-        # Animation des mains pendant l'exploration : on alterne entre
-        # HandEx1 (1/3 debut), HandEx2 (1/3 milieu), HandEx1 (1/3 fin).
+        # FOUILLE : pendant l'exploration, les mains montent et descendent
+        # l'une apres l'autre. On transmet simplement l'AVANCEMENT de l'action
+        # (0 a 1) ; le dessin du mouvement appartient aux mains (searching.py).
         if self._ff_active and self._ff_label == "Explorer":
-            frac = 1.0 - (self._ff_remaining / max(0.01, self._ff_total))
-            if frac < 1.0 / 3.0 or frac >= 2.0 / 3.0:
-                self.hands.set_state('ex1')
-            else:
-                self.hands.set_state('ex2')
+            self.hands.set_search(
+                1.0 - (self._ff_remaining / max(0.01, self._ff_total)))
         else:
-            self.hands.set_state('haut')
+            self.hands.set_search(None)
         if self._ff_active and self._ff_remaining <= 0:
             self._finish_action()
         self.refresh()
@@ -1039,7 +1037,7 @@ class GameScreen(Screen):
         self._ff_tool = None
         self._ff_active = False
         self._ff_label = ""
-        self.hands.set_state('haut')
+        self.hands.set_search(None)
         # L'OUTIL s'use une fois le travail termine (et peut casser).
         if used_tool is not None:
             state = App.get_running_app().game_state

@@ -13,8 +13,10 @@ Une main vide n'etait auparavant pas dessinee du tout : on ne voyait ses
 mains qu'en portant quelque chose. Comme chaque image contient les deux
 mains, on n'en prend que la moitie utile (voir _draw_half).
 
-PENDANT UNE ACTION (exploration...), l'animation prend le dessus et montre
-les deux mains ensemble, quel que soit ce qu'elles tiennent.
+PENDANT L'EXPLORATION, les deux mains prennent la pose de FOUILLE et montent
+et descendent l'une apres l'autre. Ce va-et-vient n'est pas une suite
+d'images : une seule pose suffit, et le mouvement est calcule (searching.py).
+Chaque main a donc sa propre translation, imbriquee dans celle du souffle.
 
 Les objets tenus (set_items) sont dessines AU-DESSUS du HUD, aux
 positions correspondant aux mains dans l'image (HAND_FX / ITEM_FY).
@@ -27,7 +29,7 @@ from kivy.core.image import Image as CoreImage
 from kivy.graphics import Color, Rectangle, PushMatrix, PopMatrix, Translate
 
 from src import items
-from src.widgets import breathing
+from src.widgets import breathing, searching
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 CHARACTER_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", "assets",
@@ -38,17 +40,18 @@ CHARACTER_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", "assets",
 # les mains deja positionnees en bas. Le HUD est etire pour remplir
 # la totalite du widget.
 HUD_IMAGES = {
-    'haut': 'HandHUD.png',     # paume ouverte : une main qui TIENT un objet
-    'idle': 'HandIdle.png',    # main VIDE, au repos
-    'ex1': 'HandEx1.png',      # exploration : phases 1 et 3 (debut et fin)
-    'ex2': 'HandEx2.png',      # exploration : phase 2 (milieu)
+    'haut': 'HandHUD.png',      # paume ouverte : une main qui TIENT un objet
+    'idle': 'HandIdle.png',     # main VIDE, au repos
+    'search': 'HandSearch.png',  # exploration : les mains fouillent
 }
 
-# Etat de REPOS : le joueur ne fait rien de particulier. Les autres etats sont
-# des animations d'action.
+# Pose d'une main qui TIENT quelque chose (paume ouverte, l'objet s'y pose).
 REST_STATE = 'haut'
 # Pose d'une main vide au repos.
 IDLE_STATE = 'idle'
+# Pose de FOUILLE. Elle ne s'anime pas par une suite d'images : les deux mains
+# montent et descendent tour a tour, chacune de son cote (voir searching.py).
+SEARCH_STATE = 'search'
 
 # --------------------------------------------------------------------- #
 # GANTS : des mains qui changent d'apparence
@@ -91,9 +94,10 @@ def _hud_texture(state, glove=None):
     """HUD d'un etat, GANTE si le joueur porte des gants qui se voient.
 
     Le repli sur les mains nues n'est pas un filet de securite mais la
-    regle : seules les poses de REPOS ont une variante gantee. Les images
-    d'exploration n'en ont pas -- les gants disparaissent donc le temps de
-    l'animation, ce qui vaut mieux qu'une main manquante."""
+    regle : toute pose sans variante gantee reprend la main nue. Aujourd'hui
+    la pose de FOUILLE est dans ce cas -- les gants disparaissent donc le
+    temps de l'exploration, ce qui vaut mieux qu'une main manquante, et se
+    corrige en deposant un seul fichier (HandSearchFeuille.png)."""
     fname = HUD_IMAGES.get(state)
     if not fname:
         return None
@@ -140,6 +144,11 @@ BREATH_X = 0.0035
 # doublerait juste le travail. 30 suffisent largement.
 BREATH_FPS = 30.0
 
+# Amplitude de l'ALTERNANCE des mains pendant la fouille, en fraction de la
+# hauteur. Bien plus ample que le souffle : c'est un geste volontaire, il doit
+# se voir franchement, la ou le souffle doit seulement se sentir.
+SEARCH_Y = 0.035
+
 
 class PlayerHands(Widget):
     # x du centre de chaque main (gauche, droite) en fraction de la largeur
@@ -153,8 +162,12 @@ class PlayerHands(Widget):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         self._items = [None, None]      # objets tenus : [gauche, droite]
-        self._state = 'haut'             # etat par defaut
         self._glove = None               # gants portes (voir set_glove)
+        # Fouille : avancement de l'action (0 a 1), ou None au repos.
+        self._search = None
+        # Une translation PAR MAIN : c'est ce qui leur permet de monter et
+        # descendre CHACUNE DE SON COTE pendant la fouille.
+        self._half_shift = [None, None]
         # Souffle : l'horloge du temps qui passe, et les deux translations
         # qu'elle deplace (mains et objets tenus).
         self._breath_t = 0.0
@@ -205,12 +218,19 @@ class PlayerHands(Widget):
             self._breath_event.cancel()
             self._breath_event = None
 
-    def set_state(self, state):
-        """Change l'etat des mains (voir HUD_IMAGES). Redessine."""
-        if state == self._state:
-            return
-        self._state = state
-        self._redraw()
+    def set_search(self, progress):
+        """Fouille en cours : `progress` va de 0 a 1 sur la duree de l'action,
+        et vaut None hors exploration.
+
+        On ne redessine QUE si l'on entre dans la fouille ou si l'on en sort :
+        entre les deux, le mouvement n'est que deux nombres a changer (voir
+        _apply_search), appeles a chaque image du jeu."""
+        avant = self._search is not None
+        self._search = progress
+        if (progress is not None) != avant:
+            self._redraw()
+        else:
+            self._apply_search()
 
     # ---- Souffle ---------------------------------------------------------
 
@@ -231,6 +251,13 @@ class PlayerHands(Widget):
                 shift.x = ox
                 shift.y = oy
 
+    def _apply_search(self):
+        """Porte l'alternance du moment sur les deux mains."""
+        gauche, droite = searching.offset(self._search)
+        for shift, val in zip(self._half_shift, (gauche, droite)):
+            if shift is not None:
+                shift.y = val * self.height * SEARCH_Y
+
     # ---- Rendu -----------------------------------------------------------
 
     def _redraw(self, *_):
@@ -247,30 +274,22 @@ class PlayerHands(Widget):
         with self.canvas:
             PushMatrix()
             self._shift = Translate(0, 0, 0)
-        if self._state != REST_STATE:
-            # ANIMATION (exploration...) : les deux mains sont en action, on
-            # pose l'image entiere sans se soucier de ce qu'elles tiennent.
-            tex = _hud_texture(self._state, self._glove)
-            if tex is not None:
-                tw, th = max(1, tex.width), max(1, tex.height)
-                with self.canvas:
-                    Color(1, 1, 1, 1)
-                    Rectangle(texture=tex, pos=self.pos,
-                              size=(self.width, self.width * th / tw))
-        else:
-            # AU REPOS, chaque main a SA pose. Une main vide n'etait pas
-            # dessinee du tout : le joueur ne voyait ses mains qu'en portant
-            # quelque chose. Elle prend maintenant la pose de repos.
-            # La main qui TIENT garde la paume ouverte : c'est dans ce creux
-            # que l'objet est pose (voir HAND_FX / ITEM_FY), et il flotterait
-            # sur des doigts refermes.
-            for i in (0, 1):
-                self._draw_half(i, REST_STATE if self._items[i] is not None
-                                else IDLE_STATE)
+        # CHAQUE MAIN EST DESSINEE A PART, toujours -- au repos comme en
+        # fouille. Au repos, c'est parce que les deux mains n'ont pas la meme
+        # pose (celle qui tient garde la paume ouverte, l'autre se referme) ;
+        # en fouille, c'est ce qui leur permet de monter et descendre l'une
+        # apres l'autre.
+        for i in (0, 1):
+            if self._search is not None:
+                pose = SEARCH_STATE
+            else:
+                pose = REST_STATE if self._items[i] is not None else IDLE_STATE
+            self._draw_half(i, pose)
         with self.canvas:
             PopMatrix()
         self._draw_items()
         self._apply_breath()
+        self._apply_search()
 
     def _draw_half(self, index, state):
         """Dessine UNE main (0 = gauche, 1 = droite) dans la pose demandee.
@@ -278,6 +297,7 @@ class PlayerHands(Widget):
         Chaque image contient les deux mains : on n'en prend que la moitie
         correspondante, posee a sa place a l'ecran. L'echelle ne change pas,
         seule l'autre moitie est ecartee."""
+        self._half_shift[index] = None
         tex = _hud_texture(state, self._glove)
         if tex is None:
             return
@@ -287,10 +307,16 @@ class PlayerHands(Widget):
         total_h = total_w * th / tw
         sub = tex.get_region(index * half, 0, half, th)
         with self.canvas:
+            # Translation PROPRE a cette main, imbriquee dans celle du souffle
+            # (qui, elle, deplace tout ensemble). Les deux s'additionnent : la
+            # main fouille ET respire en meme temps.
+            PushMatrix()
+            self._half_shift[index] = Translate(0, 0, 0)
             Color(1, 1, 1, 1)
             Rectangle(texture=sub,
                       pos=(self.x + index * total_w / 2, self.y),
                       size=(total_w / 2, total_h))
+            PopMatrix()
 
     def _draw_items(self):
         """Dessine les objets tenus au-dessus du HUD."""
