@@ -199,13 +199,33 @@ def _glow_texture(inner):
     _GLOW_TEX[key] = tex
     return tex
 
-# SCINTILLEMENT du halo solaire : la lumiere qui tremble autour du soleil.
+# SCINTILLEMENT du halo solaire : la lumiere qui respire autour du soleil.
 #
 # Trois ondes de frequences sans rapport simple. Ici, contrairement au souffle
 # du joueur, le BATTEMENT est recherche : c'est lui qui fait qu'aucune pulsation
 # ne ressemble a la precedente. Un scintillement regulier se lirait comme un
 # clignotant.
-_GLOW_WAVES = ((0.83, 0.50), (1.47, 0.32), (2.31, 0.18))
+#
+# LES PERIODES SE COMPTENT EN DIZAINES DE SECONDES : 32, 19 et 12. Ce n'est pas
+# un reglage fin, c'est une question de nature. Ce qui scintille VITE, ce sont
+# les ETOILES -- des points que l'air fait trembler plusieurs fois par seconde.
+# Un halo est une grande surface de ciel : il ne tremble pas, il respire, au
+# rythme ou l'air lui-meme se deplace. Les premieres valeurs battaient a plus
+# de deux fois par seconde, et cela se lisait comme un clignotement.
+#
+# CES VALEURS SONT CALCULEES, PAS CHOISIES A VUE. Ce qui se voit n'est ni la
+# periode d'une onde ni l'amplitude, mais leur produit : la VITESSE a laquelle
+# la clarte change. Elle vaut GLOW_SHIMMER * 2*pi * somme(amplitude *
+# frequence), et on l'a fixee a 3 % par seconde -- le seuil sous lequel l'oeil
+# ne surprend plus le mouvement, il constate seulement que le ciel n'est pas
+# tout a fait fige. Les frequences en decoulent.
+#
+#   -> Si tu changes GLOW_SHIMMER, refais le calcul : doubler l'amplitude
+#      double la vitesse, et le clignotement revient.
+#
+# Effet de bord heureux : les trois ondes mettent d'autant plus longtemps a
+# se retrouver en phase, donc le motif ne se repete quasiment jamais.
+_GLOW_WAVES = ((0.031, 0.50), (0.0535, 0.32), (0.084, 0.18))
 
 # Le soleil DESSINE est plus grand que le soleil VU. Son image a le contour
 # fondu : elle est encore franche a mi-rayon, puis s'eteint vers 0,73 -- le
@@ -217,9 +237,10 @@ _GLOW_WAVES = ((0.83, 0.50), (1.47, 0.32), (2.31, 0.18))
 SUN_SPRITE_SCALE = 1.37
 
 # Amplitude, en fraction de l'opacite du halo. Volontairement PETITE : le
-# soleil doit fremir, pas clignoter. Au-dela, le regard quitte le paysage pour
-# aller au ciel.
-GLOW_SHIMMER = 0.22
+# scintillement doit etre A PEINE PERCEPTIBLE. On ne doit pas le voir se
+# produire, seulement s'apercevoir que le ciel n'est pas tout a fait fige.
+# Des qu'on le remarque, le regard quitte le paysage pour aller au ciel.
+GLOW_SHIMMER = 0.10
 
 
 def glow_shimmer(t):
