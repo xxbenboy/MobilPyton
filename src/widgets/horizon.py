@@ -7,8 +7,9 @@ voir la foret qui commencait juste apres. La carte disait qu'elle etait la,
 l'oeil ne la voyait pas.
 
 Cette couche ajoute au fond de la scene ce qu'il y a AUTOUR : une ligne
-d'arbres si la case suivante est une foret, une crete si c'est une montagne,
-un miroir d'eau si c'est un lac.
+d'arbres si la case suivante est une foret, une crete si c'est une montagne.
+Le lac et la plaine, eux, ne s'y montrent pas -- rien de PLAT ne depasse
+l'horizon a un kilometre (voir plus bas).
 
 TROIS VOISINS SEULEMENT, et ils dependent de l'ORIENTATION du joueur : ce
 qu'il a devant lui occupe le milieu de l'ecran, ce qu'il a a sa gauche et a sa
@@ -28,9 +29,9 @@ concurrencer le decor du premier plan. Elles doivent se lire d'un coup d'oeil
 et ne jamais retenir le regard.
 
 CE MODULE NE FAIT QUE L'HORIZON. La case voisine entre AUSSI dans la scene
-par les cotes de l'ecran, en vraie taille et avec les vraies formes du jeu
-(des arbres, une pente rocheuse, une rive) : cela vit dans zone_scenery, qui
-seul possede ces dessins. Voir _edges la-bas.
+par les COTES de l'ecran, et la elle n'est pas une silhouette : ses elements
+sont poses sur la meme grille que ceux de la case, avec les memes dessins et
+les memes tailles. Cela vit dans zone_scenery -- voir _edge_items.
 """
 from kivy.graphics import Color, Ellipse, Triangle
 
@@ -60,8 +61,6 @@ HAZE_FAR = 0.42
 HEIGHTS = {
     "Foret": 0.100,
     "Montagne": 0.200,
-    "Lac": 0.024,
-    "Plaine": 0.042,
 }
 
 
@@ -120,49 +119,23 @@ def _montagne(x0, x1, base, haut, dist, rng):
         Triangle(points=[cx - demi, y, cx + demi, y, cx, y + haut * ech])
 
 
-def _lac(x0, x1, base, haut, dist, rng):
-    """Une lame d'eau claire, posee a plat sur la ligne d'horizon.
-
-    Un lac ne DEPASSE pas : il est au niveau du sol. Ce qui le trahit de loin,
-    c'est une bande horizontale plus claire et parfaitement plate -- rien
-    d'autre dans un paysage n'a cette regularite."""
-    y = base((x0 + x1) * 0.5)
-    largeur = x1 - x0
-    # Une LENTILLE tres aplatie, pas un rectangle : ses bouts s'amincissent
-    # et se fondent dans le terrain. Un rectangle donnait deux coupures
-    # verticales franches, qui se lisaient comme une bande peinte et non
-    # comme une etendue d'eau.
-    Color(*_hazy((0.28, 0.46, 0.62), dist), 1)
-    Ellipse(pos=(x0, y - haut * 1.4), size=(largeur, haut * 2.8))
-    # Un MINCE reflet du ciel le long du bord haut. Volontairement etroit :
-    # etale sur toute l'eau, il la rendait blanche -- une soucoupe posee sur
-    # l'horizon plutot qu'un lac.
-    Color(*_hazy((0.58, 0.72, 0.84), dist * 0.5), 1)
-    Ellipse(pos=(x0 + largeur * 0.08, y + haut * 0.55),
-            size=(largeur * 0.84, haut * 0.55))
-
-
-def _plaine(x0, x1, base, haut, dist, rng):
-    """Une ondulation basse, a peine plus claire.
-
-    Une plaine lointaine, ce n'est presque rien : de l'herbe qui continue.
-    On ne pose donc qu'un renflement tres doux -- assez pour que l'horizon ne
-    soit pas une ligne droite, pas assez pour attirer l'oeil."""
-    col = _hazy((0.40, 0.54, 0.30), dist)
-    Color(*col, 1)
-    largeur = x1 - x0
-    for i in range(3):
-        cx = x0 + largeur * (0.2 + 0.3 * i)
-        rw = largeur * rng.uniform(0.35, 0.55)
-        rh = haut * rng.uniform(0.7, 1.3)
-        Ellipse(pos=(cx - rw, base(cx) - rh), size=(rw * 2, rh * 2))
+# NI LE LAC NI LA PLAINE N'APPARAISSENT A L'HORIZON, et c'est voulu.
+#
+# Ce sont les deux paysages PLATS du jeu. A un kilometre, rien de plat ne
+# depasse la ligne d'horizon : c'est de la geometrie, pas un choix de style.
+# Les faire apparaitre quand meme demandait de tricher -- une bande d'eau
+# posee sur la crete, un renflement d'herbe -- et cela se voyait : une lame
+# bleue accrochee a l'horizon ne ressemblait pas a un lac.
+#
+# Ces deux voisins-la se decouvrent donc par les COTES de l'ecran, ou ils sont
+# assez proches pour se voir vraiment (voir _edge_shore dans zone_scenery), et
+# par la carte. Seuls la foret et la montagne, qui s'elevent, se signalent de
+# loin.
 
 
 _SIGNATURES = {
     "Foret": _foret,
     "Montagne": _montagne,
-    "Lac": _lac,
-    "Plaine": _plaine,
 }
 
 

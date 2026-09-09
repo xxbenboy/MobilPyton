@@ -607,124 +607,148 @@ class ZoneScenery(Widget):
         self._sync_sway_clock()
 
     # ------------------------------------------------------------------ #
-    # BORDURES : la case voisine entre dans la scene par les cotes
+    # BORDURES : la case voisine deborde dans la scene
     # ------------------------------------------------------------------ #
     # L'horizon dit ce qu'il y a AU LOIN. Mais une foret voisine ne commence
-    # pas a l'horizon : elle commence au BORD de la case, c'est-a-dire au bord
-    # de l'ecran. On fait donc entrer ses arbres -- en vraie taille, avec les
-    # memes dessins que le reste du jeu -- dans une bande le long du cadre.
+    # pas a l'horizon : elle commence au BORD DE LA CASE, donc au bord de
+    # l'ecran, en vraie taille.
     #
-    # Ces elements sont PUREMENT DECORATIFS. Ils ne passent ni par
-    # _take_or_skip ni par _is_blocked : ils n'entrent dans aucun budget de
-    # recolte, ne bloquent aucune case, et ne se ramassent pas. Ils ne sont pas
-    # sur la case du joueur -- ils sont sur celle d'a cote.
+    # LE PRINCIPE : on ne dessine pas "une bordure", on POSE LES ELEMENTS DE
+    # LA CASE VOISINE SUR LA MEME GRILLE que ceux de la case actuelle, une
+    # colonne plus loin. Ils passent par grid_to_screen comme tous les autres,
+    # et leurs tailles sont calculees avec les MEMES formules. Ils se
+    # comportent donc exactement comme s'ils appartenaient a la scene -- meme
+    # perspective, meme taille, meme aspect -- et ils sont MELANGES au tri par
+    # profondeur, si bien qu'un arbre voisin proche passe devant une touffe
+    # d'herbe lointaine.
+    #
+    # UNE SEULE DIFFERENCE : ils ne sont pas interactifs. Ils ne passent ni par
+    # _take_or_skip ni par _is_blocked -- ils ne sont pas sur la case du
+    # joueur, on ne les ramasse pas et ils ne bloquent rien.
     #
     # Une PLAINE voisine n'ajoute rien : de l'herbe a cote de l'herbe ne se
-    # verrait pas, et poser des formes pour rien encombrerait le cadre.
+    # verrait pas.
 
-    # Largeur de la bande, en fraction de la largeur de l'ecran.
-    _EDGE_SPAN = 0.17
+    # Colonne VIRTUELLE de chaque cote. La grille du jeu va de 0 a 4 ; -1 et 5
+    # sont donc les premieres colonnes de la case d'a cote.
+    _EDGE_COL = {"gauche": -1, "droite": 5}
 
-    def _edges(self, ground):
-        """Fait entrer les cases de GAUCHE et de DROITE par les bords.
+    # Rangees utilisees, de la plus proche a la plus lointaine. On s'arrete a
+    # la 3e : au-dela, la perspective ramene tout vers le centre de l'ecran, et
+    # une colonne VOISINE y arriverait au milieu de l'image -- ce qui ne
+    # voudrait plus rien dire.
+    _EDGE_ROWS = (0, 1, 2)
 
-        `ground(fx)` donne le niveau du sol de la scene actuelle : c'est
-        dessus que se posent les elements, sans quoi ils flotteraient.
+    def _edge_items(self):
+        """Les elements de la case voisine qui debordent dans la scene.
 
-        A appeler APRES le terrain (ils sont devant lui) mais AVANT le decor
-        du premier plan (qui doit passer devant eux).
+        Renvoie [(y_base, fonction), ...] : la meme forme que le decor de la
+        case, pour que le tri par profondeur les melange avec lui.
 
-        HASARD SEPARE, pour la meme raison que l'horizon : si ces bordures
-        puisaient dans le generateur de la scene, le nombre de tirages
-        changerait avec les voisins et TOUT le decor de la case se
-        reorganiserait -- au point que tourner sur soi-meme deplacerait les
-        objets a ramasser."""
-        rng = random.Random(self._graine_voisins() * 7 + 101)
-        for cote in ("gauche", "droite"):
+        Deux sortes d'elements :
+        - un FOND par cote (la pente de la montagne, la rive du lac), pose une
+          seule fois et tres en arriere : c'est le TERRAIN voisin, il doit
+          passer derriere tout le reste ;
+        - des OBJETS poses sur la grille, rang par rang, exactement comme ceux
+          de la case."""
+        out = []
+        for cote, col in self._EDGE_COL.items():
             zone = self._neighbours.get(cote)
-            dessin = {"Foret": self._edge_foret,
-                      "Montagne": self._edge_montagne,
-                      "Lac": self._edge_lac}.get(zone)
-            if dessin is None:
+            fond = {"Montagne": self._edge_slope,
+                    "Lac": self._edge_shore}.get(zone)
+            if fond is not None:
+                fond(out, cote)
+            pose = {"Foret": self._edge_tree,
+                    "Montagne": self._edge_boulder,
+                    "Lac": self._edge_pebble}.get(zone)
+            if pose is None:
                 continue
-            # `bord` = le x du bord d'ecran concerne, `vers` = le sens dans
-            # lequel la bande s'enfonce vers le centre (+1 a gauche, -1 a
-            # droite). Tout le reste s'ecrit une seule fois pour les deux.
-            if cote == "gauche":
-                dessin(self.x, 1.0, ground, rng)
-            else:
-                dessin(self.x + self.width, -1.0, ground, rng)
+            for row in self._EDGE_ROWS:
+                # Hasard STABLE par emplacement, et propre aux bordures : la
+                # scene garde ainsi exactement le meme decor, qu'il y ait des
+                # voisins ou non (cf. _graine_voisins).
+                jit = random.Random("%d:%s:%d:bord" % (self._seed, cote, row))
+                gfx, gfy, _gs = grid_to_screen(col, row)
+                pose(out, self.x + gfx * self.width,
+                     self.y + gfy * self.height, row / 4.0, jit)
+        return out
 
-    def _sol_a(self, ground, x):
-        """Niveau du sol a une position d'ecran, bornee au cadre."""
-        return ground(min(1.0, max(0.0, (x - self.x) / max(1.0, self.width))))
+    def _edge_side(self, cote):
+        """(x du bord d'ecran, sens vers l'interieur) pour un cote."""
+        if cote == "gauche":
+            return self.x, 1.0
+        return self.x + self.width, -1.0
 
-    def _edge_foret(self, bord, vers, ground, rng):
-        """Le bord d'une foret : quelques arbres, dont un qui DEBORDE.
+    def _edge_tree(self, out, tx, tb, depth, jit):
+        """Un arbre de la foret voisine.
 
-        L'arbre coupe par le cadre est le plus important des trois : c'est lui
-        qui dit qu'on est au bord d'un massif et non devant un bosquet isole.
-        Les deux autres, plus petits et plus hauts sur l'ecran, donnent la
-        profondeur."""
+        Les formules de taille sont RECOPIEES de _foret, volontairement : ces
+        arbres doivent etre indiscernables de ceux de la case, sinon la
+        frontiere se verrait."""
         w, h = self.width, self.height
-        for part, ht, sous in ((0.155, 0.26, 0.030),
-                               (0.085, 0.36, 0.010),
-                               (-0.020, 0.52, -0.055)):
-            cx = bord + vers * part * w
-            base = self._sol_a(ground, cx) - sous * h
-            if rng.random() < 0.45:
-                self._pine(cx, base, ht * h * 0.52, ht * h,
-                           (0.10, 0.24, 0.14, 1), shadow=False)
-            else:
-                self._forest_tree(cx, base, ht * h, ht * 3.0, shadow=False)
+        th = (1.00 - 0.58 * depth) * jit.uniform(0.85, 1.10) * h
+        if jit.random() < 0.5:
+            tw = (0.11 - 0.05 * depth) * jit.uniform(0.85, 1.15) * w
+            out.append((tb, lambda: self._pine(tx, tb, tw, th,
+                                               (0.06, 0.15, 0.09, 1))))
+        else:
+            sc = 1.0 - 0.6 * depth
+            out.append((tb, lambda: self._forest_tree(tx, tb, th, sc)))
 
-    def _edge_montagne(self, bord, vers, ground, rng):
-        """Le pied d'une montagne : un pan de roche qui monte hors du cadre.
+    def _edge_boulder(self, out, tx, tb, depth, jit):
+        """Un bloc de la montagne voisine, taille comme ceux de _montagne."""
+        rr = (0.085 - 0.045 * depth) * jit.uniform(0.85, 1.15) * self.height
+        out.append((tb, lambda: self._big_rock(tx, tb, rr)))
 
-        Une montagne voisine ne se resume pas a des cailloux : c'est une masse
-        qui BARRE le passage. On pose donc un pan continu, du bord de l'ecran
-        jusqu'a la bande, et on l'habille de quelques blocs pour qu'il ne soit
-        pas un simple triangle plat."""
+    def _edge_pebble(self, out, tx, tb, depth, jit):
+        """Un galet de la rive voisine, comme ceux de _lac."""
+        rr = jit.uniform(0.012, 0.03) * self.height
+        out.append((tb, lambda: self._pebble(tx, tb, rr)))
+
+    def _edge_slope(self, out, cote):
+        """LE PIED de la montagne voisine : la ou le terrain commence a monter.
+
+        Pas un sommet. Un sommet a cette distance serait enorme, et faux : la
+        case d'a cote commence a quelques dizaines de metres, on n'en voit donc
+        que le bas. Ce qu'il faut lire, c'est "le sol se releve a partir
+        d'ici" -- d'ou un pan qui part du niveau du terrain vers l'interieur et
+        s'eleve franchement en approchant du bord de l'ecran."""
         w, h = self.width, self.height
-        loin = bord + vers * self._EDGE_SPAN * w
-        y_bord = self._sol_a(ground, bord)
-        self._tquad("rock", [bord, self.y, loin, self.y,
-                             loin, self._sol_a(ground, loin) - 0.02 * h,
-                             bord, y_bord + 0.46 * h])
-        self._tquad("rock_dark",
-                    [bord, self.y, loin, self.y,
-                     loin, self.y + 0.10 * h, bord, self.y + 0.20 * h])
-        for part, ry, rr in ((0.045, 0.10, 0.055), (0.115, 0.045, 0.038),
-                             (0.020, 0.24, 0.045)):
-            self._big_rock(bord + vers * part * w, self.y + ry * h, rr * h)
+        bord, vers = self._edge_side(cote)
+        dedans = bord + vers * 0.34 * w
+        bas = self.y
+        def dessin():
+            self._tquad("rock", [bord, bas, dedans, bas,
+                                 dedans, bas + 0.17 * h,
+                                 bord, bas + 0.54 * h])
+            # Bas plus sombre, comme la pente de _montagne : c'est ce qui lui
+            # donne du volume au lieu d'un aplat triangulaire.
+            self._tquad("rock_dark", [bord, bas, dedans, bas,
+                                      dedans, bas + 0.05 * h,
+                                      bord, bas + 0.14 * h])
+        # Tres "loin" : le terrain voisin passe derriere tout le decor.
+        out.append((self.y + 0.95 * h, dessin))
 
-    def _edge_lac(self, bord, vers, ground, rng):
-        """Une rive : la sable d'abord, l'eau ensuite.
+    def _edge_shore(self, out, cote):
+        """LE BORD du lac voisin : la rive d'abord, l'eau ensuite.
 
-        L'eau seule ne se lirait pas comme un lac mais comme une flaque : c'est
-        la BANDE DE RIVE entre l'herbe et l'eau qui dit qu'il y a une berge, et
-        donc une etendue derriere."""
+        L'eau seule se lirait comme une flaque. C'est la bande de sable entre
+        l'herbe et l'eau qui dit qu'il y a une BERGE, donc une etendue
+        derriere. Les deux sont dessinees avec les textures du lac, et la rive
+        s'amincit en remontant : elle s'eloigne."""
         w, h = self.width, self.height
-        loin = bord + vers * self._EDGE_SPAN * w
-        # On travaille en gauche/droite plutot qu'en "vers" : les deux bords
-        # se dessinent alors avec le meme code, sans ternaire a chaque coin.
-        g, d = min(bord, loin), max(bord, loin)
-        haut = self._sol_a(ground, loin)
-        # RIVE d'abord : la bande de sable va jusqu'au fond de la zone.
-        self._tquad("sand", [g, self.y, d, self.y,
-                             d, haut - 0.02 * h, g, haut + 0.02 * h])
-        # EAU ensuite, un peu en retrait du bord interieur : c'est ce liseré
-        # de sable laisse visible qui fait la berge.
-        eau_g, eau_d = (g, d - 0.28 * (d - g)) if vers > 0 \
-            else (g + 0.28 * (d - g), d)
-        self._tquad("water", [eau_g, self.y + 0.03 * h, eau_d,
-                              self.y + 0.03 * h,
-                              eau_d, haut - 0.07 * h,
-                              eau_g, haut - 0.07 * h])
-        for _ in range(5):
-            self._pebble(bord + vers * rng.uniform(0.01, 0.16) * w,
-                         self.y + rng.uniform(0.02, 0.12) * h,
-                         rng.uniform(0.010, 0.022) * h)
+        bord, vers = self._edge_side(cote)
+        def bande(part, haut):
+            loin = bord + vers * part * w
+            return [bord, self.y, loin, self.y,
+                    bord + vers * part * 0.55 * w, self.y + haut * h,
+                    bord, self.y + haut * 1.20 * h]
+        def dessin():
+            self._tquad("sand", bande(0.34, 0.34))
+            # L'eau reste EN RETRAIT du bord interieur : le liseré de sable
+            # laisse visible est exactement ce qui fait la berge.
+            self._tquad("water", bande(0.22, 0.27))
+        out.append((self.y + 0.95 * h, dessin))
 
     def _graine_voisins(self):
         """Graine de hasard propre aux VOISINS : elle depend de la case et de
@@ -1016,9 +1040,6 @@ class ZoneScenery(Widget):
         self._fill_curve(far_curve, "forest_floor_far")
         self._fill_curve(floor_curve, "forest_floor")
 
-        # Les cases de gauche et de droite entrent par les bords du cadre.
-        self._edges(lambda fx: floor_curve(fx) - 0.20 * h)
-
         GREENS = [(0.10, 0.20, 0.12), (0.08, 0.17, 0.10), (0.12, 0.24, 0.14)]
         LEAVES = [(0.45, 0.32, 0.14, 1), (0.36, 0.40, 0.16, 1),
                   (0.52, 0.38, 0.18, 1), (0.30, 0.26, 0.12, 1)]
@@ -1125,6 +1146,7 @@ class ZoneScenery(Widget):
         # (Les insectes sont desormais une couche ANIMEE separee : InsectLayer.)
 
         items += self._installed_items()     # feu de camp... a leur profondeur
+        items += self._edge_items()          # la case d'a cote, qui deborde
         items.sort(key=lambda it: it[0], reverse=True)
         for _, fn in items:
             fn()
@@ -1385,9 +1407,6 @@ class ZoneScenery(Widget):
         self._fill_curve(horizon_curve, "grass_far")
         self._fill_curve(field_curve, "grass")
 
-        # Les cases de gauche et de droite entrent par les bords du cadre.
-        self._edges(lambda fx: field_curve(fx) - 0.22 * h)
-
         # Petites fabriques de "fonctions de dessin" (pour differer le rendu).
         def f_grass(gx, gb, gh, col, sc, flower, fr):
             def fn():
@@ -1486,6 +1505,7 @@ class ZoneScenery(Widget):
 
         # Rendu trie : plus loin (base haute) d'abord, plus proche par-dessus.
         items += self._installed_items()     # feu de camp... a leur profondeur
+        items += self._edge_items()          # la case d'a cote, qui deborde
         items.sort(key=lambda it: it[0], reverse=True)
         for _, fn in items:
             fn()
@@ -1508,11 +1528,6 @@ class ZoneScenery(Widget):
         # Bas plus sombre (profondeur).
         self._tquad("rock_dark",
                     [x0, y0, x0 + w, y0, x0 + w, y0 + 0.22 * h, x0, y0 + 0.14 * h])
-        # Les cases de gauche et de droite entrent par les bords du cadre.
-        # Elles se posent BAS sur la pente : plus haut, elles paraitraient
-        # accrochees au versant.
-        self._edges(lambda fx: surf(fx) - 0.30 * h)
-
         # Rochers disperses sur la pente (vers le haut). [recoltable: Pierre]
         for _ in range(42):
             fx = rng.uniform(0, 1)
@@ -1551,7 +1566,7 @@ class ZoneScenery(Widget):
         # se recolte sur les petits rochers de la pente. Ils sont tries AVEC
         # les objets installes : un feu de camp pose derriere un rocher passe
         # donc derriere lui.
-        items = self._installed_items()
+        items = self._installed_items() + self._edge_items()
         for kind, depth, rx, ry, jit in self._iter_nature_big():
             rr = (0.085 - 0.045 * depth) * jit.uniform(0.85, 1.15) * h
             items.append((ry, lambda rx=rx, ry=ry, rr=rr:
@@ -1590,13 +1605,10 @@ class ZoneScenery(Widget):
         # partir des jointures (rien en bas). [recoltable: Pierre]
         self._trect("sand", x0, y0, w, 0.12 * h)
 
-        # Les cases de gauche et de droite entrent par les bords du cadre,
-        # posees sur la rive et non sur l'eau.
-        self._edges(lambda fx: y0 + 0.15 * h)
         # Galets, roseaux et objets installes sont tries ENSEMBLE par
         # profondeur : un feu de camp pose au fond passe derriere les roseaux
         # du premier plan.
-        items = self._installed_items()
+        items = self._installed_items() + self._edge_items()
         for _ in range(12):
             rx = x0 + rng.uniform(0, 1) * w
             ry = y0 + rng.uniform(_HARVEST_FLOOR, 0.28) * h
