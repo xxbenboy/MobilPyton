@@ -23,6 +23,7 @@ from kivy.metrics import dp
 
 from src import items
 from src.widgets.item_icon import ItemIcon
+from src.widgets.hand_slot import empty_slot, item_text
 from src.widgets.responsive import dh, fit_text, TEXT_NORMAL
 
 # Une case : le carre de l'image, puis sa legende dessous.
@@ -84,6 +85,55 @@ def fill_ground(box, title, state):
     cells = []
     for name, count in sorted(ground.items()):
         cell = item_cell(name, count)
+        cells.append(cell)
+        grid.add_widget(cell)
+    box.add_widget(grid)
+    return cells
+
+
+# Nombre de cases par rangee dans le SAC. Sa colonne est plus large que celle
+# du sol (37 % contre 26 %), elle en tient donc davantage.
+BAG_COLS = 6
+
+# Hauteur du message quand il n'y a pas de sac : deux phrases a loger.
+NO_BAG_H = 170
+
+
+def fill_bag(box, title, state):
+    """Remplit la colonne du SAC A DOS et renvoie ses cases.
+
+    Les emplacements VIDES sont dessines eux aussi, jusqu'a la capacite du
+    sac : on voit ainsi d'un coup d'oeil ce qu'il reste de place, au lieu
+    d'avoir a compter. Chaque case porte `bag_index`, dont le glisser-deposer
+    a besoin pour savoir lequel on attrape."""
+    box.clear_widgets()
+    if state is None:
+        title.text = "Sac a dos"
+        return []
+    capacity = state.bag_capacity()
+    if capacity <= 0:
+        title.text = "Sac a dos"
+        box.add_widget(fit_text(Label(
+            text="Aucun sac a dos. Tu ne transportes que ce que tu tiens "
+                 "dans tes mains.", color=DIM, halign="center",
+            valign="middle", size_hint_y=None, height=dh(NO_BAG_H)),
+            wrap=True))
+        return []
+    title.text = f"Sac a dos ({len(state.bag)}/{capacity})"
+    grid = GridLayout(cols=BAG_COLS, spacing=dp(3), size_hint_y=None)
+    grid.bind(minimum_height=grid.setter("height"))
+    cells = []
+    for i in range(capacity):
+        name = state.bag[i] if i < len(state.bag) else None
+        cell = BoxLayout(orientation="vertical", size_hint_y=None,
+                         height=dh(CELL_H))
+        cell.bag_index = i
+        cell.item = name
+        cell.add_widget(ItemIcon(name, show_name=False) if name
+                        else empty_slot(1.0))
+        cell.name_label = cell_label(item_text(state, name),
+                                     LIT if name else DIM)
+        cell.add_widget(cell.name_label)
         cells.append(cell)
         grid.add_widget(cell)
     box.add_widget(grid)

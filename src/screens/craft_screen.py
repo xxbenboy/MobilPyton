@@ -27,11 +27,12 @@ from src import items
 from src.widgets.animated_background import AnimatedBackground, night_darkness
 from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
-from src.widgets.item_info import show_item_info, TappableIcon
+from src.widgets.item_info import TappableIcon
 from src.widgets.styled_button import StyledButton, TabButton
 from src.widgets.panels import panel
 from src.widgets.hand_slot import hands_row, item_text
-from src.widgets.item_grid import fill_ground
+from src.widgets.item_grid import fill_ground, fill_bag
+from src.widgets.drag_drop import DragDrop, make_highlightable
 from src.widgets.responsive import (scale_font, dh, fit_text, TEXT_NORMAL,
                                     TEXT_TITLE, TEXT_SMALL, SIDE_SHARE,
                                     center_share, ROW_TITLE, ROW_BODY,
@@ -76,7 +77,7 @@ def _fit_button_font(btn, *_):
     btn.font_size = max(10, f)
 
 
-class CraftScreen(Screen):
+class CraftScreen(DragDrop, Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         root = FloatLayout()
@@ -124,7 +125,8 @@ class CraftScreen(Screen):
         self.near_title = scale_font(Label(text="A proximite", bold=True,
                                      size_hint=(1, COL_TITLE)), 0.022)
         near.add_widget(self.near_title)
-        sc0 = ScrollView(size_hint=(1, COL_LIST))
+        sc0 = self.ground_scroll = make_highlightable(
+            ScrollView(size_hint=(1, COL_LIST)))
         self.ground_box = BoxLayout(orientation="vertical", spacing=dp(4),
                                     size_hint_y=None)
         self.ground_box.bind(minimum_height=self.ground_box.setter("height"))
@@ -156,7 +158,8 @@ class CraftScreen(Screen):
         self.bag_title = scale_font(Label(text="Sac a dos", bold=True,
                                     size_hint=(1, COL_TITLE)), 0.022)
         right.add_widget(self.bag_title)
-        sc2 = ScrollView(size_hint=(1, COL_LIST))
+        sc2 = self.bag_scroll = make_highlightable(
+            ScrollView(size_hint=(1, COL_LIST)))
         self.bag_box = BoxLayout(orientation="vertical", spacing=dp(4),
                                  size_hint_y=None)
         self.bag_box.bind(minimum_height=self.bag_box.setter("height"))
@@ -170,6 +173,8 @@ class CraftScreen(Screen):
         # Exactement la meme bande que dans l'inventaire (widget partage) :
         # basculer d'un ecran a l'autre ne doit rien deplacer en bas non plus.
         row, self.hand_slots = hands_row(size_hint=(1, ROW_HANDS))
+        for slot in self.hand_slots:
+            make_highlightable(slot)
         col.add_widget(row)
 
         self.hint = fit_text(Label(
@@ -188,7 +193,20 @@ class CraftScreen(Screen):
 
         _panel(col)
         root.add_widget(col)
+
+        # Couche du glisser-deposer : l'objet suivi par le doigt passe
+        # AU-DESSUS de tout le reste.
+        self.drag_layer = FloatLayout(size_hint=(1, 1),
+                                      pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.drag_layer)
         self._root = root
+        # Cibles du glisser, refaites a chaque rafraichissement. Le craft n'a
+        # pas de silhouette : sa liste d'equipement reste vide, et le
+        # melangeur saute simplement cette partie.
+        self._equip_slots = []
+        self._bag_cells = []
+        self._ground_cells = []
+        self.init_drag()
         self.add_widget(root)
 
     # ------------------------------------------------------------------ #
@@ -212,6 +230,12 @@ class CraftScreen(Screen):
                                         + state.player_y)
                 self._scene_key = key
         self.refresh()
+
+    def on_leave(self):
+        """Ne laisse ni clignotement ni fiche ouverte sur un ecran qu'on quitte."""
+        self._cancel_drag()
+        if self._info is not None:
+            self._info.close()
 
     def refresh(self):
         state = App.get_running_app().game_state
@@ -242,34 +266,13 @@ class CraftScreen(Screen):
         par objet pour le ramasser. On prend desormais un objet en le
         GLISSANT, dans l'inventaire : ces boutons faisaient double emploi, et
         donnaient a la colonne une forme differente de celle d'a cote."""
-        fill_ground(self.ground_box, self.near_title, state)
+        self._ground_cells = fill_ground(self.ground_box,
+                                         self.near_title, state)
 
     def _fill_bag(self, state):
-        """Le sac a dos. Ses objets servent de matiere premiere tels quels :
-        aucun bouton, il n'y a rien a en sortir pour fabriquer."""
-        self.bag_box.clear_widgets()
-        capacity = state.bag_capacity()
-        if capacity <= 0:
-            self.bag_title.text = "Sac a dos"
-            self.bag_box.add_widget(fit_text(Label(
-                text="Aucun sac a dos. Tu ne transportes que ce que tu "
-                     "tiens dans tes mains.", color=_DIM, halign="center",
-                valign="middle", size_hint_y=None, height=dh(170)),
-                wrap=True))
-            return
-        self.bag_title.text = f"Sac a dos ({len(state.bag)}/{capacity})"
-        if not state.bag:
-            self.bag_box.add_widget(fit_text(Label(
-                text="Sac vide.", color=_DIM, halign="center",
-                valign="middle", size_hint_y=None, height=dh(120)),
-                wrap=True))
-            return
-        grid = GridLayout(cols=3, spacing=dp(3), size_hint_y=None)
-        grid.bind(minimum_height=grid.setter("height"))
-        for name in state.bag:
-            grid.add_widget(TappableIcon(name, self._info, size_hint_y=None,
-                                         height=dh(_BAG_CELL_H)))
-        self.bag_box.add_widget(grid)
+        """Le sac. Meme colonne que dans l'inventaire (widget partage), et
+        ses cases sont desormais attrapables."""
+        self._bag_cells = fill_bag(self.bag_box, self.bag_title, state)
 
     def _fill_recipes(self, state):
         """Recettes, rangees par CATEGORIE repliable. Tout est replie a
@@ -339,7 +342,7 @@ class CraftScreen(Screen):
                             size_hint_y=None, height=dh(200))
             # Image du resultat a gauche, AGRANDIE au maximum : rangee plus
             # haute + boite plus large (ou "?" si aucune image n'existe).
-            row.add_widget(TappableIcon(recipe["result"], self._info,
+            row.add_widget(TappableIcon(recipe["result"], self._tap_info,
                                         show_name=False, size_hint_x=0.30))
             txt = Label(
                 text=f"[b]{items.display_name(recipe['result'])}[/b]\n{ing}",
@@ -354,9 +357,13 @@ class CraftScreen(Screen):
             self.recipe_box.add_widget(row)
 
     # ------------------------------------------------------------------ #
-    def _info(self, name):
-        """Ouvre la fiche de l'objet sur lequel on vient de taper."""
-        show_item_info(self._root, name)
+    def _tap_info(self, name):
+        """Ouvre la fiche de l'objet sur lequel on vient de taper.
+
+        Ne s'appelle PAS `_info` : le glisser-deposer se sert de ce nom pour
+        retenir la fiche actuellement ouverte, et l'attribut aurait masque la
+        methode -- les images de recettes n'auraient plus rien ouvert."""
+        self._show_info(name)
 
     def _craft(self, recipe):
         App.get_running_app().game_state.do_craft(recipe)
