@@ -1,77 +1,76 @@
 """
-LES MAINS QUI FOUILLENT : l'animation d'exploration.
+LES MAINS PENDANT L'EXPLORATION.
 
-Le joueur fouille les environs. Ses deux mains ne font pas la meme chose au
-meme moment : l'une descend pendant que l'autre remonte, puis l'inverse. C'est
-cette ALTERNANCE qui se lit comme "il cherche" ; deux mains qui monteraient et
-descendraient ensemble donneraient un haussement d'epaules.
+Le joueur fouille les environs. Ses mains ne CHANGENT PAS de pose pour
+autant : elles gardent celle du repos, simplement ABAISSEES -- comme si on
+les avait avancees devant soi -- et animees d'un va-et-vient rapide.
 
-UNE SEULE IMAGE, PAS UNE SUITE. L'ancienne exploration alternait entre deux
-dessins figes (HandEx1 / HandEx2) : le mouvement sautait d'une pose a l'autre,
-et il fallait fournir une image de plus pour chaque variante (les gants, par
-exemple). Ici, l'image de fouille est unique et c'est le CODE qui la fait
-monter et descendre, chaque main de son cote. Le mouvement est donc continu,
-et une nouvelle paire de gants ne demande qu'une image au lieu de deux.
+POURQUOI PAS DE POSE PARTICULIERE. Une image de "fouille" a bien ete
+essayee : les mains changeaient d'aspect au debut de l'action et le
+reprenaient a la fin. Ces deux ruptures se voyaient plus que le geste
+lui-meme. Garder la meme main et ne bouger que sa POSITION donne un
+mouvement continu, sans aucune bascule -- et supprime du meme coup une image
+a fournir pour chaque variante des mains (les gants, par exemple).
 
-LE MOUVEMENT EST DONNE EN FRACTION DE L'ACTION (0 au debut, 1 a la fin), pas
-en secondes. L'exploration dure 1,5 s a l'ecran aujourd'hui ; si cette duree
-change un jour, l'animation gardera exactement le meme dessin, simplement plus
-lent ou plus rapide. Avec une cadence en secondes, une exploration plus courte
-se serait arretee au milieu d'un geste.
+LE MOUVEMENT NE MONTE JAMAIS. Il part du bas de l'ecran vers le bas : les
+mains descendent, oscillent, et remontent a leur place. C'est indispensable,
+pas decoratif : les bras des images s'arretent au bord inferieur du cadre, et
+tout ce qui les ferait monter decouvrirait du VIDE en dessous.
+
+CONSTANT, PAS IMPREVISIBLE -- l'inverse exact du souffle (voir breathing.py).
+Le souffle doit se faire oublier, donc son rythme derive sans cesse. Ici on
+veut un geste VOLONTAIRE, repetitif, qu'on remarque : une sinusoide pure, de
+periode fixe. Et le rythme est compte en SECONDES REELLES, pas en fraction de
+l'action : si la duree de l'exploration change un jour, la cadence des mains,
+elle, ne changera pas.
 """
 import math
 
-# Nombre d'ALLERS-RETOURS complets sur la duree de l'action.
-# 1,5 donne TROIS temps forts : une main descend, l'autre descend pendant que
-# la premiere remonte, puis la premiere redescend -- et l'on s'arrete. C'est le
-# minimum pour que l'alternance se lise comme un va-et-vient et non comme un
-# simple soubresaut.
-ALTERNATIONS = 1.5
+# Duree d'un aller-retour, en secondes reelles. Bien plus rapide que le
+# souffle (4,2 s) : c'est ce qui distingue "il s'active" de "il respire".
+# L'exploration dure 1,5 s a l'ecran, soit cinq allers-retours.
+PERIOD = 0.30
 
-# Adoucissement des extremites. Le mouvement part de zero et y revient : sans
-# cela, les mains SAUTERAIENT en place au debut de l'exploration et de nouveau
-# a la fin, au moment de reprendre la pose de repos.
-# L'exposant aplatit le sommet de l'enveloppe : les temps forts du milieu
-# gardent presque toute leur ampleur, seuls les bords sont retenus.
+# Part de l'amplitude consacree au VA-ET-VIENT ; le reste est l'abaissement
+# constant. A 0.45, les mains restent toujours entre 55 % et 100 % de
+# l'abaissement : le va-et-vient se voit bien, mais elles ne remontent jamais
+# jusqu'a leur position de repos en cours d'action.
+SWING = 0.45
+
+# Adoucissement des extremites : le mouvement part de zero et y revient. Sans
+# lui, les mains SAUTERAIENT en place au debut de l'exploration et de nouveau
+# a la fin. L'exposant aplatit le sommet -- le milieu de l'action garde
+# presque tout l'abaissement, seuls les bords sont retenus.
 _ADOUCI = 0.55
 
 
 def envelope(frac):
     """Ampleur du mouvement a cet instant de l'action : 0 aux deux bouts."""
-    if frac <= 0.0 or frac >= 1.0:
+    if frac is None or frac <= 0.0 or frac >= 1.0:
         return 0.0
     return math.sin(math.pi * frac) ** _ADOUCI
 
 
-def offset(frac):
-    """(gauche, droite) dans [-1, 1] : le decalage vertical de chaque main.
+def offset(t, frac):
+    """Decalage vertical des mains, dans [-1, 0].
 
-    Les deux valeurs sont exactement OPPOSEES : quand l'une descend, l'autre
-    monte. A multiplier par l'amplitude voulue (voir player_hands).
+    `t`    : temps ecoule, en secondes reelles (donne la cadence) ;
+    `frac` : avancement de l'action, de 0 a 1 (donne l'entree et la sortie),
+             ou None hors exploration.
 
-    En dehors de l'action, les deux valent 0 : les mains sont alors a leur
-    place normale, et reprendre la pose de repos ne fait aucun a-coup."""
-    if frac is None or frac <= 0.0 or frac >= 1.0:
-        return (0.0, 0.0)
-    a = envelope(frac) * math.sin(math.tau * ALTERNATIONS * frac)
-    # La GAUCHE descend en premier (signe moins) : il faut bien en choisir une,
-    # et commencer par la gauche laisse la droite -- la main qui tient le plus
-    # souvent un objet -- terminer en haut.
-    return (-a, a)
+    Le resultat est toujours NEGATIF ou nul : les mains descendent, jamais
+    l'inverse. A multiplier par l'amplitude voulue (voir player_hands)."""
+    env = envelope(frac)
+    if env <= 0.0:
+        return 0.0
+    # va va de 0 (bas du mouvement) a SWING (haut du mouvement).
+    va = SWING * 0.5 * (1.0 + math.sin(math.tau * t / PERIOD))
+    return env * (va - 1.0)
 
 
-def beats():
-    """Instants (en fraction de l'action) des temps forts, et quelle main est
-    alors en bas. Sert a verifier que l'alternance est bien celle voulue."""
-    out = []
-    n = 2000
-    prev = offset(0.0)[0]
-    montait = None
-    for i in range(1, n + 1):
-        cur = offset(i / n)[0]
-        monte = cur > prev
-        if montait is not None and monte != montait:
-            out.append(((i - 1) / n, "gauche" if prev < 0 else "droite"))
-        montait = monte
-        prev = cur
-    return out
+def span():
+    """(le plus haut, le plus bas) que le mouvement puisse atteindre.
+
+    Sert a verifier que rien ne remonte au-dessus de la position de repos :
+    la borne haute doit valoir 0."""
+    return (0.0, -1.0)

@@ -13,10 +13,9 @@ Une main vide n'etait auparavant pas dessinee du tout : on ne voyait ses
 mains qu'en portant quelque chose. Comme chaque image contient les deux
 mains, on n'en prend que la moitie utile (voir _draw_half).
 
-PENDANT L'EXPLORATION, les deux mains prennent la pose de FOUILLE et montent
-et descendent l'une apres l'autre. Ce va-et-vient n'est pas une suite
-d'images : une seule pose suffit, et le mouvement est calcule (searching.py).
-Chaque main a donc sa propre translation, imbriquee dans celle du souffle.
+PENDANT L'EXPLORATION, les mains ne changent PAS d'image : elles descendent
+et oscillent vite, comme si on les avait avancees devant soi (searching.py).
+Aucune bascule de pose, donc aucune rupture au debut ni a la fin de l'action.
 
 Les objets tenus (set_items) sont dessines AU-DESSUS du HUD, aux
 positions correspondant aux mains dans l'image (HAND_FX / ITEM_FY).
@@ -40,18 +39,18 @@ CHARACTER_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", "assets",
 # les mains deja positionnees en bas. Le HUD est etire pour remplir
 # la totalite du widget.
 HUD_IMAGES = {
-    'haut': 'HandHUD.png',      # paume ouverte : une main qui TIENT un objet
-    'idle': 'HandIdle.png',     # main VIDE, au repos
-    'search': 'HandSearch.png',  # exploration : les mains fouillent
+    'haut': 'HandHUD.png',     # paume ouverte : une main qui TIENT un objet
+    'idle': 'HandIdle.png',    # main VIDE, au repos
 }
 
 # Pose d'une main qui TIENT quelque chose (paume ouverte, l'objet s'y pose).
 REST_STATE = 'haut'
 # Pose d'une main vide au repos.
 IDLE_STATE = 'idle'
-# Pose de FOUILLE. Elle ne s'anime pas par une suite d'images : les deux mains
-# montent et descendent tour a tour, chacune de son cote (voir searching.py).
-SEARCH_STATE = 'search'
+
+# L'EXPLORATION N'A PAS DE POSE A ELLE. Les mains gardent celle du repos et
+# ne font que DESCENDRE et osciller (voir searching.py) : aucune bascule
+# d'image, donc aucune rupture au debut ni a la fin de l'action.
 
 # --------------------------------------------------------------------- #
 # GANTS : des mains qui changent d'apparence
@@ -94,10 +93,9 @@ def _hud_texture(state, glove=None):
     """HUD d'un etat, GANTE si le joueur porte des gants qui se voient.
 
     Le repli sur les mains nues n'est pas un filet de securite mais la
-    regle : toute pose sans variante gantee reprend la main nue. Aujourd'hui
-    la pose de FOUILLE est dans ce cas -- les gants disparaissent donc le
-    temps de l'exploration, ce qui vaut mieux qu'une main manquante, et se
-    corrige en deposant un seul fichier (HandSearchFeuille.png)."""
+    regle : toute pose sans variante gantee reprend la main nue. Les deux
+    poses existantes en ont une, donc les gants se voient partout -- y
+    compris pendant l'exploration, qui ne change pas d'image."""
     fname = HUD_IMAGES.get(state)
     if not fname:
         return None
@@ -144,10 +142,11 @@ BREATH_X = 0.0035
 # doublerait juste le travail. 30 suffisent largement.
 BREATH_FPS = 30.0
 
-# Amplitude de l'ALTERNANCE des mains pendant la fouille, en fraction de la
-# hauteur. Bien plus ample que le souffle : c'est un geste volontaire, il doit
-# se voir franchement, la ou le souffle doit seulement se sentir.
-SEARCH_Y = 0.035
+# Abaissement des mains pendant l'EXPLORATION, en fraction de la hauteur.
+# Bien plus ample que le souffle : c'est un geste volontaire, il doit se voir
+# franchement, la ou le souffle doit seulement se sentir. 5,5 % font ~60 px
+# sur un telephone -- assez pour lire "les mains sont passees devant".
+SEARCH_Y = 0.055
 
 
 class PlayerHands(Widget):
@@ -163,11 +162,8 @@ class PlayerHands(Widget):
         super().__init__(**kwargs)
         self._items = [None, None]      # objets tenus : [gauche, droite]
         self._glove = None               # gants portes (voir set_glove)
-        # Fouille : avancement de l'action (0 a 1), ou None au repos.
+        # Exploration : avancement de l'action (0 a 1), ou None au repos.
         self._search = None
-        # Une translation PAR MAIN : c'est ce qui leur permet de monter et
-        # descendre CHACUNE DE SON COTE pendant la fouille.
-        self._half_shift = [None, None]
         # Souffle : l'horloge du temps qui passe, et les deux translations
         # qu'elle deplace (mains et objets tenus).
         self._breath_t = 0.0
@@ -219,44 +215,42 @@ class PlayerHands(Widget):
             self._breath_event = None
 
     def set_search(self, progress):
-        """Fouille en cours : `progress` va de 0 a 1 sur la duree de l'action,
-        et vaut None hors exploration.
+        """Exploration en cours : `progress` va de 0 a 1 sur la duree de
+        l'action, et vaut None en dehors.
 
-        On ne redessine QUE si l'on entre dans la fouille ou si l'on en sort :
-        entre les deux, le mouvement n'est que deux nombres a changer (voir
-        _apply_search), appeles a chaque image du jeu."""
-        avant = self._search is not None
+        Aucun redessin : les mains gardent exactement la meme image, seule
+        leur POSITION change. C'est justement ce qui evite les deux ruptures
+        qu'on voyait quand elles prenaient une pose de fouille."""
         self._search = progress
-        if (progress is not None) != avant:
-            self._redraw()
-        else:
-            self._apply_search()
+        self._apply_motion()
 
-    # ---- Souffle ---------------------------------------------------------
+    # ---- Mouvement (souffle + exploration) -------------------------------
 
     def _tick_breath(self, dt):
         self._breath_t += dt
-        self._apply_breath()
+        self._apply_motion()
 
-    def _apply_breath(self):
-        """Porte le souffle du moment sur les deux translations.
+    def _apply_motion(self):
+        """Porte le mouvement du moment sur les deux translations.
 
         Les mains et les objets recoivent LE MEME decalage : c'est ce qui fait
-        qu'un objet tenu reste dans la paume au lieu d'y glisser."""
+        qu'un objet tenu reste dans la paume au lieu d'y glisser.
+
+        LE MOUVEMENT NE MONTE JAMAIS au-dessus de la position dessinee, et ce
+        n'est pas un detail de reglage. Les bras des images s'arretent au bord
+        INFERIEUR du cadre : des que les mains montent, on voit du vide sous
+        elles. Le souffle est donc ramene dans [-2, 0] au lieu de [-1, +1] --
+        meme ampleur, mais il ne fait que descendre depuis sa position haute --
+        et l'exploration, elle, ne rend que des valeurs negatives."""
         dx, dy = breathing.offset(self._breath_t)
         ox = dx * self.height * BREATH_X
-        oy = dy * self.height * BREATH_Y
+        oy = (dy - 1.0) * self.height * BREATH_Y
+        oy += searching.offset(self._breath_t, self._search) \
+            * self.height * SEARCH_Y
         for shift in (self._shift, self._shift_items):
             if shift is not None:
                 shift.x = ox
                 shift.y = oy
-
-    def _apply_search(self):
-        """Porte l'alternance du moment sur les deux mains."""
-        gauche, droite = searching.offset(self._search)
-        for shift, val in zip(self._half_shift, (gauche, droite)):
-            if shift is not None:
-                shift.y = val * self.height * SEARCH_Y
 
     # ---- Rendu -----------------------------------------------------------
 
@@ -274,22 +268,15 @@ class PlayerHands(Widget):
         with self.canvas:
             PushMatrix()
             self._shift = Translate(0, 0, 0)
-        # CHAQUE MAIN EST DESSINEE A PART, toujours -- au repos comme en
-        # fouille. Au repos, c'est parce que les deux mains n'ont pas la meme
-        # pose (celle qui tient garde la paume ouverte, l'autre se referme) ;
-        # en fouille, c'est ce qui leur permet de monter et descendre l'une
-        # apres l'autre.
+        # CHAQUE MAIN EST DESSINEE A PART : les deux n'ont pas la meme pose
+        # (celle qui tient garde la paume ouverte, l'autre se referme).
         for i in (0, 1):
-            if self._search is not None:
-                pose = SEARCH_STATE
-            else:
-                pose = REST_STATE if self._items[i] is not None else IDLE_STATE
-            self._draw_half(i, pose)
+            self._draw_half(i, REST_STATE if self._items[i] is not None
+                            else IDLE_STATE)
         with self.canvas:
             PopMatrix()
         self._draw_items()
-        self._apply_breath()
-        self._apply_search()
+        self._apply_motion()
 
     def _draw_half(self, index, state):
         """Dessine UNE main (0 = gauche, 1 = droite) dans la pose demandee.
@@ -297,7 +284,6 @@ class PlayerHands(Widget):
         Chaque image contient les deux mains : on n'en prend que la moitie
         correspondante, posee a sa place a l'ecran. L'echelle ne change pas,
         seule l'autre moitie est ecartee."""
-        self._half_shift[index] = None
         tex = _hud_texture(state, self._glove)
         if tex is None:
             return
@@ -307,16 +293,10 @@ class PlayerHands(Widget):
         total_h = total_w * th / tw
         sub = tex.get_region(index * half, 0, half, th)
         with self.canvas:
-            # Translation PROPRE a cette main, imbriquee dans celle du souffle
-            # (qui, elle, deplace tout ensemble). Les deux s'additionnent : la
-            # main fouille ET respire en meme temps.
-            PushMatrix()
-            self._half_shift[index] = Translate(0, 0, 0)
             Color(1, 1, 1, 1)
             Rectangle(texture=sub,
                       pos=(self.x + index * total_w / 2, self.y),
                       size=(total_w / 2, total_h))
-            PopMatrix()
 
     def _draw_items(self):
         """Dessine les objets tenus au-dessus du HUD."""
@@ -326,7 +306,7 @@ class PlayerHands(Widget):
             return
         # Les objets sont dans un AUTRE canvas (celui de devant) : il leur faut
         # donc leur propre translation. Elle recoit exactement la meme valeur
-        # que celle des mains (voir _apply_breath), sans quoi un objet tenu
+        # que celle des mains (voir _apply_motion), sans quoi un objet tenu
         # glisserait dans la paume au fil du souffle.
         with self.canvas.after:
             PushMatrix()

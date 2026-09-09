@@ -14,7 +14,9 @@ ETATS et IMAGES ATTENDUES
 ----------------------------------------------------------------
     HandIdle.png   -> Main VIDE, au repos
     HandHUD.png    -> Main qui TIENT un objet (paume ouverte)
-    HandSearch.png -> Mains en FOUILLE (pendant l'exploration)
+
+Il n'y a QUE ces deux images. L'exploration ne demande pas de pose
+particuliere : les mains gardent la leur (voir plus bas).
 
 ----------------------------------------------------------------
 GANTS : DES MAINS QUI CHANGENT D'APPARENCE
@@ -24,17 +26,15 @@ meme nom, avec un SUFFIXE :
 
     HandIdleFeuille.png   -> repos,         gants de feuille
     HandHUDFeuille.png    -> paume ouverte, gants de feuille
-    HandSearchFeuille.png -> fouille,       gants de feuille (A FOURNIR)
 
 Le suffixe est declare dans GLOVE_SUFFIX (src/widgets/player_hands.py), qui
 fait le lien avec le nom de l'objet ("Gant_De_Feuille" -> "Feuille").
 Ajouter une autre paire ne demande donc qu'une ligne et des images.
 
 Une image gantee ABSENTE n'est pas une erreur : le jeu reprend simplement la
-main nue. C'est le cas aujourd'hui de la pose de FOUILLE, qui n'a pas de
-version gantee -- les gants disparaissent donc le temps de l'exploration.
-Pour y remedier, il suffit de deposer HandSearchFeuille.png : UN seul
-fichier, puisque le mouvement n'est pas dessine.
+main nue pour cette pose-la. Aujourd'hui les deux poses ont leur version
+gantee, donc les gants se voient partout -- exploration comprise, puisque
+celle-ci ne change pas d'image.
 
 CALAGE (le point qui compte vraiment) : la main gantee doit se poser
 EXACTEMENT sur la main nue -- meme taille, meme milieu, meme hauteur de bout
@@ -51,21 +51,23 @@ Les deux mains sont donc TOUJOURS visibles au repos. Comme chaque image
 contient les deux mains, le jeu n'en prend que la moitie utile : les
 mains doivent donc rester CHACUNE DE SON COTE du milieu de l'image.
 
-PENDANT UNE EXPLORATION, les deux mains prennent la pose de FOUILLE, et
-c'est le CODE qui les anime : elles montent et descendent l'une apres
-l'autre (trois temps forts sur la duree de l'action), puis reprennent
-leur pose de repos.
+PENDANT UNE EXPLORATION, les mains NE CHANGENT PAS D'IMAGE. Elles
+gardent leur pose et ne font que DESCENDRE, avec un va-et-vient rapide,
+comme si on les avait avancees devant soi. Il n'y a donc aucune image a
+fournir pour l'exploration.
 
-Il n'y a donc qu'UNE image a fournir, pas une suite : le mouvement n'est
-pas dessine. C'est ce qui permet aussi qu'une main de fouille GANTEE ne
-coute qu'un fichier de plus, au lieu d'un par etape d'animation.
-Amplitude du va-et-vient : SEARCH_Y dans player_hands.py.
-Rythme et nombre de temps forts : src/widgets/searching.py.
+Une pose de "fouille" dediee a bien ete essayee : les mains changeaient
+d'aspect au debut de l'action et le reprenaient a la fin, et ces deux
+ruptures se voyaient plus que le geste lui-meme.
 
-Cette pose n'a pas besoin d'etre cadree comme les poses de repos : les
-mains y sont tendues vers l'avant. Elle doit juste rester a la meme
-ECHELLE et a la meme HAUTEUR, sinon les mains sautent au debut et a la
-fin de l'exploration.
+Abaissement : SEARCH_Y dans player_hands.py.
+Cadence et forme du va-et-vient : src/widgets/searching.py.
+
+A SAVOIR SI TU REFAIS LES IMAGES : le mouvement ne fait JAMAIS monter
+les mains au-dessus de leur position dessinee, ni pour l'exploration ni
+pour le souffle. Ce n'est pas un choix esthetique : les bras s'arretent
+au bord inferieur du cadre, et tout ce qui les ferait monter
+decouvrirait du VIDE en dessous.
 
 PENDANT L'EXPLORATION : les OBJETS TENUS, le bouton "Deposer" et le
 LABEL nom-de-l-objet sont CACHES (animation propre, sans distractions).
