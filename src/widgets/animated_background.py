@@ -122,25 +122,82 @@ MOON_LIGHT = 0.50
 #   pleine 1.00 | demi 0.33 | quart 0.11 | nouvelle 0.00
 MOON_LIGHT_EXPONENT = 1.6
 
-# Halo lumineux de la lune : (rayon x le rayon du disque, opacite de base).
-# Du plus large et diffus au plus serre. L'intensite suit la part eclairee :
-# une pleine lune brille fort, une nouvelle lune pas du tout.
-_MOON_HALO = ((5.0, 0.05), (3.6, 0.085), (2.6, 0.14),
-              (1.8, 0.24), (1.25, 0.34))
-
-# Halo du SOLEIL : (rayon x le rayon du disque, opacite de base). Meme
-# principe que celui de la lune, et pour la meme raison : un halo d'UN SEUL
-# cercle a un bord net, et ce bord se voit comme un anneau autour du soleil.
-# Empiles du plus large au plus serre, ils forment un degrade.
+# ------------------------------------------------------------------ #
+# LES HALOS : un vrai degrade de lumiere, pas un empilement de disques.
+# ------------------------------------------------------------------ #
+# Les halos ont longtemps ete des cercles pleins empiles, du plus large au
+# plus serre. Chaque cercle a un bord FRANC, donc chaque bord est une marche,
+# et sur un ciel uni l'oeil lit chaque marche comme un ANNEAU. Ajouter des
+# couches attenuait le defaut sans le supprimer : il en restait toujours un
+# dernier, celui du bord exterieur, ou le halo s'arretait net.
 #
-# SEPT couches, et pas quatre : chaque couche est un disque a bord franc, donc
-# chaque bord est une marche. Ce sont les marches EXTERIEURES qui trahissent
-# l'empilement -- la, le ciel est uni et l'oeil lit le moindre anneau. On les
-# a donc rendues fines (0.030) et on garde les grosses pour le centre, ou
-# elles sont noyees dans l'eclat du soleil. Le total reste le meme : un halo
-# aussi dense qu'avant, mais sans anneaux.
-_SUN_HALO = ((3.20, 0.030), (2.72, 0.038), (2.31, 0.048), (1.96, 0.058),
-             (1.66, 0.068), (1.41, 0.080), (1.20, 0.090))
+# Un halo est desormais UNE SEULE image : une texture ou l'opacite decroit
+# continument du centre au bord (voir glow_profile et _glow_texture). Il n'y
+# a plus aucun bord franc, donc plus aucun anneau -- et c'est une seule forme
+# a dessiner au lieu de sept.
+
+# Rayon du halo, en multiples du rayon de l'astre, et opacite au bord de
+# l'astre. Ces opacites ne sont pas choisies a vue : elles conservent la
+# LUMIERE TOTALE que diffusaient les anciens empilements, pour que le ciel ne
+# change pas de clarte.
+MOON_GLOW_RADIUS, MOON_GLOW_ALPHA = 5.0, 0.793
+SUN_GLOW_RADIUS, SUN_GLOW_ALPHA = 3.2, 0.560
+
+
+def glow_profile(t):
+    """Opacite du halo, de 1.0 au bord de l'astre a 0.0 au bord du halo.
+
+    DEUX LOBES, parce que la lumiere diffusee se comporte de deux facons a la
+    fois : une aureole serree qui colle a l'astre, et un voile large et pale
+    qui s'etend bien au-dela. Un seul lobe donne soit un halo trop dur, soit
+    une brume sans coeur ; les deux ensemble donnent le liseré vif contre
+    l'astre ET la traine douce qui se perd dans le ciel.
+
+    Le profil vaut exactement 0 en t = 1 : c'est ce qui garantit qu'aucun
+    bord ne se voit."""
+    u = max(0.0, 1.0 - t)
+    return 0.55 * u ** 4 + 0.45 * u ** 1.4
+
+
+# Finesse de la texture du halo. 128 suffit largement : elle est etiree sur
+# quelques dizaines de pixels et lissee par le filtrage lineaire.
+_GLOW_TEX_SIZE = 128
+_GLOW_TEX = {}
+
+
+def _glow_texture(inner):
+    """Texture d'un halo : blanche, l'opacite suivant glow_profile.
+
+    `inner` est la part du rayon occupee par l'ASTRE lui-meme, ou le degrade
+    n'a pas encore commence : ce coeur est de toute facon cache derriere
+    l'image de l'astre. Le degrade court de la jusqu'au bord.
+
+    Le blanc laisse la teinte au Color qui la dessine -- doree pour le soleil,
+    bleutee pour la lune -- et permet de partager le meme code."""
+    key = round(inner, 3)
+    if key in _GLOW_TEX:
+        return _GLOW_TEX[key]
+    n = _GLOW_TEX_SIZE
+    half = (n - 1) / 2.0
+    buf = bytearray(n * n * 4)
+    for j in range(n):
+        for i in range(n):
+            u = math.hypot(i - half, j - half) / half
+            if u >= 1.0:
+                a = 0.0
+            elif u <= inner:
+                a = 1.0
+            else:
+                a = glow_profile((u - inner) / (1.0 - inner))
+            p = (j * n + i) * 4
+            buf[p] = buf[p + 1] = buf[p + 2] = 255
+            buf[p + 3] = int(a * 255.0 + 0.5)
+    tex = Texture.create(size=(n, n), colorfmt="rgba")
+    tex.blit_buffer(bytes(buf), colorfmt="rgba", bufferfmt="ubyte")
+    # Sans quoi le bord de la texture se repeterait en un liseré tout autour.
+    tex.wrap = "clamp_to_edge"
+    _GLOW_TEX[key] = tex
+    return tex
 
 # SCINTILLEMENT du halo solaire : la lumiere qui tremble autour du soleil.
 #
@@ -313,10 +370,9 @@ class AnimatedBackground(Widget):
             # 3. Soleil (avec halo) et Lune.
             # Le HALO reste dessine au canvas (sa transparence varie avec
             # l'heure) ; l'image du soleil, si elle existe, se pose dessus.
-            self._sun_glow = []
-            for _mult, _a in _SUN_HALO:
-                self._sun_glow.append((Color(1.0, 0.92, 0.55, 0.0),
-                                       Ellipse()))
+            self._sun_glow_c = Color(1.0, 0.92, 0.55, 0.0)
+            self._sun_glow = Ellipse(
+                texture=_glow_texture(1.0 / SUN_GLOW_RADIUS))
             sun_tex = atmosphere.sprite("sun")
             self._sun_c = Color(1, 1, 1, 0.0) if sun_tex is not None \
                 else Color(1.0, 0.95, 0.6, 0.0)
@@ -326,10 +382,9 @@ class AnimatedBackground(Widget):
             # diffus), puis UNIQUEMENT la portion eclairee, dessinee comme
             # un maillage (voir _place_moon). Rien n'est dessine pour la
             # face sombre : elle est donc reellement invisible.
-            self._moon_glow = []
-            for _mult, _a in _MOON_HALO:
-                self._moon_glow.append((Color(0.85, 0.90, 1.0, 0.0),
-                                        Ellipse()))
+            self._moon_glow_c = Color(0.85, 0.90, 1.0, 0.0)
+            self._moon_glow = Ellipse(
+                texture=_glow_texture(1.0 / MOON_GLOW_RADIUS))
             moon_tex = atmosphere.sprite("moon")
             self._moon_c = Color(1, 1, 1, 0.0) if moon_tex is not None \
                 else Color(0.97, 0.98, 1.0, 0.0)
@@ -472,9 +527,8 @@ class AnimatedBackground(Widget):
         # 1) HALO : la lune brille d'autant plus qu'elle est pleine (aucune
         #    lueur a la nouvelle lune, ni le jour).
         glow = night * illum
-        for (col, ell), (mult, base_a) in zip(self._moon_glow, _MOON_HALO):
-            col.a = base_a * glow
-            self._place_disc(ell, cx, cy, r * mult)
+        self._moon_glow_c.a = MOON_GLOW_ALPHA * glow
+        self._place_disc(self._moon_glow, cx, cy, r * MOON_GLOW_RADIUS)
 
         # 2) Portion ECLAIREE uniquement, tranche par tranche.
         #    A la hauteur y, le disque s'etend de -xc a +xc, et le terminateur
@@ -622,13 +676,11 @@ class AnimatedBackground(Widget):
         sy = y0 + h * (0.45 + 0.42 * math.sin(math.pi * sp))
         self._sun_c.a = sun_a * astro
         self._place_disc(self._sun, sx, sy, radius * self._sun_scale)
-        # Le halo fremit. Les couches partagent le MEME facteur : elles
-        # respirent ensemble, sinon le degrade se decomposerait en anneaux
-        # qui battent chacun de leur cote.
-        frisson = glow_shimmer(self._t)
-        for (col, ell), (mult, base_a) in zip(self._sun_glow, _SUN_HALO):
-            col.a = sun_a * base_a * astro * frisson
-            self._place_disc(ell, sx, sy, radius * mult)
+        # Le halo fremit. Le degrade entier respire d'un bloc : c'est
+        # l'opacite de l'image qui varie, sa forme ne bouge pas.
+        self._sun_glow_c.a = (sun_a * SUN_GLOW_ALPHA * astro
+                              * glow_shimmer(self._t))
+        self._place_disc(self._sun_glow, sx, sy, radius * SUN_GLOW_RADIUS)
 
         # Lune : arc de 19h a 5h (la nuit).
         nh = (hour - 19.0) % 24.0
