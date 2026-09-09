@@ -38,7 +38,12 @@ requirements = python3,kivy
 orientation = landscape
 
 # Plein ecran : 0 = barre de statut visible, 1 = plein ecran
-fullscreen = 0
+#
+# Ce reglage ne cache QUE la barre d'etat (heure, batterie, notifications).
+# Il ne suffit pas a lui seul : la barre de NAVIGATION (les boutons du
+# telephone) y survit, et l'encoche de la camera fait toujours retrecir la
+# fenetre. Ces deux-la se demandent depuis le code -> src/android_screen.py
+fullscreen = 1
 
 # Icone et ecran de demarrage — a fournir plus tard dans assets/
 # icon.filename = %(source.dir)s/assets/icon.png

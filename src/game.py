@@ -20,6 +20,7 @@ from kivy.app import App
 from kivy.core.window import Window
 from kivy.uix.screenmanager import ScreenManager, FadeTransition
 
+from src.android_screen import keep_fullscreen
 from src.save_manager import SaveManager
 from src.audio_manager import AudioManager
 from src.screens.menu_screen import MenuScreen
@@ -61,6 +62,8 @@ class MobilPytonApp(App):
 
         # Sauvegarde juste avant la fermeture de la fenetre (PC).
         Window.bind(on_request_close=self._on_request_close)
+        # Plein ecran bord a bord sur Android (sans effet ailleurs).
+        keep_fullscreen()
         return sm
 
     # ------------------------------------------------------------------ #
@@ -84,3 +87,9 @@ class MobilPytonApp(App):
         # et on renvoie True pour que l'app reste en memoire.
         self.autosave()
         return True
+
+    def on_resume(self):
+        # Android rend les barres du systeme quand il reprend la main sur la
+        # fenetre : revenir dans le jeu ferait donc reapparaitre les bandes
+        # noires si on ne redemandait pas le plein ecran ici.
+        keep_fullscreen()
