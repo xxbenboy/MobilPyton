@@ -21,5 +21,8 @@ bin/
 Thumbs.db
 .DS_Store
 
-# Textures PBR de l'herbe : trop lourdes (~47 Mo), gardees en local
-assets/textures/grass_*.png
+# Les textures PBR SONT versionnees : sans elles dans le depot, elles
+# n'arrivent pas dans l'APK et le sol reste plat.
+# L'herbe avait ete exclue quand elle pesait ~47 Mo. Ramenee a 512 x 512
+# (la taille a laquelle le jeu l'affiche, voir assets/textures/LISEZMOI.txt),
+# ses trois cartes tiennent en 1,9 Mo : le motif de l'exclusion a disparu.
