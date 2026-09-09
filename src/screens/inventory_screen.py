@@ -47,6 +47,8 @@ from src.widgets.item_icon import ItemIcon
 from src.widgets.item_info import show_item_info
 from src.widgets.styled_button import StyledButton, TabButton
 from src.widgets.panels import panel
+from src.widgets.hand_slot import (hands_row, empty_slot,
+                                   item_text)
 from src.widgets.responsive import (scale_font, dh, fit_text,
                                     TEXT_NORMAL, SIDE_SHARE,
                                     center_share, ROW_TITLE, ROW_BODY,
@@ -209,20 +211,6 @@ def _xp_bar(done, needed, **kwargs):
     return bar
 
 
-def _item_text(state, name, worn=False):
-    """Nom de l'objet, avec le remplissage dessous s'il s'agit d'un sac.
-
-    Un sac retire garde ce qu'il transportait : on affiche donc son contenu
-    qu'il soit porte, tenu en main ou range."""
-    if not name:
-        return "Vide"
-    text = items.display_name(name)
-    fill = state.bag_fill(name, worn) if state is not None else None
-    if fill and fill[0] > 0:
-        text += f"\n{fill[0]}/{fill[1]}"
-    return text
-
-
 def _scroll_box():
     """Un ScrollView et la colonne verticale qu'il fait defiler."""
     scroll = ScrollView(size_hint=(1, 1))
@@ -349,13 +337,12 @@ class InventoryScreen(Screen):
         col.add_widget(body)
 
         # ---- Les MAINS, en bas : source du glisser-deposer ----
-        hands = BoxLayout(orientation="horizontal", spacing=dp(8),
-                          size_hint=(1, ROW_HANDS))
-        self.hand_slots = []
-        for i, titre in enumerate(("Main gauche", "Main droite")):
-            slot = _HandSlot(i, titre)
-            self.hand_slots.append(slot)
-            hands.add_widget(slot)
+        # Meme bande que dans le craft (widget partage) : rien ne bouge en
+        # bas quand on bascule d'un ecran a l'autre. Ici seulement, chaque
+        # main s'allume quand on peut y lacher un objet.
+        hands, self.hand_slots = hands_row(size_hint=(1, ROW_HANDS))
+        for slot in self.hand_slots:
+            _make_highlightable(slot)
         col.add_widget(hands)
 
         # Message d'aide / refus (pourquoi un depot n'a pas marche).
@@ -438,7 +425,7 @@ class InventoryScreen(Screen):
         self._size_equip_slots()
         for slot in self.hand_slots:
             name = state.hands[slot.hand]
-            slot.set_item(name, _item_text(state, name))
+            slot.set_item(name, item_text(state, name))
 
     # ------------------------------------------------------------------ #
     # Glisser-deposer
@@ -858,7 +845,7 @@ class InventoryScreen(Screen):
             sx, sy, _bx, _by = _SLOT_LAYOUT[slot]
             worn = state.equipment.get(slot)
             widget = _EquipSlot(slot, worn,
-                                _item_text(state, worn, worn=True),
+                                item_text(state, worn, worn=True),
                                 pos_hint={"center_x": sx, "center_y": sy})
             self._equip_slots.append(widget)
             self.equip_box.add_widget(widget)
@@ -962,41 +949,14 @@ class InventoryScreen(Screen):
             cell.item = name
             self._bag_cells.append(cell)
             cell.add_widget(ItemIcon(name, show_name=False) if name
-                            else _empty_slot(1.0))
-            cell.name_label = _label(_item_text(state, name),
+                            else empty_slot(1.0))
+            cell.name_label = _label(item_text(state, name),
                                      (0.92, 0.92, 0.95, 1) if name else _DIM,
                                      halign="center",
                                      size_hint_y=None, height=dh(_NAME_LABEL))
             cell.add_widget(cell.name_label)
             grid.add_widget(cell)
         self.bag_box.add_widget(grid)
-
-
-class _HandSlot(BoxLayout):
-    """Ce que tient une main. Point de DEPART du glisser-deposer."""
-
-    def __init__(self, hand, title, **kwargs):
-        kwargs.setdefault("orientation", "horizontal")
-        kwargs.setdefault("padding", dp(6))
-        kwargs.setdefault("spacing", dp(6))
-        super().__init__(**kwargs)
-        self.hand = hand
-        self.item = None
-        _panel(self, alpha=0.30)
-        _make_highlightable(self)   # cible d'un glisser (on se deshabille)
-        self._icon_box = BoxLayout(size_hint_x=0.34)
-        self.add_widget(self._icon_box)
-        self._text = _label("", size_hint_x=0.66)
-        self.add_widget(self._text)
-        self._title = title
-
-    def set_item(self, name, text=None):
-        self.item = name
-        self._icon_box.clear_widgets()
-        self._icon_box.add_widget(ItemIcon(name, show_name=False) if name
-                                  else _empty_slot(1.0))
-        self._text.text = f"{self._title}\n{text or 'Vide'}"
-        self._text.color = (0.92, 0.92, 0.95, 1) if name else _DIM
 
 
 class _BodyPanel(FloatLayout):
@@ -1124,17 +1084,3 @@ class _EquipSlot(BoxLayout):
         self._edge_color.rgba = (0.45, 1.00, 0.62, 0.40 + 0.60 * pulse)
 
 
-def _empty_slot(size_hint_x):
-    """Emplacement vide : un cadre en pointille plutot qu'un trou."""
-    w = Widget(size_hint_x=size_hint_x)
-    with w.canvas:
-        Color(1, 1, 1, 0.10)
-        rect = RoundedRectangle(radius=[dp(8)])
-        Color(1, 1, 1, 0.22)
-
-    def _sync(*_):
-        s = min(w.width, w.height)
-        rect.pos = (w.center_x - s / 2, w.center_y - s / 2)
-        rect.size = (s, s)
-    w.bind(pos=_sync, size=_sync)
-    return w

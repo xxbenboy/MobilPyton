@@ -28,9 +28,9 @@ from src.widgets.animated_background import AnimatedBackground, night_darkness
 from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.item_info import show_item_info, TappableIcon
-from src.widgets.durability_bar import DurabilityBar
 from src.widgets.styled_button import StyledButton, TabButton
 from src.widgets.panels import panel
+from src.widgets.hand_slot import hands_row, item_text
 from src.widgets.responsive import (scale_font, dh, fit_text, TEXT_NORMAL,
                                     TEXT_TITLE, TEXT_SMALL, SIDE_SHARE,
                                     center_share, ROW_TITLE, ROW_BODY,
@@ -75,11 +75,6 @@ def _fit_button_font(btn, *_):
     if btn.texture_size[0] > btn.width * 0.90:
         f = f * (btn.width * 0.90) / btn.texture_size[0]
     btn.font_size = max(10, f)
-
-
-def _inv_label_font(w, *_):
-    """Libelle d'une main : un cran au-dessus du texte courant."""
-    fit_text(w, TEXT_TITLE)
 
 
 class CraftScreen(Screen):
@@ -172,10 +167,11 @@ class CraftScreen(Screen):
 
         col.add_widget(body)
 
-        # ---- En bas : les MAINS, a la meme place que dans l'inventaire ----
-        self.hands_row = BoxLayout(orientation="horizontal", spacing=dp(8),
-                                   size_hint=(1, ROW_HANDS))
-        col.add_widget(self.hands_row)
+        # ---- En bas : les MAINS ----
+        # Exactement la meme bande que dans l'inventaire (widget partage) :
+        # basculer d'un ecran a l'autre ne doit rien deplacer en bas non plus.
+        row, self.hand_slots = hands_row(size_hint=(1, ROW_HANDS))
+        col.add_widget(row)
 
         self.hint = fit_text(Label(
             text="Le sac compte comme matiere : pas besoin d'en sortir les "
@@ -229,56 +225,16 @@ class CraftScreen(Screen):
 
     # ------------------------------------------------------------------ #
     def _fill_hands(self, state):
-        """Les deux mains, en bas de l'ecran : deposer, equiper.
+        """Ce que tiennent les mains. Rien de plus.
 
-        Elles etaient melangees aux objets du sol dans une seule colonne. Ici
-        elles occupent la meme bande que dans l'inventaire : d'un ecran a
-        l'autre, la main gauche reste la main gauche, au meme endroit."""
-        self.hands_row.clear_widgets()
-        for i, titre in enumerate(("Main gauche", "Main droite")):
-            cell = BoxLayout(orientation="horizontal", spacing=dp(6),
-                             padding=(dp(8), dp(4)))
-            _panel(cell, alpha=0.30)
-            item = state.hands[i]
-            if item is None:
-                vide = Label(text=f"{titre}\nvide", halign="center",
-                             valign="middle", color=_DIM)
-                _inv_label_font(vide)
-                cell.add_widget(vide)
-                self.hands_row.add_widget(cell)
-                continue
-            # Pour un OUTIL, l'image est surmontee de sa barre de solidite.
-            health = state.tool_health(i)
-            if health is None:
-                cell.add_widget(TappableIcon(item, self._info,
-                                             size_hint_x=0.34))
-            else:
-                box = BoxLayout(orientation="vertical", spacing=dp(3),
-                                size_hint_x=0.34)
-                box.add_widget(TappableIcon(item, self._info))
-                bar = DurabilityBar(size_hint_y=None, height=dh(14))
-                bar.set_value(health)
-                box.add_widget(bar)
-                cell.add_widget(box)
-            lbl = Label(text=titre, halign="left", valign="middle",
-                        size_hint_x=0.28, color=(0.96, 0.82, 0.45, 1))
-            _inv_label_font(lbl)
-            cell.add_widget(lbl)
-            # Boutons empiles : la bande est basse et large, deux boutons
-            # cote a cote y seraient des timbres-poste.
-            btns = BoxLayout(orientation="vertical", spacing=dp(3),
-                             size_hint_x=0.38)
-            if state.can_equip(i):
-                eq = StyledButton(text="Equiper", bold=True)
-                eq.bind(size=_btn_font)
-                eq.bind(on_release=lambda _w, idx=i: self._equip(idx))
-                btns.add_widget(eq)
-            drop = StyledButton(text="Deposer", bold=True)
-            drop.bind(size=_btn_font)
-            drop.bind(on_release=lambda _w, idx=i: self._drop(idx))
-            btns.add_widget(drop)
-            cell.add_widget(btns)
-            self.hands_row.add_widget(cell)
+        Il y avait ici deux boutons, "Equiper" et "Deposer". Ils faisaient de
+        cette bande autre chose que celle de l'inventaire, alors que les deux
+        ecrans sont censes se repondre sans que rien ne bouge entre eux. Ces
+        actions appartiennent a l'inventaire, ou l'on fait glisser les objets
+        d'une case a l'autre ; le craft, lui, sert a fabriquer."""
+        for slot in self.hand_slots:
+            name = state.hands[slot.hand]
+            slot.set_item(name, item_text(state, name))
 
     def _fill_ground(self, state):
         """Ce qui traine sur la case. Meme source que l'inventaire
@@ -429,17 +385,6 @@ class CraftScreen(Screen):
 
     def _take(self, name, hand):
         App.get_running_app().game_state.take_from_ground(name, hand)
-        App.get_running_app().autosave()
-        self.refresh()
-
-    def _equip(self, index):
-        """Porte l'objet tenu : il quitte la main pour son emplacement."""
-        if App.get_running_app().game_state.equip_from_hand(index):
-            App.get_running_app().autosave()
-        self.refresh()
-
-    def _drop(self, index):
-        App.get_running_app().game_state.drop_from_hands(index)
         App.get_running_app().autosave()
         self.refresh()
 
