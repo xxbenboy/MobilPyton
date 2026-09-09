@@ -22,7 +22,7 @@ import math
 
 from src import items
 from src.widgets.animated_background import AnimatedBackground, night_darkness
-from src.widgets import daylight
+from src.widgets import daylight, horizon
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font, dh
@@ -578,12 +578,17 @@ class PlaceScreen(Screen):
         # foyer est allume, ses flammes derriere la fenetre.
         seed = state.player_x * 131 + state.player_y
         on_action = self._action_cell is not None
-        key = (zone, state.player_x, state.player_y, on_action, tuple(objs))
+        # Meme decor que l'ecran de jeu, voisins compris : l'ecran de pose
+        # montre LA MEME case, elle ne doit pas perdre son horizon en chemin.
+        voisins = horizon.neighbours_of(state)
+        key = (zone, state.player_x, state.player_y, on_action, tuple(objs),
+               tuple(sorted(voisins.items())))
         if key != self._scene_key:
             if on_action:
                 self.scenery.set_scene(zone, seed,
                                        taken=state.harvested_here(),
-                                       installed=objs)
+                                       installed=objs,
+                                       neighbours=voisins)
             else:
                 self.scenery.set_ground(zone, seed)
             self._scene_key = key

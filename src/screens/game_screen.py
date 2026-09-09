@@ -28,7 +28,7 @@ from kivy.metrics import dp
 
 from src.widgets.animated_background import (AnimatedBackground,
                                             night_darkness, night_factor)
-from src.widgets import daylight
+from src.widgets import daylight, horizon
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.installed_layer import grid_to_screen
 
@@ -1742,8 +1742,12 @@ class GameScreen(Screen):
                                     for o in state.installed_objects_here()))
         # Arbres abattus : leur cellule reste vide dans le decor.
         removed_grid = tuple(sorted(state.chopped_here()))
+        # Les cases VOISINES apparaissent a l'horizon, et lesquelles depend
+        # de l'orientation : elles entrent donc dans la cle, sans quoi tourner
+        # sur place ne redessinerait pas le fond.
+        voisins = horizon.neighbours_of(state)
         key = (zone, state.player_x, state.player_y, blocked_grid, installed,
-               removed_grid)
+               removed_grid, tuple(sorted(voisins.items())))
         if key != self._scene_key:
             # On passe les objets deja recoltes pour masquer ceux pris ici, les
             # cases bloquees pour ne pas dessiner d'objets dedans, et les
@@ -1752,7 +1756,8 @@ class GameScreen(Screen):
                                    taken=state.harvested_here(),
                                    blocked_grid=blocked_grid,
                                    installed=installed,
-                                   removed_grid=removed_grid)
+                                   removed_grid=removed_grid,
+                                   neighbours=voisins)
             self._scene_key = key
 
     def _periodic_autosave(self, _dt):

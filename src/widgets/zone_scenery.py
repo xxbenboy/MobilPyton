@@ -27,6 +27,7 @@ from kivy.graphics import (Color, Ellipse, Rectangle, Triangle, Line, Quad,
 
 from src import world
 from src.widgets import textures, pbr, foliage, daylight
+from src.widgets import horizon
 from src.widgets.textures import paint, paint_color, tiled_coords
 from src.widgets.installed_layer import grid_to_screen
 
@@ -155,6 +156,7 @@ class ZoneScenery(Widget):
         # MASQUER les objets recoltes) et totaux/budgets calcules a la
         # construction de la scene.
         self._taken = {}
+        self._neighbours = {}
         self._ord = {}
         self._harvest_total = {}
         self._avail = {}            # {nom: nb recoltable} (aleatoire, par case)
@@ -262,7 +264,7 @@ class ZoneScenery(Widget):
             pbr.reset_maps()
 
     def set_scene(self, zone_type, seed=0, taken=None, blocked_grid=None,
-                  installed=None, removed_grid=None):
+                  installed=None, removed_grid=None, neighbours=None):
         """Vue a l'horizon (sol en bas + ciel).
 
         `taken` = {nom: nombre deja recolte} pour masquer les objets recoltes.
@@ -276,7 +278,11 @@ class ZoneScenery(Widget):
         INSTALLE (feu de camp, ...) ; deduit de `installed` si absent. Les
         objets du decor qui tombent dans la zone visuelle d'une case bloquee ne
         sont PAS dessines (mais restent collectables via explorer : le budget
-        de recolte est preserve)."""
+        de recolte est preserve).
+        `neighbours` = {"face"/"gauche"/"droite": type de zone ou None} : les
+        cases voisines, qui apparaissent en silhouette a l'horizon (voir
+        horizon.py). Depend de l'ORIENTATION du joueur, donc tourner change le
+        fond de la scene."""
         self._zone = zone_type
         self._seed = seed
         self._mode = "scene"
@@ -291,6 +297,7 @@ class ZoneScenery(Widget):
                                  for g in (blocked_grid or []))
         self._removed_grid = set((int(g[0]), int(g[1]))
                                  for g in (removed_grid or []))
+        self._neighbours = dict(neighbours or {})
         self._redraw()
 
     def set_taken(self, taken):
@@ -599,6 +606,26 @@ class ZoneScenery(Widget):
         self._sync_flame_clock()
         self._sync_sway_clock()
 
+    def _horizon(self, crest):
+        """Pose les paysages voisins sur la ligne d'horizon de la scene.
+
+        `crest(fx)` donne le y de cette ligne. A appeler AVANT le terrain : le
+        sol dessine ensuite recouvre le pied des silhouettes, qui n'ont donc
+        pas besoin d'etre decoupees proprement en bas.
+
+        L'HORIZON A SON PROPRE HASARD, et ce n'est pas un detail. Toute la
+        scene est tiree d'un seul generateur : s'il servait aussi a l'horizon,
+        le nombre de tirages changerait avec les voisins, et TOUT le decor se
+        reorganiserait -- les touffes d'herbe, les pierres, les objets a
+        recolter. Le joueur verrait sa case se reconstruire rien qu'en
+        tournant sur lui-meme. Ici, la ligne d'horizon depend des voisins,
+        et rien d'autre n'en depend."""
+        graine = self._seed
+        for cote in sorted(self._neighbours):
+            graine = graine * 31 + hash(self._neighbours[cote]) % 9973
+        horizon.draw(self._neighbours, self.x, self.width, crest,
+                     self.height, random.Random(graine))
+
     # -- helpers textures (surface plane texturee, sinon couleur de repli) - #
     def _trect(self, name, x, y, w, h, tile_px=None):
         """Rectangle texture (repete) si la texture existe, sinon aplat couleur."""
@@ -858,6 +885,9 @@ class ZoneScenery(Widget):
         mush_pick = clusters(rng.randint(2, 3), 0.05)
 
         # Sol forestier (terre/mousse) ondule, deux tons.
+        # Les paysages voisins d'abord : ils sont derriere tout le reste.
+        self._horizon(lambda fx: far_curve(fx) - 0.010 * h)
+
         self._fill_curve(far_curve, "forest_floor_far")
         self._fill_curve(floor_curve, "forest_floor")
 
@@ -1220,6 +1250,9 @@ class ZoneScenery(Widget):
         wheat_pick = clusters(rng.randint(2, 3), 0.10)
 
 
+        # Ce qu'il y a AUTOUR, tout au fond, avant le moindre brin d'herbe.
+        self._horizon(lambda fx: horizon_curve(fx) - 0.012 * h)
+
         # Collines : crete lointaine (clair) puis champ proche (fonce) ondules.
         self._fill_curve(horizon_curve, "grass_far")
         self._fill_curve(field_curve, "grass")
@@ -1332,6 +1365,13 @@ class ZoneScenery(Widget):
         def surf(fx):                      # hauteur de la pente a la position fx
             return y0 + (0.60 + 0.36 * fx) * h
 
+        # Paysages voisins : poses au POINT LE PLUS BAS de la pente, pas sur
+        # la pente elle-meme. Une ligne d'arbres qui grimperait le long du
+        # versant se lirait comme une foret accrochee a la montagne ; posee a
+        # plat, elle reste ce qu'elle est -- le fond de vallee, que la pente
+        # (dessinee juste apres) vient masquer a mesure qu'elle monte.
+        self._horizon(lambda fx: surf(0.0))
+
         # Pente principale (remplit le cadre, monte vers la droite).
         self._tquad("rock", [x0, y0, x0 + w, y0, x0 + w, surf(1.0), x0, surf(0.0)])
         # Bas plus sombre (profondeur).
@@ -1393,6 +1433,9 @@ class ZoneScenery(Widget):
 
     def _lac(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
+        # Paysages voisins, derriere la berge d'en face.
+        self._horizon(lambda fx: y0 + 0.70 * h)
+
         # Collines / berge lointaine (haut), pour reduire le ciel.
         Color(0.16, 0.30, 0.18, 1)
         Ellipse(pos=(x0 - 0.25 * w, y0 + 0.58 * h), size=(1.6 * w, 0.18 * h))
