@@ -128,6 +128,50 @@ MOON_LIGHT_EXPONENT = 1.6
 _MOON_HALO = ((5.0, 0.05), (3.6, 0.085), (2.6, 0.14),
               (1.8, 0.24), (1.25, 0.34))
 
+# Halo du SOLEIL : (rayon x le rayon du disque, opacite de base). Meme
+# principe que celui de la lune, et pour la meme raison : un halo d'UN SEUL
+# cercle a un bord net, et ce bord se voit comme un anneau autour du soleil.
+# Empiles du plus large au plus serre, ils forment un degrade.
+#
+# SEPT couches, et pas quatre : chaque couche est un disque a bord franc, donc
+# chaque bord est une marche. Ce sont les marches EXTERIEURES qui trahissent
+# l'empilement -- la, le ciel est uni et l'oeil lit le moindre anneau. On les
+# a donc rendues fines (0.030) et on garde les grosses pour le centre, ou
+# elles sont noyees dans l'eclat du soleil. Le total reste le meme : un halo
+# aussi dense qu'avant, mais sans anneaux.
+_SUN_HALO = ((3.20, 0.030), (2.72, 0.038), (2.31, 0.048), (1.96, 0.058),
+             (1.66, 0.068), (1.41, 0.080), (1.20, 0.090))
+
+# SCINTILLEMENT du halo solaire : la lumiere qui tremble autour du soleil.
+#
+# Trois ondes de frequences sans rapport simple. Ici, contrairement au souffle
+# du joueur, le BATTEMENT est recherche : c'est lui qui fait qu'aucune pulsation
+# ne ressemble a la precedente. Un scintillement regulier se lirait comme un
+# clignotant.
+_GLOW_WAVES = ((0.83, 0.50), (1.47, 0.32), (2.31, 0.18))
+
+# Le soleil DESSINE est plus grand que le soleil VU. Son image a le contour
+# fondu : elle est encore franche a mi-rayon, puis s'eteint vers 0,73 -- le
+# reste du cadre est le fondu, et il ne se voit pas. Plaquee telle quelle dans
+# la boite d'un disque plein, elle donnerait donc un soleil un tiers plus
+# petit qu'avant. On agrandit la boite d'autant (1 / 0,73) pour que le soleil
+# garde sa taille A L'OEIL. Le halo, lui, reste cale sur le rayon nu : c'est
+# la ou le disque se termine vraiment.
+SUN_SPRITE_SCALE = 1.37
+
+# Amplitude, en fraction de l'opacite du halo. Volontairement PETITE : le
+# soleil doit fremir, pas clignoter. Au-dela, le regard quitte le paysage pour
+# aller au ciel.
+GLOW_SHIMMER = 0.22
+
+
+def glow_shimmer(t):
+    """Facteur multiplicatif du halo a l'instant t (autour de 1.0)."""
+    v = sum(a * math.sin(math.tau * f * t + i)
+            for i, (f, a) in enumerate(_GLOW_WAVES))
+    return 1.0 + GLOW_SHIMMER * v
+
+
 # Finesse du contour de la lune (nombre de tranches horizontales).
 _MOON_STEPS = 32
 
@@ -269,12 +313,15 @@ class AnimatedBackground(Widget):
             # 3. Soleil (avec halo) et Lune.
             # Le HALO reste dessine au canvas (sa transparence varie avec
             # l'heure) ; l'image du soleil, si elle existe, se pose dessus.
-            self._sun_glow_c = Color(1.0, 0.92, 0.55, 0.0)
-            self._sun_glow = Ellipse()
+            self._sun_glow = []
+            for _mult, _a in _SUN_HALO:
+                self._sun_glow.append((Color(1.0, 0.92, 0.55, 0.0),
+                                       Ellipse()))
             sun_tex = atmosphere.sprite("sun")
             self._sun_c = Color(1, 1, 1, 0.0) if sun_tex is not None \
                 else Color(1.0, 0.95, 0.6, 0.0)
             self._sun = Ellipse(texture=sun_tex)
+            self._sun_scale = SUN_SPRITE_SCALE if sun_tex is not None else 1.0
             # Lune : halo lumineux (plusieurs cercles de plus en plus
             # diffus), puis UNIQUEMENT la portion eclairee, dessinee comme
             # un maillage (voir _place_moon). Rien n'est dessine pour la
@@ -574,9 +621,14 @@ class AnimatedBackground(Widget):
         sx = x0 + w * (0.12 + 0.76 * sp)
         sy = y0 + h * (0.45 + 0.42 * math.sin(math.pi * sp))
         self._sun_c.a = sun_a * astro
-        self._place_disc(self._sun, sx, sy, radius)
-        self._sun_glow_c.a = sun_a * 0.35 * astro
-        self._place_disc(self._sun_glow, sx, sy, radius * 2.1)
+        self._place_disc(self._sun, sx, sy, radius * self._sun_scale)
+        # Le halo fremit. Les couches partagent le MEME facteur : elles
+        # respirent ensemble, sinon le degrade se decomposerait en anneaux
+        # qui battent chacun de leur cote.
+        frisson = glow_shimmer(self._t)
+        for (col, ell), (mult, base_a) in zip(self._sun_glow, _SUN_HALO):
+            col.a = sun_a * base_a * astro * frisson
+            self._place_disc(ell, sx, sy, radius * mult)
 
         # Lune : arc de 19h a 5h (la nuit).
         nh = (hour - 19.0) % 24.0

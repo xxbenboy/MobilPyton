@@ -1,9 +1,9 @@
 IMAGES DU CIEL ET DES ASTRES (Atmospheres)
 ==========================================
 
-STATUT : BRANCHE. Deposer une image ici la fait apparaitre dans le jeu, sans
-toucher au code. Sans image, le ciel garde ses disques dessines : rien ne
-casse.
+STATUT : BRANCHE, ET SERVI. sun.png et moon.png sont en place ; le jeu les
+utilise. Remplacer un fichier suffit a changer l'astre, sans toucher au code.
+Retirer un fichier ne casse rien : le ciel revient a son disque dessine.
 
     assets/Atmospheres/<nom>.png     (ou .jpg / .jpeg)
 
@@ -33,11 +33,26 @@ recoupe une deuxieme fois.
 FORMAT
 ----------------------------------------------------------------
 - PNG CARRE 512 x 512, fond TRANSPARENT.
-- L'astre doit toucher les bords du cadre et etre bien CENTRE : le jeu
-  considere que le disque occupe toute l'image. Une lune dessinee petite
-  au milieu d'une grande marge vide serait decoupee de travers.
-- Le HALO reste anime au canvas (il grandit et palit selon l'heure et la
-  phase) et se dessine DERRIERE ton image : ne peins pas de halo dedans.
+- Astre bien CENTRE dans le cadre.
+- Le HALO reste anime au canvas (il grandit, palit selon l'heure et la phase,
+  et FREMIT pour le soleil) et se dessine DERRIERE ton image : ne peins pas
+  de halo dedans.
+
+LA LUNE doit TOUCHER les bords : le jeu considere que le disque occupe toute
+l'image pour le decouper en phases. Une lune dessinee petite au milieu d'une
+marge vide serait decoupee de travers. Bord franc, donc, sauf un cheveu de
+fondu sur le tout dernier pour-cent pour eviter l'escalier de pixels.
+
+LE SOLEIL, LUI, NE DOIT PAS toucher les bords -- il n'est jamais decoupe. Son
+contour est au contraire FONDU : l'alpha reste franc jusqu'a mi-rayon puis
+s'eteint vers 0,73, et le reste du cadre est de la marge transparente. Un
+soleil a bord net se colle au ciel comme un autocollant ; fondu, sa lumiere
+se dilue et le halo dessine derriere n'a plus de couture avec l'image.
+
+  -> Si tu changes ce rayon d'extinction, ajuste SUN_SPRITE_SCALE dans
+     src/widgets/animated_background.py : le jeu agrandit la boite du soleil
+     d'autant (1 / 0,73) pour compenser la marge, sans quoi il paraitrait
+     plus petit qu'il ne devrait.
 
 ----------------------------------------------------------------
 CE QUI RESTE DESSINE (ne pas fournir d'image)
