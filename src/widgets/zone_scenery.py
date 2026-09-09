@@ -81,6 +81,42 @@ _WIND_DEFAULT = 0.8
 # Ombre portee : aplatissement de l'ellipse (x la largeur de l'objet).
 _SHADOW_FLAT = 0.30
 
+# --- PROFONDEUR DU SOL ----------------------------------------------------- #
+# Le sol est vu EN OBLIQUE, pas de face : ce qui est loin doit paraitre plus
+# petit. Une texture simplement repetee a taille constante donne au contraire
+# un papier peint -- l'oeil n'y lit aucune distance.
+#
+# On traite donc le sol comme un PLAN vu par une camera. A la profondeur t
+# (0 en bas de l'ecran, 1 sur la crete), la distance vaut :
+#
+#       k(t) = 1 / (1 - t * (1 - 1/GROUND_DEPTH))
+#
+# soit 1 au premier plan et GROUND_DEPTH au fond. La texture n'est plus
+# indexee par la position a l'ecran mais par CETTE distance : les tuiles se
+# resserrent en montant (v) et s'ecartent du point de fuite (u), donc
+# retrecissent dans les deux sens a la fois. C'est le sol des vieux jeux
+# "mode 7".
+#
+# GROUND_DEPTH = de combien de fois le fond est PLUS LOIN que le premier plan.
+# Attention, la tuile ne retrecit pas du meme facteur dans les deux sens : un
+# sol vu en oblique est vu de plus en plus RASANT a mesure qu'il s'eloigne. Au
+# fond, la tuile est donc GROUND_DEPTH fois plus etroite mais GROUND_DEPTH AU
+# CARRE fois plus BASSE -- c'est cet ecrasement qui fait que l'oeil lit un sol
+# qui file au loin, et non un mur.
+#
+# D'ou une valeur mesuree : a 3.6, la tuile d'herbe (448 px au sol) fait
+# encore ~124 x 35 px sur la crete. La profondeur saute aux yeux et l'image
+# reste lisible ; plus haut, elle se reduirait a quelques pixels de bouillie.
+# Mettre 1.0 revient a l'ancienne repetition reguliere, sans profondeur.
+GROUND_DEPTH = 3.6
+
+# Nombre de bandes horizontales du maillage du sol. La perspective est une
+# COURBE, mais la carte graphique interpole en LIGNE DROITE d'un sommet a
+# l'autre : trop peu de bandes et la courbe se voit en segments. Les bandes
+# sont reparties par distance egale, donc serrees pres de la crete, la ou tout
+# change vite.
+GROUND_ROWS = 14
+
 # Fleurs de plaine : couleur de repli ET image correspondante. On tire la
 # PAIRE d'un coup : sans cela, une fleur tiree "jaune" pouvait se voir poser
 # l'image d'une fleur rouge.
@@ -587,7 +623,10 @@ class ZoneScenery(Widget):
             x0, y0 = self.x, self.y
             tc = []
             for i in range(0, 8, 2):
-                tc += [(points[i] - x0) / tile_px, (points[i + 1] - y0) / tile_px]
+                # v NEGATIF vers le haut : voir la note de sens dans
+                # textures.py (sans quoi la roche s'affiche a l'envers).
+                tc += [(points[i] - x0) / tile_px,
+                       -(points[i + 1] - y0) / tile_px]
             Quad(points=points, texture=tex, tex_coords=tc)
         else:
             Quad(points=points)
@@ -1072,25 +1111,58 @@ class ZoneScenery(Widget):
             yy = base + height * (0.56 + 0.11 * i)
             Ellipse(pos=(cx - rr, yy), size=(rr * 2, rr * 1.5))
 
-    def _fill_curve(self, top_fn, tex_name, segs=40, tile_px=None):
+    def _fill_curve(self, top_fn, tex_name, segs=40, tile_px=None,
+                    depth=GROUND_DEPTH, rows=GROUND_ROWS):
         """Remplit du bas du widget jusqu'a la courbe top_fn(fx) (terrain).
 
-        Habille avec la texture `tex_name` (repetee) si elle existe, sinon avec
-        la couleur de repli correspondante."""
+        Habille avec la texture `tex_name` si elle existe (sinon couleur de
+        repli), EN PERSPECTIVE : la tuile retrecit a mesure que le terrain
+        s'eloigne (voir GROUND_DEPTH).
+
+        `depth=1.0` redonne une repetition reguliere, sans profondeur."""
         if tile_px is None:
             tile_px = textures.tile_for(tex_name)
         x0, y0, w = self.x, self.y, self.width
+        cx = x0 + w / 2.0                      # point de fuite : le milieu
         tex = paint(tex_name)
         self._bind_pbr(tex_name)
+
+        depth = max(1.0, float(depth))
+        rows = max(1, int(rows)) if depth > 1.0 else 1
+        # a = part du chemin vers l'horizon reellement parcourue. k = 1/(1-a*t)
+        # va donc de 1 (tout pres) a `depth` (au fond) quand t va de 0 a 1.
+        a = 1.0 - 1.0 / depth
+
+        # Bandes reparties uniformement en DISTANCE (donc resserrees a
+        # l'ecran pres de la crete) : c'est la que la perspective se courbe
+        # le plus, et donc la qu'il faut des sommets.
+        ks = [1.0 + (depth - 1.0) * j / rows for j in range(rows + 1)]
+        ts = [(1.0 - 1.0 / k) / a if a else 0.0 for k in ks]
+
         verts = []
         for i in range(segs + 1):
             fx = i / segs
             x = x0 + fx * w
             top = top_fn(fx)
-            u = (x - x0) / tile_px
-            verts += [x, y0, u, 0.0, x, top, u, (top - y0) / tile_px]
-        idx = list(range(len(verts) // 4))
-        Mesh(vertices=verts, indices=idx, mode="triangle_strip", texture=tex)
+            # Facteur qui garde la MEME finesse de texture au premier plan
+            # qu'une repetition reguliere : seul le fond se resserre.
+            span = (top - y0) / a if a else (top - y0)
+            for k, t in zip(ks, ts):
+                # A la distance k, l'ecran couvre k fois plus de terrain :
+                # u s'ecarte du point de fuite, v s'enfonce. La tuile
+                # retrecit donc des deux cotes a la fois (pas d'etirement).
+                verts += [x, y0 + t * (top - y0),
+                          (x - cx) * k / tile_px,
+                          -span * (k - 1.0) / tile_px]
+
+        stride = rows + 1
+        idx = []
+        for i in range(segs):
+            for j in range(rows):
+                p = i * stride + j
+                q = p + stride
+                idx += [p, q, q + 1, p, q + 1, p + 1]
+        Mesh(vertices=verts, indices=idx, mode="triangles", texture=tex)
         self._reset_pbr()
 
     def _plaine(self, rng):

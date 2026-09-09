@@ -451,7 +451,9 @@ class AnimatedBackground(Widget):
             # La phase DECOUPE donc l'image au lieu de la deformer -- un
             # croissant montre bien le bord de la vraie lune. Sans image,
             # Kivy ignore ces valeurs : rien ne change.
-            v = 0.5 + (y - cy) / (2.0 * r)
+            # v DESCEND quand l'ecran MONTE (voir la note de sens dans
+            # textures.py) : sinon la lune se decoupe tete en bas.
+            v = 0.5 - (y - cy) / (2.0 * r)
             verts += [cx + x_in, y, 0.5 + x_in / (2.0 * r), v,
                       cx + x_out, y, 0.5 + x_out / (2.0 * r), v]
         self._moon.vertices = verts

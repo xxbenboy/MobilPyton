@@ -66,10 +66,28 @@ def _load(path):
     if path not in _CACHE:
         tex = None
         try:
-            tex = CoreImage(path).texture
+            # MIPMAP : le sol est vu en perspective, donc une tuile lointaine
+            # peut n'occuper que quelques dizaines de pixels. Sans mipmap, la
+            # carte graphique pioche alors UN pixel au hasard dans les 512 de
+            # l'image : le fond se met a fourmiller, et le fourmillement bouge
+            # des que la scene bouge. Le mipmap garde des versions reduites,
+            # deja moyennees, et choisit la bonne selon la taille a l'ecran.
+            # (Il exige des images en puissance de 2 -- ce que le LISEZMOI
+            # demande deja.)
+            tex = CoreImage(path, mipmap=True).texture
             tex.wrap = "repeat"
+            try:
+                tex.min_filter = "linear_mipmap_linear"
+            except Exception:
+                pass
         except Exception:
             tex = None
+        if tex is None:                    # repli : sans mipmap, mais visible
+            try:
+                tex = CoreImage(path).texture
+                tex.wrap = "repeat"
+            except Exception:
+                tex = None
         _CACHE[path] = tex
     return _CACHE[path]
 
@@ -135,8 +153,27 @@ def paint_color(name, color):
     return tex
 
 
+# ------------------------------------------------------------------ #
+# SENS DE L'IMAGE  (pourquoi tous les "v" sont NEGATIFS ici)
+# ------------------------------------------------------------------ #
+# Une image PNG se lit de HAUT en BAS, une texture OpenGL de BAS en HAUT.
+# Kivy compense en retournant lui-meme les coordonnees d'une texture : c'est
+# ce que fait `texture.tex_coords`, utilise quand on ne precise RIEN.
+#
+# Mais des qu'on fournit nos propres `tex_coords` (pour repeter la texture, ou
+# pour un maillage), on court-circuite cette compensation et on parle
+# directement a OpenGL : v = 0 tombe alors sur la PREMIERE ligne du PNG, donc
+# sur le HAUT de l'image. Un v qui monte avec l'ecran descend donc dans
+# l'image, et le sol s'affiche a l'envers.
+#
+# La regle, partout ou l'on ecrit des coordonnees a la main : v DESCEND quand
+# l'ecran MONTE (v negatif vers le haut). La repetition (wrap="repeat") rend
+# les valeurs negatives parfaitement legitimes.
+
 def tiled_coords(w, h, tile_px):
     """tex_coords pour repeter une texture tous les ~`tile_px` pixels."""
     u = max(1.0, float(w) / tile_px)
     v = max(1.0, float(h) / tile_px)
-    return (0, 0, u, 0, u, v, 0, v)
+    # Coins dans l'ordre de Kivy : bas-gauche, bas-droit, haut-droit,
+    # haut-gauche. Le haut recoit -v (voir la note ci-dessus).
+    return (0, 0, u, 0, u, -v, 0, -v)

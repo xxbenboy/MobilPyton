@@ -56,7 +56,10 @@ Personnage :
 CONSEILS IMPORTANTS
 ----------------------------------------------------------------
 - Repetition PROPRE : images CARREES en PUISSANCE DE 2 (256x256 ou 512x512),
-  "seamless" (bords qui se raccordent). Important sur telephone.
+  "seamless" (bords qui se raccordent). Ce n'est PAS un detail : le sol est
+  dessine en PERSPECTIVE (il retrecit vers l'horizon), et seules les images en
+  puissance de 2 peuvent a la fois se repeter et etre reduites proprement
+  (mipmap). Une image 500x500 fera fourmiller le fond du decor.
 - 512 x 512 SUFFIT, et c'est la taille a viser. Une tuile d'herbe est
   affichee sur ~448 px a l'ecran (voir TILE_PX dans textures.py) : une
   image de 512 est deja plus fine que ce qu'on en voit. Passer a 1024
