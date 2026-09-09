@@ -17,6 +17,31 @@ ETATS et IMAGES ATTENDUES
     HandEx1.png    -> Etat 'ex1' : exploration phase 1 et 3 (debut/fin)
     HandEx2.png    -> Etat 'ex2' : exploration phase 2 (milieu)
 
+----------------------------------------------------------------
+GANTS : DES MAINS QUI CHANGENT D'APPARENCE
+----------------------------------------------------------------
+Une paire de gants PORTEE remplace l'image des mains. Le fichier porte le
+meme nom, avec un SUFFIXE :
+
+    HandIdleFeuille.png   -> repos,        gants de feuille
+    HandHUDFeuille.png    -> paume ouverte, gants de feuille
+
+Le suffixe est declare dans GLOVE_SUFFIX (src/widgets/player_hands.py), qui
+fait le lien avec le nom de l'objet ("Gant_De_Feuille" -> "Feuille").
+Ajouter une autre paire ne demande donc qu'une ligne et des images.
+
+Une image gantee ABSENTE n'est pas une erreur : le jeu reprend simplement la
+main nue. C'est ainsi que fonctionnent aujourd'hui les images d'exploration
+(HandEx1/Ex2), qui n'ont pas de version gantee -- les gants disparaissent
+donc le temps de l'animation. Pour y remedier, il suffit de deposer
+HandEx1Feuille.png et HandEx2Feuille.png.
+
+CALAGE (le point qui compte vraiment) : la main gantee doit se poser
+EXACTEMENT sur la main nue -- meme taille, meme milieu, meme hauteur de bout
+des doigts. Sinon les mains SAUTENT au moment ou le joueur equipe les gants,
+et l'objet tenu, dessine a une position fixe (HAND_FX / ITEM_FY), ne tombe
+plus dans la paume.
+
 AU REPOS, CHAQUE MAIN A SA POSE. Le jeu ne choisit pas une image pour
 les deux mains, mais une par main :
 - main vide            -> HandIdle

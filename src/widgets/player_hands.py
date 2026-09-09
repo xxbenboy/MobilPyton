@@ -48,15 +48,30 @@ REST_STATE = 'haut'
 # Pose d'une main vide au repos.
 IDLE_STATE = 'idle'
 
+# --------------------------------------------------------------------- #
+# GANTS : des mains qui changent d'apparence
+# --------------------------------------------------------------------- #
+# Enfiler des gants doit SE VOIR. Le joueur passe la partie a regarder ses
+# mains ; c'est la seule piece d'equipement qu'il a en permanence sous les
+# yeux, et donc la seule dont le port peut se lire sans ouvrir un menu.
+#
+# La cle est le nom de l'objet porte a l'emplacement "gant", la valeur un
+# SUFFIXE de nom de fichier : HandIdle.png a cote de HandIdleFeuille.png.
+# Ajouter une paire de gants ne demande donc que deux choses -- une ligne
+# ici, et des images qui suivent la meme convention.
+GLOVE_SUFFIX = {
+    "Gant_De_Feuille": "Feuille",
+}
+
 _TEX_CACHE = {}
 _ITEM_TEX = {}
 
 
-def _hud_texture(state):
-    """Charge (ou recupere en cache) le HUD pour un etat donne."""
-    fname = HUD_IMAGES.get(state)
-    if not fname:
-        return None
+def _load(fname):
+    """Charge une image du personnage (ou la recupere en cache).
+
+    Un fichier ABSENT est retenu comme tel (None en cache) : sans cela, un
+    etat sans variante gantee ferait un acces disque a chaque image."""
     if fname in _TEX_CACHE:
         return _TEX_CACHE[fname]
     p = os.path.join(CHARACTER_DIR, fname)
@@ -68,6 +83,24 @@ def _hud_texture(state):
             tex = None
     _TEX_CACHE[fname] = tex
     return tex
+
+
+def _hud_texture(state, glove=None):
+    """HUD d'un etat, GANTE si le joueur porte des gants qui se voient.
+
+    Le repli sur les mains nues n'est pas un filet de securite mais la
+    regle : seules les poses de REPOS ont une variante gantee. Les images
+    d'exploration n'en ont pas -- les gants disparaissent donc le temps de
+    l'animation, ce qui vaut mieux qu'une main manquante."""
+    fname = HUD_IMAGES.get(state)
+    if not fname:
+        return None
+    suffix = GLOVE_SUFFIX.get(glove)
+    if suffix:
+        tex = _load(fname[:-4] + suffix + fname[-4:])
+        if tex is not None:
+            return tex
+    return _load(fname)
 
 
 def _item_texture(name):
@@ -98,6 +131,7 @@ class PlayerHands(Widget):
         super().__init__(**kwargs)
         self._items = [None, None]      # objets tenus : [gauche, droite]
         self._state = 'haut'             # etat par defaut
+        self._glove = None               # gants portes (voir set_glove)
         self.bind(pos=self._redraw, size=self._redraw)
 
     # ---- API publique ----------------------------------------------------
@@ -113,6 +147,17 @@ class PlayerHands(Widget):
         if new == self._items:
             return
         self._items = new
+        self._redraw()
+
+    def set_glove(self, name):
+        """Definit les gants PORTES (None = mains nues).
+
+        On garde le nom de l'objet, pas un simple oui/non : passer d'une
+        paire de gants a une autre doit changer l'image, et un booleen ne
+        le verrait pas."""
+        if name == self._glove:
+            return
+        self._glove = name
         self._redraw()
 
     def set_state(self, state):
@@ -131,7 +176,7 @@ class PlayerHands(Widget):
         if self._state != REST_STATE:
             # ANIMATION (exploration...) : les deux mains sont en action, on
             # pose l'image entiere sans se soucier de ce qu'elles tiennent.
-            tex = _hud_texture(self._state)
+            tex = _hud_texture(self._state, self._glove)
             if tex is not None:
                 tw, th = max(1, tex.width), max(1, tex.height)
                 with self.canvas:
@@ -156,7 +201,7 @@ class PlayerHands(Widget):
         Chaque image contient les deux mains : on n'en prend que la moitie
         correspondante, posee a sa place a l'ecran. L'echelle ne change pas,
         seule l'autre moitie est ecartee."""
-        tex = _hud_texture(state)
+        tex = _hud_texture(state, self._glove)
         if tex is None:
             return
         tw, th = max(1, tex.width), max(1, tex.height)

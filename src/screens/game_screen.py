@@ -1617,6 +1617,13 @@ class GameScreen(Screen):
         else:
             self.hands.set_items(state.hands[0], state.hands[1])
 
+        # Gants portes -> les mains changent d'apparence. C'est la seule piece
+        # d'equipement que le joueur a en permanence sous les yeux : son port
+        # doit donc se lire sans ouvrir de menu. Rendu ici, dans refresh(),
+        # parce que l'equipement peut changer AILLEURS (inventaire, craft) --
+        # au retour sur l'ecran de jeu, les mains sont deja a jour.
+        self.hands.set_glove(state.equipment.get("gant"))
+
         # Boutons "Deposer" + "Utiliser" + nom de l'objet tenu : visibles
         # seulement si la main correspondante tient un objet, et NON pendant
         # l'exploration. "Utiliser" n'apparait qu'avec un objet installable.
