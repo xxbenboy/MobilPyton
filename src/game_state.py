@@ -298,6 +298,12 @@ class GameState:
         # Mode DEBUG (partie "Partie D" lancee depuis le bouton du menu) :
         # carte toujours utilisable, craft illimite sans ingredients.
         self.debug = bool(debug)
+        # Reglages du panneau debug (heure et meteo imposees a la main).
+        # VOLONTAIREMENT PAS SAUVEGARDES : ce sont des outils d'observation,
+        # pas un etat de partie. Une sauvegarde figee a 23h par un test
+        # rouvrirait bloquee a 23h, sans que rien ne dise pourquoi.
+        self.time_frozen = False
+        self.weather_locked = False
         # APTITUDES : un niveau et une experience par aptitude. Une partie
         # d'avant cette fonctionnalite repart au niveau 1 partout, sans
         # points repartis : elle n'est pas cassee, elle commence juste sa
@@ -408,10 +414,53 @@ class GameState:
         return hour < NIGHT_END_HOUR or hour >= NIGHT_START_HOUR
 
     def advance_time(self, minutes):
+        if self.time_frozen:
+            return
         self.time_seconds += max(0, int(minutes)) * 60
 
     def tick(self, seconds=1):
+        if self.time_frozen:
+            return
         self.time_seconds += max(0, int(seconds))
+
+    # ------------------------------------------------------------------ #
+    # Panneau DEBUG : imposer l'heure et la meteo
+    # ------------------------------------------------------------------ #
+    def set_debug_hour(self, hour):
+        """Place l'horloge a `hour` DANS LA JOURNEE EN COURS, et l'y fige.
+
+        Le figeage n'est pas un supplement, c'est ce qui rend le reglage
+        utilisable : 24 h de jeu passent en 10 minutes reelles (TIME_SCALE),
+        donc un simple saut a 19h serait deja la nuit vingt-cinq secondes plus
+        tard -- le temps de regarder le decor, il aurait change.
+
+        Le saut reste DANS le meme jour : les effets en cours, les foyers
+        allumes et l'episode meteo gardent ainsi des reperes coherents (tous
+        encaissent un recul, cf. update_fires qui borne son dt a 0)."""
+        jour = self.time_seconds - (self.time_seconds % SECONDS_PER_DAY)
+        self.time_seconds = jour + int(max(0.0, min(23.999, hour)) * 3600)
+        self.time_frozen = True
+
+    def release_debug_time(self):
+        """Rend l'horloge au jeu."""
+        self.time_frozen = False
+
+    def set_debug_weather(self, kind, fog=False):
+        """Impose une meteo et EMPECHE le tirage automatique de la reprendre.
+
+        Sans ce verrou, update_weather() -- appelee a chaque image -- rendrait
+        la main au hasard des la fin de l'episode en cours, et le reglage
+        s'evaporerait au bout de quelques secondes reelles."""
+        self.weather = kind if kind in WEATHERS else "clair"
+        self.fog = bool(fog)
+        self.weather_locked = True
+        self._apply_wet()
+
+    def release_debug_weather(self):
+        """Rend la meteo au hasard : le prochain episode est tire aussitot."""
+        self.weather_locked = False
+        self.weather_until = 0
+        self.update_weather()
 
     # ------------------------------------------------------------------ #
     # Meteo
@@ -419,7 +468,11 @@ class GameState:
     def update_weather(self):
         """Renouvelle la meteo quand l'episode en cours est termine.
 
-        Appelable a chaque frame : ne fait rien tant que l'episode dure."""
+        Appelable a chaque frame : ne fait rien tant que l'episode dure, ni
+        tant que le panneau debug tient la meteo (weather_locked)."""
+        if self.weather_locked:
+            self._apply_wet()
+            return
         if self.weather in WEATHERS and self.time_seconds < self.weather_until:
             self._apply_wet()
             return
@@ -490,9 +543,17 @@ class GameState:
         return w
 
     def fog_active(self):
-        """Y a-t-il du brouillard ici ? (temps nuageux + zone concernee)"""
-        return (self.fog and self.weather == "nuageux"
-                and self.current_zone() in FOG_ZONES)
+        """Y a-t-il du brouillard ici ? (temps nuageux + zone concernee)
+
+        EXCEPTION du panneau debug : un brouillard IMPOSE s'affiche partout,
+        montagne comprise. La regle normale veut qu'on soit au-dessus du
+        brouillard en altitude ; mais un bouton qui ne fait rien selon l'endroit
+        ou l'on se trouve passe pour casse. Attention donc : voir du brouillard
+        en montagne signifie qu'il a ete force a la main, jamais que le jeu le
+        produirait la."""
+        if not (self.fog and self.weather == "nuageux"):
+            return False
+        return self.weather_locked or self.current_zone() in FOG_ZONES
 
     def advance_survival(self, seconds):
         """Fait deriver les stats selon le temps de jeu ecoule (en secondes)."""

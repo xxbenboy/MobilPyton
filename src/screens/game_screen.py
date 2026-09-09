@@ -44,6 +44,7 @@ from src.widgets.stat_circle import StatCircle
 from src.widgets.durability_bar import DurabilityBar
 from src.widgets.clock_face import ClockFace
 from src.widgets.responsive import scale_font
+from src.widgets.debug_panel import debug_section
 
 AUTOSAVE_SECONDS = 30
 TIME_SCALE = 144              # 24h en 10 min
@@ -620,7 +621,7 @@ class GameScreen(Screen):
             if whole > rem:
                 whole = rem
             self._ff_remaining -= whole
-        if whole:
+        if whole and not state.time_frozen:
             state.tick(whole)
             state.advance_survival(whole)   # faim/soif/sommeil/vie derivent
         # Animation des mains pendant l'exploration : on alterne entre
@@ -1511,7 +1512,17 @@ class GameScreen(Screen):
         panel.add_widget(mk("Parametres", lambda *_: self._go_settings()))
         panel.add_widget(mk("Statistiques", lambda *_: self._go_stats()))
         panel.add_widget(mk("Quitter", self.back_to_menu))
-        panel.add_widget(Widget())                  # espace vide en bas
+
+        # Reglages de DEBUG (heure et meteo imposees) : uniquement dans une
+        # partie de test. Ils prennent la place laissee vide en bas du
+        # panneau, sous les trois boutons ordinaires -- qui gardent donc
+        # exactement la meme taille qu'en partie normale.
+        state = App.get_running_app().game_state
+        if state is not None and state.debug:
+            panel.add_widget(debug_section(state, self._rebuild_pause_menu))
+            panel.add_widget(Widget(size_hint_y=0.05))
+        else:
+            panel.add_widget(Widget())              # espace vide en bas
 
         overlay.add_widget(panel)
         self.root_layout.add_widget(overlay)
@@ -1521,6 +1532,19 @@ class GameScreen(Screen):
         # pour rester visible et cliquable -> on le replace au sommet.
         self.root_layout.remove_widget(self.menu_cell)
         self.root_layout.add_widget(self.menu_cell)
+
+    def _rebuild_pause_menu(self):
+        """Rouvre le panneau apres un reglage de debug.
+
+        Les boutons d'un groupe se lisent a leur COULEUR (vert = choisi) : il
+        faut donc les redessiner pour que celui qu'on vient de toucher
+        s'allume et que l'ancien s'eteigne. On rouvre le panneau entier plutot
+        que de tenir a jour chaque bouton : il est reconstruit en un instant,
+        et il n'y a ainsi qu'UN endroit qui decide de leur etat (le meme qui
+        les cree)."""
+        self._close_pause_menu()
+        self._open_pause_menu()
+        self.refresh()
 
     def _close_pause_menu(self, *_):
         if self._pause_menu is not None:
