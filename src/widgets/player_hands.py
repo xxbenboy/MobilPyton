@@ -21,11 +21,13 @@ positions correspondant aux mains dans l'image (HAND_FX / ITEM_FY).
 """
 import os
 
+from kivy.clock import Clock
 from kivy.uix.widget import Widget
 from kivy.core.image import Image as CoreImage
-from kivy.graphics import Color, Rectangle
+from kivy.graphics import Color, Rectangle, PushMatrix, PopMatrix, Translate
 
 from src import items
+from src.widgets import breathing
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 CHARACTER_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", "assets",
@@ -118,6 +120,27 @@ def _item_texture(name):
     return _ITEM_TEX[path]
 
 
+# --------------------------------------------------------------------- #
+# LE SOUFFLE
+# --------------------------------------------------------------------- #
+# Amplitude du mouvement, en fraction de la HAUTEUR du widget (donc de
+# l'ecran). Les deux se mesurent sur la hauteur, et pas l'une sur la largeur :
+# sinon le va-et-vient lateral serait plus ample sur un ecran large, et le
+# souffle changerait de forme d'un telephone a l'autre.
+#
+# Ces valeurs sont PETITES a dessein. Le souffle doit se sentir sans se
+# remarquer : au-dela, les mains ont l'air de flotter, et le regard va au
+# mouvement au lieu d'aller au decor. 0.9 % de la hauteur fait ~10 px sur un
+# telephone -- c'est le seuil ou l'oeil voit que "ca vit" sans savoir quoi.
+BREATH_Y = 0.009
+BREATH_X = 0.0035
+
+# Images par seconde du souffle. Le mouvement est LENT (un cycle en 4 s) : le
+# rafraichir 60 fois par seconde ne le rendrait pas plus fluide, cela
+# doublerait juste le travail. 30 suffisent largement.
+BREATH_FPS = 30.0
+
+
 class PlayerHands(Widget):
     # x du centre de chaque main (gauche, droite) en fraction de la largeur
     # du widget. Mesures depuis HandHUD.png (mains a 34 % et 65 %).
@@ -132,6 +155,12 @@ class PlayerHands(Widget):
         self._items = [None, None]      # objets tenus : [gauche, droite]
         self._state = 'haut'             # etat par defaut
         self._glove = None               # gants portes (voir set_glove)
+        # Souffle : l'horloge du temps qui passe, et les deux translations
+        # qu'elle deplace (mains et objets tenus).
+        self._breath_t = 0.0
+        self._breath_event = None
+        self._shift = None
+        self._shift_items = None
         self.bind(pos=self._redraw, size=self._redraw)
 
     # ---- API publique ----------------------------------------------------
@@ -160,6 +189,22 @@ class PlayerHands(Widget):
         self._glove = name
         self._redraw()
 
+    def start_breathing(self):
+        """Met le souffle en route (a l'arrivee sur l'ecran de jeu)."""
+        if self._breath_event is None:
+            self._breath_event = Clock.schedule_interval(self._tick_breath,
+                                                         1.0 / BREATH_FPS)
+
+    def stop_breathing(self):
+        """Arrete le souffle (en quittant l'ecran).
+
+        Le temps ecoule, lui, est CONSERVE : au retour, la respiration reprend
+        ou elle en etait, au lieu de repartir d'une inspiration franche a
+        chaque fois qu'on ouvre un menu."""
+        if self._breath_event is not None:
+            self._breath_event.cancel()
+            self._breath_event = None
+
     def set_state(self, state):
         """Change l'etat des mains (voir HUD_IMAGES). Redessine."""
         if state == self._state:
@@ -167,12 +212,41 @@ class PlayerHands(Widget):
         self._state = state
         self._redraw()
 
+    # ---- Souffle ---------------------------------------------------------
+
+    def _tick_breath(self, dt):
+        self._breath_t += dt
+        self._apply_breath()
+
+    def _apply_breath(self):
+        """Porte le souffle du moment sur les deux translations.
+
+        Les mains et les objets recoivent LE MEME decalage : c'est ce qui fait
+        qu'un objet tenu reste dans la paume au lieu d'y glisser."""
+        dx, dy = breathing.offset(self._breath_t)
+        ox = dx * self.height * BREATH_X
+        oy = dy * self.height * BREATH_Y
+        for shift in (self._shift, self._shift_items):
+            if shift is not None:
+                shift.x = ox
+                shift.y = oy
+
     # ---- Rendu -----------------------------------------------------------
 
     def _redraw(self, *_):
         self.canvas.clear()
+        self._shift = None
         if self.width <= 0 or self.height <= 0:
             return
+        # Le souffle est une TRANSLATION posee devant tout le reste, pas une
+        # position recalculee dans chaque forme. Deux raisons : les mains et
+        # les objets tenus bougent forcement ENSEMBLE (un objet qui ne suivrait
+        # pas la main flotterait), et une image de souffle ne coute alors que
+        # deux nombres a changer -- au lieu de reconstruire tout le canvas
+        # trente fois par seconde.
+        with self.canvas:
+            PushMatrix()
+            self._shift = Translate(0, 0, 0)
         if self._state != REST_STATE:
             # ANIMATION (exploration...) : les deux mains sont en action, on
             # pose l'image entiere sans se soucier de ce qu'elles tiennent.
@@ -193,7 +267,10 @@ class PlayerHands(Widget):
             for i in (0, 1):
                 self._draw_half(i, REST_STATE if self._items[i] is not None
                                 else IDLE_STATE)
+        with self.canvas:
+            PopMatrix()
         self._draw_items()
+        self._apply_breath()
 
     def _draw_half(self, index, state):
         """Dessine UNE main (0 = gauche, 1 = droite) dans la pose demandee.
@@ -218,8 +295,16 @@ class PlayerHands(Widget):
     def _draw_items(self):
         """Dessine les objets tenus au-dessus du HUD."""
         self.canvas.after.clear()
+        self._shift_items = None
         if self.width <= 0 or self.height <= 0:
             return
+        # Les objets sont dans un AUTRE canvas (celui de devant) : il leur faut
+        # donc leur propre translation. Elle recoit exactement la meme valeur
+        # que celle des mains (voir _apply_breath), sans quoi un objet tenu
+        # glisserait dans la paume au fil du souffle.
+        with self.canvas.after:
+            PushMatrix()
+            self._shift_items = Translate(0, 0, 0)
         box = 0.15 * min(self.width, self.height)
         for i, name in enumerate(self._items):
             tex = _item_texture(name)
@@ -237,3 +322,5 @@ class PlayerHands(Widget):
                 Rectangle(texture=tex,
                           pos=(cx - iw / 2, cy - ih / 2),
                           size=(iw, ih))
+        with self.canvas.after:
+            PopMatrix()

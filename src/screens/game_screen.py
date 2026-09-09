@@ -589,8 +589,13 @@ class GameScreen(Screen):
         self._autosave_event = Clock.schedule_interval(
             self._periodic_autosave, AUTOSAVE_SECONDS)
         self._tick_event = Clock.schedule_interval(self._tick, 1 / 60.0)
+        # Le joueur respire tant qu'il est dans le monde. Dans un menu, les
+        # mains ne sont plus a l'ecran : faire tourner leur animation ne
+        # ferait que consommer de la batterie sans rien montrer.
+        self.hands.start_breathing()
 
     def on_leave(self):
+        self.hands.stop_breathing()
         self._close_move_menu()
         self._close_pause_menu()
         # Annule une transition de deplacement en cours et nettoie.
