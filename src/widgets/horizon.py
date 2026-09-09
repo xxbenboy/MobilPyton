@@ -26,6 +26,11 @@ Tout est dessine EN SILHOUETTE et VOILE de bleu pale : c'est ce que fait
 l'atmosphere sur un kilometre, et c'est aussi ce qui empeche ces formes de
 concurrencer le decor du premier plan. Elles doivent se lire d'un coup d'oeil
 et ne jamais retenir le regard.
+
+CE MODULE NE FAIT QUE L'HORIZON. La case voisine entre AUSSI dans la scene
+par les cotes de l'ecran, en vraie taille et avec les vraies formes du jeu
+(des arbres, une pente rocheuse, une rive) : cela vit dans zone_scenery, qui
+seul possede ces dessins. Voir _edges la-bas.
 """
 from kivy.graphics import Color, Ellipse, Triangle
 
@@ -53,10 +58,10 @@ HAZE_FAR = 0.42
 # Hauteur de reference des silhouettes, en fraction de la hauteur de l'ecran,
 # pour un voisin situe a un kilometre. Les cotes sont plus grands (voir DIST).
 HEIGHTS = {
-    "Foret": 0.055,
-    "Montagne": 0.115,
-    "Lac": 0.014,
-    "Plaine": 0.026,
+    "Foret": 0.100,
+    "Montagne": 0.200,
+    "Lac": 0.024,
+    "Plaine": 0.042,
 }
 
 
