@@ -189,10 +189,15 @@ def is_bag(name):
     return name in BAG_CAPACITY
 
 
+# Le PLAN DE CONSTRUCTION marque au sol l'emprise d'un futur batiment : quatre
+# piquets relies par une corde, comme on delimite un chantier avant de creuser.
+# Le premier palier ne fait encore que cela -- delimiter.
+BLUEPRINT_T1 = "Plan_De_Construction_Tier_1"
+
 # Objets INSTALLABLES : peuvent etre "utilises" (montes/installes) depuis la
 # main via un bouton Utiliser dedie. Une fois installes, ils passent dans
 # game_state.installed (pas dans ground) et ne peuvent plus etre ramasses.
-INSTALLABLE_ITEMS = {"Feu_de_camp"}
+INSTALLABLE_ITEMS = {"Feu_de_camp", BLUEPRINT_T1}
 
 # Objets INTERACTIFS : une fois INSTALLES, on peut s'en servir -- en cliquant
 # dessus dans la scene, ou en les choisissant dans l'ecran Proximite. Ils
@@ -320,6 +325,8 @@ RECIPES = [
      "ingredients": {"Small_Stick": 10, "Feuille": 20, "Corde": 2}},
     {"result": "Feu_de_camp", "category": "Installations",
      "ingredients": {"Small_Stick": 3, "Pierre": 2}},
+    {"result": BLUEPRINT_T1, "category": "Installations",
+     "ingredients": {"Small_Stick": 4, "Corde": 1}},
 ]
 
 
@@ -363,6 +370,8 @@ ITEM_NOTES = {
     "Allume_feu": "Un silex prepare. Le meilleur moyen de partir un feu.",
     # Installations
     "Feu_de_camp": "Un cercle de pierres. Chaleur, lumiere, et de quoi cuire.",
+    BLUEPRINT_T1: "Quatre piquets et une corde. De quoi marquer au sol "
+                  "l'emprise d'un futur abri.",
     # Tenue de rescape
     "Chandail_Rescape": "Le chandail que tu portais. Dechire, mais c'est le tien.",
     "Pantalon_Rescape": "Un pantalon use jusqu'a la trame.",

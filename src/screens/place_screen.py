@@ -101,6 +101,21 @@ def draw_object_glyph(name, cx, cy, size, lit=False, level="grand"):
     A appeler dans un contexte `with canvas:`. Un foyer eteint montre son
     cercle de pierres et son bois ; allume, il montre ses flammes."""
     r = size * 0.5
+    if name == items.BLUEPRINT_T1:
+        # Vu de dessus, le plan est ce qu'il est vraiment : un carre de corde
+        # tendu entre quatre piquets. C'est la vue ou il se lit le mieux --
+        # c'est meme exactement ce qu'on regarde en delimitant un chantier.
+        d = r * 0.62
+        coins = ((cx - d, cy - d), (cx + d, cy - d),
+                 (cx + d, cy + d), (cx - d, cy + d))
+        Color(0.76, 0.70, 0.54, 1)                        # la corde
+        Line(points=[c for p in coins for c in p], width=max(1.0, r * 0.09),
+             close=True)
+        Color(0.40, 0.28, 0.16, 1)                        # les piquets
+        pr = max(1.4, r * 0.17)
+        for px, py in coins:
+            Ellipse(pos=(px - pr, py - pr), size=(pr * 2, pr * 2))
+        return
     if name != "Feu_de_camp":
         return
     Color(0.10, 0.08, 0.06, 0.90)                         # cendres
@@ -447,8 +462,14 @@ class _GridOverlay(Widget):
         gx = max(0, min(4, gx))
         gy = max(0, min(4, gy))
         if self.mode == "use":
-            # Seuls les objets poses repondent.
-            if (gx, gy) in self.objects:
+            # Seuls les objets poses repondent -- et parmi eux, seuls ceux qui
+            # ont quelque chose a offrir. La fenetre qui s'ouvre est celle du
+            # FOYER : elle interroge le feu de la case et s'intitule "Feu de
+            # camp". Ouverte sur un plan de construction, elle montrerait un
+            # feu qui n'existe pas. Un tel objet se voit donc dans la grille
+            # sans s'y choisir.
+            pose = self.objects.get((gx, gy))
+            if pose is not None and pose[0] in items.INTERACTIVE_ITEMS:
                 self.on_cell_pick(gx, gy)
             return True
         if (gx, gy) == (2, 0):
@@ -644,6 +665,8 @@ class PlaceScreen(Screen):
         if self.mode == "use":
             # Ouvre la fenetre d'action de l'objet choisi. on_pre_enter fait
             # tout : bascule le fond sur la scene et affiche la fenetre.
+            # (C'est la grille qui a deja ecarte les cases vides et les objets
+            # sans action -- voir _GridOverlay.on_touch_down.)
             self._action_cell = (gx, gy)
             self._fire_msg = ""
             self._action_from_grid = True

@@ -25,7 +25,7 @@ from kivy.uix.widget import Widget
 from kivy.graphics import (Color, Ellipse, Rectangle, Triangle, Line, Quad,
                            Mesh, RenderContext, PushMatrix, PopMatrix, Rotate)
 
-from src import world
+from src import world, items
 from src.widgets import textures, pbr, foliage, daylight
 from src.widgets import horizon
 from src.widgets.textures import paint, paint_color, tiled_coords
@@ -43,6 +43,14 @@ _AVAIL_MAX = 5
 # niveau (~ la hauteur des jointures des mains du joueur). Fraction de la
 # hauteur d'ecran. On les repartit donc de cette ligne jusqu'au haut du terrain.
 _HARVEST_FLOOR = 0.18
+
+# APLATISSEMENT DES FORMES POSEES A PLAT. Une case de la grille est un carre
+# sur le sol ; vue depuis les yeux du joueur elle se couche, et sa profondeur
+# a l'ecran ne fait plus que cette fraction de sa largeur. Tout ce qui repose
+# a plat -- le foyer, un plan de construction, les cases interdites -- doit
+# partager la MEME valeur, sinon ces formes ne se posent plus sur la meme
+# grille et se decalent les unes des autres.
+_PLAT_PROFONDEUR = 0.55
 
 # Taille des flammes selon l'etat du feu (voir game_state.FIRE_LEVELS).
 # "braise" = plus de flamme du tout, seules les braises rougeoient.
@@ -336,10 +344,10 @@ class ZoneScenery(Widget):
             fx, fy, size = grid_to_screen(gx, gy)
             cx = x0 + fx * w
             cy = y0 + fy * h
-            # Meme forme aplatie que le cercle de roche (h = w * 0.55) +
-            # petite marge (15 %) pour bien couvrir les objets qui debordent.
+            # Meme forme aplatie que tout ce qui repose a plat, + petite
+            # marge (15 %) pour bien couvrir les objets qui debordent.
             hw = size * w * 0.5 * 1.15
-            hh = size * w * 0.55 * 0.5 * 1.15
+            hh = size * w * _PLAT_PROFONDEUR * 0.5 * 1.15
             self._blocked_bboxes.append((cx, cy, hw, hh))
 
     def _is_blocked(self, x, y, top=None):
@@ -400,10 +408,68 @@ class ZoneScenery(Widget):
             fx, fy, size = grid_to_screen(gx, gy)
             cx = x0 + fx * w
             cy = y0 + fy * h
+            s = size * w
+            # Ces deux formes sont posees A PLAT et s'etendent de part et
+            # d'autre de leur centre : leur bord PROCHE descend d'une demi-
+            # profondeur sous (cx, cy). C'est la qu'elles touchent le sol, donc
+            # c'est la leur cle de tri -- sans quoi elles passeraient pour plus
+            # lointaines qu'elles ne paraissent, et l'herbe situee derriere se
+            # dessinerait par-dessus (meme piege que les buissons).
             if name == "Feu_de_camp":
-                out.append((cy, lambda cx=cx, cy=cy, s=size * w, lit=lit,
+                out.append((cy - s * _PLAT_PROFONDEUR / 2.0,
+                            lambda cx=cx, cy=cy, s=s, lit=lit,
                             lv=level: self._fire_pit(cx, cy, s, lit, lv)))
+            elif name == items.BLUEPRINT_T1:
+                out.append((cy - s * _PLAT_PROFONDEUR / 2.0,
+                            lambda cx=cx, cy=cy, s=s: self._blueprint(cx, cy, s)))
         return out
+
+    def _blueprint(self, cx, cy, w):
+        """Plan de construction : quatre piquets relies par une corde.
+
+        C'est un CHANTIER MARQUE AU SOL, pas un objet pose dessus : il ne doit
+        rien cacher, seulement dire "ici". D'ou des piquets courts et une corde
+        fine -- on doit pouvoir voir le sol a travers.
+
+        Le carre est dessine en TRAPEZE, le bord du fond plus etroit que celui
+        de devant. Un carre parfait, vu du sol, se lirait comme un panneau
+        dresse a la verticale plutot que comme une emprise posee par terre."""
+        h = w * _PLAT_PROFONDEUR
+        av, ar = w * 0.44, w * 0.36         # demi-largeurs devant / au fond
+        y_av, y_ar = cy - h / 2.0, cy + h / 2.0
+        # LES PIQUETS SONT COURTS, et c'est ce qui fait tout. Hauts, la corde
+        # s'eloignait du sol et l'ensemble se lisait comme un filet dresse
+        # entre quatre poteaux -- un but de football. Bas, la corde epouse le
+        # quadrilatere pose par terre, et l'oeil lit une EMPRISE. Un jalon de
+        # chantier arrive au genou, pas a l'epaule.
+        # Ceux du fond sont un peu plus courts : ils sont plus loin.
+        pieux = ((cx - av, y_av, w * 0.15), (cx + av, y_av, w * 0.15),
+                 (cx + ar, y_ar, w * 0.115), (cx - ar, y_ar, w * 0.115))
+
+        # Pas d'ombre portee d'ensemble : quatre piquets fins n'en projettent
+        # pas. Une tache sous le carre se lisait comme une fosse creusee.
+
+        # La CORDE d'abord, les piquets par-dessus : elle est nouee derriere
+        # eux, et cela evite un trait qui traverserait le bois.
+        Color(0.76, 0.70, 0.54, 1)
+        fil = max(1.0, w * 0.012)
+        for i in range(4):
+            x1, y1, t1 = pieux[i]
+            x2, y2, t2 = pieux[(i + 1) % 4]
+            # Une corde tendue entre deux piquets PEND. Trois points suffisent
+            # a le dire ; deux donneraient un trait de regle, qui ne
+            # ressemblerait pas a une corde.
+            creux = (t1 + t2) * 0.5 * 0.16
+            Line(points=[x1, y1 + t1, (x1 + x2) / 2.0,
+                         (y1 + t1 + y2 + t2) / 2.0 - creux, x2, y2 + t2],
+                 width=fil)
+
+        for px, py, ht in pieux:
+            ep = max(1.2, w * 0.022)
+            Color(0.30, 0.21, 0.13, 1)                    # cote a l'ombre
+            Line(points=[px, py, px, py + ht], width=ep * 1.35)
+            Color(0.46, 0.33, 0.19, 1)                    # bois eclaire
+            Line(points=[px - ep * 0.3, py, px - ep * 0.3, py + ht], width=ep)
 
     def _fire_pit(self, cx, cy, w, lit=False, level="grand"):
         """Foyer de pierres vu en angle (cercle aplati + anneau de pierres).
@@ -412,7 +478,7 @@ class ZoneScenery(Widget):
         qu'il lui reste du combustible (voir _FLAME_SCALE). C'est la MEME
         scene qui sert au jeu et au fond de l'ecran de proximite : le feu a
         donc partout le meme aspect."""
-        h = w * 0.55
+        h = w * _PLAT_PROFONDEUR
         scale = _FLAME_SCALE.get(level, 1.0) if lit else 0.0
         glow_c = ember_c = None
         if lit:                                        # lueur autour du foyer
