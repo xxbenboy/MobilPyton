@@ -857,51 +857,86 @@ class ZoneScenery(Widget):
         def rnd():
             return x0 + rng.uniform(0, 1) * w, y0 + rng.uniform(0, 1) * h
 
+        # Meme regle qu'a l'horizon : on collecte (base, dessin) et on trie du
+        # plus loin au plus proche. Ces elements etaient dessines dans l'ordre
+        # ou ils etaient tires, c'est-a-dire au hasard : une touffe du haut de
+        # l'ecran pouvait recouvrir une touffe du bas, pourtant plus proche.
+        # La composition ne change pas -- seul l'ordre de recouvrement.
+        items = []
+
         if zone == "Plaine":
             greens = [(0.22, 0.42, 0.16, 1), (0.28, 0.48, 0.18, 1),
                       (0.18, 0.38, 0.14, 1)]
             for _ in range(110):                       # gazon partout
                 gx, gy = rnd()
-                self._grass_tuft(gx, gy, rng.uniform(0.04, 0.09) * h,
-                                 rng.choice(greens), scale=0.8)
+                gh = rng.uniform(0.04, 0.09) * h
+                col = rng.choice(greens)
+                items.append((gy, lambda gx=gx, gy=gy, gh=gh, col=col:
+                              self._grass_tuft(gx, gy, gh, col, scale=0.8)))
             for _ in range(rng.randint(8, 14)):        # petites pierres
                 gx, gy = rnd()
-                self._stone(gx, gy, rng.uniform(0.015, 0.035) * h,
-                            sprite=self._zs("stone"))
+                r = rng.uniform(0.015, 0.035) * h
+                items.append((gy, lambda gx=gx, gy=gy, r=r:
+                              self._stone(gx, gy, r,
+                                          sprite=self._zs("stone"))))
             for _ in range(rng.randint(5, 9)):          # fleurs (peu nombreuses)
                 gx, gy = rnd()
                 col, fsprite = rng.choice(_FLOWERS)
                 r = rng.uniform(0.018, 0.032) * h
-                self._flower(gx, gy, r, col, petals=rng.choice((5, 6)),
-                             sprite=fsprite)
+                pet = rng.choice((5, 6))
+                items.append((gy - self.DEBORD_FLEUR * r,
+                              lambda gx=gx, gy=gy, r=r, col=col, pet=pet,
+                              fsprite=fsprite:
+                              self._flower(gx, gy, r, col, petals=pet,
+                                           sprite=fsprite)))
         elif zone == "Foret":
             leaves = [(0.45, 0.32, 0.14, 1), (0.36, 0.40, 0.16, 1),
                       (0.52, 0.38, 0.18, 1), (0.30, 0.26, 0.12, 1)]
             for _ in range(150):                       # litiere de feuilles
                 gx, gy = rnd()
-                self._leaf(gx, gy, rng.uniform(0.012, 0.024) * h,
-                           rng.choice(leaves))
+                s = rng.uniform(0.012, 0.024) * h
+                col = rng.choice(leaves)
+                items.append((gy - self.DEBORD_FEUILLE * s,
+                              lambda gx=gx, gy=gy, s=s, col=col:
+                              self._leaf(gx, gy, s, col)))
             for _ in range(rng.randint(10, 16)):       # brindilles
                 gx, gy = rnd()
-                self._branch(gx, gy, rng.uniform(0.05, 0.10) * w,
-                             sprite=self._zs("branch"))
+                ln = rng.uniform(0.05, 0.10) * w
+                items.append((gy - self.DEBORD_BRANCHE * ln,
+                              lambda gx=gx, gy=gy, ln=ln:
+                              self._branch(gx, gy, ln,
+                                           sprite=self._zs("branch"))))
             for _ in range(45):                        # touffes sombres
                 gx, gy = rnd()
-                self._grass_tuft(gx, gy, rng.uniform(0.03, 0.07) * h,
-                                 (0.12, 0.22, 0.13, 1), scale=0.7)
+                gh = rng.uniform(0.03, 0.07) * h
+                items.append((gy, lambda gx=gx, gy=gy, gh=gh:
+                              self._grass_tuft(gx, gy, gh,
+                                               (0.12, 0.22, 0.13, 1),
+                                               scale=0.7)))
             for _ in range(rng.randint(8, 14)):        # pierres mousseuses
                 gx, gy = rnd()
-                self._stone(gx, gy, rng.uniform(0.02, 0.045) * h,
-                            sprite=self._zs("stone"))
+                r = rng.uniform(0.02, 0.045) * h
+                items.append((gy, lambda gx=gx, gy=gy, r=r:
+                              self._stone(gx, gy, r,
+                                          sprite=self._zs("stone"))))
         else:                                          # Montagne (rocaille)
             for _ in range(rng.randint(45, 65)):       # rochers / galets
                 gx, gy = rnd()
-                self._stone(gx, gy, rng.uniform(0.02, 0.06) * h,
-                            sprite=self._zs("stone"))
+                r = rng.uniform(0.02, 0.06) * h
+                items.append((gy, lambda gx=gx, gy=gy, r=r:
+                              self._stone(gx, gy, r,
+                                          sprite=self._zs("stone"))))
             for _ in range(rng.randint(8, 14)):        # touffes rares
                 gx, gy = rnd()
-                self._grass_tuft(gx, gy, rng.uniform(0.03, 0.06) * h,
-                                 (0.22, 0.34, 0.16, 1), scale=0.7)
+                gh = rng.uniform(0.03, 0.06) * h
+                items.append((gy, lambda gx=gx, gy=gy, gh=gh:
+                              self._grass_tuft(gx, gy, gh,
+                                               (0.22, 0.34, 0.16, 1),
+                                               scale=0.7)))
+
+        items.sort(key=lambda it: it[0], reverse=True)
+        for _, fn in items:
+            fn()
 
     # -- helpers -------------------------------------------------------- #
     def _pine(self, cx, base, tw, th, color, shadow=True):
@@ -917,6 +952,29 @@ class ZoneScenery(Widget):
                          cx + tw * 0.36, base + th * 0.32, cx, base + th],
                  texture=tex)
         self._reset_pbr()
+
+    # -- LE DEBORD : ou un element touche-t-il VRAIMENT le sol ? --------- #
+    #
+    # La scene est dessinee du plus loin au plus proche, chaque element
+    # recouvrant ceux du fond. L'ordre vient d'une cle de tri, et cette cle
+    # doit etre l'endroit ou l'element TOUCHE LE SOL -- son point le plus
+    # proche du joueur.
+    #
+    # Or la plupart des elements sont poses par leur base, mais quelques-uns
+    # sont dessines autour d'un point CENTRAL et descendent donc sous celui-ci.
+    # Un buisson, par exemple, deborde de 40 % de son rayon -- six pour cent de
+    # l'ecran. Trie sur son centre, il passait pour plus lointain qu'il ne
+    # paraissait, et l'herbe situee DERRIERE lui se dessinait par-dessus.
+    #
+    # Ces valeurs sont donc le debord de chaque forme sous sa base, en fraction
+    # de sa propre taille. Elles ne sont pas estimees : elles sont mesurees sur
+    # le dessin reel (voir test_profondeur). Si tu modifies l'une de ces
+    # methodes, remesure.
+    DEBORD_BUISSON = 0.40      # x son rayon
+    DEBORD_BAIES = 0.30        # x son rayon
+    DEBORD_BRANCHE = 0.08      # x sa longueur (l'ombre du bois comprise)
+    DEBORD_FEUILLE = 0.40      # x sa taille
+    DEBORD_FLEUR = 0.33        # x son rayon
 
     def _grass_tuft(self, cx, base, height, color, scale=1.0, sprite=None):
         if self._sprite(sprite, cx, base, height * 1.15):
@@ -1056,7 +1114,8 @@ class ZoneScenery(Widget):
             s = rng.uniform(0.010, 0.022) * h * sc
             col = rng.choice(LEAVES)
             if not self._take_or_skip("Feuille") and not self._is_blocked(lx, ly):
-                items.append((ly, lambda lx=lx, ly=ly, s=s, col=col:
+                items.append((ly - self.DEBORD_FEUILLE * s,
+                              lambda lx=lx, ly=ly, s=s, col=col:
                               self._leaf(lx, ly, s, col)))
         # Pierres mousseuses (en tas). [recoltable: Pierre]
         for _ in range(rng.randint(6, 10)):
@@ -1071,7 +1130,8 @@ class ZoneScenery(Widget):
             bx, by, sc, t = place(1.0, floor=_HARVEST_FLOOR)
             ln = rng.uniform(0.06, 0.13) * w * sc
             if not self._take_or_skip("Small_Stick") and not self._is_blocked(bx, by):
-                items.append((by - 0.12 * h, lambda bx=bx, by=by, ln=ln:
+                items.append((by - self.DEBORD_BRANCHE * ln,
+                              lambda bx=bx, by=by, ln=ln:
                               self._branch(bx, by, ln,
                                            sprite=self._zs("branch"))))
         # Herbe de sous-bois (sombre), en touffes (dense).
@@ -1122,7 +1182,8 @@ class ZoneScenery(Widget):
             else:                                     # buisson de sous-bois
                 g2 = jit.uniform(0.0, 0.06)
                 r = (0.13 - 0.06 * depth) * jit.uniform(0.85, 1.15) * h
-                items.append((tb, lambda bx=tx, by=tb, r=r, g2=g2:
+                items.append((tb - self.DEBORD_BUISSON * r,
+                              lambda bx=tx, by=tb, r=r, g2=g2:
                               self._bush(bx, by, r,
                                          (0.06 + g2, 0.16 + g2, 0.09, 1),
                                          sprite=self._zs("bush"))))
@@ -1431,11 +1492,14 @@ class ZoneScenery(Widget):
         for _ in range(rng.randint(6, 9)):             # branches [Small_Stick]
             bx, by, sc, t = place(1.0, floor=_HARVEST_FLOOR)
             ln = rng.uniform(0.06, 0.12) * w * sc
-            # Un baton repose SUR l'herbe locale : on le rapproche (biais) pour
-            # qu'il soit dessine par-dessus l'herbe de sa profondeur. Seule
-            # l'herbe nettement plus proche (plus bas) passe devant.
+            # Un baton est trie sur son BOIS, ombre comprise. Il l'etait
+            # auparavant sur un biais fixe de 12 % de l'ecran, cense le faire
+            # passer par-dessus l'herbe de sa profondeur ; mais c'etait sept
+            # fois sa propre emprise, et cela le faisait aussi passer devant
+            # des buissons et des arbres nettement plus proches que lui.
             if not self._take_or_skip("Small_Stick") and not self._is_blocked(bx, by):
-                items.append((by - 0.12 * h, lambda bx=bx, by=by, ln=ln:
+                items.append((by - self.DEBORD_BRANCHE * ln,
+                              lambda bx=bx, by=by, ln=ln:
                               self._branch(bx, by, ln,
                                            sprite=self._zs("branch"))))
         # Buissons (taille humaine) : GROS elements positionnes sur la GRILLE
@@ -1444,7 +1508,8 @@ class ZoneScenery(Widget):
             g = jit.uniform(0.0, 0.10)
             r = (0.17 - 0.09 * depth) * jit.uniform(0.85, 1.15) * h
             col = (0.12 + g, 0.30 + g, 0.15, 1)
-            items.append((by, lambda bx=bx, by=by, r=r, col=col:
+            items.append((by - self.DEBORD_BUISSON * r,
+                          lambda bx=bx, by=by, r=r, col=col:
                           self._bush(bx, by, r, col,
                                      sprite=self._zs("bush"))))
         for _ in range(105):                           # gazon (en touffes) [Herbe]
@@ -1498,7 +1563,8 @@ class ZoneScenery(Widget):
                 bx, by, sc, t = place(1.0, fx=berry_pick(), floor=_HARVEST_FLOOR)
                 r = rng.uniform(0.03, 0.045) * h * sc
                 if not self._take_or_skip("Baie") and not self._is_blocked(bx, by):
-                    items.append((by, lambda bx=bx, by=by, r=r:
+                    items.append((by - self.DEBORD_BAIES * r,
+                                  lambda bx=bx, by=by, r=r:
                                   self._berries(bx, by, r)))
 
         # (Les insectes sont desormais une couche ANIMEE separee : InsectLayer.)
@@ -1553,20 +1619,24 @@ class ZoneScenery(Widget):
             if not self._sprite("snow_patch", sx, sy, rr * 1.2):
                 Color(0.92, 0.95, 1.0, 1)
                 Ellipse(pos=(sx - rr, sy), size=(rr * 2.4, rr * 1.2))
-        # Touffes rares sur la pente basse.
-        for _ in range(8):
-            sx = x0 + rng.uniform(0, 1) * w
-            sy = y0 + rng.uniform(0.03, 0.18) * h
-            gh = rng.uniform(0.03, 0.06) * h
-            if self._is_blocked(sx, sy, sy + gh):
-                continue
-            self._grass_tuft(sx, sy, gh, (0.22, 0.34, 0.16, 1))
         # GROS rochers : elements FIXES positionnes sur la GRILLE 5x5 (cases
         # interdites a l'installation d'un objet). Non recoltables : la Pierre
         # se recolte sur les petits rochers de la pente. Ils sont tries AVEC
         # les objets installes : un feu de camp pose derriere un rocher passe
         # donc derriere lui.
         items = self._installed_items() + self._edge_items()
+        # Touffes rares sur la pente basse. Elles etaient dessinees ici meme,
+        # HORS du tri : elles passaient donc toujours derriere les rochers, et
+        # surtout dans un ordre quelconque ENTRE ELLES -- une touffe lointaine
+        # pouvait recouvrir une touffe proche. Elles rejoignent la liste.
+        for _ in range(8):
+            sx = x0 + rng.uniform(0, 1) * w
+            sy = y0 + rng.uniform(0.03, 0.18) * h
+            gh = rng.uniform(0.03, 0.06) * h
+            if self._is_blocked(sx, sy, sy + gh):
+                continue
+            items.append((sy, lambda sx=sx, sy=sy, gh=gh:
+                          self._grass_tuft(sx, sy, gh, (0.22, 0.34, 0.16, 1))))
         for kind, depth, rx, ry, jit in self._iter_nature_big():
             rr = (0.085 - 0.045 * depth) * jit.uniform(0.85, 1.15) * h
             items.append((ry, lambda rx=rx, ry=ry, rr=rr:
