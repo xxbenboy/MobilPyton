@@ -37,6 +37,7 @@ from src.widgets.player_hands import PlayerHands
 from src.widgets.insects import InsectLayer, FireflyLayer
 from src.widgets.weather import WeatherLayer, LightningLayer
 from src.widgets.icon_button import IconButton
+from src.widgets.lieu_toggle import ouvrir_zone
 from src.widgets.styled_button import StyledButton, TabButton
 from src.widgets.panels import panel
 from src.widgets.item_icon import ItemIcon
@@ -449,34 +450,21 @@ class GameScreen(Screen):
         self._action_btn_widget = None     # bouton Action (toggle)
         self._action_submenu_btns = []     # boutons Manger / Boire
 
-        # ---- Bouton CARTE (bas a gauche, DEUXIEME) ----
-        # Le bas ne garde que Proximite et Carte : on va du plus immediat (ce
-        # qu'on a sous la main) au plus lointain (le monde). Inv./Craft a
-        # rejoint la colonne d'actions, avec les autres.
-        # Ecart entre boutons = ecart Deplacer<->Menu (0.034 en fraction de
-        # largeur d'ecran) : Proximite finit a x=0.066, +0.034 = 0.100.
-        map_cell = BoxLayout(orientation="vertical", spacing=2, size_hint=(0.06, 0.16),
-                             pos_hint={"x": 0.100, "y": 0.012})
-        map_area = AnchorLayout(size_hint=(1, 0.66))
-        self.map_btn = IconButton(icon="map", size_hint=(None, None))
-        def _map_square(a, *_):
-            s = a.height * 0.94
-            self.map_btn.size = (s, s)
-        map_area.bind(size=_map_square)
-        self.map_btn.bind(on_release=self._open_map)
-        map_area.add_widget(self.map_btn)
-        map_cell.add_widget(map_area)
-        map_cell.add_widget(_button_label("Carte"))
-        root.add_widget(map_cell)
-
-        # ---- Bouton PROXIMITE (bas a gauche, PREMIER) ----
-        # Toujours disponible : elle ouvre la grille de la case, ou l'on
-        # choisit un objet pose pour s'en servir. Plaque au bord de l'ecran.
+        # ---- Bouton CARTE/ZONE (bas a gauche) ----
+        # UN SEUL bouton pour deux ecrans, comme Inv./Craft. La carte et la
+        # proximite repondent a la meme question -- OU SUIS-JE ? -- a deux
+        # distances : le monde autour, et ce qu'on a sous la main. Elles se
+        # partagent donc un titre a deux volets, et on passe de l'une a l'autre
+        # sans repasser par ici (voir widgets/lieu_toggle.py).
+        #
+        # Il ouvre la ZONE, jamais la carte : la zone est toujours accessible,
+        # alors que la carte demande d'en posseder une. Un bouton qui refuse
+        # de s'ouvrir une fois sur deux ne vaut rien.
         prox_cell = BoxLayout(orientation="vertical", spacing=2,
                               size_hint=(0.06, 0.16),
                               pos_hint={"x": 0.006, "y": 0.012})
         prox_area = AnchorLayout(size_hint=(1, 0.66))
-        self.prox_btn = IconButton(icon="hand", size_hint=(None, None))
+        self.prox_btn = IconButton(icon="map", size_hint=(None, None))
         def _prox_square(a, *_):
             s = a.height * 0.94
             self.prox_btn.size = (s, s)
@@ -484,7 +472,7 @@ class GameScreen(Screen):
         self.prox_btn.bind(on_release=self._open_prox)
         prox_area.add_widget(self.prox_btn)
         prox_cell.add_widget(prox_area)
-        prox_cell.add_widget(_button_label("Proximite"))
+        prox_cell.add_widget(_button_label("Carte/Zone"))
         root.add_widget(prox_cell)
 
         # ---- Bouton MENU (bas a droite) ----
@@ -1195,18 +1183,15 @@ class GameScreen(Screen):
         self.manager.current = "place"
 
     def _open_prox(self, *_):
-        """Ouvre la grille de la case pour se SERVIR d'un objet pose
-        (feu de camp...). Meme vue que le placement, mais on choisit un
-        objet au lieu d'une case libre."""
+        """Bouton Carte/Zone : ouvre la ZONE, la grille de la case, ou l'on
+        choisit un objet pose pour s'en servir (feu de camp...).
+
+        La CARTE se prend de la, par le titre a deux volets -- c'est la meme
+        preparation des deux cotes, donc elle n'est ecrite qu'une fois."""
         state = App.get_running_app().game_state
         if state is None or self._ff_active or self._moving:
             return
-        place = self.manager.get_screen("place")
-        place._slot = None
-        place.mode = "use"
-        place._action_cell = None
-        place._action_from_grid = True     # on arrive par la grille
-        self.manager.current = "place"
+        ouvrir_zone(self.manager)
 
     # ------------------------------------------------------------------ #
     # Recolte (exploration) : basee sur les objets VISIBLES de la scene
@@ -1240,19 +1225,10 @@ class GameScreen(Screen):
         self.scenery.set_taken(taken)       # retire l'objet du decor
         return name
 
-    # ------------------------------------------------------------------ #
-    # Carte
-    # ------------------------------------------------------------------ #
-    def _open_map(self, *_):
-        """Ouvre la carte, seulement si le joueur possede une CARTE
-        (toujours utilisable en mode debug)."""
-        state = App.get_running_app().game_state
-        if state is None or self._ff_active or self._moving:
-            return
-        if not (state.debug or state.has_item(items.MAP_ITEM)):
-            self._show_message("Il te faut une carte\npour l'ouvrir.")
-            return
-        self.manager.current = "map"
+    # La carte ne s'ouvre plus depuis ici : elle a fusionne avec la zone. On y
+    # va par le volet "CARTE" du titre, et la regle d'acces -- il faut en
+    # posseder une, sauf en debug -- vit dans widgets/lieu_toggle.py, en un
+    # seul endroit.
 
     # ------------------------------------------------------------------ #
     # Deplacement (depuis l'ecran de jeu)
@@ -1682,20 +1658,13 @@ class GameScreen(Screen):
             else:
                 btn.disabled = False
                 btn.opacity = 0.45 if _action_reason(state, action) else 1.0
-        # Carte : grisee (mais cliquable) tant que le joueur n'a pas de carte ;
-        # un appui explique alors qu'il en faut une.
-        if self._ff_active:
-            self.map_btn.disabled = True
-            self.map_btn.opacity = 1.0
-        else:
-            self.map_btn.disabled = False
-            self.map_btn.opacity = (1.0 if state.debug
-                                    or state.has_item(items.MAP_ITEM) else 0.45)
         self.back_btn.disabled = self._ff_active
         self.move_btn.disabled = self._ff_active
-        # Proximite : toujours disponible (comme Carte). Elle ouvre
-        # la grille de la case, meme si rien n'y est encore pose : c'est aussi
-        # une facon de regarder ce qu'on a autour de soi.
+        # Carte/Zone : TOUJOURS a pleine clarte. Le bouton ouvre la zone, qui
+        # ne se refuse jamais -- meme si rien n'est pose sur la case, la
+        # regarder est deja une facon de voir ce qu'on a autour de soi. C'est
+        # le VOLET "carte" du titre, une fois dedans, qui s'eteint tant qu'on
+        # n'a pas de carte ; le bouton, lui, n'a plus de raison de grisonner.
         self.prox_btn.disabled = self._ff_active
         self.prox_btn.opacity = 1.0
         if self.inv_btn is not None:

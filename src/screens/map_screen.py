@@ -21,6 +21,7 @@ from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.minimap import MiniMap
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font
+from src.widgets.lieu_toggle import lieu_toggle
 
 AUTOSAVE_SECONDS = 30
 TIME_SCALE = 144              # 24h en 10 min
@@ -62,7 +63,12 @@ class MapScreen(Screen):
                         size_hint=(0.96, 0.96),
                         pos_hint={"center_x": 0.5, "center_y": 0.5})
 
-        self.minimap = MiniMap(size_hint_y=0.70)
+        # Titre a deux volets : "CARTE / zone". Le volet sombre mene a ce
+        # qu'on a sous la main, sans repasser par l'ecran de jeu.
+        self.toggle = lieu_toggle(self, "map", size_hint_y=0.10)
+        col.add_widget(self.toggle)
+
+        self.minimap = MiniMap(size_hint_y=0.60)
         col.add_widget(self.minimap)
 
         self.zone_label = scale_font(Label(text="", markup=True,
@@ -85,6 +91,7 @@ class MapScreen(Screen):
     def on_pre_enter(self):
         self.refresh_hud()
         self.minimap.refresh()
+        self.toggle.refresh()
 
     def on_enter(self):
         self._autosave_event = Clock.schedule_interval(

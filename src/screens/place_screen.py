@@ -26,6 +26,7 @@ from src.widgets import daylight, horizon
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font, dh
+from src.widgets.lieu_toggle import lieu_toggle
 
 # Couleurs de la grille. Definies ICI une seule fois : la grille ET la legende
 # les utilisent, elles ne peuvent donc jamais se contredire.
@@ -513,6 +514,15 @@ class PlaceScreen(Screen):
             w, "text_size", (w.width, w.height)))
         root.add_widget(self.title)
 
+        # Titre a deux volets "carte / ZONE", a la place du titre simple quand
+        # on vient regarder ce qu'on a sous la main. En mode POSE, il s'efface :
+        # on est alors au milieu d'un geste (placer l'objet tenu), et proposer
+        # d'aller voir la carte n'aurait aucun sens -- on perdrait l'objet en
+        # cours de pose.
+        self.toggle = lieu_toggle(self, "place", size_hint=(0.90, 0.08),
+                                  pos_hint={"center_x": 0.5, "top": 0.98})
+        root.add_widget(self.toggle)
+
         # Bouton Annuler (bas droite) : retour au jeu sans installer.
         cancel = scale_font(StyledButton(text="Annuler",
                             size_hint=(0.20, 0.08),
@@ -603,7 +613,15 @@ class PlaceScreen(Screen):
         self.grid_overlay._redraw()
         # La legende ne liste que les obstacles presents sur CETTE case.
         self.legend.rebuild(self.grid_overlay.nature.values())
-        # Titre : selon qu'on POSE un objet ou qu'on s'en SERT.
+        # Titre : selon qu'on POSE un objet ou qu'on s'en SERT. Se servir, c'est
+        # regarder le lieu -- le titre devient donc le volet "carte / ZONE".
+        # Poser, c'est un geste en cours : le titre simple le rappelle.
+        pose = self.mode != "use"
+        self.toggle.opacity = 0.0 if pose else 1.0
+        self.toggle.disabled = pose
+        self.title.opacity = 1.0 if pose else 0.0
+        if not pose:
+            self.toggle.refresh()
         if self.mode == "use":
             self.title.text = "Choisis un objet a proximite"
         elif self._slot is not None and self._slot in (0, 1):
