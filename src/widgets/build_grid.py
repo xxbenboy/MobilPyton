@@ -51,6 +51,15 @@ VOLUME_T1 = (8, 8, 8)
 # --------------------------------------------------------------------- #
 ETAPES = ("sol", "bas des murs", "haut des murs", "toit")
 
+# LA PIECE QUE CHAQUE ETAGE ATTEND. Un etage ne se batit pas de n'importe
+# quoi : le sol veut des sols, les deux etages de murs veulent des murs, le
+# toit veut des toits. Les autres pieces sont grisees -- montrees, pour qu'on
+# sache qu'elles existent, mais refusees.
+#
+# Les DEUX etages de murs prennent la meme piece : c'est la hauteur qui les
+# distingue, pas la matiere. Un mur bas et un mur haut sont le meme mur.
+PIECE_PAR_ETAPE = ("sol", "mur", "mur", "toit")
+
 # UN ETAGE = UN NIVEAU de cubes. C'est ce qui donne son sens a la regle du
 # chantier : tant qu'un etage n'est pas finalise, le niveau du dessus n'existe
 # pas encore a l'ecran. Avec deux niveaux par etage, le second s'ouvrait des
@@ -292,6 +301,13 @@ def niveaux_de(etape):
 def etape_de(z):
     """L'etape a laquelle appartient un niveau."""
     return z // NIVEAUX_PAR_ETAPE
+
+
+def piece_de_etape(etape):
+    """La seule piece qu'on puisse poser a cette etape, ou None."""
+    if 0 <= etape < len(PIECE_PAR_ETAPE):
+        return PIECE_PAR_ETAPE[etape]
+    return None
 
 
 def cubes_utilisables(volume, etape, batis):

@@ -65,13 +65,6 @@ NATURE_ORDER = ("tree", "bush", "rock")
 GLYPH_FLAME = {"grand": 1.00, "moyen": 0.66, "petit": 0.36, "braise": 0.0}
 
 
-def _installed_tuple(state, obj):
-    """(nom, gx, gy, allume, niveau) pour un objet pose sur la case."""
-    name, gx, gy = obj[0], int(obj[1]), int(obj[2])
-    if name != "Feu_de_camp":
-        return (name, gx, gy, False, "")
-    f = state.fire_at(gx, gy)
-    return (name, gx, gy, bool(f.get("lit")), state.fire_level(f))
 
 
 def draw_nature_glyph(kind, cx, cy, size):
@@ -800,8 +793,7 @@ class PlaceScreen(Screen):
         self._night_color.a = night_darkness(state.time_seconds)
         self.scenery.set_daylight(state.time_seconds)
         zone = state.current_zone()
-        objs = [_installed_tuple(state, o)
-                for o in state.installed_objects_here()]
+        objs = state.scene_installed()
         # Fond : la GRILLE se lit d'en haut (vue du sol), mais la fenetre
         # d'action s'ouvre sur la SCENE du jeu -> on voit le decor et, si le
         # foyer est allume, ses flammes derriere la fenetre.

@@ -129,16 +129,6 @@ def _action_real_seconds(action, minutes):
     return max(0.05, minutes * 60.0 / FAST_FORWARD_SCALE)
 
 
-def _installed_tuple(state, obj):
-    """(nom, gx, gy, allume, niveau) pour ZoneScenery.
-
-    `niveau` decrit l'ampleur du feu ("grand" a "braise") : il change avec le
-    combustible restant, donc la scene se redessine quand le feu faiblit."""
-    name, gx, gy = obj[0], int(obj[1]), int(obj[2])
-    if name != "Feu_de_camp":
-        return (name, gx, gy, False, "")
-    f = state.fire_at(gx, gy)
-    return (name, gx, gy, bool(f.get("lit")), state.fire_level(f))
 
 
 def _action_reason(state, action):
@@ -1705,8 +1695,7 @@ class GameScreen(Screen):
         # font partie du decor, les mains passent simplement devant. L'etat
         # ALLUME est transmis : la scene se redessine donc (flammes) des que
         # le feu prend, et de nouveau quand il s'eteint.
-        installed = tuple(_installed_tuple(state, o)
-                          for o in state.installed_objects_here())
+        installed = tuple(state.scene_installed())
         # L'EMPRISE de chaque objet, pas seulement son ancrage : un plan de
         # construction couvre quatre cases, et le decor doit s'ecarter des
         # quatre.

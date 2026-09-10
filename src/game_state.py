@@ -1423,6 +1423,39 @@ class GameState:
                 self.add_ground(matiere)
         return True
 
+    def scene_installed(self):
+        """Les objets poses, sous la forme que le decor attend.
+
+        [(nom, gx, gy, etat, detail), ...] -- cinq champs pour tous, mais dont
+        le sens depend de l'objet, et c'est voulu : le decor n'a pas a
+        connaitre chaque objet, il lui suffit d'un etat et d'un detail.
+
+            FEU DE CAMP  etat = allume, detail = l'ampleur des flammes
+            PLAN         etat = chantier termine, detail = la construction
+
+        Le detail doit rester HACHABLE : la scene s'en sert comme cle de cache
+        pour savoir si elle doit se redessiner. D'ou le frozenset plutot qu'un
+        dictionnaire.
+
+        Ecrite ici, et non dans les ecrans : les deux qui en avaient besoin en
+        gardaient chacun sa copie, a l'identique."""
+        out = []
+        for obj in self.installed_objects_here():
+            name, gx, gy = obj[0], int(obj[1]), int(obj[2])
+            if name == "Feu_de_camp":
+                f = self.fire_at(gx, gy)
+                out.append((name, gx, gy, bool(f.get("lit")),
+                            self.fire_level(f)))
+            elif name in items.BUILDABLE_ITEMS:
+                from src.widgets import build_grid
+                fini = self.build_stage(gx, gy) >= build_grid.TERMINE
+                bati = frozenset((c[0], c[1], c[2], p) for c, p
+                                 in self.built_here(gx, gy).items())
+                out.append((name, gx, gy, fini, bati))
+            else:
+                out.append((name, gx, gy, False, ""))
+        return out
+
     # ---- l'etape en cours -------------------------------------------- #
     def build_stage(self, gx, gy):
         """L'etape en cours d'un chantier (0 = le sol)."""
@@ -1453,11 +1486,11 @@ class GameState:
         from src.widgets import build_grid
         etape = self.build_stage(gx, gy)
         if etape >= build_grid.TERMINE:
-            # Un chantier TERMINE n'a pas d'etage en cours : revenir en
-            # arriere le rouvre simplement au dernier etage, sans rien
-            # defaire. Ce qui est bati reste bati.
-            self.set_build_stage(gx, gy, build_grid.TERMINE - 1)
-            return True
+            # UN CHANTIER TERMINE NE SE ROUVRE PAS. Une construction achevee
+            # ne se modifie ni ne se demolit : c'est une decision de jeu, pas
+            # une limite technique -- terminer doit engager. (A revoir le jour
+            # ou la demolition existera.)
+            return False
         if etape <= 0:
             return False
         for cube in build_grid.cubes_de_etape(etape, self.built_here(gx, gy)):

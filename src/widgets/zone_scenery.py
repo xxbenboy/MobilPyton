@@ -30,6 +30,7 @@ from src.widgets import textures, pbr, foliage, daylight
 from src.widgets import horizon
 from src.widgets.textures import paint, paint_color, tiled_coords
 from src.widgets.installed_layer import grid_to_screen
+from src.widgets import build_grid
 
 _ZONE_SEED = {"Foret": 1, "Plaine": 2, "Montagne": 3, "Lac": 4}
 
@@ -60,6 +61,14 @@ _EMPRISE_RETRAIT = 0.14
 # Retrecissement du bord du FOND par rapport a celui de devant. C'est la seule
 # part de perspective qu'on garde pour ces formes : celle qui se lit.
 _EMPRISE_FUITE = 0.82
+
+# Hauteur d'un cube de construction, en fraction de la LARGEUR d'un cube.
+# Un peu moins que sa largeur : la vue etant rasante, la hauteur n'est pas
+# foreshortenue alors que le sol l'est, et un rapport de un pour un donnait
+# une tour plutot qu'un abri. On ne prend PAS la profondeur pour reference :
+# elle est ecrasee par la vue rasante -- elle ne fait que la moitie de la
+# largeur -- et s'en servir donnerait une maison aplatie comme une galette.
+_CUBE_HAUTEUR = 0.82
 
 # Taille des flammes selon l'etat du feu (voir game_state.FIRE_LEVELS).
 # "braise" = plus de flamme du tout, seules les braises rougeoient.
@@ -433,8 +442,15 @@ class ZoneScenery(Widget):
                             lv=level: self._fire_pit(cx, cy, s, lit, lv)))
             elif name == items.BLUEPRINT_T1:
                 coins = self._emprise_coins(name, gx, gy)
-                out.append((min(c[1] for c in coins),
-                            lambda c=coins: self._blueprint(c)))
+                base = min(c[1] for c in coins)
+                if lit and level:
+                    # CHANTIER TERMINE : ce n'est plus un plan, c'est une
+                    # construction. Les piquets et la corde n'ont plus rien a
+                    # dire -- ils marquaient une intention, elle est realisee.
+                    out.append((base,
+                                lambda c=coins, b=level: self._batiment(c, b)))
+                else:
+                    out.append((base, lambda c=coins: self._blueprint(c)))
         return out
 
     def _emprise_coins(self, name, gx, gy):
@@ -481,6 +497,72 @@ class ZoneScenery(Widget):
         av, ar = large / 2.0, large / 2.0 * _EMPRISE_FUITE
         return [(cx - av, y_av), (cx + av, y_av),
                 (cx + ar, y_ar), (cx - ar, y_ar)]
+
+    def _batiment(self, coins, bati):
+        """La construction achevee d'un chantier, vue depuis le jeu.
+
+        `bati` est l'ensemble des (x, y, z, piece) batis. Le volume du chantier
+        fait huit cubes de cote ; on plaque cette grille sur l'emprise au sol
+        du plan par INTERPOLATION entre ses quatre coins -- ainsi le batiment
+        se retrecit vers le fond exactement comme l'emprise qui le porte, sans
+        qu'on ait a refaire une perspective a part.
+
+        ON N'EN DESSINE QUE LA PEAU : une face qui a un cube voisin ne se voit
+        pas, et la dessiner quand meme ne coutait pas seulement du temps -- les
+        faces internes des cubes de devant recouvraient tout, et la maison se
+        lisait comme un empilement de bandes plates. Ecartees, il ne reste que
+        la silhouette, avec ses decrochements.
+
+        La hauteur d'un cube est prise sur la LARGEUR de l'emprise, pas sur sa
+        profondeur : la profondeur est ecrasee par la vue rasante (elle ne fait
+        que la moitie de la largeur), et s'en servir donnerait une maison
+        aplatie comme une galette."""
+        (x_ag, y_ag), (x_ad, y_ad), (x_fd, y_fd), (x_fg, y_fg) = coins
+        nx, ny, _nz = build_grid.VOLUME_T1
+        haut = (x_ad - x_ag) / float(nx) * _CUBE_HAUTEUR
+        pleins = {(c[0], c[1], c[2]) for c in bati}
+
+        def coin(cx, cy, cz):
+            """Un sommet de la grille du chantier, en coordonnees ecran."""
+            u, v = cx / float(nx), cy / float(ny)
+            xg = x_ag + (x_fg - x_ag) * v
+            yg = y_ag + (y_fg - y_ag) * v
+            xd = x_ad + (x_fd - x_ad) * v
+            yd = y_ad + (y_fd - y_ad) * v
+            return xg + (xd - xg) * u, yg + (yd - yg) * u + cz * haut
+
+        # Les faces d'un cube : le voisin qui la cache, puis ses quatre
+        # sommets et son assombrissement. Pas de face du DESSOUS ni de face
+        # ARRIERE : dans une vue rasante venant du devant, elles ne se voient
+        # jamais, meme au bord du batiment.
+        FACES = (
+            ((0, 0, 1), ((0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1)), 1.00),
+            ((0, -1, 0), ((0, 0, 0), (1, 0, 0), (1, 0, 1), (0, 0, 1)), 0.62),
+            ((-1, 0, 0), ((0, 0, 0), (0, 1, 0), (0, 1, 1), (0, 0, 1)), 0.44),
+            ((1, 0, 0), ((1, 0, 0), (1, 1, 0), (1, 1, 1), (1, 0, 1)), 0.52),
+        )
+
+        # Du plus LOIN au plus proche, et du bas vers le haut : dans une vue
+        # rasante, ce qui est devant et ce qui est haut recouvre le reste.
+        for (x, y, z, piece) in sorted(bati,
+                                       key=lambda c: (-c[1], c[2], c[0])):
+            r, g, b = items.build_part_color(piece)
+            for (dx, dy, dz), sommets, ombre in FACES:
+                if (x + dx, y + dy, z + dz) in pleins:
+                    continue                    # cachee par un voisin
+                pts = []
+                for sx, sy, sz in sommets:
+                    px, py = coin(x + sx, y + sy, z + sz)
+                    pts += [px, py]
+                Color(min(1.0, r * ombre), min(1.0, g * ombre),
+                      min(1.0, b * ombre), 1)
+                Quad(points=pts)
+                # L'ARETE DE CHAQUE CUBE, sombre et fine. Sans elle, les
+                # faces d'une meme couleur fusionnaient en larges bandes
+                # plates et l'on ne voyait plus que la maison est BATIE de
+                # pieces : c'est le quadrillage qui le dit.
+                Color(r * 0.22, g * 0.22, b * 0.22, 0.85)
+                Line(points=pts + pts[:2], width=1.0)
 
     def _blueprint(self, coins):
         """Plan de construction : quatre piquets relies par une corde.

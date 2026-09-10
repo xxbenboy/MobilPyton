@@ -14,18 +14,32 @@ TROIS ELEMENTS, et rien d'autre :
   c'est justement le fond qu'on vient designer.
 
 - LES PIECES, a droite, toujours visibles. Sol, mur, toit pour le palier 1.
-  On en GLISSE une sur un cube pour la batir la : le geste est celui de la
-  pose d'un plan, et pour la meme raison -- il faut voir ou l'on vise avant
-  de lacher.
+  On en CHOISIT une d'un toucher, puis on tape les cubes a batir : elle reste
+  en main jusqu'a ce qu'on la retape ou qu'on en prenne une autre. Poser
+  vingt murs demande donc vingt-et-un touchers, contre vingt glissers d'un
+  bout a l'autre de l'ecran.
+
+  CHAQUE PIECE A SA COULEUR -- sol vert, mur jaune, toit rouge -- et c'est la
+  seule facon de savoir, en regardant le volume, ce qu'on a mis ou. Trente
+  cubes tous couleur bois ne se lisaient pas.
+
+  UN ETAGE N'ATTEND QU'UNE PIECE : le sol veut des sols, les deux etages de
+  murs veulent des murs, le toit veut des toits. Les autres restent visibles
+  mais grisees -- savoir ce qu'on batira plus tard fait partie de ce que le
+  chantier doit dire.
 
 - LE STOCK, a gauche, FERME par defaut : les trois matieres et ce qu'on en a.
   Il s'ouvre d'une fleche et se referme de la meme fleche, ou d'un toucher
   ailleurs -- comme on repousse un panneau. On le consulte, on n'agit pas
   dessus ; il n'a donc pas a occuper l'ecran en permanence.
 
-LE VOLUME SE TOURNE AU DOIGT, dans les deux sens. Un glisser qui part du
-volume le fait tourner ; un glisser qui part des pieces y depose. L'origine du
-geste suffit a les distinguer, sans mode ni bouton.
+LE VOLUME SE TOURNE AU DOIGT, dans tous les sens. Sur le volume, un TAP pose
+et un GLISSER tourne : seule la distance parcourue les separe, comme dans
+l'inventaire ou un tap ouvre la fiche d'un objet et un glisser le deplace.
+
+UN CHANTIER TERMINE NE SE TOUCHE PLUS : ni pose, ni retrait, ni retour en
+arriere. Terminer engage. (La demolition viendra plus tard ; le jour ou elle
+existera, c'est ici qu'il faudra rouvrir la porte.)
 """
 from kivy.app import App
 from kivy.uix.screenmanager import Screen
@@ -45,6 +59,7 @@ from src.widgets.responsive import scale_font
 from src.widgets.item_icon import ItemIcon
 from src.widgets.panels import panel
 from src.widgets import build_grid
+from src.widgets.drag_drop import TAP_SLOP
 
 # Les cubes. Le remplissage est TRES pale : il donne le volume sans rien
 # cacher, et quatre etages empiles restent lisibles au travers.
@@ -55,10 +70,12 @@ CUBE_EDGE = (1.0, 1.0, 1.0, 0.55)
 # et l'oeil ne trouve plus les bords.
 CUBE_EDGE_OUT = (1.0, 1.0, 1.0, 0.95)
 
-# Un cube BATI : franchement plus dense, couleur du bois. Il doit se distinguer
-# du vide au premier coup d'oeil, sinon on ne voit pas ce qu'on a deja fait.
-PIECE_FILL = (0.62, 0.44, 0.24, 0.55)
-PIECE_EDGE = (0.86, 0.70, 0.46, 0.95)
+# Un cube BATI prend LA COULEUR DE SA PIECE (voir items.BUILD_PART_COLORS) :
+# sol vert, mur jaune, toit rouge. Un chantier tout couleur bois ne se lisait
+# pas -- on ne voyait plus ce qu'on avait mis ou. Ces deux facteurs disent
+# seulement l'opacite du remplissage et l'eclat de l'arete.
+PIECE_ALPHA = 0.55
+PIECE_ARETE_ECLAT = 1.35
 
 # Le cube VISE pendant qu'on glisse une piece dessus. Memes couleurs que
 # l'apercu de pose d'un objet, pour que le vert et le rouge veuillent dire la
@@ -75,7 +92,7 @@ CUBE_EDGE_MUET = (1.0, 1.0, 1.0, 0.16)
 
 # Un chantier TERMINE : les pieces deviennent pleines. Ce n'est plus un plan,
 # c'est une maison, et une maison n'est pas transparente.
-PIECE_PLEIN = (0.58, 0.41, 0.22, 0.95)
+PIECE_PLEIN_ALPHA = 0.95
 
 # La croix de retrait, posee au coin haut droit d'un cube bati.
 CROIX_FOND = (0.12, 0.08, 0.06, 0.80)
@@ -197,8 +214,11 @@ class _Volume(Widget):
         elif piece is not None:
             # Un chantier TERMINE ne montre plus que du bati, et en plein :
             # ce n'est plus un plan, c'est une maison.
-            fond, bord, ep = ((PIECE_PLEIN, PIECE_EDGE, 2.2) if fini
-                              else (PIECE_FILL, PIECE_EDGE, 2.2))
+            r, g, b = items.build_part_color(piece)
+            fond = (r, g, b, PIECE_PLEIN_ALPHA if fini else PIECE_ALPHA)
+            e = PIECE_ARETE_ECLAT
+            bord = (min(1.0, r * e), min(1.0, g * e), min(1.0, b * e), 0.95)
+            ep = 2.2
         elif ouvert:
             fond, bord, ep = CUBE_FILL, CUBE_EDGE, 1.0
         else:
@@ -299,14 +319,12 @@ class BuildScreen(Screen):
         self.arrow.bind(on_release=lambda *_: self._toggle_drawer())
         root.add_widget(self.arrow)
 
-        # Couche du FANTOME : la piece suivie par le doigt. Jamais desactivee
-        # -- dans Kivy un widget desactive avale les touches qui tombent
-        # dessus, et celle-ci couvre tout l'ecran.
-        self.drag_layer = FloatLayout(size_hint=(1, 1),
-                                      pos_hint={"x": 0, "y": 0})
-        root.add_widget(self.drag_layer)
-        self._drag = None            # piece en cours de depot
-        self._spin = None            # doigt en train de tourner le volume
+        # LA PIECE CHOISIE, et le geste en cours sur le volume. Une piece
+        # reste choisie jusqu'a ce qu'on la retape ou qu'on en prenne une
+        # autre : poser vingt murs demande vingt-et-un touchers, contre vingt
+        # glissers d'un bout a l'autre de l'ecran.
+        self._piece = None
+        self._geste = None
 
         self.title = scale_font(Label(text="Chantier", bold=True,
                                 color=(0.96, 0.82, 0.45, 1), halign="center",
@@ -367,6 +385,16 @@ class BuildScreen(Screen):
         self.arrow.text = "<" if self._drawer_open else ">"
 
     # ---------------- GESTES ------------------------------------------- #
+    #
+    # ON CHOISIT UNE PIECE, PUIS ON TAPE DES CUBES. La piece reste choisie
+    # jusqu'a ce qu'on la retape ou qu'on en prenne une autre : poser vingt
+    # murs demande donc vingt-et-un touchers, contre vingt glissers d'un bout
+    # a l'autre de l'ecran.
+    #
+    # Un TAP sur le volume pose ; un GLISSER sur le volume le fait tourner.
+    # Seule la distance parcourue les separe -- c'est la meme convention que
+    # l'inventaire, ou un tap ouvre la fiche d'un objet et un glisser le
+    # deplace.
     def on_touch_down(self, touch):
         # 1. Un toucher AILLEURS referme le stock -- comme on repousse un
         #    panneau. La fleche est exclue : elle a deja sa propre bascule, et
@@ -376,25 +404,111 @@ class BuildScreen(Screen):
                 and not self.arrow.collide_point(*touch.pos)):
             self._set_drawer(False)
             return True
-        # 2. Une CROIX de retrait, si le mode est actif. Elle passe avant la
-        #    rotation : la croix est petite, et un doigt qui la vise ne doit
+        # 2. Une CROIX de retrait, si le mode est actif. Elle passe avant tout
+        #    le reste : la croix est petite, et un doigt qui la vise ne doit
         #    pas faire pivoter le volume a la place.
         if self.volume.retrait:
             cube = self.volume.croix_sous(*touch.pos)
             if cube is not None:
                 self._retire(cube)
                 return True
-        # 3. Un doigt qui part d'une PIECE vient en deposer une.
+        # 3. Une PIECE : on la choisit, ou on la lache si c'etait deja elle.
         piece = self._piece_sous(touch)
         if piece is not None:
-            self._start_drag(piece, touch)
+            self._choisir(piece)
             return True
-        # 4. Un doigt qui part du VOLUME le fait tourner. L'origine du geste
-        #    suffit a distinguer les deux : aucun mode, aucun bouton.
+        # 4. Le VOLUME : on retient d'ou part le doigt. La suite depend de ce
+        #    qu'il fait -- bouger fait tourner, rester pose.
         if self.volume.collide_point(*touch.pos):
-            self._spin = touch.pos
+            self._geste = {"depart": touch.pos, "dernier": touch.pos,
+                           "bouge": False}
             return True
         return super().on_touch_down(touch)
+
+    def on_touch_move(self, touch):
+        g = self._geste
+        if g is not None:
+            if max(abs(touch.x - g["depart"][0]),
+                   abs(touch.y - g["depart"][1])) > TAP_SLOP:
+                g["bouge"] = True
+            if g["bouge"]:
+                self.volume.pivote(touch.x - g["dernier"][0],
+                                   touch.y - g["dernier"][1])
+                g["dernier"] = touch.pos
+            return True
+        return super().on_touch_move(touch)
+
+    def on_touch_up(self, touch):
+        g, self._geste = self._geste, None
+        if g is not None:
+            # Un doigt pose et releve SANS BOUGER n'etait pas une rotation :
+            # c'est une pose.
+            if not g["bouge"]:
+                self._poser(touch)
+            return True
+        return super().on_touch_up(touch)
+
+    def _piece_sous(self, touch):
+        """La piece touchee dans la colonne de droite, ou None."""
+        for btn in self.parts_box.children:
+            piece = getattr(btn, "piece", None)
+            if piece is not None and btn.collide_point(*touch.pos):
+                return piece
+        return None
+
+    def _choisir(self, piece):
+        """Prend une piece, ou la lache si c'etait deja celle-la."""
+        state = App.get_running_app().game_state
+        if state is None:
+            return
+        attendue = build_grid.piece_de_etape(self.volume.etape)
+        if piece != attendue:
+            # Elle est grisee, mais un doigt tombe dessus quand meme : mieux
+            # vaut dire pourquoi que ne rien faire.
+            self.hint.text = "Cet etage attend un %s." \
+                % items.BUILD_PART_NAMES.get(attendue, attendue).lower()
+            return
+        if not state.can_build():
+            self.hint.text = "Il manque de la matiere (vois le stock)."
+            self._set_drawer(True)
+            return
+        self._piece = None if self._piece == piece else piece
+        if self._piece is None:
+            self.hint.text = ""
+        else:
+            self.hint.text = "%s en main : touche les cubes a batir." \
+                % items.BUILD_PART_NAMES.get(piece, piece)
+        self._sync_parts()
+
+    def _poser(self, touch):
+        """Bati la piece choisie sur le cube touche."""
+        if self._piece is None:
+            return
+        state = App.get_running_app().game_state
+        if state is None or self.blueprint is None:
+            return
+        cube = self.volume.cube_sous(*touch.pos)
+        if cube is None:
+            # On distingue les deux raisons. Touche dans le vide, c'est un
+            # geste rate ; touche sur un cube FERME, c'est une regle du
+            # chantier qu'il faut expliquer -- sinon le joueur croit a une
+            # panne et recommence.
+            self.hint.text = ("Ce cube n'a rien en dessous pour l'appuyer."
+                              if self.volume.collide_point(*touch.pos)
+                              else "")
+            return
+        if not state.can_build():
+            # La matiere s'est epuisee en cours de serie : on lache la piece,
+            # sinon le joueur continue de taper sans que rien ne se passe.
+            self._piece = None
+            self.hint.text = "Plus de matiere. Vois le stock."
+            self._set_drawer(True)
+            self._refresh(state)
+            return
+        _nom, gx, gy = self.blueprint
+        if state.build_piece(gx, gy, cube, self._piece):
+            App.get_running_app().autosave()
+            self._refresh(state)
 
     # ---------------- ETAPES ET RETRAIT -------------------------------- #
     def _toggle_retrait(self):
@@ -457,107 +571,16 @@ class BuildScreen(Screen):
         # etage suivant, il acheve le chantier.
         self.btn_next.text = ("Terminer le chantier" if dernier
                               else "Etage suivant")
-        # Un chantier termine n'a plus rien a batir : seul le retour en
-        # arriere garde un sens.
+        # UN CHANTIER TERMINE NE SE TOUCHE PLUS : ni pose, ni retrait, ni
+        # retour en arriere. Terminer engage. Il ne reste que la sortie.
         for btn, actif in ((self.btn_next, not fini),
                            (self.btn_retrait, not fini),
-                           (self.btn_prev, etape > 0)):
+                           (self.btn_prev, 0 < etape < build_grid.TERMINE)):
             btn.disabled = not actif
             btn.opacity = 1.0 if actif else 0.40
         self.btn_retrait.text = ("Fini de retirer" if self.volume.retrait
                                  else "Retirer")
 
-    def on_touch_move(self, touch):
-        if self._drag is not None:
-            self._drag["ghost"].center = touch.pos
-            self._vise(touch)
-            return True
-        if self._spin is not None:
-            self.volume.pivote(touch.x - self._spin[0],
-                               touch.y - self._spin[1])
-            self._spin = touch.pos
-            return True
-        return super().on_touch_move(touch)
-
-    def on_touch_up(self, touch):
-        if self._drag is not None:
-            self._drop(touch)
-            return True
-        if self._spin is not None:
-            self._spin = None
-            return True
-        return super().on_touch_up(touch)
-
-    def _piece_sous(self, touch):
-        """La piece touchee dans la colonne de droite, ou None."""
-        for btn in self.parts_box.children:
-            piece = getattr(btn, "piece", None)
-            if piece is not None and btn.collide_point(*touch.pos):
-                return piece
-        return None
-
-    def _start_drag(self, piece, touch):
-        ghost = BoxLayout(size_hint=(None, None), padding=dp(4),
-                          size=(self.width * 0.10, self.height * 0.09))
-        panel(ghost, alpha=0.60)
-        ghost.add_widget(scale_font(Label(
-            text=items.BUILD_PART_NAMES.get(piece, piece), bold=True,
-            color=(1, 1, 1, 1)), 0.022))
-        ghost.center = touch.pos
-        ghost.opacity = 0.92
-        self.drag_layer.add_widget(ghost)
-        self._drag = {"ghost": ghost, "piece": piece}
-        self._vise(touch)
-
-    def _vise(self, touch):
-        """Met a jour le cube vise, et s'il accepte la piece."""
-        state = App.get_running_app().game_state
-        cube = self.volume.cube_sous(*touch.pos)
-        self.volume.apercu = cube
-        # LES DEUX RAISONS D'UN REFUS : le cube est deja bati, ou la matiere
-        # manque. On les distingue en rouge sans les nommer ici -- le stock,
-        # a gauche, dit deja ce qui manque.
-        self.volume.apercu_ok = bool(
-            cube is not None and state is not None
-            and cube not in self.volume.batis and state.can_build())
-        self.volume._redraw()
-
-    def _clear_drag(self):
-        drag, self._drag = self._drag, None
-        if drag is not None:
-            self.drag_layer.remove_widget(drag["ghost"])
-        self.volume.apercu = None
-        self.volume.apercu_ok = False
-        self.volume._redraw()
-
-    def _drop(self, touch):
-        piece = self._drag["piece"]
-        cube = self.volume.cube_sous(*touch.pos)
-        self._clear_drag()
-        state = App.get_running_app().game_state
-        if state is None or self.blueprint is None:
-            return
-        if cube is None:
-            # On distingue les deux raisons. Lachee dans le vide, c'est un
-            # geste rate ; lachee sur un cube FERME, c'est une regle du
-            # chantier qu'il faut expliquer -- sinon le joueur croit a une
-            # panne et recommence.
-            if self.volume.collide_point(*touch.pos):
-                self.hint.text = ("Ce cube n'a rien en dessous pour "
-                                  "l'appuyer.")
-            else:
-                self.hint.text = "Glisse la piece SUR un cube."
-            return
-        if not state.can_build():
-            self.hint.text = "Il manque de la matiere (vois le stock)."
-            self._set_drawer(True)
-            return
-        _nom, gx, gy = self.blueprint
-        if state.build_piece(gx, gy, cube, piece):
-            App.get_running_app().autosave()
-            self.hint.text = "%s bati." % items.BUILD_PART_NAMES.get(piece,
-                                                                     piece)
-            self._refresh(state)
 
     # ------------------------------------------------------------------ #
     def on_pre_enter(self):
@@ -584,8 +607,8 @@ class BuildScreen(Screen):
         self.volume.tour = build_grid.TOUR_DEFAUT
         self.volume.inclinaison = build_grid.INCLINAISON_DEFAUT
         self._set_drawer(False)
-        self._clear_drag()
-        self._spin = None
+        self._piece = None
+        self._geste = None
         self.volume.retrait = False
         self.hint.text = ""
         self._refresh(state)
@@ -637,7 +660,7 @@ class BuildScreen(Screen):
             self.drawer.add_widget(ligne)
 
     def _rebuild_parts(self, state, nom):
-        """Les pieces batissables, a droite. On les GLISSE sur un cube."""
+        """Les pieces, a droite. On en CHOISIT une, puis on tape des cubes."""
         self.parts_box.clear_widgets()
         # Un chantier TERMINE n'offre plus rien a poser : la colonne dispa-
         # rait, au lieu de proposer des pieces qui n'iraient nulle part.
@@ -645,17 +668,36 @@ class BuildScreen(Screen):
             self.parts_box.opacity = 0.0
             return
         self.parts_box.opacity = 1.0
-        payable = state.can_build()
         for piece in items.build_parts(nom):
             btn = scale_font(StyledButton(
                 text=items.BUILD_PART_NAMES.get(piece, piece)), 0.022)
-            # `piece` est accroche au bouton : c'est ainsi que le glisser
+            # `piece` est accroche au bouton : c'est ainsi que le toucher
             # retrouve ce qu'on a pris, sans table parallele a tenir a jour.
             btn.piece = piece
-            # Une piece qu'on ne peut pas payer reste VISIBLE mais eteinte :
-            # savoir ce qu'on pourra batir plus tard fait partie de ce que le
-            # chantier doit dire. Elle n'est pas `disabled` -- un widget
-            # desactive avalerait le toucher, et le glisser ne partirait
-            # jamais ; c'est _piece_sous qui la laisse passer ou non.
-            btn.opacity = 1.0 if payable else 0.45
+            # LE BOUTON PORTE LA COULEUR DE SA PIECE. C'est la seule facon de
+            # savoir, en regardant le volume, quel cube vient de quel bouton.
+            r, g, b = items.build_part_color(piece)
+            btn.background_color = (r, g, b, 1)
             self.parts_box.add_widget(btn)
+        self._sync_parts()
+
+    def _sync_parts(self):
+        """Grise les pieces que l'etage n'attend pas, allume celle en main."""
+        state = App.get_running_app().game_state
+        attendue = build_grid.piece_de_etape(self.volume.etape)
+        payable = state is not None and state.can_build()
+        for btn in self.parts_box.children:
+            piece = getattr(btn, "piece", None)
+            bonne = piece == attendue
+            # Une piece que l'etage n'attend pas reste VISIBLE mais eteinte :
+            # savoir ce qu'on batira plus tard fait partie de ce que le
+            # chantier doit dire. Elle n'est pas `disabled` -- un widget
+            # desactive avalerait le toucher, et l'on ne pourrait plus
+            # expliquer le refus ; c'est _choisir qui tranche.
+            btn.opacity = 1.0 if (bonne and payable) else 0.35
+            # La piece EN MAIN se distingue de celle qui est simplement
+            # disponible : sans cela, on ne sait plus si l'on tient quelque
+            # chose, et taper un cube semble ne rien faire.
+            btn.bold = (piece == self._piece)
+            btn.text = (items.BUILD_PART_NAMES.get(piece, piece)
+                        + ("  ✓" if piece == self._piece else ""))

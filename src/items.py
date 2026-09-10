@@ -237,6 +237,21 @@ BUILD_PARTS = {
 # Nom lisible de chaque piece.
 BUILD_PART_NAMES = {"sol": "Sol", "mur": "Mur", "toit": "Toit"}
 
+# COULEUR DE CHAQUE PIECE. Un chantier de trente cubes tous couleur bois ne se
+# lit pas : on ne voit plus ce qu'on a mis ou. Trois couleurs franches et bien
+# separees le rendent lisible d'un coup d'oeil -- et elles servent PARTOUT,
+# dans le chantier comme dans la construction finie vue depuis le jeu.
+BUILD_PART_COLORS = {
+    "sol": (0.34, 0.72, 0.36),
+    "mur": (0.92, 0.78, 0.24),
+    "toit": (0.86, 0.30, 0.24),
+}
+
+
+def build_part_color(piece):
+    """La couleur d'une piece. Bois pale pour ce qui n'en a pas."""
+    return BUILD_PART_COLORS.get(piece, (0.62, 0.44, 0.24))
+
 # CE QUE COUTE UNE PIECE, quelle qu'elle soit. Un seul cout pour les trois :
 # un mur, un plancher et un toit demandent le meme travail de charpente a ce
 # palier -- une buche pour la piece maitresse, des branches pour la trame, une
