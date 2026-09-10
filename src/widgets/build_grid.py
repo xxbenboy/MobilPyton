@@ -51,10 +51,16 @@ VOLUME_T1 = (8, 8, 8)
 # --------------------------------------------------------------------- #
 ETAPES = ("sol", "bas des murs", "haut des murs", "toit")
 
-# Chaque etage occupe DEUX niveaux de cubes : huit niveaux pour quatre etages.
-# Un mur bas et un mur haut de deux cubes chacun donnent une paroi de quatre
-# cubes -- la hauteur d'un abri ou l'on tient debout.
-NIVEAUX_PAR_ETAPE = 2
+# UN ETAGE = UN NIVEAU de cubes. C'est ce qui donne son sens a la regle du
+# chantier : tant qu'un etage n'est pas finalise, le niveau du dessus n'existe
+# pas encore a l'ecran. Avec deux niveaux par etage, le second s'ouvrait des
+# que le premier portait une piece -- donc AVANT la fin de l'etage -- et
+# l'ordre du chantier se perdait.
+#
+# Les quatre etages occupent donc les quatre premiers niveaux du volume. Les
+# suivants restent en reserve : un plan de palier superieur y ajoutera ses
+# propres etages.
+NIVEAUX_PAR_ETAPE = 1
 
 # Numero de l'etape du TOIT : la derniere. Elle a une regle a elle (voir
 # cubes_utilisables).
@@ -315,18 +321,58 @@ def cubes_utilisables(volume, etape, batis):
 
 
 def cubes_visibles(volume, etape, batis):
-    """Les cubes a MONTRER : ceux ou l'on peut batir, plus ce qui est deja
-    bati -- a l'etage en cours comme aux etages du dessous.
+    """Les cubes a MONTRER.
 
-    Ce qui est bati plus bas n'est pas manipulable, mais le cacher priverait
-    le joueur du seul repere qu'il ait : sans ses murs, il poserait son toit
-    dans le vide sans savoir ou tombent les pieces."""
+    Deux familles, et rien d'autre :
+
+    - CE QUI EST BATI, a l'etage en cours comme a ceux du dessous. Un etage
+      finalise ne montre donc plus que ses pieces : ses cubes restes vides
+      disparaissent, puisqu'on ne peut plus rien y mettre. Ce qui est bati
+      plus bas n'est pas manipulable, mais le cacher priverait le joueur du
+      seul repere qu'il ait -- sans ses murs, il poserait son toit dans le
+      vide sans savoir ou tombent les pieces ;
+    - CE QUI EST OUVERT a l'etage en cours.
+
+    Rien de l'etage SUIVANT n'apparait : il n'existe pas encore."""
     if etape >= TERMINE:
         return sorted(batis)
     niveaux = niveaux_de(etape)
     hauts = max(niveaux) if niveaux else -1
     dessous = [c for c in batis if c[2] <= hauts]
     return sorted(set(cubes_utilisables(volume, etape, batis)) | set(dessous))
+
+
+def boite_etage(volume, etape):
+    """La boite de l'ETAGE en cours, dans toute son etendue.
+
+    C'est le CONTOUR qu'on trace : il montre jusqu'ou va l'etage, y compris
+    la ou aucun cube n'est encore ouvert. Sans lui, un etage a peine commence
+    se reduirait a deux ou trois cubes flottants et le joueur ne saurait plus
+    quelle surface il a le droit de couvrir."""
+    nx, ny, _nz = volume
+    niveaux = niveaux_de(etape)
+    if not niveaux:
+        return boite_du_volume(volume)
+    return ((0, 0, min(niveaux)), (nx, ny, max(niveaux) + 1))
+
+
+def boite_cadre(volume, etape, batis):
+    """La boite a CADRER : l'etage en cours en entier, plus ce qui est bati.
+
+    On cadre sur l'etage ENTIER et non sur les seuls cubes montres : sinon la
+    vue sauterait et changerait d'echelle a chaque piece posee, puisque
+    l'etendue de ce qui est montre grandit au fur et a mesure."""
+    if etape >= TERMINE:
+        return boite_des(sorted(batis), volume)
+    coins = [boite_etage(volume, etape)[0], boite_etage(volume, etape)[1]]
+    xs = [coins[0][0], coins[1][0]]
+    ys = [coins[0][1], coins[1][1]]
+    zs = [coins[0][2], coins[1][2]]
+    for c in batis:
+        xs += [c[0], c[0] + 1]
+        ys += [c[1], c[1] + 1]
+        zs += [c[2], c[2] + 1]
+    return ((min(xs), min(ys), min(zs)), (max(xs), max(ys), max(zs)))
 
 
 def etape_complete(etape, batis):

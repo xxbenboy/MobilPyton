@@ -113,9 +113,10 @@ class _Volume(Widget):
     def _cadre(self):
         """(boite cadree, taille d'un cube, centre x, centre y).
 
-        On cadre sur ce qu'on MONTRE, pas sur le volume entier : un etage de
-        deux niveaux occupe ainsi l'ecran au lieu d'y flotter en miniature."""
-        boite = build_grid.boite_des(self.visibles(), self.volume)
+        On cadre sur l'ETAGE EN COURS plus ce qui est bati -- pas sur le
+        volume entier, ou l'etage flotterait en miniature, ni sur les seuls
+        cubes montres, ou la vue sauterait a chaque piece posee."""
+        boite = build_grid.boite_cadre(self.volume, self.etape, self.batis)
         taille = build_grid.echelle(boite, self.width, self.height)
         return boite, taille, self.center_x, self.center_y
 
@@ -170,10 +171,14 @@ class _Volume(Widget):
                                                 self.inclinaison):
                 self._cube(cube, args, cube in ouverts, fini)
             if not fini:
-                # Le contour de l'ETAGE en cours : c'est lui qui dit jusqu'ou
-                # va ce qu'on batit maintenant.
+                # LE CONTOUR DE L'ETAGE, dans toute son etendue -- pas
+                # seulement autour des cubes ouverts. Un etage a peine
+                # commence se reduirait sinon a deux ou trois cubes
+                # flottants, et le joueur ne saurait plus quelle surface il a
+                # le droit de couvrir.
                 Color(*CUBE_EDGE_OUT)
-                for a, b in build_grid.boite_aretes(boite):
+                etage = build_grid.boite_etage(self.volume, self.etape)
+                for a, b in build_grid.boite_aretes(etage):
                     p1 = build_grid.project(*a, *args)
                     p2 = build_grid.project(*b, *args)
                     Line(points=[p1[0], p1[1], p2[0], p2[1]], width=1.9)
