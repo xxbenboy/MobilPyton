@@ -175,7 +175,8 @@ class GameState:
                  wood=0, food=0, water=0, action_count=0,
                  hands=None, ground=None, explores=None, harvested=None,
                  log=None, player_x=None, player_y=None, revealed=None,
-                 facing=0, installed=None, built=None, debug=False,
+                 facing=0, installed=None, built=None,
+                 build_stages=None, debug=False,
                  weather=None, fog=False, weather_until=0,
                  effects=None, fires=None, hand_wear=None, ground_wear=None,
                  chopped=None, equipment=None, bag=None,
@@ -266,6 +267,10 @@ class GameState:
         # -- la case du monde, l'ancrage du plan, puis le cube. Les cles sont
         # des chaines pour que la sauvegarde JSON les garde telles quelles.
         self.built = built if built else {}
+        # L'ETAPE en cours de chaque chantier : {"x,y:gx,gy": numero}. Absent
+        # vaut zero -- un chantier commence toujours par son sol.
+        self.build_stages = {k: int(v)
+                             for k, v in (build_stages or {}).items()}
         # Arbres ABATTUS par case : {"x,y": [[gx, gy], ...]}. Un arbre coupe
         # ne repousse pas : sa cellule reste vide dans le decor.
         self.chopped = {}
@@ -1398,6 +1403,68 @@ class GameState:
         self.gain_xp("fabriquer")
         return True
 
+    def unbuild_piece(self, gx, gy, cube):
+        """Retire la piece d'un cube et REND sa matiere. Rend False si rien.
+
+        Le remboursement est INTEGRAL et tombe au sol, pas dans les mains :
+        sept objets ne tiennent pas dans deux mains, et une piece dont on
+        recupererait moins qu'elle a coute punirait le joueur d'avoir change
+        d'avis -- alors que se tromper de cube est le geste le plus banal
+        d'un chantier."""
+        chantier = self.built.get(self._build_key(gx, gy))
+        if not chantier:
+            return False
+        cle = "%d,%d,%d" % tuple(int(v) for v in cube)
+        if cle not in chantier:
+            return False
+        del chantier[cle]
+        for matiere, nombre in items.BUILD_COST.items():
+            for _ in range(nombre):
+                self.add_ground(matiere)
+        return True
+
+    # ---- l'etape en cours -------------------------------------------- #
+    def build_stage(self, gx, gy):
+        """L'etape en cours d'un chantier (0 = le sol)."""
+        return int(self.build_stages.get(self._build_key(gx, gy), 0))
+
+    def set_build_stage(self, gx, gy, etape):
+        self.build_stages[self._build_key(gx, gy)] = int(etape)
+
+    def build_next_stage(self, gx, gy):
+        """Finalise l'etage en cours et ouvre le suivant. Rend False s'il n'y
+        a rien de bati a cet etage."""
+        from src.widgets import build_grid
+        etape = self.build_stage(gx, gy)
+        if etape >= build_grid.TERMINE:
+            return False
+        if not build_grid.etape_complete(etape, self.built_here(gx, gy)):
+            return False
+        self.set_build_stage(gx, gy, etape + 1)
+        return True
+
+    def build_previous_stage(self, gx, gy):
+        """Revient a l'etage precedent, en DEFAISANT l'etage en cours.
+
+        Revenir en arriere n'a de sens que si l'on peut refaire : on retire
+        donc tout ce qui a ete bati a cet etage, et tout est rembourse. Sans
+        cela, revenir laisserait un etage a moitie pose qu'on ne pourrait
+        plus completer ni annuler."""
+        from src.widgets import build_grid
+        etape = self.build_stage(gx, gy)
+        if etape >= build_grid.TERMINE:
+            # Un chantier TERMINE n'a pas d'etage en cours : revenir en
+            # arriere le rouvre simplement au dernier etage, sans rien
+            # defaire. Ce qui est bati reste bati.
+            self.set_build_stage(gx, gy, build_grid.TERMINE - 1)
+            return True
+        if etape <= 0:
+            return False
+        for cube in build_grid.cubes_de_etape(etape, self.built_here(gx, gy)):
+            self.unbuild_piece(gx, gy, cube)
+        self.set_build_stage(gx, gy, etape - 1)
+        return True
+
     def install_from_hand(self, index, gx, gy):
         """Installe l'objet tenu dans la main donnee sur la case courante, a
         l'ancrage (gx, gy). Echoue si la main est vide, si l'objet n'est pas
@@ -1784,6 +1851,7 @@ class GameState:
             "ground": self.ground,
             "installed": self.installed,
             "built": self.built,
+            "build_stages": self.build_stages,
             "debug": self.debug,
             "weather": self.weather,
             "fog": self.fog,
@@ -1836,6 +1904,7 @@ class GameState:
             ground=data.get("ground"),
             installed=data.get("installed"),
             built=data.get("built"),
+            build_stages=data.get("build_stages"),
             debug=data.get("debug", False),
             weather=data.get("weather"),
             fog=data.get("fog", False),

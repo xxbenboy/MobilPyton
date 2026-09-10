@@ -3,15 +3,18 @@ LA GRILLE DE CONSTRUCTION : le volume d'un chantier, en cubes, ORIENTABLE.
 
 Un plan de construction reserve une surface au sol. Batir dessus demande de
 designer un endroit DANS L'ESPACE -- pas seulement ou, mais a quelle hauteur.
-Le volume est donc decoupe en cubes, et il faut les montrer tous a la fois :
-ceux du sol comme ceux du toit, sans que les uns cachent les autres.
+Le volume est donc decoupe en cubes.
 
-LE VOLUME SE TOURNE AU DOIGT. Une orientation figee ne suffit pas : quelle
-qu'elle soit, elle laisse trois faces du cube dans le dos, et les cubes qui
-s'y trouvent sont impossibles a designer. On garde donc deux angles -- le tour
-(autour de la verticale) et l'inclinaison -- qui permettent d'amener n'importe
-quel point du volume face a soi. Les deux suffisent : une troisieme rotation
-ne ferait que pencher l'image, sans jamais montrer un cube de plus.
+ON N'EN MONTRE QUE CE QU'IL Y A A FAIRE. Le chantier avance par ETAGES, du bas
+vers le haut, et seuls les niveaux de l'etage en cours sont ouverts. Soixante
+cubes vides d'un coup ne se lisent pas ; huit si.
+
+LE VOLUME SE TOURNE AU DOIGT. Une orientation figee laisse trois faces du cube
+dans le dos, et les cubes qui s'y trouvent sont impossibles a designer. On
+garde donc deux angles -- le tour (autour de la verticale) et l'inclinaison --
+qui permettent d'amener n'importe quel point face a soi. Les deux suffisent :
+une troisieme rotation ne ferait que pencher l'image sans montrer un cube de
+plus.
 
 LA PROJECTION EST ORTHOGRAPHIQUE : deux cubes de meme taille se dessinent de
 la meme taille, qu'ils soient devant ou derriere. C'est ce qu'on attend d'un
@@ -24,33 +27,54 @@ plan de construction -- on y compare des longueurs, on ne s'y promene pas.
         y -> PROFONDEUR, la camera etant en y negatif. Un y plus grand est
              donc plus LOIN.
 
-L'ECHELLE NE CHANGE JAMAIS pendant qu'on tourne. Elle est calculee sur la
-SPHERE englobante du volume, et non sur son encombrement a l'orientation
-courante : une sphere se projette en cercle, donc ce cercle a la meme taille
-sous tous les angles. Le volume ne peut ainsi ni deborder ni se mettre a
-respirer pendant qu'on le fait tourner -- deux defauts qu'un recadrage a
-chaque image aurait apportes.
+TOUT SE CADRE SUR UNE BOITE, pas sur le volume entier. C'est ce qui permet a
+un etage de deux niveaux d'occuper l'ecran au lieu d'y flotter en miniature :
+on cadre ce qu'on montre. L'ECHELLE, elle, est calculee sur la SPHERE
+englobante de cette boite, et non sur son encombrement a l'orientation
+courante : une sphere se projette en cercle, donc de la meme taille sous tous
+les angles. Le contenu ne peut ainsi ni deborder ni se mettre a respirer
+pendant qu'on le fait tourner.
 
-CE MODULE NE CONTIENT AUCUN DESSIN : seulement la projection et le volume.
-Il se verifie donc au calcul, sans construire d'ecran.
+CE MODULE NE CONTIENT AUCUN DESSIN : seulement la projection et les regles du
+chantier. Il se verifie donc au calcul, sans construire d'ecran.
 """
 import math
 
 # Le volume d'un plan de palier 1, en cubes : largeur, profondeur, hauteur.
-# La surface au sol (2 x 2 cases) est redecoupee en 4 x 4 : deux cubes par
-# case et par axe. La hauteur, elle, ne vient d'aucune case -- c'est la
-# hauteur batissable du plan.
-VOLUME_T1 = (4, 4, 4)
+# CHAQUE CASE du plan vaut 4 x 4 cubes. Le plan couvrant 2 x 2 cases, cela
+# fait 8 x 8 au sol. La hauteur est de 8 elle aussi : elle ne vient d'aucune
+# case, c'est la hauteur batissable.
+VOLUME_T1 = (8, 8, 8)
 
-# Orientation de depart : de trois quarts et vue d'un peu au-dessus. C'est
-# celle qui montre le plus de cubes d'un coup -- on voit deux cotes et le
-# dessus -- donc celle qui demande le moins de manipulation pour commencer.
+# --------------------------------------------------------------------- #
+# LES ETAPES
+# --------------------------------------------------------------------- #
+ETAPES = ("sol", "bas des murs", "haut des murs", "toit")
+
+# Chaque etage occupe DEUX niveaux de cubes : huit niveaux pour quatre etages.
+# Un mur bas et un mur haut de deux cubes chacun donnent une paroi de quatre
+# cubes -- la hauteur d'un abri ou l'on tient debout.
+NIVEAUX_PAR_ETAPE = 2
+
+# Numero de l'etape du TOIT : la derniere. Elle a une regle a elle (voir
+# cubes_utilisables).
+ETAPE_TOIT = len(ETAPES) - 1
+
+# Valeur d'etape signifiant que le chantier est TERMINE.
+TERMINE = len(ETAPES)
+
+# --------------------------------------------------------------------- #
+# ORIENTATION
+# --------------------------------------------------------------------- #
+# De trois quarts et vue d'un peu au-dessus : celle qui montre le plus de
+# cubes d'un coup, donc celle qui demande le moins de manipulation pour
+# commencer.
 TOUR_DEFAUT = math.radians(35.0)
 INCLINAISON_DEFAUT = math.radians(28.0)
 
 # L'inclinaison ne va pas jusqu'au zenith : pile a la verticale, la vue
-# s'aplatit en une grille de dessus ou les etages se confondent, et le sens de
-# rotation s'inverse d'un cheveu de doigt.
+# s'aplatit en une grille de dessus ou les niveaux se confondent, et le sens
+# de rotation s'inverse d'un cheveu de doigt.
 INCLINAISON_MAX = math.radians(88.0)
 
 # Combien tourner pour un doigt qui traverse tout l'ecran.
@@ -63,20 +87,54 @@ def volume_for(name):
     return VOLUME_T1 if name == items.BLUEPRINT_T1 else (0, 0, 0)
 
 
-def centre(volume):
-    """Le milieu du volume, en sommets de grille."""
-    nx, ny, nz = volume
-    return (nx / 2.0, ny / 2.0, nz / 2.0)
+# --------------------------------------------------------------------- #
+# BOITES
+# --------------------------------------------------------------------- #
+def boite_du_volume(volume):
+    """La boite qui contient tout le volume."""
+    return ((0, 0, 0), tuple(volume))
 
 
-def rayon(volume):
-    """Le rayon de la sphere englobante, en cubes."""
-    nx, ny, nz = volume
-    return math.sqrt(nx * nx + ny * ny + nz * nz) / 2.0
+def boite_des(cubes, volume):
+    """La boite qui contient juste ces cubes.
+
+    Rend la boite du volume entier si la liste est vide : il faut toujours
+    quelque chose a cadrer."""
+    if not cubes:
+        return boite_du_volume(volume)
+    xs = [c[0] for c in cubes]
+    ys = [c[1] for c in cubes]
+    zs = [c[2] for c in cubes]
+    return ((min(xs), min(ys), min(zs)),
+            (max(xs) + 1, max(ys) + 1, max(zs) + 1))
 
 
+def centre_boite(boite):
+    (x0, y0, z0), (x1, y1, z1) = boite
+    return ((x0 + x1) / 2.0, (y0 + y1) / 2.0, (z0 + z1) / 2.0)
+
+
+def rayon_boite(boite):
+    """Le rayon de la sphere englobante de la boite, en cubes."""
+    (x0, y0, z0), (x1, y1, z1) = boite
+    dx, dy, dz = x1 - x0, y1 - y0, z1 - z0
+    return math.sqrt(dx * dx + dy * dy + dz * dz) / 2.0
+
+
+def echelle(boite, largeur, hauteur, marge=0.92):
+    """Taille d'un cube a l'ecran, pour que la boite tienne SOUS TOUS LES
+    ANGLES (voir l'entete)."""
+    r = rayon_boite(boite)
+    if r <= 0:
+        return 0.0
+    return min(largeur, hauteur) * marge / (2.0 * r)
+
+
+# --------------------------------------------------------------------- #
+# PROJECTION
+# --------------------------------------------------------------------- #
 def tourne(p, tour, inclinaison):
-    """Tourne un point autour du centre du monde. Rend (x, y, z) oriente."""
+    """Tourne un point autour de l'origine. Rend (x, y, z) oriente."""
     x, y, z = p
     ct, st = math.cos(tour), math.sin(tour)
     x, y = x * ct - y * st, x * st + y * ct        # tour, autour de Z
@@ -85,28 +143,12 @@ def tourne(p, tour, inclinaison):
     return x, y, z
 
 
-def echelle(volume, largeur, hauteur, marge=0.90):
-    """Taille d'un cube a l'ecran, pour que le volume tienne SOUS TOUS LES
-    ANGLES.
-
-    Calculee sur la sphere englobante, donc constante quand on tourne (voir
-    l'entete). C'est deliberement un peu petit -- la sphere depasse des coins
-    du volume -- mais c'est le prix d'une image qui ne saute pas."""
-    r = rayon(volume)
-    if r <= 0:
-        return 0.0
-    return min(largeur, hauteur) * marge / (2.0 * r)
-
-
-def project(gx, gy, gz, volume, cx, cy, taille, tour, inclinaison):
+def project(gx, gy, gz, boite, cx, cy, taille, tour, inclinaison):
     """Projette un SOMMET de la grille en (x_ecran, y_ecran, profondeur).
 
-    (gx, gy, gz) sont des indices de sommet, donc de 0 a n inclus : un volume
-    de 4 cubes de cote a 5 sommets par axe. (cx, cy) est le point de l'ecran
-    ou tombe le CENTRE du volume.
-
-    La profondeur rendue croit vers le LOIN : elle sert a trier."""
-    mx, my, mz = centre(volume)
+    (cx, cy) est le point de l'ecran ou tombe le CENTRE de la boite. La
+    profondeur rendue croit vers le LOIN : elle sert a trier."""
+    mx, my, mz = centre_boite(boite)
     x, y, z = tourne((gx - mx, gy - my, gz - mz), tour, inclinaison)
     return cx + x * taille, cy + z * taille, y
 
@@ -131,61 +173,61 @@ _ARETES = ((0, 1), (1, 2), (2, 3), (3, 0),
            (0, 4), (1, 5), (2, 6), (3, 7))
 
 
-def _coins(cube, volume, cx, cy, taille, tour, inclinaison):
+def _coins(cube, boite, cx, cy, taille, tour, inclinaison):
     x, y, z = cube
-    return [project(x + dx, y + dy, z + dz, volume, cx, cy, taille,
+    return [project(x + dx, y + dy, z + dz, boite, cx, cy, taille,
                     tour, inclinaison)
             for dx, dy, dz in _SOMMETS]
 
 
-def cube_aretes(cube, volume, cx, cy, taille, tour, inclinaison):
+def cube_aretes(cube, boite, cx, cy, taille, tour, inclinaison):
     """Les douze aretes d'un cube, en segments ecran [(x1,y1),(x2,y2)]."""
-    c = _coins(cube, volume, cx, cy, taille, tour, inclinaison)
+    c = _coins(cube, boite, cx, cy, taille, tour, inclinaison)
     return [((c[a][0], c[a][1]), (c[b][0], c[b][1])) for a, b in _ARETES]
 
 
-def cube_faces_vues(cube, volume, cx, cy, taille, tour, inclinaison):
+def cube_faces_vues(cube, boite, cx, cy, taille, tour, inclinaison):
     """Les faces d'un cube qui REGARDENT la camera, en polygones ecran.
 
-    Les autres sont dans le dos : les remplir n'ajouterait que du voile. On
-    les reconnait a leur normale une fois tournee -- la camera etant en y
-    negatif, une face lui fait face quand la sienne pointe vers les y
-    negatifs."""
-    c = _coins(cube, volume, cx, cy, taille, tour, inclinaison)
+    Les autres sont dans le dos : les remplir n'ajouterait que du voile."""
+    c = _coins(cube, boite, cx, cy, taille, tour, inclinaison)
     out = []
     for indices, normale in _FACES:
         # Le seuil n'est pas de la prudence numerique gratuite. PILE dans
         # l'axe, une face est vue par la TRANCHE : son aire a l'ecran est
         # nulle, et le signe de sa normale ne tient plus qu'au signe du zero
         # en virgule flottante. Elle serait donc retenue ou non selon
-        # l'humeur du calcul, sans rien changer a l'image. On l'ecarte
-        # franchement.
+        # l'humeur du calcul, sans rien changer a l'image.
         if tourne(normale, tour, inclinaison)[1] > -1e-9:
             continue
         out.append([(c[i][0], c[i][1]) for i in indices])
     return out
 
 
-def ordre_dessin(volume, tour, inclinaison):
-    """Les cubes, du plus LOIN au plus proche, pour l'orientation donnee.
+def coin_haut_droit(cube, boite, cx, cy, taille, tour, inclinaison):
+    """Le sommet du cube le plus HAUT et le plus a DROITE a l'ecran.
+
+    Sert a poser la croix de retrait : elle doit se trouver au meme endroit
+    relatif quel que soit l'angle, et ce coin-la est celui que l'oeil
+    identifie comme "en haut a droite" du cube."""
+    c = _coins(cube, boite, cx, cy, taille, tour, inclinaison)
+    return max(c, key=lambda p: (p[1] + p[0]) )[:2]
+
+
+def ordre_dessin(cubes, boite, tour, inclinaison):
+    """Les cubes donnes, du plus LOIN au plus proche.
 
     L'ordre depend de l'angle : c'etait une constante tant que la vue etait
-    figee, ce n'en est plus une. On trie sur la profondeur du CENTRE de chaque
-    cube -- pour des cubes tous identiques, poses sur une grille reguliere,
-    cela suffit a ce qu'aucun proche ne passe derriere un lointain."""
-    nx, ny, nz = volume
-    if min(nx, ny, nz) <= 0:
-        return []
-    mx, my, mz = centre(volume)
+    figee, ce n'en est plus une. On trie sur la profondeur du CENTRE de
+    chaque cube -- pour des cubes tous identiques, poses sur une grille
+    reguliere, cela suffit."""
+    mx, my, mz = centre_boite(boite)
 
     def prof(c):
         return tourne((c[0] + 0.5 - mx, c[1] + 0.5 - my, c[2] + 0.5 - mz),
                       tour, inclinaison)[1]
 
-    cubes = [(x, y, z)
-             for x in range(nx) for y in range(ny) for z in range(nz)]
-    cubes.sort(key=prof, reverse=True)          # le plus loin d'abord
-    return cubes
+    return sorted(cubes, key=prof, reverse=True)     # le plus loin d'abord
 
 
 def dans_polygone(x, y, pts):
@@ -202,24 +244,24 @@ def dans_polygone(x, y, pts):
     return dedans
 
 
-def cube_sous(x, y, volume, cx, cy, taille, tour, inclinaison):
-    """Quel cube se trouve sous le point (x, y) ? None si aucun.
+def cube_sous(x, y, cubes, boite, cx, cy, taille, tour, inclinaison):
+    """Lequel des cubes donnes se trouve sous le point (x, y) ? None si aucun.
 
     On parcourt du PLUS PROCHE au plus loin et on garde le premier touche :
     deux cubes alignes sur l'axe de vue se projettent au meme endroit, et
     c'est celui de devant qu'on designe -- comme partout ailleurs."""
-    for cube in reversed(ordre_dessin(volume, tour, inclinaison)):
-        for pts in cube_faces_vues(cube, volume, cx, cy, taille,
+    for cube in reversed(ordre_dessin(cubes, boite, tour, inclinaison)):
+        for pts in cube_faces_vues(cube, boite, cx, cy, taille,
                                    tour, inclinaison):
             if dans_polygone(x, y, pts):
                 return cube
     return None
 
 
-def boite_aretes(volume):
-    """Les douze aretes de la boite englobante, en sommets de grille."""
-    nx, ny, nz = volume
-    coins = [(x, y, z) for x in (0, nx) for y in (0, ny) for z in (0, nz)]
+def boite_aretes(boite):
+    """Les douze aretes d'une boite, en sommets de grille."""
+    (x0, y0, z0), (x1, y1, z1) = boite
+    coins = [(x, y, z) for x in (x0, x1) for y in (y0, y1) for z in (z0, z1)]
     out = []
     for i, a in enumerate(coins):
         for b in coins[i + 1:]:
@@ -228,3 +270,75 @@ def boite_aretes(volume):
             if sum(1 for k in range(3) if a[k] != b[k]) == 1:
                 out.append((a, b))
     return out
+
+
+# --------------------------------------------------------------------- #
+# REGLES DU CHANTIER
+# --------------------------------------------------------------------- #
+def niveaux_de(etape):
+    """Les niveaux de cubes (z) que couvre une etape."""
+    if etape < 0 or etape >= len(ETAPES):
+        return ()
+    bas = etape * NIVEAUX_PAR_ETAPE
+    return tuple(range(bas, bas + NIVEAUX_PAR_ETAPE))
+
+
+def etape_de(z):
+    """L'etape a laquelle appartient un niveau."""
+    return z // NIVEAUX_PAR_ETAPE
+
+
+def cubes_utilisables(volume, etape, batis):
+    """Les cubes ou l'on peut poser une piece a cette etape.
+
+    DEUX REGLES, et la seconde est la raison d'etre des etapes :
+
+    - on ne batit QUE dans les niveaux de l'etape en cours. Le reste du
+      volume n'a pas a etre montre : il n'y a rien a y faire ;
+    - un cube demande UN APPUI, c'est-a-dire une piece juste en dessous. On ne
+      pose pas un mur en l'air. Le niveau du bas (z = 0) fait exception : son
+      appui, c'est la terre.
+
+    LE TOIT ECHAPPE A LA SECONDE. Un toit franchit l'espace entre ses murs --
+    c'est meme sa fonction -- donc ses cubes n'ont pas a etre appuyes. A cette
+    etape tout l'etage est ouvert, comme a la premiere."""
+    nx, ny, _nz = volume
+    out = []
+    for z in niveaux_de(etape):
+        for x in range(nx):
+            for y in range(ny):
+                if (x, y, z) in batis:
+                    continue
+                if etape == ETAPE_TOIT or z == 0 or (x, y, z - 1) in batis:
+                    out.append((x, y, z))
+    return out
+
+
+def cubes_visibles(volume, etape, batis):
+    """Les cubes a MONTRER : ceux ou l'on peut batir, plus ce qui est deja
+    bati -- a l'etage en cours comme aux etages du dessous.
+
+    Ce qui est bati plus bas n'est pas manipulable, mais le cacher priverait
+    le joueur du seul repere qu'il ait : sans ses murs, il poserait son toit
+    dans le vide sans savoir ou tombent les pieces."""
+    if etape >= TERMINE:
+        return sorted(batis)
+    niveaux = niveaux_de(etape)
+    hauts = max(niveaux) if niveaux else -1
+    dessous = [c for c in batis if c[2] <= hauts]
+    return sorted(set(cubes_utilisables(volume, etape, batis)) | set(dessous))
+
+
+def etape_complete(etape, batis):
+    """L'etage en cours a-t-il de quoi passer au suivant ?
+
+    Il suffit d'UNE piece. Exiger un etage plein interdirait une porte, une
+    fenetre, un mur en L -- or c'est le joueur qui dessine sa maison. Mais
+    zero piece est refuse : l'etage suivant n'aurait alors aucun appui, et le
+    chantier serait bloque sans que rien ne le dise."""
+    return any(etape_de(c[2]) == etape for c in batis)
+
+
+def cubes_de_etape(etape, batis):
+    """Les cubes batis qui appartiennent a cette etape."""
+    return [c for c in batis if etape_de(c[2]) == etape]

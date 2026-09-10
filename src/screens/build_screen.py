@@ -33,7 +33,7 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.widget import Widget
-from kivy.graphics import Color, Line, Rectangle, Mesh
+from kivy.graphics import Color, Line, Rectangle, Mesh, Ellipse
 from kivy.metrics import dp
 
 from src import items
@@ -68,13 +68,26 @@ APERCU_OK_FILL = (0.45, 1.00, 0.62, 0.32)
 APERCU_NO = (1.00, 0.42, 0.35, 0.95)
 APERCU_NO_FILL = (1.00, 0.42, 0.35, 0.32)
 
+# Un cube d'un etage DEJA FINALISE, ou hors d'atteinte : il sert de repere et
+# ne doit pas attirer l'oeil. Plus pale que tout le reste.
+CUBE_FILL_MUET = (1.0, 1.0, 1.0, 0.02)
+CUBE_EDGE_MUET = (1.0, 1.0, 1.0, 0.16)
+
+# Un chantier TERMINE : les pieces deviennent pleines. Ce n'est plus un plan,
+# c'est une maison, et une maison n'est pas transparente.
+PIECE_PLEIN = (0.58, 0.41, 0.22, 0.95)
+
+# La croix de retrait, posee au coin haut droit d'un cube bati.
+CROIX_FOND = (0.12, 0.08, 0.06, 0.80)
+CROIX = (1.00, 0.62, 0.55, 1.0)
+
 
 class _Volume(Widget):
     """Le volume en cubes : transparent, cercle de blanc, et ORIENTABLE.
 
     Il ne gere pas les gestes lui-meme -- l'ecran sait seul si un doigt vient
-    le tourner ou y deposer une piece -- mais il sait se redessiner sous
-    n'importe quel angle, et dire quel cube se trouve sous un point."""
+    le tourner, y deposer une piece ou retirer -- mais il sait se redessiner
+    sous n'importe quel angle, et dire ce qui se trouve sous un point."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -82,31 +95,56 @@ class _Volume(Widget):
         self.tour = build_grid.TOUR_DEFAUT
         self.inclinaison = build_grid.INCLINAISON_DEFAUT
         self.batis = {}          # {(x, y, z): piece} deja construit
+        self.etape = 0
         self.apercu = None       # cube vise pendant un glisser
         self.apercu_ok = False
+        self.retrait = False     # mode retrait : des croix sur le bati
+        self._croix = []         # [(cube, x, y, rayon)] pour viser les croix
         self.bind(pos=self._redraw, size=self._redraw)
 
-    # -- geometrie ------------------------------------------------------ #
+    # -- ce qui est montre et ce qui repond ----------------------------- #
+    def utilisables(self):
+        return build_grid.cubes_utilisables(self.volume, self.etape,
+                                            self.batis)
+
+    def visibles(self):
+        return build_grid.cubes_visibles(self.volume, self.etape, self.batis)
+
     def _cadre(self):
-        """(taille d'un cube, centre x, centre y) a l'ecran."""
-        taille = build_grid.echelle(self.volume, self.width, self.height)
-        return taille, self.center_x, self.center_y
+        """(boite cadree, taille d'un cube, centre x, centre y).
+
+        On cadre sur ce qu'on MONTRE, pas sur le volume entier : un etage de
+        deux niveaux occupe ainsi l'ecran au lieu d'y flotter en miniature."""
+        boite = build_grid.boite_des(self.visibles(), self.volume)
+        taille = build_grid.echelle(boite, self.width, self.height)
+        return boite, taille, self.center_x, self.center_y
 
     def cube_sous(self, x, y):
-        """Le cube sous le point donne, ou None."""
+        """Le cube UTILISABLE sous le point donne, ou None.
+
+        Seuls les utilisables repondent : viser un mur deja bati d'un etage
+        inferieur n'aurait aucun sens, il n'est la que comme repere."""
         if min(self.volume) <= 0:
             return None
-        taille, cx, cy = self._cadre()
-        return build_grid.cube_sous(x, y, self.volume, cx, cy, taille,
-                                    self.tour, self.inclinaison)
+        boite, taille, cx, cy = self._cadre()
+        return build_grid.cube_sous(x, y, self.utilisables(), boite,
+                                    cx, cy, taille, self.tour,
+                                    self.inclinaison)
+
+    def croix_sous(self, x, y):
+        """Le cube dont la CROIX de retrait est sous le point, ou None."""
+        for cube, cxx, cyy, r in self._croix:
+            if (x - cxx) ** 2 + (y - cyy) ** 2 <= r * r:
+                return cube
+        return None
 
     def pivote(self, dx, dy):
         """Tourne le volume d'un deplacement de doigt.
 
         Horizontalement on tourne autour de la verticale, verticalement on
-        change l'inclinaison. Le signe de l'inclinaison est INVERSE par
-        rapport au doigt : tirer vers le bas doit faire basculer le dessus
-        vers soi, comme on inclinerait une maquette posee sur la table."""
+        change l'inclinaison. Le signe de l'inclinaison suit le doigt : tirer
+        vers le bas fait basculer le dessus vers soi, comme on inclinerait une
+        maquette posee sur la table."""
         if self.width <= 0:
             return
         self.tour += dx / self.width * build_grid.TOUR_PAR_ECRAN
@@ -119,43 +157,73 @@ class _Volume(Widget):
     # -- dessin --------------------------------------------------------- #
     def _redraw(self, *_):
         self.canvas.clear()
+        self._croix = []
         if self.width <= 0 or self.height <= 0 or min(self.volume) <= 0:
             return
-        taille, cx, cy = self._cadre()
-        args = (self.volume, cx, cy, taille, self.tour, self.inclinaison)
+        boite, taille, cx, cy = self._cadre()
+        args = (boite, cx, cy, taille, self.tour, self.inclinaison)
+        montres = self.visibles()
+        ouverts = set(self.utilisables())
+        fini = self.etape >= build_grid.TERMINE
         with self.canvas:
-            for cube in build_grid.ordre_dessin(self.volume, self.tour,
+            for cube in build_grid.ordre_dessin(montres, boite, self.tour,
                                                 self.inclinaison):
-                self._cube(cube, args)
-            # Le contour du volume entier, par-dessus : les douze aretes de la
-            # grande boite, tracees plus franchement.
-            Color(*CUBE_EDGE_OUT)
-            for a, b in build_grid.boite_aretes(self.volume):
-                p1 = build_grid.project(*a, *args)
-                p2 = build_grid.project(*b, *args)
-                Line(points=[p1[0], p1[1], p2[0], p2[1]], width=1.9)
+                self._cube(cube, args, cube in ouverts, fini)
+            if not fini:
+                # Le contour de l'ETAGE en cours : c'est lui qui dit jusqu'ou
+                # va ce qu'on batit maintenant.
+                Color(*CUBE_EDGE_OUT)
+                for a, b in build_grid.boite_aretes(boite):
+                    p1 = build_grid.project(*a, *args)
+                    p2 = build_grid.project(*b, *args)
+                    Line(points=[p1[0], p1[1], p2[0], p2[1]], width=1.9)
+            if self.retrait:
+                self._croix_de_retrait(args, taille)
 
-    def _cube(self, cube, args):
+    def _cube(self, cube, args, ouvert, fini):
         piece = self.batis.get(cube)
         vise = (cube == self.apercu)
-        # LE CUBE VISE L'EMPORTE, meme s'il est deja bati. C'est justement
-        # dans ce cas qu'il faut voir le rouge : sans lui, viser un cube
-        # occupe ne changerait rien a l'ecran et le refus, au moment du
-        # lacher, tomberait sans prevenir.
         if vise:
-            fond, bord = ((APERCU_OK_FILL, APERCU_OK) if self.apercu_ok
-                          else (APERCU_NO_FILL, APERCU_NO))
+            # LE CUBE VISE L'EMPORTE, meme s'il est deja bati : c'est
+            # justement la qu'il faut voir le rouge.
+            fond, bord, ep = ((APERCU_OK_FILL, APERCU_OK, 2.2)
+                              if self.apercu_ok
+                              else (APERCU_NO_FILL, APERCU_NO, 2.2))
         elif piece is not None:
-            fond, bord = PIECE_FILL, PIECE_EDGE
+            # Un chantier TERMINE ne montre plus que du bati, et en plein :
+            # ce n'est plus un plan, c'est une maison.
+            fond, bord, ep = ((PIECE_PLEIN, PIECE_EDGE, 2.2) if fini
+                              else (PIECE_FILL, PIECE_EDGE, 2.2))
+        elif ouvert:
+            fond, bord, ep = CUBE_FILL, CUBE_EDGE, 1.0
         else:
-            fond, bord = CUBE_FILL, CUBE_EDGE
+            # Un cube bati d'un etage inferieur, ou hors d'atteinte : il sert
+            # de repere, il ne doit pas attirer l'oeil.
+            fond, bord, ep = CUBE_FILL_MUET, CUBE_EDGE_MUET, 1.0
         for pts in build_grid.cube_faces_vues(cube, *args):
             Color(*fond)
             self._quad(pts)
         Color(*bord)
         for (p1, p2) in build_grid.cube_aretes(cube, *args):
-            Line(points=[p1[0], p1[1], p2[0], p2[1]],
-                 width=2.2 if (piece is not None or vise) else 1.0)
+            Line(points=[p1[0], p1[1], p2[0], p2[1]], width=ep)
+
+    def _croix_de_retrait(self, args, taille):
+        """Une croix au coin HAUT DROIT de chaque cube bati de l'etage.
+
+        Seuls ceux de l'etage EN COURS en portent : les etages du dessous
+        sont finalises, et les defaire par une croix perdue au milieu du
+        decor serait trop facile a faire par accident. On revient en arriere
+        par le bouton, qui dit ce qu'il fait."""
+        r = max(dp(7), taille * 0.20)
+        for cube in build_grid.cubes_de_etape(self.etape, self.batis):
+            x, y = build_grid.coin_haut_droit(cube, *args)
+            self._croix.append((cube, x, y, r * 1.25))
+            Color(*CROIX_FOND)
+            Ellipse(pos=(x - r, y - r), size=(r * 2, r * 2))
+            Color(*CROIX)
+            k = r * 0.52
+            Line(points=[x - k, y - k, x + k, y + k], width=max(1.6, r * 0.22))
+            Line(points=[x - k, y + k, x + k, y - k], width=max(1.6, r * 0.22))
 
     @staticmethod
     def _quad(pts):
@@ -252,11 +320,26 @@ class BuildScreen(Screen):
             w, "text_size", (w.width, w.height)))
         root.add_widget(self.hint)
 
-        quit_btn = scale_font(StyledButton(text="Quitter le chantier",
-                              size_hint=(0.24, 0.08),
-                              pos_hint={"center_x": 0.5, "y": 0.015}), 0.022)
+        # LA BARRE DU CHANTIER, en bas. Trois commandes qui font AVANCER ou
+        # RECULER le chantier, plus la sortie. Elles sont ensemble parce
+        # qu'elles portent sur l'etage entier, alors que le glisser et la
+        # croix portent sur une piece.
+        barre = BoxLayout(orientation="horizontal", spacing=dp(8),
+                          size_hint=(0.74, 0.085),
+                          pos_hint={"center_x": 0.5, "y": 0.015})
+        self.btn_prev = scale_font(StyledButton(text="Etage precedent"), 0.019)
+        self.btn_prev.bind(on_release=lambda *_: self._previous())
+        barre.add_widget(self.btn_prev)
+        self.btn_retrait = scale_font(StyledButton(text="Retirer"), 0.019)
+        self.btn_retrait.bind(on_release=lambda *_: self._toggle_retrait())
+        barre.add_widget(self.btn_retrait)
+        self.btn_next = scale_font(StyledButton(text="Etage suivant"), 0.019)
+        self.btn_next.bind(on_release=lambda *_: self._next())
+        barre.add_widget(self.btn_next)
+        quit_btn = scale_font(StyledButton(text="Quitter"), 0.019)
         quit_btn.bind(on_release=lambda *_: self._leave())
-        root.add_widget(quit_btn)
+        barre.add_widget(quit_btn)
+        root.add_widget(barre)
 
         self.add_widget(root)
         self._set_drawer(False)
@@ -288,17 +371,96 @@ class BuildScreen(Screen):
                 and not self.arrow.collide_point(*touch.pos)):
             self._set_drawer(False)
             return True
-        # 2. Un doigt qui part d'une PIECE vient en deposer une.
+        # 2. Une CROIX de retrait, si le mode est actif. Elle passe avant la
+        #    rotation : la croix est petite, et un doigt qui la vise ne doit
+        #    pas faire pivoter le volume a la place.
+        if self.volume.retrait:
+            cube = self.volume.croix_sous(*touch.pos)
+            if cube is not None:
+                self._retire(cube)
+                return True
+        # 3. Un doigt qui part d'une PIECE vient en deposer une.
         piece = self._piece_sous(touch)
         if piece is not None:
             self._start_drag(piece, touch)
             return True
-        # 3. Un doigt qui part du VOLUME le fait tourner. L'origine du geste
+        # 4. Un doigt qui part du VOLUME le fait tourner. L'origine du geste
         #    suffit a distinguer les deux : aucun mode, aucun bouton.
         if self.volume.collide_point(*touch.pos):
             self._spin = touch.pos
             return True
         return super().on_touch_down(touch)
+
+    # ---------------- ETAPES ET RETRAIT -------------------------------- #
+    def _toggle_retrait(self):
+        self.volume.retrait = not self.volume.retrait
+        self.volume._redraw()
+        self._sync_barre()
+        self.hint.text = ("Touche une croix pour retirer une piece."
+                          if self.volume.retrait else "")
+
+    def _retire(self, cube):
+        state = App.get_running_app().game_state
+        if state is None or self.blueprint is None:
+            return
+        _nom, gx, gy = self.blueprint
+        if state.unbuild_piece(gx, gy, cube):
+            App.get_running_app().autosave()
+            rendu = ", ".join("%d %s" % (n, items.display_name(m))
+                              for m, n in items.BUILD_COST.items())
+            self.hint.text = "Piece retiree — %s rendus au sol." % rendu
+            self._refresh(state)
+
+    def _next(self):
+        state = App.get_running_app().game_state
+        if state is None or self.blueprint is None:
+            return
+        _nom, gx, gy = self.blueprint
+        avant = state.build_stage(gx, gy)
+        if not state.build_next_stage(gx, gy):
+            self.hint.text = "Pose au moins une piece a cet etage."
+            return
+        App.get_running_app().autosave()
+        apres = state.build_stage(gx, gy)
+        self.volume.retrait = False
+        self.hint.text = ("Chantier termine." if apres >= build_grid.TERMINE
+                          else "Etage %d : %s."
+                          % (apres + 1, build_grid.ETAPES[apres]))
+        self._refresh(state)
+
+    def _previous(self):
+        state = App.get_running_app().game_state
+        if state is None or self.blueprint is None:
+            return
+        _nom, gx, gy = self.blueprint
+        if not state.build_previous_stage(gx, gy):
+            self.hint.text = "C'est deja le premier etage."
+            return
+        App.get_running_app().autosave()
+        etape = state.build_stage(gx, gy)
+        self.volume.retrait = False
+        self.hint.text = ("Etage defait. Retour a l'etage %d : %s."
+                          % (etape + 1, build_grid.ETAPES[etape]))
+        self._refresh(state)
+
+    def _sync_barre(self):
+        """Met les boutons du bas en accord avec l'etage en cours."""
+        etape = self.volume.etape
+        fini = etape >= build_grid.TERMINE
+        dernier = etape == build_grid.ETAPE_TOIT
+        # A LA DERNIERE ETAPE, le bouton change de nom : il ne mene plus a un
+        # etage suivant, il acheve le chantier.
+        self.btn_next.text = ("Terminer le chantier" if dernier
+                              else "Etage suivant")
+        # Un chantier termine n'a plus rien a batir : seul le retour en
+        # arriere garde un sens.
+        for btn, actif in ((self.btn_next, not fini),
+                           (self.btn_retrait, not fini),
+                           (self.btn_prev, etape > 0)):
+            btn.disabled = not actif
+            btn.opacity = 1.0 if actif else 0.40
+        self.btn_retrait.text = ("Fini de retirer" if self.volume.retrait
+                                 else "Retirer")
 
     def on_touch_move(self, touch):
         if self._drag is not None:
@@ -371,10 +533,15 @@ class BuildScreen(Screen):
         if state is None or self.blueprint is None:
             return
         if cube is None:
-            self.hint.text = "Glisse la piece SUR un cube."
-            return
-        if cube in self.volume.batis:
-            self.hint.text = "Ce cube est deja bati."
+            # On distingue les deux raisons. Lachee dans le vide, c'est un
+            # geste rate ; lachee sur un cube FERME, c'est une regle du
+            # chantier qu'il faut expliquer -- sinon le joueur croit a une
+            # panne et recommence.
+            if self.volume.collide_point(*touch.pos):
+                self.hint.text = ("Ce cube n'a rien en dessous pour "
+                                  "l'appuyer.")
+            else:
+                self.hint.text = "Glisse la piece SUR un cube."
             return
         if not state.can_build():
             self.hint.text = "Il manque de la matiere (vois le stock)."
@@ -411,24 +578,37 @@ class BuildScreen(Screen):
         # vaut mieux que l'angle bancal ou on l'avait laisse.
         self.volume.tour = build_grid.TOUR_DEFAUT
         self.volume.inclinaison = build_grid.INCLINAISON_DEFAUT
-        self.title.text = "Chantier — %s" % items.display_name(nom)
         self._set_drawer(False)
         self._clear_drag()
         self._spin = None
+        self.volume.retrait = False
         self.hint.text = ""
         self._refresh(state)
 
     def _refresh(self, state):
-        """Relit tout ce qui depend de l'etat : le bati, le stock, les pieces."""
+        """Relit tout ce qui depend de l'etat : l'etage, le bati, le stock,
+        les pieces, et les boutons du bas."""
         nom = self.blueprint[0] if self.blueprint else None
         if self.blueprint is not None:
             _n, gx, gy = self.blueprint
+            self.volume.etape = state.build_stage(gx, gy)
             self.volume.batis = state.built_here(gx, gy)
         else:
+            self.volume.etape = 0
             self.volume.batis = {}
         self.volume._redraw()
         self._rebuild_stock(state)
         self._rebuild_parts(state, nom)
+        self._sync_barre()
+        # Le titre porte l'ETAGE : c'est l'information la plus utile de
+        # l'ecran, et sans elle rien ne dit pourquoi tel cube est ouvert et
+        # tel autre pas.
+        etape = self.volume.etape
+        if etape >= build_grid.TERMINE:
+            self.title.text = "%s — termine" % items.display_name(nom)
+        else:
+            self.title.text = "Chantier — etage %d/%d : %s" % (
+                etape + 1, len(build_grid.ETAPES), build_grid.ETAPES[etape])
 
     def _rebuild_stock(self, state):
         """Les trois matieres et ce qu'on en a, a gauche."""
@@ -454,6 +634,12 @@ class BuildScreen(Screen):
     def _rebuild_parts(self, state, nom):
         """Les pieces batissables, a droite. On les GLISSE sur un cube."""
         self.parts_box.clear_widgets()
+        # Un chantier TERMINE n'offre plus rien a poser : la colonne dispa-
+        # rait, au lieu de proposer des pieces qui n'iraient nulle part.
+        if self.volume.etape >= build_grid.TERMINE:
+            self.parts_box.opacity = 0.0
+            return
+        self.parts_box.opacity = 1.0
         payable = state.can_build()
         for piece in items.build_parts(nom):
             btn = scale_font(StyledButton(
