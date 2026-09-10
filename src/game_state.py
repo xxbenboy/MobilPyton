@@ -1309,6 +1309,26 @@ class GameState:
                 return False          # deja pris par un objet pose
         return True
 
+    # ------------------------------------------------------------------ #
+    # Construction : ce qu'on a sous la main pour batir
+    # ------------------------------------------------------------------ #
+    def build_stock(self):
+        """{matiere: nombre disponible} pour la construction.
+
+        Meme reserve que le craft -- mains, sol de la case, sac -- et pour la
+        meme raison : ce qu'on transporte est a portee, il n'y a pas a le
+        poser par terre d'abord. On ne garde que les matieres qui servent a
+        batir, pour que l'affichage ne montre que ce qui compte."""
+        pool = self.craft_pool()
+        return {m: pool.get(m, 0) for m in items.BUILD_COST}
+
+    def can_build(self):
+        """A-t-on de quoi batir UNE piece ?"""
+        if self.debug:
+            return True            # debug : on batit sans matiere
+        stock = self.build_stock()
+        return all(stock.get(m, 0) >= n for m, n in items.BUILD_COST.items())
+
     def install_from_hand(self, index, gx, gy):
         """Installe l'objet tenu dans la main donnee sur la case courante, a
         l'ancrage (gx, gy). Echoue si la main est vide, si l'objet n'est pas

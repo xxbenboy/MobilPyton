@@ -526,7 +526,8 @@ class _GridOverlay(Widget):
             # feu qui n'existe pas. Un tel objet se voit donc dans la grille
             # sans s'y choisir.
             pose = self.objects.get((gx, gy))
-            if pose is not None and pose[0] in items.INTERACTIVE_ITEMS:
+            if pose is not None and (pose[0] in items.INTERACTIVE_ITEMS
+                                     or pose[0] in items.BUILDABLE_ITEMS):
                 self.on_cell_pick(gx, gy)
             return True
         # En mode POSE, la grille ne repond pas au tap : on y amene l'objet en
@@ -868,10 +869,17 @@ class PlaceScreen(Screen):
             self.manager.current = "game"
             return
         if self.mode == "use":
-            # Ouvre la fenetre d'action de l'objet choisi. on_pre_enter fait
-            # tout : bascule le fond sur la scene et affiche la fenetre.
-            # (C'est la grille qui a deja ecarte les cases vides et les objets
-            # sans action -- voir _GridOverlay.on_touch_down.)
+            # Un plan de construction n'ouvre pas une fenetre d'action mais
+            # son CHANTIER : ce qu'on vient y faire n'est pas s'en servir,
+            # c'est batir dessus.
+            pose = self.grid_overlay.objects.get((int(gx), int(gy)))
+            if pose is not None and pose[0] in items.BUILDABLE_ITEMS:
+                self._open_chantier(pose[0], gx, gy)
+                return
+            # Sinon : la fenetre d'action. on_pre_enter fait tout -- bascule le
+            # fond sur la scene et affiche la fenetre. (C'est la grille qui a
+            # deja ecarte les cases vides et les objets sans action, voir
+            # _GridOverlay.on_touch_down.)
             self._action_cell = (gx, gy)
             self._fire_msg = ""
             self._action_from_grid = True
@@ -880,6 +888,22 @@ class PlaceScreen(Screen):
         # En mode POSE, la grille ne repond plus au tap : on pose en GLISSANT
         # l'objet depuis la carte de droite (voir _drop). Une case tapee ne
         # dirait de toute facon pas ou tombent les autres cases de l'emprise.
+
+    def _open_chantier(self, name, gx, gy):
+        """Entre dans le chantier du plan qui occupe la case (gx, gy).
+
+        On y va avec son ANCRAGE, pas avec la case touchee : un plan couvre
+        quatre cases, et le chantier est celui du plan entier."""
+        state = App.get_running_app().game_state
+        if state is None:
+            self.manager.current = "game"
+            return
+        obj = state.installed_cells_here().get((int(gx), int(gy)))
+        if obj is None:
+            return
+        chantier = self.manager.get_screen("build")
+        chantier.blueprint = (obj[0], int(obj[1]), int(obj[2]))
+        self.manager.current = "build"
 
     def _install(self, gx, gy):
         """Pose l'objet tenu, ancre en (gx, gy), et revient au jeu."""

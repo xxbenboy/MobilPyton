@@ -33,6 +33,7 @@ from src.screens.game_screen import GameScreen
 from src.screens.map_screen import MapScreen
 from src.screens.craft_screen import CraftScreen
 from src.screens.place_screen import PlaceScreen
+from src.screens.build_screen import BuildScreen
 from src.screens.inventory_screen import InventoryScreen
 
 
@@ -58,6 +59,7 @@ class MobilPytonApp(App):
         sm.add_widget(MapScreen(name="map"))
         sm.add_widget(CraftScreen(name="craft"))
         sm.add_widget(PlaceScreen(name="place"))
+        sm.add_widget(BuildScreen(name="build"))
         sm.add_widget(InventoryScreen(name="inventory"))
 
         # Sauvegarde juste avant la fermeture de la fenetre (PC).

@@ -225,6 +225,35 @@ def footprint_cells(name, gx, gy):
             for dy in range(fh) for dx in range(fw)]
 
 
+# --------------------------------------------------------------------- #
+# CONSTRUCTION
+# --------------------------------------------------------------------- #
+# Ce qu'un plan permet de batir. Le palier 1 n'offre que le strict necessaire
+# pour fermer un abri ; les paliers suivants en ajouteront.
+BUILD_PARTS = {
+    BLUEPRINT_T1: ("sol", "mur", "toit"),
+}
+
+# Nom lisible de chaque piece.
+BUILD_PART_NAMES = {"sol": "Sol", "mur": "Mur", "toit": "Toit"}
+
+# CE QUE COUTE UNE PIECE, quelle qu'elle soit. Un seul cout pour les trois :
+# un mur, un plancher et un toit demandent le meme travail de charpente a ce
+# palier -- une buche pour la piece maitresse, des branches pour la trame, une
+# corde pour lier le tout.
+BUILD_COST = {"Buche": 1, "Long_Stick": 5, "Corde": 1}
+
+
+def build_parts(name):
+    """Les pieces qu'un plan pose permet de batir."""
+    return BUILD_PARTS.get(name, ())
+
+
+# Objets BATISSABLES : une fois poses, on entre dans leur chantier au lieu
+# d'ouvrir une fenetre d'action.
+BUILDABLE_ITEMS = set(BUILD_PARTS)
+
+
 # Objets INTERACTIFS : une fois INSTALLES, on peut s'en servir -- en cliquant
 # dessus dans la scene, ou en les choisissant dans l'ecran Proximite. Ils
 # ouvrent alors leur fenetre d'action. Seul le feu de camp l'est pour l'instant.
