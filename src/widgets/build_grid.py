@@ -1,28 +1,40 @@
 """
-LA GRILLE DE CONSTRUCTION : le volume d'un chantier, en cubes.
+LA GRILLE DE CONSTRUCTION : le volume d'un chantier, en cubes, ORIENTABLE.
 
 Un plan de construction reserve une surface au sol. Batir dessus demande de
 designer un endroit DANS L'ESPACE -- pas seulement ou, mais a quelle hauteur.
 Le volume est donc decoupe en cubes, et il faut les montrer tous a la fois :
 ceux du sol comme ceux du toit, sans que les uns cachent les autres.
 
-POURQUOI UNE VUE ISOMETRIQUE, et pas la vue de dessus de l'ecran de pose.
-Vue d'en haut, les quatre etages se superposent EXACTEMENT : le volume se
-lirait comme une seule grille plate, et choisir une hauteur serait impossible.
-La vue en premiere personne, elle, cache l'arriere derriere l'avant. L'axono-
-metrie est la seule qui montre les trois dimensions d'un coup et garde chaque
-cube a une place a lui.
+LE VOLUME SE TOURNE AU DOIGT. Une orientation figee ne suffit pas : quelle
+qu'elle soit, elle laisse trois faces du cube dans le dos, et les cubes qui
+s'y trouvent sont impossibles a designer. On garde donc deux angles -- le tour
+(autour de la verticale) et l'inclinaison -- qui permettent d'amener n'importe
+quel point du volume face a soi. Les deux suffisent : une troisieme rotation
+ne ferait que pencher l'image, sans jamais montrer un cube de plus.
 
-    ecran_x = cx + (gx - gy) * DEMI_LARGEUR
-    ecran_y = cy - (gx + gy) * DEMI_PROFONDEUR + gz * HAUTEUR
+LA PROJECTION EST ORTHOGRAPHIQUE : deux cubes de meme taille se dessinent de
+la meme taille, qu'ils soient devant ou derriere. C'est ce qu'on attend d'un
+plan de construction -- on y compare des longueurs, on ne s'y promene pas.
 
-L'axe X part vers la droite-bas, l'axe Y vers la gauche-bas, l'axe Z vers le
-haut. C'est la projection des jeux de construction, et elle se lit sans
-explication.
+    p tourne d'abord du TOUR autour de la verticale, puis de l'INCLINAISON
+    autour de l'axe horizontal de l'ecran. Il reste (x, y, z) :
+        x -> abscisse ecran
+        z -> ordonnee ecran
+        y -> PROFONDEUR, la camera etant en y negatif. Un y plus grand est
+             donc plus LOIN.
+
+L'ECHELLE NE CHANGE JAMAIS pendant qu'on tourne. Elle est calculee sur la
+SPHERE englobante du volume, et non sur son encombrement a l'orientation
+courante : une sphere se projette en cercle, donc ce cercle a la meme taille
+sous tous les angles. Le volume ne peut ainsi ni deborder ni se mettre a
+respirer pendant qu'on le fait tourner -- deux defauts qu'un recadrage a
+chaque image aurait apportes.
 
 CE MODULE NE CONTIENT AUCUN DESSIN : seulement la projection et le volume.
 Il se verifie donc au calcul, sans construire d'ecran.
 """
+import math
 
 # Le volume d'un plan de palier 1, en cubes : largeur, profondeur, hauteur.
 # La surface au sol (2 x 2 cases) est redecoupee en 4 x 4 : deux cubes par
@@ -30,17 +42,19 @@ Il se verifie donc au calcul, sans construire d'ecran.
 # hauteur batissable du plan.
 VOLUME_T1 = (4, 4, 4)
 
-# Proportions d'un cube a l'ecran, en fraction de la taille de reference.
-# La face du dessus est un losange deux fois plus large que haut : c'est la
-# convention isometrique, et l'oeil la lit comme un carre pose a plat.
-DEMI_LARGEUR = 1.0
-DEMI_PROFONDEUR = 0.5
-# La hauteur vaut EXACTEMENT deux fois la demi-profondeur, et ce n'est pas un
-# reglage : c'est ce qui fait que le dessus d'un cube coincide avec le dessous
-# de celui du dessus. A toute autre valeur les etages s'interpenetrent, et
-# l'axe de profondeur cesse d'etre la diagonale (1, 1, 1) -- l'ordre de dessin
-# ci-dessous n'y tiendrait plus.
-HAUTEUR = 2.0 * DEMI_PROFONDEUR
+# Orientation de depart : de trois quarts et vue d'un peu au-dessus. C'est
+# celle qui montre le plus de cubes d'un coup -- on voit deux cotes et le
+# dessus -- donc celle qui demande le moins de manipulation pour commencer.
+TOUR_DEFAUT = math.radians(35.0)
+INCLINAISON_DEFAUT = math.radians(28.0)
+
+# L'inclinaison ne va pas jusqu'au zenith : pile a la verticale, la vue
+# s'aplatit en une grille de dessus ou les etages se confondent, et le sens de
+# rotation s'inverse d'un cheveu de doigt.
+INCLINAISON_MAX = math.radians(88.0)
+
+# Combien tourner pour un doigt qui traverse tout l'ecran.
+TOUR_PAR_ECRAN = math.radians(300.0)
 
 
 def volume_for(name):
@@ -49,75 +63,168 @@ def volume_for(name):
     return VOLUME_T1 if name == items.BLUEPRINT_T1 else (0, 0, 0)
 
 
-def project(gx, gy, gz, cx, cy, taille):
-    """Projette un SOMMET de la grille en coordonnees ecran.
+def centre(volume):
+    """Le milieu du volume, en sommets de grille."""
+    nx, ny, nz = volume
+    return (nx / 2.0, ny / 2.0, nz / 2.0)
+
+
+def rayon(volume):
+    """Le rayon de la sphere englobante, en cubes."""
+    nx, ny, nz = volume
+    return math.sqrt(nx * nx + ny * ny + nz * nz) / 2.0
+
+
+def tourne(p, tour, inclinaison):
+    """Tourne un point autour du centre du monde. Rend (x, y, z) oriente."""
+    x, y, z = p
+    ct, st = math.cos(tour), math.sin(tour)
+    x, y = x * ct - y * st, x * st + y * ct        # tour, autour de Z
+    ci, si = math.cos(inclinaison), math.sin(inclinaison)
+    y, z = y * ci - z * si, y * si + z * ci        # inclinaison, autour de X
+    return x, y, z
+
+
+def echelle(volume, largeur, hauteur, marge=0.90):
+    """Taille d'un cube a l'ecran, pour que le volume tienne SOUS TOUS LES
+    ANGLES.
+
+    Calculee sur la sphere englobante, donc constante quand on tourne (voir
+    l'entete). C'est deliberement un peu petit -- la sphere depasse des coins
+    du volume -- mais c'est le prix d'une image qui ne saute pas."""
+    r = rayon(volume)
+    if r <= 0:
+        return 0.0
+    return min(largeur, hauteur) * marge / (2.0 * r)
+
+
+def project(gx, gy, gz, volume, cx, cy, taille, tour, inclinaison):
+    """Projette un SOMMET de la grille en (x_ecran, y_ecran, profondeur).
 
     (gx, gy, gz) sont des indices de sommet, donc de 0 a n inclus : un volume
-    de 4 cubes de cote a 5 sommets par axe. `taille` est le cote d'un cube.
-    (cx, cy) est le point ou tombe le sommet (0, 0, 0)."""
-    x = cx + (gx - gy) * DEMI_LARGEUR * taille
-    y = cy - (gx + gy) * DEMI_PROFONDEUR * taille + gz * HAUTEUR * taille
-    return x, y
+    de 4 cubes de cote a 5 sommets par axe. (cx, cy) est le point de l'ecran
+    ou tombe le CENTRE du volume.
+
+    La profondeur rendue croit vers le LOIN : elle sert a trier."""
+    mx, my, mz = centre(volume)
+    x, y, z = tourne((gx - mx, gy - my, gz - mz), tour, inclinaison)
+    return cx + x * taille, cy + z * taille, y
 
 
-def fit(volume, largeur, hauteur, marge=0.86):
-    """Taille de cube et point d'ancrage pour CENTRER le volume a l'ecran.
+_SOMMETS = ((0, 0, 0), (1, 0, 0), (1, 1, 0), (0, 1, 0),
+            (0, 0, 1), (1, 0, 1), (1, 1, 1), (0, 1, 1))
 
-    Rend (taille, cx, cy) tels que le volume entier tienne dans la boite
-    donnee, en occupant `marge` de sa plus petite dimension utile.
+# Les six faces d'un cube : les quatre sommets dans le sens direct, puis la
+# normale sortante. La normale sert a savoir si la face regarde la camera.
+_FACES = (
+    ((0, 1, 2, 3), (0, 0, -1)),      # dessous
+    ((4, 5, 6, 7), (0, 0, 1)),       # dessus
+    ((0, 1, 5, 4), (0, -1, 0)),      # devant
+    ((3, 2, 6, 7), (0, 1, 0)),       # derriere
+    ((0, 3, 7, 4), (-1, 0, 0)),      # gauche
+    ((1, 2, 6, 5), (1, 0, 0)),       # droite
+)
 
-    On ne devine pas l'encombrement : on projette les huit coins avec une
-    taille de 1, on mesure la boite obtenue, puis on met a l'echelle. Le
-    volume reste ainsi centre quelle que soit sa forme -- un plan plus large
-    que haut, plus tard, n'aura rien a changer ici."""
+# Les douze aretes d'un cube, en indices de sommets.
+_ARETES = ((0, 1), (1, 2), (2, 3), (3, 0),
+           (4, 5), (5, 6), (6, 7), (7, 4),
+           (0, 4), (1, 5), (2, 6), (3, 7))
+
+
+def _coins(cube, volume, cx, cy, taille, tour, inclinaison):
+    x, y, z = cube
+    return [project(x + dx, y + dy, z + dz, volume, cx, cy, taille,
+                    tour, inclinaison)
+            for dx, dy, dz in _SOMMETS]
+
+
+def cube_aretes(cube, volume, cx, cy, taille, tour, inclinaison):
+    """Les douze aretes d'un cube, en segments ecran [(x1,y1),(x2,y2)]."""
+    c = _coins(cube, volume, cx, cy, taille, tour, inclinaison)
+    return [((c[a][0], c[a][1]), (c[b][0], c[b][1])) for a, b in _ARETES]
+
+
+def cube_faces_vues(cube, volume, cx, cy, taille, tour, inclinaison):
+    """Les faces d'un cube qui REGARDENT la camera, en polygones ecran.
+
+    Les autres sont dans le dos : les remplir n'ajouterait que du voile. On
+    les reconnait a leur normale une fois tournee -- la camera etant en y
+    negatif, une face lui fait face quand la sienne pointe vers les y
+    negatifs."""
+    c = _coins(cube, volume, cx, cy, taille, tour, inclinaison)
+    out = []
+    for indices, normale in _FACES:
+        # Le seuil n'est pas de la prudence numerique gratuite. PILE dans
+        # l'axe, une face est vue par la TRANCHE : son aire a l'ecran est
+        # nulle, et le signe de sa normale ne tient plus qu'au signe du zero
+        # en virgule flottante. Elle serait donc retenue ou non selon
+        # l'humeur du calcul, sans rien changer a l'image. On l'ecarte
+        # franchement.
+        if tourne(normale, tour, inclinaison)[1] > -1e-9:
+            continue
+        out.append([(c[i][0], c[i][1]) for i in indices])
+    return out
+
+
+def ordre_dessin(volume, tour, inclinaison):
+    """Les cubes, du plus LOIN au plus proche, pour l'orientation donnee.
+
+    L'ordre depend de l'angle : c'etait une constante tant que la vue etait
+    figee, ce n'en est plus une. On trie sur la profondeur du CENTRE de chaque
+    cube -- pour des cubes tous identiques, poses sur une grille reguliere,
+    cela suffit a ce qu'aucun proche ne passe derriere un lointain."""
     nx, ny, nz = volume
-    if nx <= 0 or ny <= 0 or nz <= 0:
-        return 0.0, largeur / 2.0, hauteur / 2.0
-    coins = [project(x, y, z, 0.0, 0.0, 1.0)
-             for x in (0, nx) for y in (0, ny) for z in (0, nz)]
-    xs = [p[0] for p in coins]
-    ys = [p[1] for p in coins]
-    span_x = max(xs) - min(xs)
-    span_y = max(ys) - min(ys)
-    taille = min(largeur * marge / span_x, hauteur * marge / span_y)
-    # Le centre de la boite projetee doit tomber au centre de l'ecran : on en
-    # deduit ou placer le sommet (0, 0, 0).
-    cx = largeur / 2.0 - (min(xs) + max(xs)) / 2.0 * taille
-    cy = hauteur / 2.0 - (min(ys) + max(ys)) / 2.0 * taille
-    return taille, cx, cy
+    if min(nx, ny, nz) <= 0:
+        return []
+    mx, my, mz = centre(volume)
 
+    def prof(c):
+        return tourne((c[0] + 0.5 - mx, c[1] + 0.5 - my, c[2] + 0.5 - mz),
+                      tour, inclinaison)[1]
 
-def cube_faces(x, y, z, cx, cy, taille):
-    """Les trois faces VISIBLES d'un cube, en polygones ecran.
-
-    Un cube en axonometrie ne montre jamais que trois faces : le dessus, et
-    deux cotes. Les trois autres sont derriere, et les dessiner ne ferait que
-    doubler les traits.
-
-    Rend [(nom, [(x, y), ...]), ...] du plus loin au plus proche."""
-    def p(dx, dy, dz):
-        return project(x + dx, y + dy, z + dz, cx, cy, taille)
-
-    return [
-        ("dessus", [p(0, 0, 1), p(1, 0, 1), p(1, 1, 1), p(0, 1, 1)]),
-        ("gauche", [p(0, 1, 0), p(0, 1, 1), p(0, 0, 1), p(0, 0, 0)]),
-        ("droite", [p(0, 1, 0), p(1, 1, 0), p(1, 1, 1), p(0, 1, 1)]),
-    ]
-
-
-def ordre_dessin(volume):
-    """Les cubes, du plus LOIN au plus proche.
-
-    Dans cette projection, l'axe de PROFONDEUR est la diagonale (1, 1, 1) :
-    c'est la direction le long de laquelle on peut avancer sans bouger a
-    l'ecran (le decalage en x s'annule, celui en y aussi, HAUTEUR valant deux
-    fois DEMI_PROFONDEUR). Un cube est donc d'autant plus PRES que x + y + z
-    est grand.
-
-    Les trier par cette somme croissante suffit : ce qui est devant se dessine
-    par-dessus ce qui est derriere, sans avoir a trier face par face."""
-    nx, ny, nz = volume
     cubes = [(x, y, z)
              for x in range(nx) for y in range(ny) for z in range(nz)]
-    cubes.sort(key=lambda c: c[0] + c[1] + c[2])
+    cubes.sort(key=prof, reverse=True)          # le plus loin d'abord
     return cubes
+
+
+def dans_polygone(x, y, pts):
+    """Le point (x, y) est-il dans le polygone ? (lancer de rayon)"""
+    dedans = False
+    n = len(pts)
+    for i in range(n):
+        x1, y1 = pts[i]
+        x2, y2 = pts[(i + 1) % n]
+        if (y1 > y) != (y2 > y):
+            xx = x1 + (y - y1) * (x2 - x1) / (y2 - y1)
+            if x < xx:
+                dedans = not dedans
+    return dedans
+
+
+def cube_sous(x, y, volume, cx, cy, taille, tour, inclinaison):
+    """Quel cube se trouve sous le point (x, y) ? None si aucun.
+
+    On parcourt du PLUS PROCHE au plus loin et on garde le premier touche :
+    deux cubes alignes sur l'axe de vue se projettent au meme endroit, et
+    c'est celui de devant qu'on designe -- comme partout ailleurs."""
+    for cube in reversed(ordre_dessin(volume, tour, inclinaison)):
+        for pts in cube_faces_vues(cube, volume, cx, cy, taille,
+                                   tour, inclinaison):
+            if dans_polygone(x, y, pts):
+                return cube
+    return None
+
+
+def boite_aretes(volume):
+    """Les douze aretes de la boite englobante, en sommets de grille."""
+    nx, ny, nz = volume
+    coins = [(x, y, z) for x in (0, nx) for y in (0, ny) for z in (0, nz)]
+    out = []
+    for i, a in enumerate(coins):
+        for b in coins[i + 1:]:
+            # Deux coins ne forment une arete que s'ils different sur UN seul
+            # axe : sinon c'est une diagonale, qui traverserait la boite.
+            if sum(1 for k in range(3) if a[k] != b[k]) == 1:
+                out.append((a, b))
+    return out

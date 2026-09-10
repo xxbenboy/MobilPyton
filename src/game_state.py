@@ -175,7 +175,7 @@ class GameState:
                  wood=0, food=0, water=0, action_count=0,
                  hands=None, ground=None, explores=None, harvested=None,
                  log=None, player_x=None, player_y=None, revealed=None,
-                 facing=0, installed=None, debug=False,
+                 facing=0, installed=None, built=None, debug=False,
                  weather=None, fog=False, weather_until=0,
                  effects=None, fires=None, hand_wear=None, ground_wear=None,
                  chopped=None, equipment=None, bag=None,
@@ -262,6 +262,10 @@ class GameState:
         # objet installe est irreversible (ne peut plus etre ramasse ni
         # deplace) et rend le bouton Proximite actif s'il est interactif.
         self.installed = installed if installed else {}
+        # Ce qui est BATI dans les chantiers : {"x,y:gx,gy": {"cx,cy,cz": piece}}
+        # -- la case du monde, l'ancrage du plan, puis le cube. Les cles sont
+        # des chaines pour que la sauvegarde JSON les garde telles quelles.
+        self.built = built if built else {}
         # Arbres ABATTUS par case : {"x,y": [[gx, gy], ...]}. Un arbre coupe
         # ne repousse pas : sa cellule reste vide dans le decor.
         self.chopped = {}
@@ -1329,6 +1333,71 @@ class GameState:
         stock = self.build_stock()
         return all(stock.get(m, 0) >= n for m, n in items.BUILD_COST.items())
 
+    def spend_materials(self, cost):
+        """Consomme {matiere: nombre}, dans l'ordre SOL, MAINS, SAC.
+
+        Cet ordre n'est pas indifferent : on prend d'abord ce qui traine, puis
+        ce qu'on tient, et on ne fouille le sac qu'en dernier -- c'est celui
+        qu'on prefere garder plein.
+
+        Sert au craft comme a la construction. Ecrite deux fois, elle aurait
+        fini par diverger, et deux facons de payer pour un meme stock est
+        exactement le genre d'ecart qui ne se voit qu'au bout d'une heure de
+        jeu."""
+        for item, qty in cost.items():
+            need = qty
+            g = self.ground.get(self._cell_key(), {})
+            take = min(need, g.get(item, 0))
+            if take:
+                for _ in range(take):
+                    self._take_ground_wear(item)
+                g[item] -= take
+                if g[item] <= 0:
+                    del g[item]
+                need -= take
+            for i in range(len(self.hands)):
+                if need <= 0:
+                    break
+                if self.hands[i] == item:
+                    self.set_hand(i, None)
+                    need -= 1
+            # Le SAC en dernier : ce qu'on transporte sert de matiere comme le
+            # reste, sans avoir a le sortir d'abord.
+            while need > 0 and self._take_bag(item) is not None:
+                need -= 1
+            if not g:
+                self.ground.pop(self._cell_key(), None)
+
+    # ---- ce qui est deja bati ---------------------------------------- #
+    def _build_key(self, gx, gy):
+        """Un chantier est identifie par sa case ET par l'ancrage du plan."""
+        return "%s:%d,%d" % (self._cell_key(), int(gx), int(gy))
+
+    def built_here(self, gx, gy):
+        """{(x, y, z): piece} de ce qui est deja bati dans ce chantier."""
+        brut = self.built.get(self._build_key(gx, gy), {})
+        out = {}
+        for cle, piece in brut.items():
+            x, y, z = (int(v) for v in cle.split(","))
+            out[(x, y, z)] = piece
+        return out
+
+    def build_piece(self, gx, gy, cube, piece):
+        """Bati `piece` dans `cube`. Rend False si la place est prise ou si la
+        matiere manque."""
+        if piece not in items.BUILD_PART_NAMES:
+            return False
+        chantier = self.built.setdefault(self._build_key(gx, gy), {})
+        cle = "%d,%d,%d" % tuple(int(v) for v in cube)
+        if cle in chantier:
+            return False              # un cube ne se batit qu'une fois
+        if not self.can_build():
+            return False
+        self.spend_materials(items.BUILD_COST)
+        chantier[cle] = piece
+        self.gain_xp("fabriquer")
+        return True
+
     def install_from_hand(self, index, gx, gy):
         """Installe l'objet tenu dans la main donnee sur la case courante, a
         l'ancrage (gx, gy). Echoue si la main est vide, si l'objet n'est pas
@@ -1665,30 +1734,7 @@ class GameState:
         Seul ce qui manque est offert."""
         if not self.can_craft(recipe):
             return False
-        for item, qty in recipe["ingredients"].items():
-            need = qty
-            g = self.ground.get(self._cell_key(), {})
-            take = min(need, g.get(item, 0))
-            if take:
-                for _ in range(take):
-                    self._take_ground_wear(item)
-                g[item] -= take
-                if g[item] <= 0:
-                    del g[item]
-                need -= take
-            # Puis dans les mains (on vide l'emplacement correspondant).
-            for i in range(len(self.hands)):
-                if need <= 0:
-                    break
-                if self.hands[i] == item:
-                    self.set_hand(i, None)
-                    need -= 1
-            # Enfin dans le SAC : ce qu'on transporte sert de matiere comme le
-            # reste, sans avoir a le sortir d'abord.
-            while need > 0 and self._take_bag(item) is not None:
-                need -= 1
-            if not g:
-                self.ground.pop(self._cell_key(), None)
+        self.spend_materials(recipe["ingredients"])
         # Matiere au CHOIX (feuille ou herbe...) : une seule est consommee.
         choice = self.recipe_choice(recipe)
         if choice is not None:
@@ -1737,6 +1783,7 @@ class GameState:
             "hands": self.hands,
             "ground": self.ground,
             "installed": self.installed,
+            "built": self.built,
             "debug": self.debug,
             "weather": self.weather,
             "fog": self.fog,
@@ -1788,6 +1835,7 @@ class GameState:
             hands=data.get("hands"),
             ground=data.get("ground"),
             installed=data.get("installed"),
+            built=data.get("built"),
             debug=data.get("debug", False),
             weather=data.get("weather"),
             fog=data.get("fog", False),
