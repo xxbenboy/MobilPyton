@@ -199,6 +199,32 @@ BLUEPRINT_T1 = "Plan_De_Construction_Tier_1"
 # game_state.installed (pas dans ground) et ne peuvent plus etre ramasses.
 INSTALLABLE_ITEMS = {"Feu_de_camp", BLUEPRINT_T1}
 
+# EMPRISE AU SOL, en cases de la grille 5x5 : (largeur, profondeur). Un objet
+# est ANCRE sur une case -- la plus a gauche de sa rangee la plus proche -- et
+# occupe toutes les cases de son emprise. Tout ce qui n'est pas liste tient sur
+# une seule case.
+FOOTPRINT = {
+    "Feu_de_camp": (1, 1),
+    BLUEPRINT_T1: (2, 2),      # un plan delimite une VRAIE surface
+}
+
+
+def footprint(name):
+    """(largeur, profondeur) en cases. Un objet inconnu tient sur une case."""
+    return FOOTPRINT.get(name, (1, 1))
+
+
+def footprint_cells(name, gx, gy):
+    """Toutes les cases occupees par l'objet ancre en (gx, gy).
+
+    C'est LA fonction qui dit ou est un objet. Elle sert aussi bien a poser
+    qu'a verifier, qu'a eclairer l'apercu : si chacun comptait ses cases dans
+    son coin, l'apercu finirait par montrer autre chose que ce qui se pose."""
+    fw, fh = footprint(name)
+    return [(int(gx) + dx, int(gy) + dy)
+            for dy in range(fh) for dx in range(fw)]
+
+
 # Objets INTERACTIFS : une fois INSTALLES, on peut s'en servir -- en cliquant
 # dessus dans la scene, ou en les choisissant dans l'ecran Proximite. Ils
 # ouvrent alors leur fenetre d'action. Seul le feu de camp l'est pour l'instant.

@@ -2,9 +2,18 @@
 un objet (feu de camp, ...) sur la case courante.
 
 Le joueur est fixe au centre-bas de la grille (gx=2, gy=0), regardant vers le
-haut (gy croissant). Un tap sur une case libre confirme la position ; l'objet
-tenu dans la main _slot (definie par GameScreen avant la navigation) passe
-dans state.installed et la vue revient au jeu.
+haut (gy croissant).
+
+ON POSE EN GLISSANT. L'objet tenu (main _slot, definie par GameScreen avant la
+navigation) s'affiche sur une carte a DROITE de la grille ; on le prend du
+doigt et on le lache sur la grille. Tant qu'il est tenu, les cases qu'il
+occuperait s'allument -- vertes si ca tient, rouges sinon.
+
+Un simple tap ne pouvait pas faire cela. Depuis qu'un objet peut couvrir
+PLUSIEURS cases (un plan de construction en prend quatre), la case touchee ne
+suffit plus a dire ou tombent les autres : il faut voir l'emprise se placer
+avant de lacher. Le geste dit aussi ce qu'il fait -- on deplace vraiment
+quelque chose d'un endroit vers un autre.
 
 Le placement est IRREVERSIBLE : un objet installe ne peut plus etre
 ramasse ni deplace.
@@ -27,6 +36,9 @@ from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font, dh
 from src.widgets.lieu_toggle import lieu_toggle
+from src.widgets.installed_layer import anchor_at
+from src.widgets.item_icon import ItemIcon
+from src.widgets.panels import panel
 
 # Couleurs de la grille. Definies ICI une seule fois : la grille ET la legende
 # les utilisent, elles ne peuvent donc jamais se contredire.
@@ -35,6 +47,14 @@ CELL_LINE = (1, 1, 1, 0.60)           # trait de separation
 CELL_TAKEN = (0.90, 0.35, 0.30, 0.35)     # rouge  : deja utilise
 CELL_NATURE = (0.25, 0.55, 0.30, 0.45)    # vert   : occupe par la nature
 CELL_PLAYER = (0.30, 0.70, 1.00, 0.35)    # bleu   : le joueur
+
+# APERCU DE POSE, pendant qu'un objet est glisse au-dessus de la grille.
+# Franchement plus VIFS que les couleurs ci-dessus : l'apercu doit se lire
+# instantanement par-dessus elles, et il ne dure que le temps du geste.
+PREVIEW_OK = (0.45, 1.00, 0.62, 0.95)     # contour : ca tient ici
+PREVIEW_OK_BG = (0.45, 1.00, 0.62, 0.30)
+PREVIEW_NO = (1.00, 0.42, 0.35, 0.95)     # contour : ca ne tient pas
+PREVIEW_NO_BG = (1.00, 0.42, 0.35, 0.30)
 CELL_FREE = (0, 0, 0, 0)                  # aucune : libre
 
 # Nom lisible de chaque obstacle naturel (cf. world.NATURE_BIG).
@@ -105,7 +125,9 @@ def draw_object_glyph(name, cx, cy, size, lit=False, level="grand"):
         # Vu de dessus, le plan est ce qu'il est vraiment : un carre de corde
         # tendu entre quatre piquets. C'est la vue ou il se lit le mieux --
         # c'est meme exactement ce qu'on regarde en delimitant un chantier.
-        d = r * 0.62
+        # Il occupe presque toute la boite qu'on lui donne : cette boite est
+        # son EMPRISE, et le joueur doit voir qu'elle couvre bien ses cases.
+        d = r * 0.90
         coins = ((cx - d, cy - d), (cx + d, cy - d),
                  (cx + d, cy + d), (cx - d, cy + d))
         Color(0.76, 0.70, 0.54, 1)                        # la corde
@@ -379,10 +401,15 @@ class _GridOverlay(Widget):
     def __init__(self, on_cell_pick, **kwargs):
         super().__init__(**kwargs)
         self.on_cell_pick = on_cell_pick
-        self.taken = set()               # {(gx, gy), ...} objets installes
+        self.taken = set()               # {(gx, gy), ...} cases occupees
         self.nature = {}                 # {(gx, gy): "tree"|"bush"|"rock"}
-        self.objects = {}                # {(gx, gy): (nom, allume)}
-        # "place" = choisir une case LIBRE ou poser un objet ;
+        self.objects = {}                # {(gx, gy): (nom, allume, niveau)}
+        self.anchors = []                # [(nom, gx, gy, allume, niveau)]
+        # APERCU DE POSE : les cases que l'objet glisse occuperait, et si
+        # elles conviennent. Vide quand aucun doigt ne tient d'objet.
+        self.preview = []
+        self.preview_ok = False
+        # "place" = poser l'objet tenu en le GLISSANT sur la grille ;
         # "use"   = choisir un objet INSTALLE pour s'en servir.
         self.mode = "place"
         self.bind(pos=self._redraw, size=self._redraw)
@@ -393,6 +420,15 @@ class _GridOverlay(Widget):
         ox = self.center_x - total / 2
         oy = self.center_y - total / 2
         return ox, oy, cs
+
+    def anchor_at(self, x, y, name):
+        """Ou ancrer `name` pour que son emprise tombe sous (x, y) ?
+
+        Le calcul lui-meme est de la geometrie pure et vit dans
+        installed_layer ; ici on ne fait que lui donner la geometrie de la
+        grille."""
+        fw, fh = items.footprint(name)
+        return anchor_at(x, y, *self._grid_geom(), fw, fh)
 
     def _redraw(self, *_):
         self.canvas.clear()
@@ -441,15 +477,36 @@ class _GridOverlay(Widget):
             # Cases deja prises (installees) : surlignees rouge, avec le
             # pictogramme de l'objet pose (feu de camp...).
             for (gx, gy) in sorted(self.taken):
-                tx = ox + gx * cs
-                ty = oy + gy * cs
                 Color(*CELL_TAKEN)
-                Rectangle(pos=(tx, ty), size=(cs, cs))
-                obj = self.objects.get((gx, gy))
-                if obj:
-                    draw_object_glyph(obj[0], tx + cs / 2, ty + cs / 2,
-                                      cs * 0.72, lit=obj[1],
-                                      level=obj[2] if len(obj) > 2 else "grand")
+                Rectangle(pos=(ox + gx * cs, oy + gy * cs), size=(cs, cs))
+            # UN pictogramme PAR OBJET, et non par case : un objet qui couvre
+            # quatre cases n'est pas quatre objets. Il est donc centre sur son
+            # emprise et dimensionne a elle.
+            for name, gx, gy, lit, level in sorted(self.anchors,
+                                                   key=lambda a: a[1:3]):
+                fw, fh = items.footprint(name)
+                draw_object_glyph(name, ox + (gx + fw / 2.0) * cs,
+                                  oy + (gy + fh / 2.0) * cs,
+                                  cs * 0.72 * min(fw, fh), lit=lit, level=level)
+            # APERCU : la ou l'objet glisse se poserait. Il se dessine EN
+            # DERNIER, donc par-dessus tout le reste -- y compris les cases
+            # rouges ou vertes qui expliquent pourquoi il ne peut pas y aller.
+            if self.preview:
+                bord, fond = ((PREVIEW_OK, PREVIEW_OK_BG) if self.preview_ok
+                              else (PREVIEW_NO, PREVIEW_NO_BG))
+                for (gx, gy) in self.preview:
+                    tx, ty = ox + gx * cs, oy + gy * cs
+                    Color(*fond)
+                    Rectangle(pos=(tx, ty), size=(cs, cs))
+                # Un SEUL contour autour de l'emprise entiere, et non un cadre
+                # par case : c'est une piece d'un bloc qu'on pose, pas quatre
+                # cases independantes.
+                xs = [c[0] for c in self.preview]
+                ys = [c[1] for c in self.preview]
+                Color(*bord)
+                Line(rectangle=(ox + min(xs) * cs, oy + min(ys) * cs,
+                                (max(xs) - min(xs) + 1) * cs,
+                                (max(ys) - min(ys) + 1) * cs), width=2.6)
 
     def on_touch_down(self, touch):
         if not self.collide_point(*touch.pos):
@@ -472,11 +529,9 @@ class _GridOverlay(Widget):
             if pose is not None and pose[0] in items.INTERACTIVE_ITEMS:
                 self.on_cell_pick(gx, gy)
             return True
-        if (gx, gy) == (2, 0):
-            return True                  # case joueur : ignoree
-        if (gx, gy) in self.taken or (gx, gy) in self.nature:
-            return True                  # deja prise ou occupee par la nature
-        self.on_cell_pick(gx, gy)
+        # En mode POSE, la grille ne repond pas au tap : on y amene l'objet en
+        # le GLISSANT depuis la carte de droite. Elle avale quand meme la
+        # touche, pour que rien d'autre ne l'attrape par-dessous.
         return True
 
 
@@ -544,6 +599,36 @@ class PlaceScreen(Screen):
                                   pos_hint={"center_x": 0.5, "top": 0.98})
         root.add_widget(self.toggle)
 
+        # L'OBJET A POSER, a DROITE de la grille. On ne le pose plus en tapant
+        # une case : on le prend du doigt et on le glisse dessus. Le geste dit
+        # ce qu'il fait -- on deplace vraiment quelque chose d'un endroit vers
+        # un autre -- et il permet surtout de VOIR l'emprise se placer avant de
+        # lacher, ce qu'un simple tap ne pouvait pas faire : la case touchee
+        # n'aurait pas suffi a dire ou tombent les trois autres.
+        self.item_card = BoxLayout(orientation="vertical", padding=dp(6),
+                                   spacing=dp(2), size_hint=(0.155, 0.30),
+                                   pos_hint={"right": 0.985,
+                                             "center_y": 0.50})
+        panel(self.item_card, alpha=0.55)
+        root.add_widget(self.item_card)
+        self.item_hint = scale_font(Label(text="", halign="center",
+                                    valign="middle", color=(0.88, 0.88, 0.92, 1),
+                                    size_hint=(0.30, 0.10),
+                                    pos_hint={"right": 0.99, "y": 0.13}), 0.017)
+        self.item_hint.bind(size=lambda w, *_: setattr(
+            w, "text_size", (w.width, w.height)))
+        root.add_widget(self.item_hint)
+
+        # Couche du FANTOME : l'objet suivi par le doigt. Par-dessus tout.
+        # Surtout NE PAS la desactiver pour la rendre inerte : dans Kivy un
+        # widget desactive AVALE les touches qui tombent sur lui, et celle-ci
+        # couvre tout l'ecran -- plus rien ne repondrait. Vide, elle laisse
+        # simplement passer.
+        self.drag_layer = FloatLayout(size_hint=(1, 1),
+                                      pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.drag_layer)
+        self._drag = None                 # {ghost, name} pendant le geste
+
         # Bouton Annuler (bas droite) : retour au jeu sans installer.
         cancel = scale_font(StyledButton(text="Annuler",
                             size_hint=(0.20, 0.08),
@@ -571,6 +656,118 @@ class PlaceScreen(Screen):
 
         self.root_layout = root
         self.add_widget(root)
+
+    # ---------------- GLISSER l'objet sur la grille -------------------- #
+    def _held_item(self):
+        """L'objet a poser : celui de la main d'ou l'on est parti."""
+        state = App.get_running_app().game_state
+        if state is None or self._slot not in (0, 1):
+            return None
+        return state.hands[self._slot]
+
+    def _rebuild_card(self):
+        """(Re)dessine la carte de droite avec l'objet a poser."""
+        self.item_card.clear_widgets()
+        name = self._held_item()
+        # Pas de `disabled` pour la masquer : dans Kivy un widget desactive
+        # AVALE les touches qui tombent dessus. On la rend invisible, et c'est
+        # `self._carte_prete` qui dit si elle repond.
+        self._carte_prete = self.mode == "place" and name is not None
+        self.item_card.opacity = 1.0 if self._carte_prete else 0.0
+        self.item_hint.opacity = self.item_card.opacity
+        if not self._carte_prete:
+            self.item_hint.text = ""
+            return
+        self.item_card.add_widget(ItemIcon(name, show_name=True))
+        fw, fh = items.footprint(name)
+        emprise = "1 case" if fw * fh == 1 else "%d x %d cases" % (fw, fh)
+        self.item_hint.text = "Glisse-le sur la grille\n(%s)" % emprise
+
+    def on_touch_down(self, touch):
+        # Le geste ne commence que sur la CARTE, et seulement en mode pose.
+        if (self.mode == "place" and self._drag is None
+                and getattr(self, "_carte_prete", False)
+                and self.item_card.collide_point(*touch.pos)):
+            name = self._held_item()
+            if name is not None:
+                self._start_drag(name, touch)
+                return True
+        return super().on_touch_down(touch)
+
+    def on_touch_move(self, touch):
+        if self._drag is not None:
+            self._drag["ghost"].center = touch.pos
+            self._aim(touch)
+            return True
+        return super().on_touch_move(touch)
+
+    def on_touch_up(self, touch):
+        if self._drag is not None:
+            self._drop(touch)
+            return True
+        return super().on_touch_up(touch)
+
+    def _start_drag(self, name, touch):
+        ghost = BoxLayout(size_hint=(None, None), padding=dp(4),
+                          size=(self.width * 0.10, self.height * 0.20))
+        panel(ghost, alpha=0.55)
+        ghost.add_widget(ItemIcon(name, show_name=False))
+        ghost.center = touch.pos
+        ghost.opacity = 0.9
+        self.drag_layer.add_widget(ghost)
+        self._drag = {"ghost": ghost, "name": name}
+        # La carte s'efface pendant le geste : l'objet est dans la main, il ne
+        # peut pas etre a deux endroits a la fois.
+        self.item_card.opacity = 0.25
+        self._aim(touch)
+
+    def _aim(self, touch):
+        """Met a jour l'apercu : ou l'objet tomberait, et si ca tient."""
+        state = App.get_running_app().game_state
+        name = self._drag["name"]
+        # Coordonnees d'ecran, telles quelles : la grille les compare a sa
+        # propre geometrie, qui est exprimee dans le meme repere (c'est deja
+        # ainsi que fonctionne son on_touch_down).
+        ancre = self.grid_overlay.anchor_at(touch.x, touch.y, name)
+        self._drag["ancre"] = ancre
+        if ancre is None or state is None:
+            self.grid_overlay.preview = []
+            self.grid_overlay.preview_ok = False
+        else:
+            self.grid_overlay.preview = items.footprint_cells(name, *ancre)
+            # LA MEME REGLE QUE LA POSE, appelee telle quelle : l'apercu ne
+            # peut donc pas promettre un emplacement que le depot refuserait.
+            self.grid_overlay.preview_ok = state.can_install(name, *ancre)
+        self.grid_overlay._redraw()
+
+    def _clear_drag(self):
+        drag, self._drag = self._drag, None
+        if drag is not None:
+            self.drag_layer.remove_widget(drag["ghost"])
+        self.grid_overlay.preview = []
+        self.grid_overlay.preview_ok = False
+        self.grid_overlay._redraw()
+        self.item_card.opacity = 1.0
+
+    def _drop(self, touch):
+        """Lache l'objet : il se pose si l'emprise entiere convient."""
+        drag = self._drag
+        ancre = drag.get("ancre")
+        name = drag["name"]
+        self._clear_drag()
+        state = App.get_running_app().game_state
+        if state is None:
+            return
+        if ancre is None:
+            self.item_hint.text = "Glisse-le SUR la grille."
+            return
+        if not state.can_install(name, *ancre):
+            # On dit POURQUOI. Un refus muet, sur un geste qui vient d'aboutir,
+            # se lit comme une panne.
+            self.item_hint.text = "Pas de place ici pour\n%s." \
+                % items.display_name(name)
+            return
+        self._install(ancre[0], ancre[1])
 
     # ------------------------------------------------------------------ #
     def _show_action(self, visible):
@@ -625,9 +822,16 @@ class PlaceScreen(Screen):
             self._scene_key = key
         # Marque les positions deja installees comme non cliquables, et les
         # cases occupees par un GROS element du decor (arbre, buisson, rocher).
-        self.grid_overlay.taken = {(gx, gy) for _n, gx, gy, _l, _v in objs}
-        self.grid_overlay.objects = {(gx, gy): (n, lit, level)
-                                     for n, gx, gy, lit, level in objs}
+        # L'EMPRISE de chaque objet : un plan de construction en couvre quatre.
+        # `taken` et `objects` portent toutes les cases occupees (ce qui est
+        # pris, et par quoi) ; `anchors` porte les objets EUX-MEMES, une fois
+        # chacun -- c'est ce qui sert a les dessiner.
+        self.grid_overlay.taken = {c for n, gx, gy, _l, _v in objs
+                                   for c in items.footprint_cells(n, gx, gy)}
+        self.grid_overlay.objects = {c: (n, lit, level)
+                                     for n, gx, gy, lit, level in objs
+                                     for c in items.footprint_cells(n, gx, gy)}
+        self.grid_overlay.anchors = list(objs)
         self.grid_overlay.nature = {(int(gx), int(gy)): kind for (gx, gy), kind
                                     in state.nature_cells_here().items()}
         self.grid_overlay.mode = self.mode
@@ -651,6 +855,7 @@ class PlaceScreen(Screen):
                                if item else "Choisis une case")
         else:
             self.title.text = "Choisis une case"
+        self._rebuild_card()
         # La fenetre d'action reste ouverte si on vient d'y agir.
         self._show_action(self._action_cell is not None)
         if self._action_cell is not None:
@@ -672,7 +877,14 @@ class PlaceScreen(Screen):
             self._action_from_grid = True
             self.on_pre_enter()
             return
-        if self._slot is None:
+        # En mode POSE, la grille ne repond plus au tap : on pose en GLISSANT
+        # l'objet depuis la carte de droite (voir _drop). Une case tapee ne
+        # dirait de toute facon pas ou tombent les autres cases de l'emprise.
+
+    def _install(self, gx, gy):
+        """Pose l'objet tenu, ancre en (gx, gy), et revient au jeu."""
+        state = App.get_running_app().game_state
+        if state is None or self._slot is None:
             self.manager.current = "game"
             return
         if state.install_from_hand(self._slot, gx, gy):

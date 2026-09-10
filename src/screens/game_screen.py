@@ -1707,8 +1707,10 @@ class GameScreen(Screen):
         # le feu prend, et de nouveau quand il s'eteint.
         installed = tuple(_installed_tuple(state, o)
                           for o in state.installed_objects_here())
-        blocked_grid = tuple(sorted((int(o[1]), int(o[2]))
-                                    for o in state.installed_objects_here()))
+        # L'EMPRISE de chaque objet, pas seulement son ancrage : un plan de
+        # construction couvre quatre cases, et le decor doit s'ecarter des
+        # quatre.
+        blocked_grid = tuple(sorted(state.installed_cells_here()))
         # Arbres abattus : leur cellule reste vide dans le decor.
         removed_grid = tuple(sorted(state.chopped_here()))
         # Les cases VOISINES apparaissent a l'horizon, et lesquelles depend

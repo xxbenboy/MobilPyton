@@ -52,6 +52,15 @@ _HARVEST_FLOOR = 0.18
 # grille et se decalent les unes des autres.
 _PLAT_PROFONDEUR = 0.55
 
+# Retrait du marquage d'une EMPRISE vers l'interieur de ses cases, en fraction
+# de case. Pris pile au bord, deux emprises voisines se toucheraient et leurs
+# cordes se liraient comme une seule cloture traversant le terrain.
+_EMPRISE_RETRAIT = 0.14
+
+# Retrecissement du bord du FOND par rapport a celui de devant. C'est la seule
+# part de perspective qu'on garde pour ces formes : celle qui se lit.
+_EMPRISE_FUITE = 0.82
+
 # Taille des flammes selon l'etat du feu (voir game_state.FIRE_LEVELS).
 # "braise" = plus de flamme du tout, seules les braises rougeoient.
 _FLAME_SCALE = {"grand": 1.00, "moyen": 0.66, "petit": 0.36, "braise": 0.0}
@@ -300,7 +309,10 @@ class ZoneScenery(Widget):
                             o[4] if len(o) > 4 else "grand")
                            for o in (installed or [])]
         if blocked_grid is None:
-            blocked_grid = [(gx, gy) for _n, gx, gy, _l, _v in self._installed]
+            # L'EMPRISE, pas seulement l'ancrage : un plan de construction
+            # couvre quatre cases, et le decor doit s'ecarter des quatre.
+            blocked_grid = [c for n, gx, gy, _l, _v in self._installed
+                            for c in items.footprint_cells(n, gx, gy)]
         self._blocked_grid = set((int(g[0]), int(g[1]))
                                  for g in (blocked_grid or []))
         self._removed_grid = set((int(g[0]), int(g[1]))
@@ -409,42 +421,90 @@ class ZoneScenery(Widget):
             cx = x0 + fx * w
             cy = y0 + fy * h
             s = size * w
-            # Ces deux formes sont posees A PLAT et s'etendent de part et
-            # d'autre de leur centre : leur bord PROCHE descend d'une demi-
-            # profondeur sous (cx, cy). C'est la qu'elles touchent le sol, donc
-            # c'est la leur cle de tri -- sans quoi elles passeraient pour plus
-            # lointaines qu'elles ne paraissent, et l'herbe situee derriere se
-            # dessinerait par-dessus (meme piege que les buissons).
             if name == "Feu_de_camp":
+                # Pose A PLAT et etale de part et d'autre de son centre : son
+                # bord PROCHE descend d'une demi-profondeur sous (cx, cy).
+                # C'est la qu'il touche le sol, donc c'est la sa cle de tri --
+                # sans quoi il passerait pour plus lointain qu'il ne parait, et
+                # l'herbe situee derriere se dessinerait par-dessus (meme piege
+                # que les buissons).
                 out.append((cy - s * _PLAT_PROFONDEUR / 2.0,
                             lambda cx=cx, cy=cy, s=s, lit=lit,
                             lv=level: self._fire_pit(cx, cy, s, lit, lv)))
             elif name == items.BLUEPRINT_T1:
-                out.append((cy - s * _PLAT_PROFONDEUR / 2.0,
-                            lambda cx=cx, cy=cy, s=s: self._blueprint(cx, cy, s)))
+                coins = self._emprise_coins(name, gx, gy)
+                out.append((min(c[1] for c in coins),
+                            lambda c=coins: self._blueprint(c)))
         return out
 
-    def _blueprint(self, cx, cy, w):
+    def _emprise_coins(self, name, gx, gy):
+        """Les quatre coins ECRAN de l'emprise au sol d'un objet pose.
+
+        Un objet qui couvre plusieurs cases ne peut pas etre dessine a partir
+        d'un centre et d'une taille : la perspective retrecit chaque rangee, et
+        sa rangee du fond est plus etroite que celle de devant. On projette
+        donc les coins eux-memes, aux DEMI-cases qui bordent l'emprise.
+
+        Rendus dans l'ordre : devant-gauche, devant-droite, fond-droite,
+        fond-gauche -- le sens du tour de corde.
+
+        LA FORME SUIT LA CONVENTION DU FOYER, et pas la geometrie vraie. La
+        grille est en realite tres ecrasee -- une case fait environ trois fois
+        plus large que profonde -- et le foyer ne la respecte pas : il est
+        dessine comme un disque aplati a 0,55, donc bien plus rond que sa case.
+        Un plan dessine, lui, avec les vrais coins projetes ressortait deux
+        fois plus plat que le foyer d'a cote, et penche de surcroit, la grille
+        convergeant vers le centre de l'ecran. Cela se lisait comme une cloture
+        de travers.
+
+        On garde donc de la perspective ce qui se LIT -- le bord du fond plus
+        etroit que celui de devant -- et on laisse le reste, qui ne se lit pas
+        et jure avec le decor."""
+        fw, fh = items.footprint(name)
+        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        # RETRAIT vers l'interieur. Pris exactement au bord des cases, le
+        # marquage touchait ses voisins et se lisait comme une cloture qui
+        # traverse le terrain. Un chantier est balise A L'INTERIEUR de son
+        # emprise -- comme le foyer, qui n'occupe pas toute sa case non plus.
+        m = _EMPRISE_RETRAIT
+        cgx = gx + (fw - 1) / 2.0            # colonne du milieu de l'emprise
+        cgy = gy + (fh - 1) / 2.0            # rangee du milieu
+        fx_c, fy_c, taille = grid_to_screen(cgx, cgy)
+        cx, cy = x0 + fx_c * w, y0 + fy_c * h
+        # Largeur : celle du foyer pour UNE case, multipliee par l'emprise.
+        large = taille * w * (fw - 2.0 * m)
+        # Profondeur : le meme aplatissement que le foyer, a l'echelle de
+        # l'emprise. Un carre de cases reste donc un carre aplati, pas une
+        # bande.
+        prof = taille * w * _PLAT_PROFONDEUR * (fh - 2.0 * m)
+        y_av, y_ar = cy - prof / 2.0, cy + prof / 2.0
+        av, ar = large / 2.0, large / 2.0 * _EMPRISE_FUITE
+        return [(cx - av, y_av), (cx + av, y_av),
+                (cx + ar, y_ar), (cx - ar, y_ar)]
+
+    def _blueprint(self, coins):
         """Plan de construction : quatre piquets relies par une corde.
 
         C'est un CHANTIER MARQUE AU SOL, pas un objet pose dessus : il ne doit
         rien cacher, seulement dire "ici". D'ou des piquets courts et une corde
         fine -- on doit pouvoir voir le sol a travers.
 
-        Le carre est dessine en TRAPEZE, le bord du fond plus etroit que celui
-        de devant. Un carre parfait, vu du sol, se lirait comme un panneau
-        dresse a la verticale plutot que comme une emprise posee par terre."""
-        h = w * _PLAT_PROFONDEUR
-        av, ar = w * 0.44, w * 0.36         # demi-largeurs devant / au fond
-        y_av, y_ar = cy - h / 2.0, cy + h / 2.0
+        `coins` vient de _emprise_coins : les quatre angles de l'emprise, deja
+        mis en perspective. Le quadrilatere est donc plus etroit au fond qu'au
+        devant, sans qu'on ait a le truquer -- un carre parfait, vu depuis le
+        sol, se lirait comme un panneau dresse a la verticale."""
+        (x_ag, y_ag), (x_ad, y_ad), (x_fd, y_fd), (x_fg, y_fg) = coins
+        # Reference de taille : la largeur du bord PROCHE. Tout le reste en
+        # decoule, donc un plan pose au loin s'amenuise de lui-meme.
+        w = max(1.0, x_ad - x_ag)
         # LES PIQUETS SONT COURTS, et c'est ce qui fait tout. Hauts, la corde
         # s'eloignait du sol et l'ensemble se lisait comme un filet dresse
         # entre quatre poteaux -- un but de football. Bas, la corde epouse le
         # quadrilatere pose par terre, et l'oeil lit une EMPRISE. Un jalon de
         # chantier arrive au genou, pas a l'epaule.
         # Ceux du fond sont un peu plus courts : ils sont plus loin.
-        pieux = ((cx - av, y_av, w * 0.15), (cx + av, y_av, w * 0.15),
-                 (cx + ar, y_ar, w * 0.115), (cx - ar, y_ar, w * 0.115))
+        pieux = ((x_ag, y_ag, w * 0.15), (x_ad, y_ad, w * 0.15),
+                 (x_fd, y_fd, w * 0.115), (x_fg, y_fg, w * 0.115))
 
         # Pas d'ombre portee d'ensemble : quatre piquets fins n'en projettent
         # pas. Une tache sous le carre se lisait comme une fosse creusee.
@@ -466,10 +526,16 @@ class ZoneScenery(Widget):
 
         for px, py, ht in pieux:
             ep = max(1.2, w * 0.022)
+            # Le trait part LEGEREMENT AU-DESSUS du sol : son embout arrondi
+            # deborde de la moitie de son epaisseur, et sans ce decalage le
+            # piquet s'enfoncerait de quelques pixels sous le point ou il est
+            # cense toucher terre -- donc sous sa propre cle de tri, ce qui
+            # laissait passer une touffe d'herbe par-dessus.
+            bas = py + ep * 0.68
             Color(0.30, 0.21, 0.13, 1)                    # cote a l'ombre
-            Line(points=[px, py, px, py + ht], width=ep * 1.35)
+            Line(points=[px, bas, px, py + ht], width=ep * 1.35)
             Color(0.46, 0.33, 0.19, 1)                    # bois eclaire
-            Line(points=[px - ep * 0.3, py, px - ep * 0.3, py + ht], width=ep)
+            Line(points=[px - ep * 0.3, bas, px - ep * 0.3, py + ht], width=ep)
 
     def _fire_pit(self, cx, cy, w, lit=False, level="grand"):
         """Foyer de pierres vu en angle (cercle aplati + anneau de pierres).

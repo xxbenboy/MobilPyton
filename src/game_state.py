@@ -1273,25 +1273,52 @@ class GameState:
             self.current_zone(),
             world.scene_seed(self.player_x, self.player_y))
 
+    # Case ou se tient le joueur dans la grille 5x5 : rien ne s'y pose.
+    PLAYER_CELL = (2, 0)
+
+    def installed_cells_here(self):
+        """{case: objet} pour TOUTES les cases occupees par un objet pose.
+
+        Un objet occupe son EMPRISE, pas seulement sa case d'ancrage (un plan
+        de construction en prend quatre). Cette table est la seule facon
+        correcte de demander "qu'y a-t-il sur cette case ?"."""
+        out = {}
+        for obj in self.installed_objects_here():
+            for cell in items.footprint_cells(obj[0], obj[1], obj[2]):
+                out[cell] = obj
+        return out
+
+    def can_install(self, name, gx, gy):
+        """L'objet `name` peut-il etre ancre en (gx, gy) ?
+
+        UNE SEULE REGLE, partagee par la pose et par l'apercu qui l'annonce.
+        Si l'ecran comptait ses cases de son cote, il finirait par eclairer en
+        vert un emplacement que la pose refuse."""
+        if name not in items.INSTALLABLE_ITEMS:
+            return False
+        occupees = self.installed_cells_here()
+        nature = self.nature_cells_here()
+        for cell in items.footprint_cells(name, gx, gy):
+            if not (0 <= cell[0] < 5 and 0 <= cell[1] < 5):
+                return False          # deborde de la grille
+            if cell == self.PLAYER_CELL:
+                return False          # on ne pose rien sous ses propres pieds
+            if cell in nature:
+                return False          # arbre, buisson, rocher
+            if cell in occupees:
+                return False          # deja pris par un objet pose
+        return True
+
     def install_from_hand(self, index, gx, gy):
-        """Installe l'objet tenu dans la main donnee sur la case courante a
-        la position grille (gx, gy). Echoue si la main est vide, si l'objet
-        n'est pas installable, ou si la position est deja prise (par un objet
-        installe OU par un gros element du decor : arbre, buisson, rocher)."""
+        """Installe l'objet tenu dans la main donnee sur la case courante, a
+        l'ancrage (gx, gy). Echoue si la main est vide, si l'objet n'est pas
+        installable, ou si son EMPRISE ne tient pas la (voir can_install)."""
         if index not in (0, 1):
             return False
         name = self.hands[index]
-        if name is None or name not in items.INSTALLABLE_ITEMS:
+        if name is None or not self.can_install(name, gx, gy):
             return False
-        # Refuse une case occupee par la nature (arbre, buisson, rocher).
-        if (int(gx), int(gy)) in self.nature_cells_here():
-            return False
-        key = self._cell_key()
-        lst = self.installed.setdefault(key, [])
-        # Refuse une position deja occupee.
-        for obj in lst:
-            if int(obj[1]) == int(gx) and int(obj[2]) == int(gy):
-                return False
+        lst = self.installed.setdefault(self._cell_key(), [])
         lst.append((name, int(gx), int(gy)))
         self.set_hand(index, None)
         if name == "Feu_de_camp":
