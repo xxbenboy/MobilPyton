@@ -346,6 +346,14 @@ def relief_buche(t, creux=0.34, courbure=0.62):
     return creux + (1.0 - creux) * rond ** courbure
 
 
+# En combien de tranches on decoupe une buche dans sa largeur. Huit suffisent
+# -- en dessous, la buche a des facettes ; au-dela, on paie des quadrilateres
+# qu'on ne distingue plus. Ce nombre est ici, et pas dans un ecran, parce que
+# le chantier et la scene du jeu montrent LE MEME plancher : deux decoupages
+# differents se seraient vus au passage de l'un a l'autre.
+TRANCHES_BUCHE = 8
+
+
 def relief_tranche(t0, t1, **kw):
     """L'eclairement d'une TRANCHE de buche prise entre t0 et t1.
 
@@ -355,6 +363,52 @@ def relief_tranche(t0, t1, **kw):
     jusqu'au creux et la rainure disparaissait. Une buche galbee de 0.87 a
     1.00 n'est pas une buche, c'est une planche."""
     return (relief_buche(t0, **kw) + relief_buche(t1, **kw)) / 2.0
+
+
+def buches_du_plancher(batis):
+    """Les bandes de buches d'un ensemble bati, ou None s'il n'y a pas de sol.
+
+    `batis` peut etre {cube: piece} ou une liste de (x, y, z, piece) : c'est
+    la meme question posee par le chantier et par la scene du jeu, et elle ne
+    doit avoir qu'une reponse -- deux planchers differents pour un meme sol se
+    verraient au passage de l'un a l'autre."""
+    paires = (batis.items() if hasattr(batis, "items")
+              else ((c[:3], c[3]) for c in batis))
+    sols = [c for c, p in paires if p == "sol" and etape_de(c[2]) == 0]
+    return bandes_buches(sols) if sols else None
+
+
+def tranches_buches(cube, bandes, n_tranches=TRANCHES_BUCHE):
+    """Le dessus d'un cube de plancher, decoupe en tranches de buches.
+
+    Rend (axe, [(l0, l1, s0, s1, relief), ...]) : `l` court dans le sens des
+    buches, `s` en travers, et `relief` dit l'eclairement de la tranche. Il ne
+    reste au dessinateur qu'a projeter les quatre coins -- ce qu'il fait a sa
+    facon, le chantier par sa projection et la scene du jeu par son emprise.
+
+    ON NE REND QUE CE QUI TRAVERSE CE CUBE : les bandes viennent du plancher
+    ENTIER, chaque cube n'en montre que son morceau, et rien n'est trace en
+    travers du joint. Une buche passe donc d'un cube au suivant sans couture,
+    ce qui est bien ce qu'on attend de buches collees bout a bout."""
+    axe, bornes = bandes
+    x, y, _z = cube
+    (l0, l1), (c0, c1) = (((x, x + 1), (y, y + 1)) if axe == 0
+                          else ((y, y + 1), (x, x + 1)))
+    out = []
+    for i in range(len(bornes) - 1):
+        w0, w1 = bornes[i], bornes[i + 1]
+        debut, fin = max(w0, c0), min(w1, c1)
+        if fin - debut <= 1e-9:
+            continue              # cette buche ne passe pas par ce cube
+        large = w1 - w0
+        for k in range(n_tranches):
+            s0 = debut + (fin - debut) * k / n_tranches
+            s1 = debut + (fin - debut) * (k + 1) / n_tranches
+            # La position est prise EN TRAVERS DE LA BUCHE, pas du morceau :
+            # une buche coupee par un bord de cube garde son galbe entier.
+            out.append((l0, l1, s0, s1,
+                        relief_tranche((s0 - w0) / large, (s1 - w0) / large)))
+    return axe, out
 
 
 def coin_haut_droit(cube, boite, cx, cy, taille, tour, inclinaison):

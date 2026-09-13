@@ -550,15 +550,31 @@ class ZoneScenery(Widget):
             ((1, 0, 0), ((1, 0, 0), (1, 1, 0), (1, 1, 1), (1, 0, 1)), 0.52),
         )
 
+        # LES BUCHES DU PLANCHER, calculees sur le sol ENTIER. C'est la meme
+        # fonction que le chantier : on voit ici la maison qu'on vient d'y
+        # batir, et un plancher qui changerait de buches en sortant du menu
+        # dirait que ce n'est pas la meme.
+        bandes = build_grid.buches_du_plancher(bati)
+
         # Du plus LOIN au plus proche, et du bas vers le haut : dans une vue
         # rasante, ce qui est devant et ce qui est haut recouvre le reste.
         for (x, y, z, piece) in sorted(bati,
                                        key=lambda c: (-c[1], c[2], c[0])):
             r, g, b = items.build_part_color(piece)
             bas, sommet = build_grid.z_bas(z), build_grid.z_haut(z)
+            plancher = (bandes is not None and piece == "sol"
+                        and build_grid.etape_de(z) == 0)
             for (dx, dy, dz), sommets, ombre in FACES:
                 if (x + dx, y + dy, z + dz) in pleins:
                     continue                    # cachee par un voisin
+                if plancher and dz == 1:
+                    # LE DESSUS DU PLANCHER porte ses buches, comme dans le
+                    # chantier. Ni arete de cube ici : elle couperait les
+                    # buches en travers, alors qu'elles sont justement collees
+                    # d'un bout a l'autre.
+                    self._buches_plates(coin, (x, y, z), bandes,
+                                        (r, g, b), ombre, sommet)
+                    continue
                 pts = []
                 for sx, sy, sz in sommets:
                     px, py = coin(x + sx, y + sy, sommet if sz else bas)
@@ -572,6 +588,25 @@ class ZoneScenery(Widget):
                 # pieces : c'est le quadrillage qui le dit.
                 Color(r * 0.22, g * 0.22, b * 0.22, 0.85)
                 Line(points=pts + pts[:2], width=1.0)
+
+    @staticmethod
+    def _buches_plates(coin, cube, bandes, couleur, ombre, hz):
+        """Le dessus d'un cube de plancher, en morceaux de buches.
+
+        `coin` est celui de _batiment : il plaque la grille du chantier sur
+        l'emprise au sol du plan, donc les buches fuient vers le fond comme
+        tout le reste, sans qu'il y ait de perspective a refaire ici."""
+        r, g, b = couleur
+        axe, tranches = build_grid.tranches_buches(cube, bandes)
+        for l0, l1, s0, s1, relief in tranches:
+            f = ombre * relief
+            pts = []
+            for l, s in ((l0, s0), (l1, s0), (l1, s1), (l0, s1)):
+                gx, gy = (l, s) if axe == 0 else (s, l)
+                px, py = coin(gx, gy, hz)
+                pts += [px, py]
+            Color(min(1.0, r * f), min(1.0, g * f), min(1.0, b * f), 1)
+            Quad(points=pts)
 
     def _blueprint(self, coins):
         """Plan de construction : quatre piquets relies par une corde.

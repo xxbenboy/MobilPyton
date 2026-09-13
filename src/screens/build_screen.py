@@ -109,13 +109,6 @@ CUBE_EDGE_MUET = (1.0, 1.0, 1.0, 0.16)
 # d'elles-memes, alors qu'un aplat d'une seule couleur serait une tache.
 PIECE_PLEIN_ALPHA = 0.98
 
-# LE PLANCHER : un sol finalise n'est plus un damier de dalles, ce sont des
-# BUCHES collees bord a bord. Chacune est dessinee en tranches dans le sens de
-# sa largeur, du sombre au clair puis au sombre : c'est ce degrade qui lui
-# donne son galbe rond. Huit tranches suffisent -- en dessous, la buche a des
-# facettes ; au-dela, on paie des quadrilateres qu'on ne distingue plus.
-BUCHE_TRANCHES = 8
-
 # La croix de retrait, posee au coin haut droit d'un cube bati.
 CROIX_FOND = (0.12, 0.08, 0.06, 0.80)
 CROIX = (1.00, 0.62, 0.55, 1.0)
@@ -242,9 +235,7 @@ class _Volume(Widget):
         plancher -- et un plancher, ce sont des buches, pas des cases."""
         if self.etape <= 0:
             return None
-        sols = [c for c, p in self.batis.items()
-                if p == "sol" and build_grid.etape_de(c[2]) == 0]
-        return build_grid.bandes_buches(sols) if sols else None
+        return build_grid.buches_du_plancher(self.batis)
 
     def _cube(self, cube, args, ouvert, plein):
         piece = self.batis.get(cube)
@@ -296,43 +287,22 @@ class _Volume(Widget):
     def _buches_du_dessus(self, cube, args, couleur, eclat):
         """Le dessus d'un cube de plancher, en morceaux de buches.
 
-        On ne dessine que ce qui TRAVERSE ce cube -- les bandes viennent du
-        plancher entier. Aucune couture n'est tracee dans le sens de la
-        longueur : une buche passe donc d'un cube au suivant sans qu'on voie
-        le joint, ce qui est bien ce qu'on attend de buches collees bout a
-        bout. En travers, c'est le relief qui separe : chaque buche s'eteint
-        sur ses flancs, et la rainure se creuse d'elle-meme entre deux
-        voisines."""
-        axe, bornes = self._bandes
+        Le decoupage vient de build_grid : la scene du jeu montre le MEME
+        plancher, avec sa propre projection, et deux decoupages differents se
+        seraient vus au passage de l'un a l'autre."""
         r, g, b = couleur
-        x, y, z = cube
-        haut = build_grid.z_haut(z)
-        # `l` court dans le sens des buches, `s` en travers.
-        (l0, l1), (c0, c1) = (((x, x + 1), (y, y + 1)) if axe == 0
-                              else ((y, y + 1), (x, x + 1)))
-
-        def coin(l, s):
-            gx, gy = (l, s) if axe == 0 else (s, l)
-            p = build_grid.project(gx, gy, haut, *args)
-            return p[0], p[1]
-
-        for i in range(len(bornes) - 1):
-            w0, w1 = bornes[i], bornes[i + 1]
-            debut, fin = max(w0, c0), min(w1, c1)
-            if fin - debut <= 1e-9:
-                continue          # cette buche ne passe pas par ce cube
-            for k in range(BUCHE_TRANCHES):
-                s0 = debut + (fin - debut) * k / BUCHE_TRANCHES
-                s1 = debut + (fin - debut) * (k + 1) / BUCHE_TRANCHES
-                # La position EN TRAVERS DE LA BUCHE, pas du morceau : une
-                # buche coupee par un bord de cube garde son galbe entier.
-                large = w1 - w0
-                f = eclat * build_grid.relief_tranche((s0 - w0) / large,
-                                                      (s1 - w0) / large)
-                Color(min(1.0, r * f), min(1.0, g * f), min(1.0, b * f),
-                      PIECE_PLEIN_ALPHA)
-                self._quad([coin(l0, s0), coin(l1, s0),
-                            coin(l1, s1), coin(l0, s1)])
+        haut = build_grid.z_haut(cube[2])
+        axe, tranches = build_grid.tranches_buches(cube, self._bandes)
+        for l0, l1, s0, s1, relief in tranches:
+            f = eclat * relief
+            pts = []
+            for l, s in ((l0, s0), (l1, s0), (l1, s1), (l0, s1)):
+                gx, gy = (l, s) if axe == 0 else (s, l)
+                p = build_grid.project(gx, gy, haut, *args)
+                pts.append((p[0], p[1]))
+            Color(min(1.0, r * f), min(1.0, g * f), min(1.0, b * f),
+                  PIECE_PLEIN_ALPHA)
+            self._quad(pts)
 
     def _croix_de_retrait(self, args, taille):
         """Une croix au coin HAUT DROIT de chaque cube bati de l'etage.
