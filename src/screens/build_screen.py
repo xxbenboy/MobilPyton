@@ -66,6 +66,7 @@ from src.widgets.responsive import scale_font
 from src.widgets.item_icon import ItemIcon
 from src.widgets.panels import panel
 from src.widgets import build_grid
+from src.widgets import log_skin
 from src.widgets.drag_drop import TAP_SLOP
 
 # Les cubes. Le remplissage est TRES pale : il donne le volume sans rien
@@ -108,6 +109,31 @@ CUBE_EDGE_MUET = (1.0, 1.0, 1.0, 0.16)
 # eclairees) : une face eclairee et sa voisine dans l'ombre se separent
 # d'elles-memes, alors qu'un aplat d'une seule couleur serait une tache.
 PIECE_PLEIN_ALPHA = 0.98
+
+# LES QUATRE COTES d'un cube : le voisin de ce cote, la normale sortante, et
+# les deux coins de la face au sol. Le tableau des faces de build_grid ne
+# suffit pas ici : le plancher a besoin de savoir OU est son voisin, et ses
+# cotes ne montent pas jusqu'en haut du cube.
+_COTES = (((-1, 0), (-1, 0, 0), ((0, 0), (0, 1))),
+          ((1, 0), (1, 0, 0), ((1, 0), (1, 1))),
+          ((0, -1), (0, -1, 0), ((0, 0), (1, 0))),
+          ((0, 1), (0, 1, 0), ((0, 1), (1, 1))))
+
+# Combien on garde de NOTRE eclairage quand la texture est la. L'image de
+# l'objet porte deja son propre modele -- elle a ete dessinee ronde -- et lui
+# appliquer le notre en entier noircissait les flancs deux fois.
+ECLAT_BUCHE = 0.55
+
+# Ce qui reste de lumiere au FOND DE LA RAINURE entre deux buches. Peu : c'est
+# un creux, et c'est cette ombre-la qui detache les rondins les uns des
+# autres.
+CREUX_BUCHE = 0.42
+
+# La tranche de la tuile d'ecorce prise pour l'ASSISE, sous les buches. Une
+# bande etroite, et non la tuile entiere : l'assise est basse, et y etaler
+# toute la hauteur du fut aurait donne un grain deux fois plus gros que celui
+# des buches juste au-dessus -- deux bois differents dans une meme piece.
+V_ASSISE = (0.25, 0.58)
 
 # La croix de retrait, posee au coin haut droit d'un cube bati.
 CROIX_FOND = (0.12, 0.08, 0.06, 0.80)
@@ -243,16 +269,12 @@ class _Volume(Widget):
         if piece is not None and plein and not vise:
             # ETAGE CLOS : couleur seule, opaque, SANS AUCUNE ARETE. Le relief
             # vient de l'ombre portee sur chaque face -- voir PIECE_PLEIN_ALPHA.
+            if (piece == "sol" and self._bandes is not None
+                    and build_grid.etape_de(cube[2]) == 0):
+                self._plancher(cube, args)
+                return
             r, g, b = items.build_part_color(piece)
-            plancher = (piece == "sol" and self._bandes is not None
-                        and build_grid.etape_de(cube[2]) == 0)
-            for pts, f, normale in build_grid.cube_faces_orientees(cube, *args):
-                if plancher and normale == (0, 0, 1):
-                    # LE DESSUS D'UN PLANCHER porte ses buches. Les cotes, non :
-                    # ce qu'on y verrait, c'est la tranche du plancher, et elle
-                    # est pleine.
-                    self._buches_du_dessus(cube, args, (r, g, b), f)
-                    continue
+            for pts, f, _n in build_grid.cube_faces_orientees(cube, *args):
                 Color(r * f, g * f, b * f, PIECE_PLEIN_ALPHA)
                 self._quad(pts)
             return
@@ -284,25 +306,175 @@ class _Volume(Widget):
         for (p1, p2) in build_grid.cube_aretes(cube, *args):
             Line(points=[p1[0], p1[1], p2[0], p2[1]], width=ep)
 
-    def _buches_du_dessus(self, cube, args, couleur, eclat):
-        """Le dessus d'un cube de plancher, en morceaux de buches.
+    def _plancher(self, cube, args):
+        """Un cube de plancher : des BUCHES, pas une dalle.
 
-        Le decoupage vient de build_grid : la scene du jeu montre le MEME
-        plancher, avec sa propre projection, et deux decoupages differents se
-        seraient vus au passage de l'un a l'autre."""
-        r, g, b = couleur
-        haut = build_grid.z_haut(cube[2])
+        Trois choses, et chacune a sa raison d'etre :
+
+        - LA SURFACE, en tranches suivant l'arc d'une buche. Elle porte
+          l'ecorce de l'objet du jeu, qui se repete le long des buches sans
+          couture, et son eclairement vient de la VRAIE normale du rond --
+          c'est pourquoi le galbe tourne avec le volume au lieu d'etre peint
+          dessus ;
+
+        - LES BOUTS, la ou le plancher s'arrete en travers des buches : les
+          cernes du rondin scie. C'est ce detail-la, plus que la couleur, qui
+          fait reconnaitre une buche ;
+
+        - L'ASSISE, la tranche de dalle sous les buches, sur les cotes qui
+          suivent leur longueur. Elle s'arrete a l'EPAULE, la ou deux buches
+          se rejoignent : plus haut, il n'y a plus de dalle, il y a du rond.
+
+        Les faces qui ont un voisin de plancher ne sont pas dessinees du
+        tout : elles sont entre deux buches d'une meme piece, il n'y a rien a
+        y montrer."""
+        x, y, z = cube
+        axe, _bornes = self._bandes
+        fond = build_grid.z_bas(z)
+        crete = build_grid.z_haut(z)
+        rayon = build_grid.rayon_buche(self._bandes,
+                                       build_grid.hauteur_niveau(z))
+        epaule = crete - rayon
+        ecorce, bout = log_skin.ecorce(), log_skin.bout()
+
+        def p(gx, gy, gz):
+            q = build_grid.project(gx, gy, gz, *args)
+            return q[0], q[1]
+
+        # -- les quatre cotes ------------------------------------------- #
+        for (dx, dy), normale, (a, b) in _COTES:
+            if self.batis.get((x + dx, y + dy, z)) == "sol":
+                continue                    # entre deux buches : rien a voir
+            if not build_grid.face_vue(normale, self.tour, self.inclinaison):
+                continue
+            f = build_grid.eclairement(normale, self.tour, self.inclinaison)
+            # L'ASSISE, sur les quatre cotes : la tranche de dalle sous les
+            # buches, jusqu'a l'EPAULE -- la ou deux buches se rejoignent.
+            # Plus haut, il n'y a plus de dalle, il y a du rond.
+            #
+            # Le grain suit la MEME echelle que sur les buches : une assise
+            # dont la texture serait etiree sur toute la tuile trahirait que
+            # ce n'est pas le meme bois.
+            (ax, ay), (bx, by) = a, b
+            u0 = (y if normale[0] else x) / log_skin.MOTIF
+            u1 = u0 + 1.0 / log_skin.MOTIF
+            self._peau(ecorce, f, [p(x + ax, y + ay, fond),
+                                   p(x + bx, y + by, fond),
+                                   p(x + bx, y + by, epaule),
+                                   p(x + ax, y + ay, epaule)],
+                       [(u0, V_ASSISE[1]), (u1, V_ASSISE[1]),
+                        (u1, V_ASSISE[0]), (u0, V_ASSISE[0])])
+            if (normale[0] != 0) if axe == 0 else (normale[1] != 0):
+                self._bouts(cube, args, rayon, fond - crete, dx, dy, f, bout)
+
+        # -- le dessous, quand on regarde d'en bas ----------------------- #
+        if build_grid.face_vue((0, 0, -1), self.tour, self.inclinaison):
+            f = build_grid.eclairement((0, 0, -1), self.tour, self.inclinaison)
+            # MEME ECHELLE DE GRAIN qu'ailleurs. Etaler la tuile entiere sur
+            # chaque case donnait a chaque case le galbe d'une buche entiere :
+            # vu d'en dessous, le plancher paraissait fait de rondins alors
+            # qu'on regardait sa dalle.
+            u0, u1 = x / log_skin.MOTIF, (x + 1) / log_skin.MOTIF
+            v0, v1 = V_ASSISE
+            self._peau(ecorce, f, [p(x, y, fond), p(x + 1, y, fond),
+                                   p(x + 1, y + 1, fond), p(x, y + 1, fond)],
+                       [(u0, v0), (u1, v0), (u1, v1), (u0, v1)])
+
+        # -- la surface des buches --------------------------------------- #
+        # VU DE DESSOUS, ON NE LA VOIT PAS DU TOUT : les buches reposent sur
+        # l'assise, et c'est elle qu'on a devant les yeux. Le flanc d'une
+        # buche est vertical, donc il restait "face a la camera" meme d'en
+        # bas -- et le plancher se dessinait par-dessus son propre dessous.
+        if not build_grid.face_vue((0, 0, 1), self.tour, self.inclinaison):
+            return
         axe, tranches = build_grid.tranches_buches(cube, self._bandes)
-        for l0, l1, s0, s1, relief in tranches:
-            f = eclat * relief
-            pts = []
-            for l, s in ((l0, s0), (l1, s0), (l1, s1), (l0, s1)):
+        for l0, l1, s0, s1, t0, t1, _w0, _w1 in tranches:
+            normale = build_grid.normale_buche((t0 + t1) / 2.0, axe)
+            # La surface est CONVEXE : une tranche qui se detourne de la
+            # camera est forcement cachee par la crete. On l'ecarte donc,
+            # exactement comme une face arriere de cube -- et c'est ce qui
+            # fait qu'en regardant le plancher par en dessous on voit son
+            # assise, et non ses buches a l'envers.
+            if not build_grid.face_vue(normale, self.tour, self.inclinaison):
+                continue
+            f = build_grid.eclairement(normale, self.tour, self.inclinaison)
+            h0 = crete - rayon * build_grid.creux_buche(t0)
+            h1 = crete - rayon * build_grid.creux_buche(t1)
+            coins, uv = [], []
+            for l, s, t, h in ((l0, s0, t0, h0), (l1, s0, t0, h0),
+                               (l1, s1, t1, h1), (l0, s1, t1, h1)):
                 gx, gy = (l, s) if axe == 0 else (s, l)
-                p = build_grid.project(gx, gy, haut, *args)
-                pts.append((p[0], p[1]))
-            Color(min(1.0, r * f), min(1.0, g * f), min(1.0, b * f),
-                  PIECE_PLEIN_ALPHA)
-            self._quad(pts)
+                coins.append(p(gx, gy, h))
+                uv.append((l / log_skin.MOTIF, t))
+            self._peau(ecorce, f, coins, uv)
+
+    def _bouts(self, cube, args, rayon, fond, dx, dy, eclat, tex):
+        """Les bouts de buche d'une face en travers du plancher."""
+        x, y, z = cube
+        crete = build_grid.z_haut(z)
+        # La face touchee : celle du cube du cote ou l'on regarde.
+        bord = (x + (1 if dx > 0 else 0)) if dx else (y + (1 if dy > 0 else 0))
+        # LE FOND DE LA RAINURE, d'abord. Deux bouts ronds voisins se touchent
+        # en un point : au-dessus d'eux reste une encoche en V, et sans rien
+        # derriere on voyait le decor au travers. Ce qu'on devrait y voir,
+        # c'est le creux entre deux buches -- donc du bois, et dans l'ombre.
+        #
+        # Elle ne couvre que la HAUTEUR DES RONDS : plus bas c'est l'assise,
+        # deja dessinee, et l'assombrir sur toute la hauteur donnait au
+        # plancher l'air d'etre pose sur une ombre.
+        epaule = crete - rayon
+        c0, c1 = (y, y + 1) if dx else (x, x + 1)
+        u0, u1 = c0 / log_skin.MOTIF, c1 / log_skin.MOTIF
+        self._peau(log_skin.ecorce(), eclat * CREUX_BUCHE, [
+            self._p(args, *self._grille(dx, bord, c0), epaule),
+            self._p(args, *self._grille(dx, bord, c1), epaule),
+            self._p(args, *self._grille(dx, bord, c1), crete),
+            self._p(args, *self._grille(dx, bord, c0), crete)],
+            [(u0, 0.9), (u1, 0.9), (u1, 0.1), (u0, 0.1)])
+        for w0, w1, t0, t1 in build_grid.buches_du_cube(cube, self._bandes):
+            coins, uv = [], []
+            for s, dz in build_grid.contour_bout(w0, w1, rayon, fond, t0, t1):
+                coins.append(self._p(args, *self._grille(dx, bord, s),
+                                     crete + dz))
+                uv.append(build_grid.uv_bout(s, dz, w0, w1, rayon))
+            self._peau(tex, eclat, coins, uv, eventail=True)
+
+    @staticmethod
+    def _grille(dx, bord, s):
+        """(gx, gy) d'un point d'une face en travers, selon son orientation."""
+        return (bord, s) if dx else (s, bord)
+
+    @staticmethod
+    def _p(args, gx, gy, gz):
+        q = build_grid.project(gx, gy, gz, *args)
+        return q[0], q[1]
+
+    @staticmethod
+    def _peau(tex, eclat, coins, uv, eventail=False):
+        """Un polygone habille de bois : la texture si on l'a, sinon la
+        couleur du bois.
+
+        L'ECLAIREMENT EST ADOUCI quand il y a une texture. L'image de l'objet
+        porte deja son propre modele -- elle a ete dessinee ronde -- et lui
+        appliquer le notre par-dessus noircissait les flancs deux fois. On n'en
+        garde que ce qu'il faut pour que la lumiere REPONDE quand on tourne le
+        volume."""
+        f = (1.0 - ECLAT_BUCHE * (1.0 - eclat)) if tex is not None else eclat
+        if tex is not None:
+            Color(f, f, f, PIECE_PLEIN_ALPHA)
+        else:
+            r, g, b = log_skin.BOIS
+            Color(r * f, g * f, b * f, PIECE_PLEIN_ALPHA)
+        verts = []
+        for (px, py), (u, v) in zip(coins, uv):
+            verts += [px, py, u, v]
+        if eventail:
+            indices = list(range(len(coins)))
+            mode = "triangle_fan"
+        else:
+            indices = [0, 1, 2, 0, 2, 3]
+            mode = "triangles"
+        Mesh(vertices=verts, indices=indices, mode=mode, texture=tex)
 
     def _croix_de_retrait(self, args, taille):
         """Une croix au coin HAUT DROIT de chaque cube bati de l'etage.

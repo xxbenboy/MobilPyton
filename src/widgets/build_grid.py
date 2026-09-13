@@ -335,15 +335,80 @@ def bandes_buches(cubes, largeur_visee=LARGEUR_BUCHE):
     return axe, tuple(a + i * pas for i in range(n + 1))
 
 
-def relief_buche(t, creux=0.34, courbure=0.62):
-    """L'eclairement d'un point EN TRAVERS d'une buche, t allant de 0 a 1.
+# EPAISSEUR D'UNE BUCHE, en fraction de la hauteur du niveau. Une buche est
+# ronde et se pose DANS la dalle : son rayon ne peut donc pas depasser ce que
+# la dalle a d'epaisseur, sinon elle passerait au travers. Ce qui reste de
+# dalle sous les buches est leur assise -- c'est ce qu'on voit en tranche au
+# bord du plancher.
+EPAISSEUR_BUCHE = 0.72
 
-    Une buche est ronde : elle est vive sur sa crete et s'eteint sur ses deux
-    flancs. Deux buches voisines s'eteignant chacune de son cote, la rainure
-    qui les separe se creuse d'elle-meme -- il n'y a pas de trait a tracer."""
-    t = min(1.0, max(0.0, t))
-    rond = max(0.0, 1.0 - (2.0 * t - 1.0) ** 2) ** 0.5
-    return creux + (1.0 - creux) * rond ** courbure
+
+def rayon_buche(bandes, hauteur=1.0):
+    """Le rayon d'une buche, en unites de cube.
+
+    C'est la moitie de sa largeur -- une buche est ronde, pas ovale -- sauf
+    quand la dalle est trop mince pour la contenir."""
+    _axe, bornes = bandes
+    if len(bornes) < 2:
+        return 0.0
+    return min((bornes[1] - bornes[0]) / 2.0, hauteur * EPAISSEUR_BUCHE)
+
+
+def creux_buche(t):
+    """De combien la surface d'une buche descend sous sa crete, en rayons.
+
+    0 sur la crete, 1 sur chacun de ses deux flancs. C'est un arc de CERCLE,
+    et non une courbe choisie pour l'oeil : c'est ce qui fait que deux buches
+    voisines se rejoignent exactement, et que le bout d'une buche est un vrai
+    rond."""
+    return 1.0 - max(0.0, 1.0 - (2.0 * t - 1.0) ** 2) ** 0.5
+
+
+def normale_buche(t, axe):
+    """La normale de la surface d'une buche, dans le repere du volume.
+
+    Verticale sur la crete, horizontale sur les flancs. C'est elle qui porte
+    l'eclairage : une buche n'est pas plus sombre sur ses bords parce qu'on
+    l'a decide, mais parce qu'elle s'y detourne de la lumiere -- et elle
+    change donc quand on fait tourner le volume."""
+    s = 2.0 * t - 1.0
+    c = max(0.0, 1.0 - s * s) ** 0.5
+    return (0.0, s, c) if axe == 0 else (s, 0.0, c)
+
+
+def contour_bout(w0, w1, rayon, fond, t0=0.0, t1=1.0, n=10):
+    """Le BOUT d'une buche, vu en tranche : [(s, dz), ...] tout autour.
+
+    `s` court en travers de la buche, `dz` se compte SOUS LA CRETE (donc
+    negatif), et `fond` dit ou s'arrete l'assise de la dalle. La forme est un
+    demi-rond pose sur un rectangle : c'est exactement ce qu'on verrait en
+    sciant un plancher de rondins a moitie noyes dans leur dalle.
+
+    (t0, t1) permet de n'en prendre qu'un MORCEAU. Une buche est plus large
+    qu'une case : son bout deborde donc sur la face du cube voisin, et sans
+    cette coupe il depasserait la ou le plancher s'arrete.
+
+    Le contour reste convexe, donc il se remplit d'un simple eventail."""
+    large = w1 - w0
+
+    def point(t):
+        return w0 + large * t, -rayon * creux_buche(t)
+
+    arc = [point(t1 + (t0 - t1) * k / n) for k in range(n + 1)]
+    return [(w0 + large * t0, fond), (w0 + large * t1, fond)] + arc
+
+
+def uv_bout(s, dz, w0, w1, rayon):
+    """Ou tombe un point du bout dans l'image des cernes, en (u, v).
+
+    Le centre des cernes est l'AXE de la buche : au milieu de sa largeur, et
+    un rayon sous sa crete."""
+    if rayon <= 0:
+        return 0.5, 0.5
+    milieu = (w0 + w1) / 2.0
+    u = 0.5 + (s - milieu) / (2.0 * rayon)
+    v = 0.5 + (dz + rayon) / (2.0 * rayon)
+    return min(1.0, max(0.0, u)), min(1.0, max(0.0, v))
 
 
 # En combien de tranches on decoupe une buche dans sa largeur. Huit suffisent
@@ -351,18 +416,7 @@ def relief_buche(t, creux=0.34, courbure=0.62):
 # qu'on ne distingue plus. Ce nombre est ici, et pas dans un ecran, parce que
 # le chantier et la scene du jeu montrent LE MEME plancher : deux decoupages
 # differents se seraient vus au passage de l'un a l'autre.
-TRANCHES_BUCHE = 8
-
-
-def relief_tranche(t0, t1, **kw):
-    """L'eclairement d'une TRANCHE de buche prise entre t0 et t1.
-
-    On prend la moyenne des deux bords, et non le milieu. Le milieu paraissait
-    l'evidence, et c'est ce qui aplatissait tout : la tranche du bord a son
-    milieu bien a l'interieur de la buche, donc elle ne descendait jamais
-    jusqu'au creux et la rainure disparaissait. Une buche galbee de 0.87 a
-    1.00 n'est pas une buche, c'est une planche."""
-    return (relief_buche(t0, **kw) + relief_buche(t1, **kw)) / 2.0
+TRANCHES_BUCHE = 6
 
 
 def buches_du_plancher(batis):
@@ -381,10 +435,13 @@ def buches_du_plancher(batis):
 def tranches_buches(cube, bandes, n_tranches=TRANCHES_BUCHE):
     """Le dessus d'un cube de plancher, decoupe en tranches de buches.
 
-    Rend (axe, [(l0, l1, s0, s1, relief), ...]) : `l` court dans le sens des
-    buches, `s` en travers, et `relief` dit l'eclairement de la tranche. Il ne
-    reste au dessinateur qu'a projeter les quatre coins -- ce qu'il fait a sa
-    facon, le chantier par sa projection et la scene du jeu par son emprise.
+    Rend (axe, [(l0, l1, s0, s1, t0, t1, w0, w1), ...]) : `l` court dans le
+    sens des buches, `s` en travers, et `t` dit OU L'ON EN EST EN TRAVERS DE
+    LA BUCHE (0 et 1 sur ses flancs, 0.5 sur sa crete) -- c'est de la que
+    viennent la hauteur, la normale et la texture. (w0, w1) rappelle les bords
+    de la buche entiere, pour son bout. Il ne reste au dessinateur qu'a
+    projeter les coins -- ce qu'il fait a sa facon, le chantier par sa
+    projection et la scene du jeu par son emprise.
 
     ON NE REND QUE CE QUI TRAVERSE CE CUBE : les bandes viennent du plancher
     ENTIER, chaque cube n'en montre que son morceau, et rien n'est trace en
@@ -407,8 +464,28 @@ def tranches_buches(cube, bandes, n_tranches=TRANCHES_BUCHE):
             # La position est prise EN TRAVERS DE LA BUCHE, pas du morceau :
             # une buche coupee par un bord de cube garde son galbe entier.
             out.append((l0, l1, s0, s1,
-                        relief_tranche((s0 - w0) / large, (s1 - w0) / large)))
+                        (s0 - w0) / large, (s1 - w0) / large, w0, w1))
     return axe, out
+
+
+def buches_du_cube(cube, bandes):
+    """Les buches qui traversent ce cube : [(w0, w1, t0, t1), ...].
+
+    (w0, w1) sont les bords de la buche ENTIERE -- son bout est un rond
+    entier, il ne se decoupe pas en tranches comme sa surface -- et (t0, t1)
+    disent quelle part de ce rond tombe sur ce cube."""
+    axe, bornes = bandes
+    x, y, _z = cube
+    c0, c1 = (y, y + 1) if axe == 0 else (x, x + 1)
+    out = []
+    for i in range(len(bornes) - 1):
+        w0, w1 = bornes[i], bornes[i + 1]
+        debut, fin = max(w0, c0), min(w1, c1)
+        if fin - debut <= 1e-9:
+            continue
+        large = w1 - w0
+        out.append((w0, w1, (debut - w0) / large, (fin - w0) / large))
+    return out
 
 
 def coin_haut_droit(cube, boite, cx, cy, taille, tour, inclinaison):
