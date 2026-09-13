@@ -236,6 +236,39 @@ _LUMIERE = (-0.35, -0.55, 0.76)
 _AMBIANTE = 0.42
 
 
+def face_vue(normale, tour, inclinaison):
+    """Cette orientation de face regarde-t-elle la camera ?
+
+    Le seuil n'est pas de la prudence numerique gratuite. PILE dans l'axe, une
+    face est vue par la TRANCHE : son aire a l'ecran est nulle, et le signe de
+    sa normale ne tient plus qu'au signe du zero en virgule flottante. Elle
+    serait donc retenue ou non selon l'humeur du calcul, sans rien changer a
+    l'image."""
+    return tourne(normale, tour, inclinaison)[1] <= -1e-9
+
+
+def eclairement(normale, tour, inclinaison):
+    """Ce qu'une face recoit de lumiere, entre _AMBIANTE et 1."""
+    n = tourne(normale, tour, inclinaison)
+    return _AMBIANTE + (1.0 - _AMBIANTE) * max(
+        0.0, sum(a * b for a, b in zip(n, _LUMIERE)))
+
+
+def cube_faces_orientees(cube, boite, cx, cy, taille, tour, inclinaison):
+    """Les faces vues d'un cube : polygone, eclairement, ET NORMALE.
+
+    La normale sert a celui qui veut traiter une face a part -- le dessus d'un
+    plancher, qui porte ses buches, et non les cotes."""
+    c = _coins(cube, boite, cx, cy, taille, tour, inclinaison)
+    out = []
+    for indices, normale in _FACES:
+        if not face_vue(normale, tour, inclinaison):
+            continue
+        out.append(([(c[i][0], c[i][1]) for i in indices],
+                    eclairement(normale, tour, inclinaison), normale))
+    return out
+
+
 def cube_faces_eclairees(cube, boite, cx, cy, taille, tour, inclinaison):
     """Les faces vues d'un cube, CHACUNE AVEC SON ECLAIREMENT.
 
@@ -244,29 +277,84 @@ def cube_faces_eclairees(cube, boite, cx, cy, taille, tour, inclinaison):
     volume disparait. Les aretes suffisaient tant que les cubes etaient
     transparents ; des qu'ils deviennent pleins, c'est l'ombre qui doit dire
     ou une face s'arrete et ou la suivante commence."""
-    c = _coins(cube, boite, cx, cy, taille, tour, inclinaison)
-    out = []
-    for indices, normale in _FACES:
-        # Le seuil n'est pas de la prudence numerique gratuite. PILE dans
-        # l'axe, une face est vue par la TRANCHE : son aire a l'ecran est
-        # nulle, et le signe de sa normale ne tient plus qu'au signe du zero
-        # en virgule flottante. Elle serait donc retenue ou non selon
-        # l'humeur du calcul, sans rien changer a l'image.
-        n = tourne(normale, tour, inclinaison)
-        if n[1] > -1e-9:
-            continue
-        eclat = sum(a * b for a, b in zip(n, _LUMIERE))
-        facteur = _AMBIANTE + (1.0 - _AMBIANTE) * max(0.0, eclat)
-        out.append(([(c[i][0], c[i][1]) for i in indices], facteur))
-    return out
+    return [(pts, f) for pts, f, _n in cube_faces_orientees(
+        cube, boite, cx, cy, taille, tour, inclinaison)]
 
 
 def cube_faces_vues(cube, boite, cx, cy, taille, tour, inclinaison):
     """Les faces d'un cube qui REGARDENT la camera, en polygones ecran.
 
     Les autres sont dans le dos : les remplir n'ajouterait que du voile."""
-    return [pts for pts, _f in cube_faces_eclairees(
+    return [pts for pts, _f, _n in cube_faces_orientees(
         cube, boite, cx, cy, taille, tour, inclinaison)]
+
+
+# --------------------------------------------------------------------- #
+# LE PLANCHER EST FAIT DE BUCHES
+# --------------------------------------------------------------------- #
+# Diametre VISE d'une buche, en cubes. Vise seulement : la largeur reelle est
+# celle du plancher divisee par un nombre entier de buches, donc elle depend
+# de ce que le joueur a construit et tombe rarement pile dessus. C'est
+# justement ce qu'on veut -- des buches qui ne s'alignent pas sur le
+# quadrillage des cubes, sans quoi le plancher redeviendrait une grille.
+LARGEUR_BUCHE = 1.4
+
+
+def bandes_buches(cubes, largeur_visee=LARGEUR_BUCHE):
+    """Le sens des buches d'un plancher et les limites de leurs bandes.
+
+    Rend (axe, bornes) :
+        axe     0 si les buches courent selon x -- et se rangent donc selon
+                y ; 1 dans l'autre sens ;
+        bornes  les n+1 limites des bandes, sur l'axe PERPENDICULAIRE, en
+                coordonnees de grille.
+
+    ELLES COURENT DANS LA LONGUEUR. Un plancher plus long que large se couvre
+    de buches posees dans le sens long : c'est comme cela qu'on plancheie, et
+    c'est aussi ce qui demande le moins de bois. On les colle bord a bord, et
+    RIEN NE LES COUPE en travers : une buche traverse le plancher d'un bout a
+    l'autre, meme si elle passe sur dix cubes.
+
+    LEUR LARGEUR VIENT DE CELLE DU PLANCHER. Elle vaut la largeur divisee par
+    un nombre entier de buches, si bien qu'elles remplissent toujours
+    EXACTEMENT le plancher -- sans chute a la derniere ni bande a moitie vide.
+    On arrondit ce nombre PAR EXCES : une buche peut toujours etre plus mince
+    que le diametre vise, jamais plus grosse. Un plancher de deux cases de
+    large recoit donc deux buches d'une case, et non une seule enorme."""
+    if not cubes:
+        return 0, ()
+    xs = [c[0] for c in cubes]
+    ys = [c[1] for c in cubes]
+    x0, x1 = min(xs), max(xs) + 1
+    y0, y1 = min(ys), max(ys) + 1
+    axe = 0 if (x1 - x0) >= (y1 - y0) else 1
+    a, b = (y0, y1) if axe == 0 else (x0, x1)
+    largeur = float(b - a)
+    n = max(1, int(math.ceil(largeur / float(largeur_visee) - 1e-9)))
+    pas = largeur / n
+    return axe, tuple(a + i * pas for i in range(n + 1))
+
+
+def relief_buche(t, creux=0.34, courbure=0.62):
+    """L'eclairement d'un point EN TRAVERS d'une buche, t allant de 0 a 1.
+
+    Une buche est ronde : elle est vive sur sa crete et s'eteint sur ses deux
+    flancs. Deux buches voisines s'eteignant chacune de son cote, la rainure
+    qui les separe se creuse d'elle-meme -- il n'y a pas de trait a tracer."""
+    t = min(1.0, max(0.0, t))
+    rond = max(0.0, 1.0 - (2.0 * t - 1.0) ** 2) ** 0.5
+    return creux + (1.0 - creux) * rond ** courbure
+
+
+def relief_tranche(t0, t1, **kw):
+    """L'eclairement d'une TRANCHE de buche prise entre t0 et t1.
+
+    On prend la moyenne des deux bords, et non le milieu. Le milieu paraissait
+    l'evidence, et c'est ce qui aplatissait tout : la tranche du bord a son
+    milieu bien a l'interieur de la buche, donc elle ne descendait jamais
+    jusqu'au creux et la rainure disparaissait. Une buche galbee de 0.87 a
+    1.00 n'est pas une buche, c'est une planche."""
+    return (relief_buche(t0, **kw) + relief_buche(t1, **kw)) / 2.0
 
 
 def coin_haut_droit(cube, boite, cx, cy, taille, tour, inclinaison):

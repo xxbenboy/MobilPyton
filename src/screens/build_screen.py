@@ -109,6 +109,13 @@ CUBE_EDGE_MUET = (1.0, 1.0, 1.0, 0.16)
 # d'elles-memes, alors qu'un aplat d'une seule couleur serait une tache.
 PIECE_PLEIN_ALPHA = 0.98
 
+# LE PLANCHER : un sol finalise n'est plus un damier de dalles, ce sont des
+# BUCHES collees bord a bord. Chacune est dessinee en tranches dans le sens de
+# sa largeur, du sombre au clair puis au sombre : c'est ce degrade qui lui
+# donne son galbe rond. Huit tranches suffisent -- en dessous, la buche a des
+# facettes ; au-dela, on paie des quadrilateres qu'on ne distingue plus.
+BUCHE_TRANCHES = 8
+
 # La croix de retrait, posee au coin haut droit d'un cube bati.
 CROIX_FOND = (0.12, 0.08, 0.06, 0.80)
 CROIX = (1.00, 0.62, 0.55, 1.0)
@@ -132,6 +139,7 @@ class _Volume(Widget):
         self.apercu_ok = False
         self.retrait = False     # mode retrait : des croix sur le bati
         self._croix = []         # [(cube, x, y, rayon)] pour viser les croix
+        self._bandes = None      # (axe, bornes) des buches du plancher
         self.bind(pos=self._redraw, size=self._redraw)
 
     # -- ce qui est montre et ce qui repond ----------------------------- #
@@ -198,6 +206,11 @@ class _Volume(Widget):
         montres = self.visibles()
         ouverts = set(self.utilisables())
         fini = self.etape >= build_grid.TERMINE
+        # LES BUCHES DU PLANCHER, calculees une fois pour tout le sol : leur
+        # largeur vient de celle du plancher ENTIER, pas du cube qu'on dessine.
+        # Chaque cube n'en montre ensuite que le morceau qui le traverse, si
+        # bien qu'une buche court d'un bout a l'autre sans couture.
+        self._bandes = self._buches()
         with self.canvas:
             for cube in build_grid.ordre_dessin(montres, boite, self.tour,
                                                 self.inclinaison):
@@ -220,6 +233,19 @@ class _Volume(Widget):
             if self.retrait:
                 self._croix_de_retrait(args, taille)
 
+    def _buches(self):
+        """Les bandes de buches du plancher, ou None s'il n'y a pas lieu.
+
+        RIEN AVANT LA CONFIRMATION DE L'ETAGE. Tant qu'on pose ses dalles, un
+        sol est un projet : il se montre en verre, cube par cube, et on doit
+        pouvoir compter ses cases. C'est en le finalisant qu'il devient un
+        plancher -- et un plancher, ce sont des buches, pas des cases."""
+        if self.etape <= 0:
+            return None
+        sols = [c for c, p in self.batis.items()
+                if p == "sol" and build_grid.etape_de(c[2]) == 0]
+        return build_grid.bandes_buches(sols) if sols else None
+
     def _cube(self, cube, args, ouvert, plein):
         piece = self.batis.get(cube)
         vise = (cube == self.apercu)
@@ -227,7 +253,15 @@ class _Volume(Widget):
             # ETAGE CLOS : couleur seule, opaque, SANS AUCUNE ARETE. Le relief
             # vient de l'ombre portee sur chaque face -- voir PIECE_PLEIN_ALPHA.
             r, g, b = items.build_part_color(piece)
-            for pts, f in build_grid.cube_faces_eclairees(cube, *args):
+            plancher = (piece == "sol" and self._bandes is not None
+                        and build_grid.etape_de(cube[2]) == 0)
+            for pts, f, normale in build_grid.cube_faces_orientees(cube, *args):
+                if plancher and normale == (0, 0, 1):
+                    # LE DESSUS D'UN PLANCHER porte ses buches. Les cotes, non :
+                    # ce qu'on y verrait, c'est la tranche du plancher, et elle
+                    # est pleine.
+                    self._buches_du_dessus(cube, args, (r, g, b), f)
+                    continue
                 Color(r * f, g * f, b * f, PIECE_PLEIN_ALPHA)
                 self._quad(pts)
             return
@@ -258,6 +292,47 @@ class _Volume(Widget):
         Color(*bord)
         for (p1, p2) in build_grid.cube_aretes(cube, *args):
             Line(points=[p1[0], p1[1], p2[0], p2[1]], width=ep)
+
+    def _buches_du_dessus(self, cube, args, couleur, eclat):
+        """Le dessus d'un cube de plancher, en morceaux de buches.
+
+        On ne dessine que ce qui TRAVERSE ce cube -- les bandes viennent du
+        plancher entier. Aucune couture n'est tracee dans le sens de la
+        longueur : une buche passe donc d'un cube au suivant sans qu'on voie
+        le joint, ce qui est bien ce qu'on attend de buches collees bout a
+        bout. En travers, c'est le relief qui separe : chaque buche s'eteint
+        sur ses flancs, et la rainure se creuse d'elle-meme entre deux
+        voisines."""
+        axe, bornes = self._bandes
+        r, g, b = couleur
+        x, y, z = cube
+        haut = build_grid.z_haut(z)
+        # `l` court dans le sens des buches, `s` en travers.
+        (l0, l1), (c0, c1) = (((x, x + 1), (y, y + 1)) if axe == 0
+                              else ((y, y + 1), (x, x + 1)))
+
+        def coin(l, s):
+            gx, gy = (l, s) if axe == 0 else (s, l)
+            p = build_grid.project(gx, gy, haut, *args)
+            return p[0], p[1]
+
+        for i in range(len(bornes) - 1):
+            w0, w1 = bornes[i], bornes[i + 1]
+            debut, fin = max(w0, c0), min(w1, c1)
+            if fin - debut <= 1e-9:
+                continue          # cette buche ne passe pas par ce cube
+            for k in range(BUCHE_TRANCHES):
+                s0 = debut + (fin - debut) * k / BUCHE_TRANCHES
+                s1 = debut + (fin - debut) * (k + 1) / BUCHE_TRANCHES
+                # La position EN TRAVERS DE LA BUCHE, pas du morceau : une
+                # buche coupee par un bord de cube garde son galbe entier.
+                large = w1 - w0
+                f = eclat * build_grid.relief_tranche((s0 - w0) / large,
+                                                      (s1 - w0) / large)
+                Color(min(1.0, r * f), min(1.0, g * f), min(1.0, b * f),
+                      PIECE_PLEIN_ALPHA)
+                self._quad([coin(l0, s0), coin(l1, s0),
+                            coin(l1, s1), coin(l0, s1)])
 
     def _croix_de_retrait(self, args, taille):
         """Une croix au coin HAUT DROIT de chaque cube bati de l'etage.
@@ -622,6 +697,7 @@ class BuildScreen(Screen):
         App.get_running_app().autosave()
         apres = state.build_stage(gx, gy)
         self.volume.retrait = False
+        self._lache()
         self.hint.text = ("Chantier termine." if apres >= build_grid.TERMINE
                           else "Etage %d : %s."
                           % (apres + 1, build_grid.ETAPES[apres]))
@@ -638,9 +714,22 @@ class BuildScreen(Screen):
         App.get_running_app().autosave()
         etape = state.build_stage(gx, gy)
         self.volume.retrait = False
+        self._lache()
         self.hint.text = ("Etage defait. Retour a l'etage %d : %s."
                           % (etape + 1, build_grid.ETAPES[etape]))
         self._refresh(state)
+
+    def _lache(self):
+        """Repose la piece en main. On CHANGE D'ETAGE, donc de metier.
+
+        Une piece gardee en main d'un etage a l'autre etait un piege : un sol
+        reste choisi apres avoir finalise le sol se retrouve refuse par
+        l'etage des murs, et le joueur tape des cubes sans que rien ne se
+        passe. Pire, la piece que l'etage suivant attend est parfois LA MEME
+        -- les deux etages de murs -- si bien qu'on ne savait plus si l'on
+        tenait encore quelque chose ou non. Chaque etage se rouvre donc les
+        mains vides."""
+        self._piece = None
 
     def _sync_barre(self):
         """Met les boutons du bas en accord avec l'etage en cours."""
