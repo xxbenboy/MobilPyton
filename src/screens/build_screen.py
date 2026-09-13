@@ -19,6 +19,13 @@ TROIS ELEMENTS, et rien d'autre :
   vingt murs demande donc vingt-et-un touchers, contre vingt glissers d'un
   bout a l'autre de l'ecran.
 
+  CHAQUE PIECE EST UNE CATEGORIE : la choisir ouvre ses MODELES -- une piece,
+  quatre, ou neuf d'un coup. Neuf touchers pour couvrir un carre de trois sur
+  trois, c'etaient neuf occasions de viser a cote ; un seul suffit. Le modele
+  est CENTRE sur le cube vise, et ce qui deborderait de la grille est
+  simplement omis : viser le bord pose ce qui tient, au lieu de tout refuser.
+  Chaque cube pose coute son prix -- un modele n'est pas une remise.
+
   CHAQUE PIECE A SA COULEUR -- sol vert, mur jaune, toit rouge -- et c'est la
   seule facon de savoir, en regardant le volume, ce qu'on a mis ou. Trente
   cubes tous couleur bois ne se lisaient pas.
@@ -90,9 +97,17 @@ APERCU_NO_FILL = (1.00, 0.42, 0.35, 0.32)
 CUBE_FILL_MUET = (1.0, 1.0, 1.0, 0.02)
 CUBE_EDGE_MUET = (1.0, 1.0, 1.0, 0.16)
 
-# Un chantier TERMINE : les pieces deviennent pleines. Ce n'est plus un plan,
-# c'est une maison, et une maison n'est pas transparente.
-PIECE_PLEIN_ALPHA = 0.95
+# UNE PIECE D'UN ETAGE FINALISE devient PLEINE : couleur franche, sans arete.
+# Tant qu'on peut la retirer, elle reste un projet -- transparente, cerclee,
+# manipulable. Une fois l'etage clos elle est BATIE : la montrer encore en
+# verre laissait croire qu'on pouvait y revenir, et empilait quatre etages de
+# voiles qu'on ne pouvait plus lire. C'est aussi l'aspect qu'a le chantier
+# termine, et c'est voulu : on voit la maison se solidifier etage par etage.
+#
+# Sans arete, c'est L'OMBRE qui donne le relief (build_grid.cube_faces_-
+# eclairees) : une face eclairee et sa voisine dans l'ombre se separent
+# d'elles-memes, alors qu'un aplat d'une seule couleur serait une tache.
+PIECE_PLEIN_ALPHA = 0.98
 
 # La croix de retrait, posee au coin haut droit d'un cube bati.
 CROIX_FOND = (0.12, 0.08, 0.06, 0.80)
@@ -186,7 +201,10 @@ class _Volume(Widget):
         with self.canvas:
             for cube in build_grid.ordre_dessin(montres, boite, self.tour,
                                                 self.inclinaison):
-                self._cube(cube, args, cube in ouverts, fini)
+                # UNE PIECE EST PLEINE des que son etage est clos : on ne peut
+                # plus la retirer, ce n'est plus un projet.
+                plein = fini or build_grid.etape_de(cube[2]) < self.etape
+                self._cube(cube, args, cube in ouverts, plein)
             if not fini:
                 # LE CONTOUR DE L'ETAGE, dans toute son etendue -- pas
                 # seulement autour des cubes ouverts. Un etage a peine
@@ -202,9 +220,17 @@ class _Volume(Widget):
             if self.retrait:
                 self._croix_de_retrait(args, taille)
 
-    def _cube(self, cube, args, ouvert, fini):
+    def _cube(self, cube, args, ouvert, plein):
         piece = self.batis.get(cube)
         vise = (cube == self.apercu)
+        if piece is not None and plein and not vise:
+            # ETAGE CLOS : couleur seule, opaque, SANS AUCUNE ARETE. Le relief
+            # vient de l'ombre portee sur chaque face -- voir PIECE_PLEIN_ALPHA.
+            r, g, b = items.build_part_color(piece)
+            for pts, f in build_grid.cube_faces_eclairees(cube, *args):
+                Color(r * f, g * f, b * f, PIECE_PLEIN_ALPHA)
+                self._quad(pts)
+            return
         if vise:
             # LE CUBE VISE L'EMPORTE, meme s'il est deja bati : c'est
             # justement la qu'il faut voir le rouge.
@@ -212,10 +238,11 @@ class _Volume(Widget):
                               if self.apercu_ok
                               else (APERCU_NO_FILL, APERCU_NO, 2.2))
         elif piece is not None:
-            # Un chantier TERMINE ne montre plus que du bati, et en plein :
-            # ce n'est plus un plan, c'est une maison.
+            # Une piece de l'etage EN COURS : encore un projet, donc encore en
+            # verre -- on peut la retirer, et on doit voir a travers pour viser
+            # les cubes du fond.
             r, g, b = items.build_part_color(piece)
-            fond = (r, g, b, PIECE_PLEIN_ALPHA if fini else PIECE_ALPHA)
+            fond = (r, g, b, PIECE_ALPHA)
             e = PIECE_ARETE_ECLAT
             bord = (min(1.0, r * e), min(1.0, g * e), min(1.0, b * e), 0.95)
             ep = 2.2
@@ -319,11 +346,17 @@ class BuildScreen(Screen):
         self.arrow.bind(on_release=lambda *_: self._toggle_drawer())
         root.add_widget(self.arrow)
 
-        # LA PIECE CHOISIE, et le geste en cours sur le volume. Une piece
-        # reste choisie jusqu'a ce qu'on la retape ou qu'on en prenne une
+        # LA PIECE CHOISIE, SON MODELE, et le geste en cours sur le volume. Une
+        # piece reste choisie jusqu'a ce qu'on la retape ou qu'on en prenne une
         # autre : poser vingt murs demande vingt-et-un touchers, contre vingt
         # glissers d'un bout a l'autre de l'ecran.
+        #
+        # Le modele, lui, SURVIT au changement de piece : on choisit une facon
+        # de batir -- a l'unite ou par pans -- et on la garde d'un etage a
+        # l'autre. Le remettre a un a chaque fois obligerait a le rechoisir
+        # apres chaque piece.
         self._piece = None
+        self._modele = build_grid.MODELES[0]
         self._geste = None
 
         self.title = scale_font(Label(text="Chantier", bold=True,
@@ -412,10 +445,15 @@ class BuildScreen(Screen):
             if cube is not None:
                 self._retire(cube)
                 return True
-        # 3. Une PIECE : on la choisit, ou on la lache si c'etait deja elle.
-        piece = self._piece_sous(touch)
-        if piece is not None:
-            self._choisir(piece)
+        # 3. La colonne de droite : une PIECE, qu'on choisit ou qu'on lache si
+        #    c'etait deja elle, ou un MODELE de la piece en main.
+        btn = self._bouton_sous(touch)
+        if btn is not None:
+            modele = getattr(btn, "modele", None)
+            if modele is not None:
+                self._choisir_modele(modele)
+            else:
+                self._choisir(btn.piece)
             return True
         # 4. Le VOLUME : on retient d'ou part le doigt. La suite depend de ce
         #    qu'il fait -- bouger fait tourner, rester pose.
@@ -448,12 +486,20 @@ class BuildScreen(Screen):
             return True
         return super().on_touch_up(touch)
 
-    def _piece_sous(self, touch):
-        """La piece touchee dans la colonne de droite, ou None."""
-        for btn in self.parts_box.children:
-            piece = getattr(btn, "piece", None)
-            if piece is not None and btn.collide_point(*touch.pos):
-                return piece
+    def _bouton_sous(self, touch):
+        """Le bouton touche dans la colonne de droite, ou None.
+
+        On descend d'un niveau : les modeles vivent dans une rangee, donc pas
+        directement dans la colonne."""
+        for enfant in self.parts_box.children:
+            if not enfant.collide_point(*touch.pos):
+                continue
+            if getattr(enfant, "piece", None) is not None:
+                return enfant
+            for btn in enfant.children:
+                if (getattr(btn, "modele", None) is not None
+                        and btn.collide_point(*touch.pos)):
+                    return btn
         return None
 
     def _choisir(self, piece):
@@ -473,15 +519,29 @@ class BuildScreen(Screen):
             self._set_drawer(True)
             return
         self._piece = None if self._piece == piece else piece
-        if self._piece is None:
-            self.hint.text = ""
-        else:
-            self.hint.text = "%s en main : touche les cubes a batir." \
-                % items.BUILD_PART_NAMES.get(piece, piece)
+        self.hint.text = "" if self._piece is None else self._en_main()
+        # La colonne CHANGE DE FORME : les modeles de la piece prise
+        # apparaissent sous elle, ceux de la precedente disparaissent.
+        self._rebuild_parts(state)
+
+    def _choisir_modele(self, modele):
+        """Change le nombre de pieces posees d'un coup."""
+        self._modele = int(modele)
+        if self._piece is not None:
+            self.hint.text = self._en_main()
         self._sync_parts()
 
+    def _en_main(self):
+        """Ce que dit la ligne d'aide quand on tient une piece."""
+        nom = items.BUILD_PART_NAMES.get(self._piece, self._piece)
+        if self._modele > 1:
+            return "%s x%d en main : touche un cube, les voisins suivent." \
+                % (nom, self._modele)
+        return "%s en main : touche les cubes a batir." % nom
+
     def _poser(self, touch):
-        """Bati la piece choisie sur le cube touche."""
+        """Bati la piece choisie sur le cube touche, et sur ceux de son
+        modele."""
         if self._piece is None:
             return
         state = App.get_running_app().game_state
@@ -506,9 +566,29 @@ class BuildScreen(Screen):
             self._refresh(state)
             return
         _nom, gx, gy = self.blueprint
-        if state.build_piece(gx, gy, cube, self._piece):
-            App.get_running_app().autosave()
-            self._refresh(state)
+        # LE MODELE, filtre par ce qui est OUVERT : un cube deja bati ou sans
+        # appui ne se pose pas parce qu'un voisin, lui, se posait. Le modele
+        # est un raccourci de gestes, pas une derogation aux regles.
+        ouverts = set(self.volume.utilisables())
+        vises = [c for c in build_grid.cubes_modele(self._modele, cube,
+                                                    self.volume.volume)
+                 if c in ouverts]
+        poses = 0
+        for c in vises:
+            if not state.can_build():
+                break
+            if state.build_piece(gx, gy, c, self._piece):
+                poses += 1
+        if not poses:
+            return
+        App.get_running_app().autosave()
+        if poses < len(vises):
+            # La matiere a manque EN COURS de modele : le dire, sinon le joueur
+            # croit que la moitie de son carre s'est perdue en chemin.
+            self.hint.text = "Matiere epuisee : %d piece%s posee%s sur %d." % (
+                poses, "s" if poses > 1 else "", "s" if poses > 1 else "",
+                len(vises))
+        self._refresh(state)
 
     # ---------------- ETAPES ET RETRAIT -------------------------------- #
     def _toggle_retrait(self):
@@ -659,8 +739,15 @@ class BuildScreen(Screen):
             ligne.add_widget(lbl)
             self.drawer.add_widget(ligne)
 
-    def _rebuild_parts(self, state, nom):
-        """Les pieces, a droite. On en CHOISIT une, puis on tape des cubes."""
+    def _rebuild_parts(self, state, nom=None):
+        """Les pieces, a droite. On en CHOISIT une, puis on tape des cubes.
+
+        Chaque piece est une CATEGORIE : celle qu'on tient deploie sous elle
+        ses modeles -- une, quatre ou neuf pieces d'un coup. Les modeles des
+        autres restent replies : trois categories fois trois modeles feraient
+        neuf boutons dans une colonne, ou l'on ne trouverait plus rien."""
+        if nom is None:
+            nom = self.blueprint[0] if self.blueprint else None
         self.parts_box.clear_widgets()
         # Un chantier TERMINE n'offre plus rien a poser : la colonne dispa-
         # rait, au lieu de proposer des pieces qui n'iraient nulle part.
@@ -669,6 +756,7 @@ class BuildScreen(Screen):
             return
         self.parts_box.opacity = 1.0
         for piece in items.build_parts(nom):
+            r, g, b = items.build_part_color(piece)
             btn = scale_font(StyledButton(
                 text=items.BUILD_PART_NAMES.get(piece, piece)), 0.022)
             # `piece` est accroche au bouton : c'est ainsi que le toucher
@@ -676,9 +764,20 @@ class BuildScreen(Screen):
             btn.piece = piece
             # LE BOUTON PORTE LA COULEUR DE SA PIECE. C'est la seule facon de
             # savoir, en regardant le volume, quel cube vient de quel bouton.
-            r, g, b = items.build_part_color(piece)
             btn.background_color = (r, g, b, 1)
             self.parts_box.add_widget(btn)
+            if piece != self._piece:
+                continue
+            # LES MODELES DE LA PIECE EN MAIN, en rangee sous elle. Plus basse
+            # que la categorie : c'est un reglage de celle-ci, pas un frere.
+            rangee = BoxLayout(orientation="horizontal", spacing=dp(3),
+                               size_hint_y=0.62)
+            for n in build_grid.MODELES:
+                m = scale_font(StyledButton(text="x%d" % n), 0.019)
+                m.modele = n
+                m.background_color = (r * 0.72, g * 0.72, b * 0.72, 1)
+                rangee.add_widget(m)
+            self.parts_box.add_widget(rangee)
         self._sync_parts()
 
     def _sync_parts(self):
@@ -686,18 +785,25 @@ class BuildScreen(Screen):
         state = App.get_running_app().game_state
         attendue = build_grid.piece_de_etape(self.volume.etape)
         payable = state is not None and state.can_build()
-        for btn in self.parts_box.children:
-            piece = getattr(btn, "piece", None)
+        for enfant in self.parts_box.children:
+            piece = getattr(enfant, "piece", None)
+            if piece is None:
+                # La rangee de modeles : on y allume celui qui est actif.
+                for m in enfant.children:
+                    actif = getattr(m, "modele", None) == self._modele
+                    m.bold = actif
+                    m.opacity = 1.0 if actif else 0.55
+                continue
             bonne = piece == attendue
             # Une piece que l'etage n'attend pas reste VISIBLE mais eteinte :
             # savoir ce qu'on batira plus tard fait partie de ce que le
             # chantier doit dire. Elle n'est pas `disabled` -- un widget
             # desactive avalerait le toucher, et l'on ne pourrait plus
             # expliquer le refus ; c'est _choisir qui tranche.
-            btn.opacity = 1.0 if (bonne and payable) else 0.35
+            enfant.opacity = 1.0 if (bonne and payable) else 0.35
             # La piece EN MAIN se distingue de celle qui est simplement
             # disponible : sans cela, on ne sait plus si l'on tient quelque
             # chose, et taper un cube semble ne rien faire.
-            btn.bold = (piece == self._piece)
-            btn.text = (items.BUILD_PART_NAMES.get(piece, piece)
-                        + ("  ✓" if piece == self._piece else ""))
+            enfant.bold = (piece == self._piece)
+            enfant.text = (items.BUILD_PART_NAMES.get(piece, piece)
+                           + ("  ✓" if piece == self._piece else ""))

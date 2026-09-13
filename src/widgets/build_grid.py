@@ -60,6 +60,19 @@ ETAPES = ("sol", "bas des murs", "haut des murs", "toit")
 # distingue, pas la matiere. Un mur bas et un mur haut sont le meme mur.
 PIECE_PAR_ETAPE = ("sol", "mur", "mur", "toit")
 
+# HAUTEUR D'UNE PIECE, en unites de cube. Un sol et un toit sont des DALLES :
+# larges et minces. Un mur est un PAN : aussi large qu'une dalle, mais quatre
+# fois plus haut. C'est ce qui donne a l'abri sa hauteur -- deux etages de
+# murs font huit unites, de quoi tenir debout -- sans multiplier les etages.
+#
+# Un niveau de grille ne vaut donc plus une unite de hauteur mais celle de son
+# etage : toute la projection passe par z_bas et z_haut, jamais par z.
+HAUTEUR_ETAPE = (1.0, 4.0, 4.0, 1.0)
+
+# Les modeles de pose : combien de cubes d'un coup. Poser un mur de neuf cubes
+# case par case demandait neuf touchers et autant de chances de se tromper.
+MODELES = (1, 4, 9)
+
 # UN ETAGE = UN NIVEAU de cubes. C'est ce qui donne son sens a la regle du
 # chantier : tant qu'un etage n'est pas finalise, le niveau du dessus n'existe
 # pas encore a l'ecran. Avec deux niveaux par etage, le second s'ouvrait des
@@ -106,8 +119,9 @@ def volume_for(name):
 # BOITES
 # --------------------------------------------------------------------- #
 def boite_du_volume(volume):
-    """La boite qui contient tout le volume."""
-    return ((0, 0, 0), tuple(volume))
+    """La boite qui contient tout le volume, hauteurs d'etage comprises."""
+    nx, ny, nz = volume
+    return ((0, 0, 0), (nx, ny, z_haut(nz - 1)))
 
 
 def boite_des(cubes, volume):
@@ -119,9 +133,8 @@ def boite_des(cubes, volume):
         return boite_du_volume(volume)
     xs = [c[0] for c in cubes]
     ys = [c[1] for c in cubes]
-    zs = [c[2] for c in cubes]
-    return ((min(xs), min(ys), min(zs)),
-            (max(xs) + 1, max(ys) + 1, max(zs) + 1))
+    return ((min(xs), min(ys), min(z_bas(c[2]) for c in cubes)),
+            (max(xs) + 1, max(ys) + 1, max(z_haut(c[2]) for c in cubes)))
 
 
 def centre_boite(boite):
@@ -189,9 +202,15 @@ _ARETES = ((0, 1), (1, 2), (2, 3), (3, 0),
 
 
 def _coins(cube, boite, cx, cy, taille, tour, inclinaison):
+    """Les huit sommets d'un cube, en coordonnees ecran.
+
+    La coordonnee verticale passe par z_bas / z_haut, jamais par z : depuis
+    que les etages ont des epaisseurs differentes -- un pan de mur vaut quatre
+    dalles -- l'indice d'un niveau n'est plus sa hauteur."""
     x, y, z = cube
-    return [project(x + dx, y + dy, z + dz, boite, cx, cy, taille,
-                    tour, inclinaison)
+    bas, haut = z_bas(z), z_haut(z)
+    return [project(x + dx, y + dy, haut if dz else bas, boite, cx, cy,
+                    taille, tour, inclinaison)
             for dx, dy, dz in _SOMMETS]
 
 
@@ -201,10 +220,30 @@ def cube_aretes(cube, boite, cx, cy, taille, tour, inclinaison):
     return [((c[a][0], c[a][1]), (c[b][0], c[b][1])) for a, b in _ARETES]
 
 
-def cube_faces_vues(cube, boite, cx, cy, taille, tour, inclinaison):
-    """Les faces d'un cube qui REGARDENT la camera, en polygones ecran.
+# LA LUMIERE DU CHANTIER, dans le repere de l'ECRAN : elle tombe d'en haut,
+# un peu de face et un peu de la gauche. Elle est FIXE par rapport a l'ecran et
+# non au volume : c'est le volume qu'on tourne sous la lampe, pas la lampe
+# autour du volume, et une face qui passe de l'ombre a la lumiere pendant
+# qu'on pivote est justement ce qui donne son relief au geste.
+#
+# Rappel du repere tourne : x = abscisse ecran, z = ordonnee ecran, y =
+# profondeur vers le LOIN. Une lumiere qui vient de face a donc un y negatif.
+_LUMIERE = (-0.35, -0.55, 0.76)
 
-    Les autres sont dans le dos : les remplir n'ajouterait que du voile."""
+# Ce qui reste d'eclairement a une face qui tourne le dos a la lampe. Zero
+# donnerait des faces noires, et une maison n'a pas de face noire en plein
+# jour : le ciel eclaire aussi ce que le soleil manque.
+_AMBIANTE = 0.42
+
+
+def cube_faces_eclairees(cube, boite, cx, cy, taille, tour, inclinaison):
+    """Les faces vues d'un cube, CHACUNE AVEC SON ECLAIREMENT.
+
+    Rend [(polygone ecran, facteur)]. Le facteur sert a nuancer la couleur :
+    sans lui, un cube plein d'une seule couleur se lit comme une tache et le
+    volume disparait. Les aretes suffisaient tant que les cubes etaient
+    transparents ; des qu'ils deviennent pleins, c'est l'ombre qui doit dire
+    ou une face s'arrete et ou la suivante commence."""
     c = _coins(cube, boite, cx, cy, taille, tour, inclinaison)
     out = []
     for indices, normale in _FACES:
@@ -213,10 +252,21 @@ def cube_faces_vues(cube, boite, cx, cy, taille, tour, inclinaison):
         # nulle, et le signe de sa normale ne tient plus qu'au signe du zero
         # en virgule flottante. Elle serait donc retenue ou non selon
         # l'humeur du calcul, sans rien changer a l'image.
-        if tourne(normale, tour, inclinaison)[1] > -1e-9:
+        n = tourne(normale, tour, inclinaison)
+        if n[1] > -1e-9:
             continue
-        out.append([(c[i][0], c[i][1]) for i in indices])
+        eclat = sum(a * b for a, b in zip(n, _LUMIERE))
+        facteur = _AMBIANTE + (1.0 - _AMBIANTE) * max(0.0, eclat)
+        out.append(([(c[i][0], c[i][1]) for i in indices], facteur))
     return out
+
+
+def cube_faces_vues(cube, boite, cx, cy, taille, tour, inclinaison):
+    """Les faces d'un cube qui REGARDENT la camera, en polygones ecran.
+
+    Les autres sont dans le dos : les remplir n'ajouterait que du voile."""
+    return [pts for pts, _f in cube_faces_eclairees(
+        cube, boite, cx, cy, taille, tour, inclinaison)]
 
 
 def coin_haut_droit(cube, boite, cx, cy, taille, tour, inclinaison):
@@ -239,7 +289,8 @@ def ordre_dessin(cubes, boite, tour, inclinaison):
     mx, my, mz = centre_boite(boite)
 
     def prof(c):
-        return tourne((c[0] + 0.5 - mx, c[1] + 0.5 - my, c[2] + 0.5 - mz),
+        milieu_z = (z_bas(c[2]) + z_haut(c[2])) / 2.0
+        return tourne((c[0] + 0.5 - mx, c[1] + 0.5 - my, milieu_z - mz),
                       tour, inclinaison)[1]
 
     return sorted(cubes, key=prof, reverse=True)     # le plus loin d'abord
@@ -310,6 +361,52 @@ def piece_de_etape(etape):
     return None
 
 
+def hauteur_niveau(z):
+    """La hauteur d'un niveau, en unites de cube.
+
+    Elle depend de l'etage : une dalle vaut une unite, un pan de mur quatre.
+    Les niveaux au-dela des etages definis valent une unite -- ils sont en
+    reserve, rien n'y est encore batissable."""
+    e = etape_de(z)
+    return HAUTEUR_ETAPE[e] if 0 <= e < len(HAUTEUR_ETAPE) else 1.0
+
+
+def z_bas(z):
+    """La hauteur a laquelle COMMENCE un niveau, en unites de cube.
+
+    C'est la somme des hauteurs des niveaux du dessous : un niveau n'est plus
+    a la hauteur de son indice des lors que les etages ont des epaisseurs
+    differentes."""
+    return sum(hauteur_niveau(k) for k in range(int(z)))
+
+
+def z_haut(z):
+    """La hauteur a laquelle FINIT un niveau."""
+    return z_bas(z) + hauteur_niveau(z)
+
+
+def cubes_modele(nombre, cube, volume):
+    """Les cubes qu'un modele de `nombre` pieces couvre, ancre sur `cube`.
+
+    Les modeles sont carres -- 1, 2x2, 3x3 -- et CENTRES sur le cube vise
+    quand leur cote est impair. Un modele qui partirait toujours du coin
+    obligerait a viser a cote de ce qu'on veut couvrir.
+
+    Ceux qui deborderaient de la grille sont simplement omis : viser le bord
+    doit poser ce qui tient, et non tout refuser."""
+    cote = int(round(nombre ** 0.5))
+    depart = -((cote - 1) // 2)
+    nx, ny, _nz = volume
+    x, y, z = cube
+    out = []
+    for dx in range(cote):
+        for dy in range(cote):
+            cx, cy = x + depart + dx, y + depart + dy
+            if 0 <= cx < nx and 0 <= cy < ny:
+                out.append((cx, cy, z))
+    return out
+
+
 def cubes_utilisables(volume, etape, batis):
     """Les cubes ou l'on peut poser une piece a cette etape.
 
@@ -364,12 +461,15 @@ def boite_etage(volume, etape):
     C'est le CONTOUR qu'on trace : il montre jusqu'ou va l'etage, y compris
     la ou aucun cube n'est encore ouvert. Sans lui, un etage a peine commence
     se reduirait a deux ou trois cubes flottants et le joueur ne saurait plus
-    quelle surface il a le droit de couvrir."""
+    quelle surface il a le droit de couvrir.
+
+    Sa hauteur est celle de l'etage : quatre fois plus haute pour un etage de
+    murs que pour une dalle."""
     nx, ny, _nz = volume
     niveaux = niveaux_de(etape)
     if not niveaux:
         return boite_du_volume(volume)
-    return ((0, 0, min(niveaux)), (nx, ny, max(niveaux) + 1))
+    return ((0, 0, z_bas(min(niveaux))), (nx, ny, z_haut(max(niveaux))))
 
 
 def boite_cadre(volume, etape, batis):
@@ -380,14 +480,14 @@ def boite_cadre(volume, etape, batis):
     l'etendue de ce qui est montre grandit au fur et a mesure."""
     if etape >= TERMINE:
         return boite_des(sorted(batis), volume)
-    coins = [boite_etage(volume, etape)[0], boite_etage(volume, etape)[1]]
-    xs = [coins[0][0], coins[1][0]]
-    ys = [coins[0][1], coins[1][1]]
-    zs = [coins[0][2], coins[1][2]]
+    bas, haut = boite_etage(volume, etape)
+    xs = [bas[0], haut[0]]
+    ys = [bas[1], haut[1]]
+    zs = [bas[2], haut[2]]
     for c in batis:
         xs += [c[0], c[0] + 1]
         ys += [c[1], c[1] + 1]
-        zs += [c[2], c[2] + 1]
+        zs += [z_bas(c[2]), z_haut(c[2])]
     return ((min(xs), min(ys), min(zs)), (max(xs), max(ys), max(zs)))
 
 

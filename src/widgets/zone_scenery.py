@@ -516,20 +516,28 @@ class ZoneScenery(Widget):
         La hauteur d'un cube est prise sur la LARGEUR de l'emprise, pas sur sa
         profondeur : la profondeur est ecrasee par la vue rasante (elle ne fait
         que la moitie de la largeur), et s'en servir donnerait une maison
-        aplatie comme une galette."""
+        aplatie comme une galette.
+
+        UN NIVEAU N'EST PAS A LA HAUTEUR DE SON INDICE : un pan de mur vaut
+        quatre dalles. On passe donc par build_grid.z_bas / z_haut, les memes
+        que le chantier -- sinon la maison finie n'aurait pas la silhouette du
+        chantier qu'on vient de batir."""
         (x_ag, y_ag), (x_ad, y_ad), (x_fd, y_fd), (x_fg, y_fg) = coins
         nx, ny, _nz = build_grid.VOLUME_T1
         haut = (x_ad - x_ag) / float(nx) * _CUBE_HAUTEUR
         pleins = {(c[0], c[1], c[2]) for c in bati}
 
-        def coin(cx, cy, cz):
-            """Un sommet de la grille du chantier, en coordonnees ecran."""
+        def coin(cx, cy, hz):
+            """Un sommet de la grille du chantier, en coordonnees ecran.
+
+            `hz` est une hauteur CONTINUE en unites de cube, pas un indice de
+            niveau."""
             u, v = cx / float(nx), cy / float(ny)
             xg = x_ag + (x_fg - x_ag) * v
             yg = y_ag + (y_fg - y_ag) * v
             xd = x_ad + (x_fd - x_ad) * v
             yd = y_ad + (y_fd - y_ad) * v
-            return xg + (xd - xg) * u, yg + (yd - yg) * u + cz * haut
+            return xg + (xd - xg) * u, yg + (yd - yg) * u + hz * haut
 
         # Les faces d'un cube : le voisin qui la cache, puis ses quatre
         # sommets et son assombrissement. Pas de face du DESSOUS ni de face
@@ -547,12 +555,13 @@ class ZoneScenery(Widget):
         for (x, y, z, piece) in sorted(bati,
                                        key=lambda c: (-c[1], c[2], c[0])):
             r, g, b = items.build_part_color(piece)
+            bas, sommet = build_grid.z_bas(z), build_grid.z_haut(z)
             for (dx, dy, dz), sommets, ombre in FACES:
                 if (x + dx, y + dy, z + dz) in pleins:
                     continue                    # cachee par un voisin
                 pts = []
                 for sx, sy, sz in sommets:
-                    px, py = coin(x + sx, y + sy, z + sz)
+                    px, py = coin(x + sx, y + sy, sommet if sz else bas)
                     pts += [px, py]
                 Color(min(1.0, r * ombre), min(1.0, g * ombre),
                       min(1.0, b * ombre), 1)
