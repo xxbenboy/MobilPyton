@@ -335,79 +335,97 @@ def bandes_buches(cubes, largeur_visee=LARGEUR_BUCHE):
     return axe, tuple(a + i * pas for i in range(n + 1))
 
 
-# EPAISSEUR D'UNE BUCHE, en fraction de la hauteur du niveau. Une buche est
-# ronde et se pose DANS la dalle : son rayon ne peut donc pas depasser ce que
-# la dalle a d'epaisseur, sinon elle passerait au travers. Ce qui reste de
-# dalle sous les buches est leur assise -- c'est ce qu'on voit en tranche au
-# bord du plancher.
-EPAISSEUR_BUCHE = 0.72
+def demi_buche(bandes, hauteur=1.0):
+    """(demi-largeur, demi-hauteur) d'une buche, en unites de cube.
 
+    UNE BUCHE EST UN CYLINDRE ENTIER, pas un demi-rondin noye dans une dalle.
+    Elle etait a moitie enfoncee dans une dalle pleine : vu de dessous, le
+    plancher n'etait donc qu'une planche lisse -- les buches disparaissaient
+    des qu'on faisait basculer le chantier, et revenaient a l'horizontale. Un
+    plancher de rondins se voit des DEUX cotes.
 
-def rayon_buche(bandes, hauteur=1.0):
-    """Le rayon d'une buche, en unites de cube.
-
-    C'est la moitie de sa largeur -- une buche est ronde, pas ovale -- sauf
-    quand la dalle est trop mince pour la contenir."""
+    Elle remplit sa bande et toute l'epaisseur de l'etage, ce qui la rend
+    legerement OVALE. Parfaitement ronde, il aurait fallu choisir entre
+    laisser des fentes entre les buches et ne pas remplir la hauteur : or un
+    plancher ne doit ni etre troue ni flotter au-dessus du vide."""
     _axe, bornes = bandes
     if len(bornes) < 2:
-        return 0.0
-    return min((bornes[1] - bornes[0]) / 2.0, hauteur * EPAISSEUR_BUCHE)
+        return 0.0, 0.0
+    return (bornes[1] - bornes[0]) / 2.0, hauteur / 2.0
 
 
-def creux_buche(t):
-    """De combien la surface d'une buche descend sous sa crete, en rayons.
+def profil_buche(t):
+    """De combien la surface d'une buche s'ecarte de son axe, en demi-hauteurs.
 
-    0 sur la crete, 1 sur chacun de ses deux flancs. C'est un arc de CERCLE,
-    et non une courbe choisie pour l'oeil : c'est ce qui fait que deux buches
-    voisines se rejoignent exactement, et que le bout d'une buche est un vrai
-    rond."""
-    return 1.0 - max(0.0, 1.0 - (2.0 * t - 1.0) ** 2) ** 0.5
+    1 sur la crete (et sous le ventre), 0 sur chacun de ses deux flancs. C'est
+    un demi-cercle, et non une courbe choisie pour l'oeil : c'est ce qui fait
+    que deux buches voisines se rejoignent exactement, et que le bout d'une
+    buche est un vrai rond."""
+    return max(0.0, 1.0 - (2.0 * t - 1.0) ** 2) ** 0.5
 
 
-def normale_buche(t, axe):
+def normale_buche(t, axe, demi, dessous=False):
     """La normale de la surface d'une buche, dans le repere du volume.
 
     Verticale sur la crete, horizontale sur les flancs. C'est elle qui porte
     l'eclairage : une buche n'est pas plus sombre sur ses bords parce qu'on
     l'a decide, mais parce qu'elle s'y detourne de la lumiere -- et elle
-    change donc quand on fait tourner le volume."""
-    s = 2.0 * t - 1.0
-    c = max(0.0, 1.0 - s * s) ** 0.5
-    return (0.0, s, c) if axe == 0 else (s, 0.0, c)
+    change donc quand on fait tourner le volume.
+
+    SUR UN OVALE, LA NORMALE N'EST PAS LE RAYON. Elle suit le gradient de
+    l'ellipse, donc chaque composante est divisee par le demi-axe qui lui
+    correspond. Prendre le rayon aurait penche la lumiere du mauvais cote
+    partout sauf sur la crete et les flancs."""
+    rx, rz = demi
+    ns = (2.0 * t - 1.0) / rx if rx else 0.0
+    nz = profil_buche(t) / rz if rz else 0.0
+    if dessous:
+        nz = -nz
+    n = math.sqrt(ns * ns + nz * nz) or 1.0
+    ns, nz = ns / n, nz / n
+    return (0.0, ns, nz) if axe == 0 else (ns, 0.0, nz)
 
 
-def contour_bout(w0, w1, rayon, fond, t0=0.0, t1=1.0, n=10):
-    """Le BOUT d'une buche, vu en tranche : [(s, dz), ...] tout autour.
+def hauteur_buche(t, demi, dessous=False):
+    """A quelle hauteur passe la surface d'une buche, DEPUIS SON AXE."""
+    _rx, rz = demi
+    return (-1.0 if dessous else 1.0) * rz * profil_buche(t)
 
-    `s` court en travers de la buche, `dz` se compte SOUS LA CRETE (donc
-    negatif), et `fond` dit ou s'arrete l'assise de la dalle. La forme est un
-    demi-rond pose sur un rectangle : c'est exactement ce qu'on verrait en
-    sciant un plancher de rondins a moitie noyes dans leur dalle.
+
+def contour_bout(w0, w1, demi, t0=0.0, t1=1.0, n=10):
+    """Le BOUT d'une buche : le tour complet de son ovale, en [(s, dz)].
+
+    `s` court en travers de la buche et `dz` se compte DEPUIS SON AXE. C'est
+    ce qu'on verrait en sciant le plancher en travers : un rondin entier, et
+    non plus un demi-rond pose sur une dalle.
 
     (t0, t1) permet de n'en prendre qu'un MORCEAU. Une buche est plus large
     qu'une case : son bout deborde donc sur la face du cube voisin, et sans
-    cette coupe il depasserait la ou le plancher s'arrete.
+    cette coupe chaque case aurait redessine le rondin entier par-dessus celui
+    de sa voisine -- c'est ainsi que l'ecorce se retrouvait a recouvrir une
+    partie des cernes.
 
     Le contour reste convexe, donc il se remplit d'un simple eventail."""
     large = w1 - w0
 
-    def point(t):
-        return w0 + large * t, -rayon * creux_buche(t)
+    def point(t, dessous):
+        return w0 + large * t, hauteur_buche(t, demi, dessous)
 
-    arc = [point(t1 + (t0 - t1) * k / n) for k in range(n + 1)]
-    return [(w0 + large * t0, fond), (w0 + large * t1, fond)] + arc
+    haut = [point(t0 + (t1 - t0) * k / n, False) for k in range(n + 1)]
+    bas = [point(t0 + (t1 - t0) * k / n, True) for k in range(n, -1, -1)]
+    return haut + bas
 
 
-def uv_bout(s, dz, w0, w1, rayon):
+def uv_bout(s, dz, w0, w1, demi):
     """Ou tombe un point du bout dans l'image des cernes, en (u, v).
 
-    Le centre des cernes est l'AXE de la buche : au milieu de sa largeur, et
-    un rayon sous sa crete."""
-    if rayon <= 0:
+    Le centre des cernes est l'AXE de la buche : au milieu de sa largeur, et a
+    mi-hauteur de l'etage."""
+    rx, rz = demi
+    if rx <= 0 or rz <= 0:
         return 0.5, 0.5
-    milieu = (w0 + w1) / 2.0
-    u = 0.5 + (s - milieu) / (2.0 * rayon)
-    v = 0.5 + (dz + rayon) / (2.0 * rayon)
+    u = 0.5 + (s - (w0 + w1) / 2.0) / (2.0 * rx)
+    v = 0.5 + dz / (2.0 * rz)
     return min(1.0, max(0.0, u)), min(1.0, max(0.0, v))
 
 

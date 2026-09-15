@@ -113,9 +113,6 @@ _ECLAT_BUCHE = 0.55
 # Ce qui reste de lumiere au fond de la rainure entre deux buches.
 _CREUX_BUCHE = 0.42
 
-# La tranche de la tuile d'ecorce prise pour l'assise sous les buches : une
-# bande etroite, pour que son grain soit a la meme echelle que le leur.
-_V_ASSISE = (0.25, 0.58)
 
 # Taille des flammes selon l'etat du feu (voir game_state.FIRE_LEVELS).
 # "braise" = plus de flamme du tout, seules les braises rougeoient.
@@ -615,18 +612,17 @@ class ZoneScenery(Widget):
             bas, sommet = build_grid.z_bas(z), build_grid.z_haut(z)
             plancher = (bandes is not None and piece == "sol"
                         and build_grid.etape_de(z) == 0)
+            if plancher:
+                # LE PLANCHER EST FAIT DE BUCHES, comme dans le chantier : sa
+                # surface est ronde et porte l'ecorce, ses bouts en travers
+                # montrent les cernes. Il se dessine d'un seul tenant et non
+                # face par face : l'ordre de ses morceaux lui est propre, et
+                # le tableau des faces le prenait a l'envers.
+                self._buches(coin, (x, y, z), bandes, pleins)
+                continue
             for (dx, dy, dz), sommets, ombre in FACES:
                 if (x + dx, y + dy, z + dz) in pleins:
                     continue                    # cachee par un voisin
-                if plancher:
-                    # LE PLANCHER EST FAIT DE BUCHES, comme dans le chantier :
-                    # sa surface est ronde et porte l'ecorce, ses bouts en
-                    # travers montrent les cernes, et ses cotes ne sont plus
-                    # que l'assise sous les rondins. Aucune arete de cube non
-                    # plus : elle couperait des buches qui sont justement
-                    # collees d'un bout a l'autre.
-                    self._buches(coin, (x, y, z), bandes, (dx, dy, dz), ombre)
-                    continue
                 pts = []
                 for sx, sy, sz in sommets:
                     px, py = coin(x + sx, y + sy, sommet if sz else bas)
@@ -642,98 +638,114 @@ class ZoneScenery(Widget):
                 Line(points=pts + pts[:2], width=1.0)
 
     @staticmethod
-    def _buches(coin, cube, bandes, face, ombre):
-        """Une face d'un cube de plancher, en BUCHES.
+    def _buches(coin, cube, bandes, pleins):
+        """Un cube de plancher, en BUCHES ENTIERES.
 
         `coin` est celui de _batiment : il plaque la grille du chantier sur
         l'emprise au sol du plan, donc les buches fuient vers le fond comme
         tout le reste, sans qu'il y ait de perspective a refaire ici.
 
-        La vue du jeu est FIXE : pas de normale a tourner ici, seulement le
-        tableau d'assombrissement des faces. Le rond d'une buche s'obtient en
-        passant de l'ombre de son flanc a celle de sa crete."""
+        La vue du jeu est FIXE : pas de normale a tourner comme dans le
+        chantier, seulement le tableau d'assombrissement des faces. Le rond
+        d'une buche s'obtient en passant de l'ombre de son flanc a celle de sa
+        crete -- les deux flancs ne regardent pas du meme cote, donc ils ne
+        recoivent pas la meme lumiere.
+
+        L'ORDRE COMPTE, et il n'est pas celui des faces d'un cube : l'ame,
+        puis la surface, puis le noyau, puis les bouts. Les cernes viennent en
+        dernier parce qu'ils sont a la face la plus proche de ce cote-la ;
+        avant, l'ecorce des tranches leur mordait dessus."""
         axe, _bornes = bandes
         x, y, z = cube
-        dx, dy, dz = face
-        fond, crete = build_grid.z_bas(z), build_grid.z_haut(z)
-        rayon = build_grid.rayon_buche(bandes, build_grid.hauteur_niveau(z))
-        en_travers = (dx != 0) if axe == 0 else (dy != 0)
+        bas, haut = build_grid.z_bas(z), build_grid.z_haut(z)
+        milieu = (bas + haut) / 2.0
+        demi = build_grid.demi_buche(bandes, build_grid.hauteur_niveau(z))
 
-        if dz == 1:
-            # LA SURFACE. L'ombre d'une tranche va du flanc a la crete : les
-            # deux flancs d'une buche ne regardent pas du meme cote, donc ils
-            # ne recoivent pas la meme lumiere -- c'est ce qui fait le rond.
-            gauche, droite = ((_OMBRE_DEVANT, _OMBRE_DERRIERE) if axe == 0
-                              else (_OMBRE_GAUCHE, _OMBRE_DROITE))
-            _a, tranches = build_grid.tranches_buches(cube, bandes)
-            for l0, l1, s0, s1, t0, t1, _w0, _w1 in tranches:
-                t = (t0 + t1) / 2.0
-                flanc = gauche if t < 0.5 else droite
-                rond = max(0.0, 1.0 - (2.0 * t - 1.0) ** 2) ** 0.5
-                f = flanc + (ombre - flanc) * rond
-                h0 = crete - rayon * build_grid.creux_buche(t0)
-                h1 = crete - rayon * build_grid.creux_buche(t1)
-                pts, tc = [], []
-                for l, s, tt, h in ((l0, s0, t0, h0), (l1, s0, t0, h0),
-                                    (l1, s1, t1, h1), (l0, s1, t1, h1)):
-                    gx, gy = (l, s) if axe == 0 else (s, l)
-                    px, py = coin(gx, gy, h)
-                    pts += [px, py]
-                    tc += [l / log_skin.MOTIF, tt]
-                _peau_bois(log_skin.ecorce(), f, pts, tc)
-            return
+        def expose(dx, dy):
+            return (x + dx, y + dy, z) not in pleins
 
-        # L'ASSISE, sur les quatre cotes : la tranche de dalle sous les
-        # buches, jusqu'a l'EPAULE -- la ou deux buches se rejoignent. Plus
-        # haut, il n'y a plus de dalle, il y a du rond.
-        #
-        # Le grain suit la MEME echelle que sur les buches : une assise dont
-        # la texture serait etiree sur toute la tuile trahirait que ce n'est
-        # pas le meme bois.
-        epaule = crete - rayon
-        (ax, ay), (bx, by) = (((0, 0), (1, 0)) if dy < 0 else
-                              ((0, 1), (1, 1)) if dy > 0 else
-                              ((0, 0), (0, 1)) if dx < 0 else ((1, 0), (1, 1)))
-        u0 = (y if dx else x) / log_skin.MOTIF
-        u1 = u0 + 1.0 / log_skin.MOTIF
-        v0, v1 = _V_ASSISE
+        # L'AME : deux buches voisines ne se touchent qu'en un POINT, et le
+        # plancher serait fendu d'un trait fin tout du long. Elle le bouche,
+        # et donne au passage sa profondeur a la rainure.
         pts = []
-        for gx, gy, h in ((ax, ay, fond), (bx, by, fond),
-                          (bx, by, epaule), (ax, ay, epaule)):
-            px, py = coin(x + gx, y + gy, h)
+        for gx, gy in ((0, 0), (1, 0), (1, 1), (0, 1)):
+            px, py = coin(x + gx, y + gy, milieu)
             pts += [px, py]
-        _peau_bois(log_skin.ecorce(), ombre, pts,
-                   [u0, v1, u1, v1, u1, v0, u0, v0])
-        if not en_travers:
-            return
+        _peau_bois(log_skin.ecorce(), _OMBRE_DESSUS * _CREUX_BUCHE, pts,
+                   [0, 0, 1, 0, 1, 1, 0, 1])
 
-        # LES BOUTS : les cernes du rondin scie.
+        # LA SURFACE, vue de dessus : c'est tout ce qu'on en voit d'ici.
+        gauche, droite = ((_OMBRE_DEVANT, _OMBRE_DERRIERE) if axe == 0
+                          else (_OMBRE_GAUCHE, _OMBRE_DROITE))
+        _a, tranches = build_grid.tranches_buches(cube, bandes)
+        for l0, l1, s0, s1, t0, t1, _w0, _w1 in tranches:
+            t = (t0 + t1) / 2.0
+            flanc = gauche if t < 0.5 else droite
+            f = flanc + (_OMBRE_DESSUS - flanc) * build_grid.profil_buche(t)
+            h0 = milieu + build_grid.hauteur_buche(t0, demi)
+            h1 = milieu + build_grid.hauteur_buche(t1, demi)
+            pts, tc = [], []
+            for l, s, tt, h in ((l0, s0, t0, h0), (l1, s0, t0, h0),
+                                (l1, s1, t1, h1), (l0, s1, t1, h1)):
+                gx, gy = (l, s) if axe == 0 else (s, l)
+                px, py = coin(gx, gy, h)
+                pts += [px, py]
+                tc += [l / log_skin.MOTIF, tt]
+            _peau_bois(log_skin.ecorce(), f, pts, tc)
+
+        # LES BOUTS, sur les faces exposees EN TRAVERS des buches. Sur les
+        # autres, le flanc d'une buche EST le bord du plancher : il n'y a rien
+        # a ajouter. Sauf devant, ou l'on voit le dessous des rondins -- une
+        # bande d'ombre, pas une dalle.
+        for dx, dy, ombre in ((0, -1, _OMBRE_DEVANT), (-1, 0, _OMBRE_GAUCHE),
+                              (1, 0, _OMBRE_DROITE)):
+            if not expose(dx, dy):
+                continue
+            if ((dx != 0) if axe == 0 else (dy != 0)):
+                ZoneScenery._bouts(coin, cube, bandes, demi, (dx, dy), ombre)
+            elif dy < 0:
+                # LE DESSOUS DES BUCHES, vu de devant : la ou le plancher
+                # s'arrete dans le sens de leur longueur, on regarde sous le
+                # ventre du premier rondin.
+                pts = []
+                for gx, gy, h in ((0, 0, bas), (1, 0, bas),
+                                  (1, 0, milieu), (0, 0, milieu)):
+                    px, py = coin(x + gx, y + gy, h)
+                    pts += [px, py]
+                u0 = x / log_skin.MOTIF
+                _peau_bois(log_skin.ecorce(), ombre * _CREUX_BUCHE, pts,
+                           [u0, 0.8, u0 + 1.0 / log_skin.MOTIF, 0.8,
+                            u0 + 1.0 / log_skin.MOTIF, 0.2, u0, 0.2])
+
+    @staticmethod
+    def _bouts(coin, cube, bandes, demi, face, ombre):
+        """Les cernes des rondins scies, sur une face en travers."""
+        x, y, z = cube
+        dx, dy = face
+        bas, haut = build_grid.z_bas(z), build_grid.z_haut(z)
+        milieu = (bas + haut) / 2.0
         bord = (x + (1 if dx > 0 else 0)) if dx else (y + (1 if dy > 0 else 0))
 
-        def face(s, h):
+        def pt(s, h):
             return coin(*((bord, s) if dx else (s, bord)), h)
 
-        # LE FOND DE LA RAINURE d'abord : deux bouts ronds voisins se touchent
-        # en un point, et l'encoche en V qui reste au-dessus laissait voir le
-        # decor au travers. Ce qu'on doit y voir, c'est le creux entre deux
-        # buches -- du bois, et dans l'ombre. Seulement a la hauteur des ronds :
-        # plus bas c'est l'assise, et l'assombrir sur toute la hauteur donnait
-        # au plancher l'air d'etre pose sur une ombre.
+        # LE NOYAU d'abord : deux rondins voisins ne se touchent qu'en un
+        # point, et les creux qui restent au-dessus et au-dessous laissaient
+        # voir le decor au travers.
         c0, c1 = (y, y + 1) if dx else (x, x + 1)
         r0, r1 = c0 / log_skin.MOTIF, c1 / log_skin.MOTIF
         pts = []
-        for s, h in ((c0, epaule), (c1, epaule), (c1, crete), (c0, crete)):
-            px, py = face(s, h)
+        for s, h in ((c0, bas), (c1, bas), (c1, haut), (c0, haut)):
+            px, py = pt(s, h)
             pts += [px, py]
         _peau_bois(log_skin.ecorce(), ombre * _CREUX_BUCHE, pts,
                    [r0, 0.9, r1, 0.9, r1, 0.1, r0, 0.1])
         for w0, w1, t0, t1 in build_grid.buches_du_cube(cube, bandes):
             pts, tc = [], []
-            for s, ddz in build_grid.contour_bout(w0, w1, rayon,
-                                                  fond - crete, t0, t1):
-                px, py = face(s, crete + ddz)
+            for s, dz in build_grid.contour_bout(w0, w1, demi, t0, t1):
+                px, py = pt(s, milieu + dz)
                 pts += [px, py]
-                tc += list(build_grid.uv_bout(s, ddz, w0, w1, rayon))
+                tc += list(build_grid.uv_bout(s, dz, w0, w1, demi))
             _peau_bois(log_skin.bout(), ombre, pts, tc, eventail=True)
 
     def _blueprint(self, coins):

@@ -124,16 +124,20 @@ _COTES = (((-1, 0), (-1, 0, 0), ((0, 0), (0, 1))),
 # appliquer le notre en entier noircissait les flancs deux fois.
 ECLAT_BUCHE = 0.55
 
-# Ce qui reste de lumiere au FOND DE LA RAINURE entre deux buches. Peu : c'est
-# un creux, et c'est cette ombre-la qui detache les rondins les uns des
-# autres.
-CREUX_BUCHE = 0.42
+# Ce qui reste de lumiere sur l'AME et le NOYAU -- le bois qu'on apercoit dans
+# les rainures, entre deux rondins. Peu : c'est un creux, et c'est cette
+# ombre-la qui detache les buches les unes des autres.
+AME_BUCHE = 0.34
 
-# La tranche de la tuile d'ecorce prise pour l'ASSISE, sous les buches. Une
-# bande etroite, et non la tuile entiere : l'assise est basse, et y etaler
-# toute la hauteur du fut aurait donne un grain deux fois plus gros que celui
-# des buches juste au-dessus -- deux bois differents dans une meme piece.
-V_ASSISE = (0.25, 0.58)
+# LES BORNES DU ZOOM. En dessous, la maquette devient une vignette qu'on ne
+# peut plus viser ; au-dela, un seul cube couvre l'ecran et l'on perd de vue
+# ce a quoi on l'ajoute.
+ZOOM_MIN, ZOOM_MAX = 0.6, 4.0
+
+# Ecart minimal entre deux doigts pour qu'un pincement compte. Un pincement
+# qui se referme jusqu'a rien donnerait un rapport infini, et la maquette
+# sauterait d'un bout a l'autre de ses bornes.
+PINCE_MIN = dp(12)
 
 # La croix de retrait, posee au coin haut droit d'un cube bati.
 CROIX_FOND = (0.12, 0.08, 0.06, 0.80)
@@ -159,6 +163,16 @@ class _Volume(Widget):
         self.retrait = False     # mode retrait : des croix sur le bati
         self._croix = []         # [(cube, x, y, rayon)] pour viser les croix
         self._bandes = None      # (axe, bornes) des buches du plancher
+        # LES CASES OUVERTES NE SE MONTRENT QUE QUAND ON TIENT UNE PIECE.
+        # Soixante-quatre cages de fil blanc en permanence, c'etait un
+        # grillage devant la maquette : on ne voyait plus ce qu'on avait bati.
+        # Elles ne renseignent d'ailleurs que sur UNE chose -- ou poser -- et
+        # cette question ne se pose que la piece en main.
+        self.montre_cases = False
+        # LE ZOOM, au pincement. Une maquette de huit cubes de cote tient a
+        # l'ecran d'un telephone, mais un cube y fait alors quelques
+        # millimetres : il faut pouvoir s'approcher.
+        self.zoom = 1.0
         self.bind(pos=self._redraw, size=self._redraw)
 
     # -- ce qui est montre et ce qui repond ----------------------------- #
@@ -176,7 +190,7 @@ class _Volume(Widget):
         volume entier, ou l'etage flotterait en miniature, ni sur les seuls
         cubes montres, ou la vue sauterait a chaque piece posee."""
         boite = build_grid.boite_cadre(self.volume, self.etape, self.batis)
-        taille = build_grid.echelle(boite, self.width, self.height)
+        taille = build_grid.echelle(boite, self.width, self.height) * self.zoom
         return boite, taille, self.center_x, self.center_y
 
     def cube_sous(self, x, y):
@@ -214,6 +228,17 @@ class _Volume(Widget):
         self.inclinaison = max(-borne, min(borne, inc))
         self._redraw()
 
+    def zoome(self, facteur):
+        """Rapproche ou eloigne la maquette, d'un pincement a deux doigts.
+
+        Les bornes ne sont pas de la prudence : en dessous, le volume devient
+        une vignette qu'on ne peut plus viser ; au-dela, un seul cube couvre
+        l'ecran et l'on perd de vue ce a quoi on l'ajoute."""
+        avant = self.zoom
+        self.zoom = max(ZOOM_MIN, min(ZOOM_MAX, self.zoom * facteur))
+        if self.zoom != avant:
+            self._redraw()
+
     # -- dessin --------------------------------------------------------- #
     def _redraw(self, *_):
         self.canvas.clear()
@@ -230,6 +255,10 @@ class _Volume(Widget):
         # Chaque cube n'en montre ensuite que le morceau qui le traverse, si
         # bien qu'une buche court d'un bout a l'autre sans couture.
         self._bandes = self._buches()
+        if not self.montre_cases:
+            # SANS PIECE EN MAIN, on ne montre que ce qui est BATI : les cages
+            # vides n'ont rien a dire tant qu'on n'a rien a y mettre.
+            montres = [c for c in montres if c in self.batis]
         with self.canvas:
             for cube in build_grid.ordre_dessin(montres, boite, self.tour,
                                                 self.inclinaison):
@@ -237,7 +266,7 @@ class _Volume(Widget):
                 # plus la retirer, ce n'est plus un projet.
                 plein = fini or build_grid.etape_de(cube[2]) < self.etape
                 self._cube(cube, args, cube in ouverts, plein)
-            if not fini:
+            if not fini and self.montre_cases:
                 # LE CONTOUR DE L'ETAGE, dans toute son etendue -- pas
                 # seulement autour des cubes ouverts. Un etage a peine
                 # commence se reduirait sinon a deux ou trois cubes
@@ -307,147 +336,112 @@ class _Volume(Widget):
             Line(points=[p1[0], p1[1], p2[0], p2[1]], width=ep)
 
     def _plancher(self, cube, args):
-        """Un cube de plancher : des BUCHES, pas une dalle.
+        """Un cube de plancher : des BUCHES ENTIERES, pas une dalle.
 
-        Trois choses, et chacune a sa raison d'etre :
+        Quatre choses, et chacune a sa raison d'etre :
 
-        - LA SURFACE, en tranches suivant l'arc d'une buche. Elle porte
-          l'ecorce de l'objet du jeu, qui se repete le long des buches sans
-          couture, et son eclairement vient de la VRAIE normale du rond --
-          c'est pourquoi le galbe tourne avec le volume au lieu d'etre peint
-          dessus ;
+        - L'AME, un plan sombre a hauteur d'axe. Deux buches voisines ne se
+          touchent qu'en UN POINT : le long de ce point, le plancher serait
+          fendu d'un trait fin par ou l'on verrait le fond. L'ame le bouche,
+          et donne au passage sa profondeur a la rainure ;
 
-        - LES BOUTS, la ou le plancher s'arrete en travers des buches : les
-          cernes du rondin scie. C'est ce detail-la, plus que la couleur, qui
-          fait reconnaitre une buche ;
+        - LA SURFACE, dessus ET dessous, en tranches suivant l'ovale d'une
+          buche. Elle porte l'ecorce de l'objet du jeu, qui se repete le long
+          des buches sans couture, et son eclairement vient de la VRAIE
+          normale -- c'est pourquoi le galbe tourne avec le volume au lieu
+          d'etre peint dessus. Chaque tranche qui se detourne de la camera est
+          ecartee : la surface est convexe, donc elle est forcement cachee ;
 
-        - L'ASSISE, la tranche de dalle sous les buches, sur les cotes qui
-          suivent leur longueur. Elle s'arrete a l'EPAULE, la ou deux buches
-          se rejoignent : plus haut, il n'y a plus de dalle, il y a du rond.
+        - LE NOYAU, derriere les bouts : ce qu'on voit dans les creux entre
+          deux rondins scies ;
+
+        - LES BOUTS eux-memes, la ou le plancher s'arrete en travers des
+          buches : les cernes. C'est ce detail-la, plus que la couleur, qui
+          fait reconnaitre une buche. Ils viennent EN DERNIER -- ils sont a la
+          face la plus proche de ce cote-la, et les dessiner avant laissait
+          l'ecorce des tranches mordre dessus.
 
         Les faces qui ont un voisin de plancher ne sont pas dessinees du
         tout : elles sont entre deux buches d'une meme piece, il n'y a rien a
         y montrer."""
         x, y, z = cube
         axe, _bornes = self._bandes
-        fond = build_grid.z_bas(z)
-        crete = build_grid.z_haut(z)
-        rayon = build_grid.rayon_buche(self._bandes,
-                                       build_grid.hauteur_niveau(z))
-        epaule = crete - rayon
+        bas, haut = build_grid.z_bas(z), build_grid.z_haut(z)
+        milieu = (bas + haut) / 2.0
+        demi = build_grid.demi_buche(self._bandes,
+                                     build_grid.hauteur_niveau(z))
         ecorce, bout = log_skin.ecorce(), log_skin.bout()
 
         def p(gx, gy, gz):
             q = build_grid.project(gx, gy, gz, *args)
             return q[0], q[1]
 
-        # -- les quatre cotes ------------------------------------------- #
-        for (dx, dy), normale, (a, b) in _COTES:
+        # -- l'ame ------------------------------------------------------- #
+        self._peau(None, AME_BUCHE,
+                   [p(x, y, milieu), p(x + 1, y, milieu),
+                    p(x + 1, y + 1, milieu), p(x, y + 1, milieu)],
+                   [(0, 0)] * 4)
+
+        # -- la surface des buches, des deux cotes ----------------------- #
+        _a, tranches = build_grid.tranches_buches(cube, self._bandes)
+        for l0, l1, s0, s1, t0, t1, _w0, _w1 in tranches:
+            for dessous in (False, True):
+                normale = build_grid.normale_buche((t0 + t1) / 2.0, axe, demi,
+                                                   dessous)
+                if not build_grid.face_vue(normale, self.tour,
+                                           self.inclinaison):
+                    continue
+                f = build_grid.eclairement(normale, self.tour,
+                                           self.inclinaison)
+                h0 = milieu + build_grid.hauteur_buche(t0, demi, dessous)
+                h1 = milieu + build_grid.hauteur_buche(t1, demi, dessous)
+                coins, uv = [], []
+                for l, s, t, h in ((l0, s0, t0, h0), (l1, s0, t0, h0),
+                                   (l1, s1, t1, h1), (l0, s1, t1, h1)):
+                    gx, gy = (l, s) if axe == 0 else (s, l)
+                    coins.append(p(gx, gy, h))
+                    uv.append((l / log_skin.MOTIF, t))
+                self._peau(ecorce, f, coins, uv)
+
+        # -- les bouts, en travers des buches ---------------------------- #
+        for (dx, dy), normale, _coins in _COTES:
             if self.batis.get((x + dx, y + dy, z)) == "sol":
                 continue                    # entre deux buches : rien a voir
+            en_travers = (normale[0] != 0) if axe == 0 else (normale[1] != 0)
+            if not en_travers:
+                continue                    # le flanc d'une buche EST le bord
             if not build_grid.face_vue(normale, self.tour, self.inclinaison):
                 continue
             f = build_grid.eclairement(normale, self.tour, self.inclinaison)
-            # L'ASSISE, sur les quatre cotes : la tranche de dalle sous les
-            # buches, jusqu'a l'EPAULE -- la ou deux buches se rejoignent.
-            # Plus haut, il n'y a plus de dalle, il y a du rond.
-            #
-            # Le grain suit la MEME echelle que sur les buches : une assise
-            # dont la texture serait etiree sur toute la tuile trahirait que
-            # ce n'est pas le meme bois.
-            (ax, ay), (bx, by) = a, b
-            u0 = (y if normale[0] else x) / log_skin.MOTIF
-            u1 = u0 + 1.0 / log_skin.MOTIF
-            self._peau(ecorce, f, [p(x + ax, y + ay, fond),
-                                   p(x + bx, y + by, fond),
-                                   p(x + bx, y + by, epaule),
-                                   p(x + ax, y + ay, epaule)],
-                       [(u0, V_ASSISE[1]), (u1, V_ASSISE[1]),
-                        (u1, V_ASSISE[0]), (u0, V_ASSISE[0])])
-            if (normale[0] != 0) if axe == 0 else (normale[1] != 0):
-                self._bouts(cube, args, rayon, fond - crete, dx, dy, f, bout)
+            self._bouts(cube, args, demi, (dx, dy), f, bout)
 
-        # -- le dessous, quand on regarde d'en bas ----------------------- #
-        if build_grid.face_vue((0, 0, -1), self.tour, self.inclinaison):
-            f = build_grid.eclairement((0, 0, -1), self.tour, self.inclinaison)
-            # MEME ECHELLE DE GRAIN qu'ailleurs. Etaler la tuile entiere sur
-            # chaque case donnait a chaque case le galbe d'une buche entiere :
-            # vu d'en dessous, le plancher paraissait fait de rondins alors
-            # qu'on regardait sa dalle.
-            u0, u1 = x / log_skin.MOTIF, (x + 1) / log_skin.MOTIF
-            v0, v1 = V_ASSISE
-            self._peau(ecorce, f, [p(x, y, fond), p(x + 1, y, fond),
-                                   p(x + 1, y + 1, fond), p(x, y + 1, fond)],
-                       [(u0, v0), (u1, v0), (u1, v1), (u0, v1)])
-
-        # -- la surface des buches --------------------------------------- #
-        # VU DE DESSOUS, ON NE LA VOIT PAS DU TOUT : les buches reposent sur
-        # l'assise, et c'est elle qu'on a devant les yeux. Le flanc d'une
-        # buche est vertical, donc il restait "face a la camera" meme d'en
-        # bas -- et le plancher se dessinait par-dessus son propre dessous.
-        if not build_grid.face_vue((0, 0, 1), self.tour, self.inclinaison):
-            return
-        axe, tranches = build_grid.tranches_buches(cube, self._bandes)
-        for l0, l1, s0, s1, t0, t1, _w0, _w1 in tranches:
-            normale = build_grid.normale_buche((t0 + t1) / 2.0, axe)
-            # La surface est CONVEXE : une tranche qui se detourne de la
-            # camera est forcement cachee par la crete. On l'ecarte donc,
-            # exactement comme une face arriere de cube -- et c'est ce qui
-            # fait qu'en regardant le plancher par en dessous on voit son
-            # assise, et non ses buches a l'envers.
-            if not build_grid.face_vue(normale, self.tour, self.inclinaison):
-                continue
-            f = build_grid.eclairement(normale, self.tour, self.inclinaison)
-            h0 = crete - rayon * build_grid.creux_buche(t0)
-            h1 = crete - rayon * build_grid.creux_buche(t1)
-            coins, uv = [], []
-            for l, s, t, h in ((l0, s0, t0, h0), (l1, s0, t0, h0),
-                               (l1, s1, t1, h1), (l0, s1, t1, h1)):
-                gx, gy = (l, s) if axe == 0 else (s, l)
-                coins.append(p(gx, gy, h))
-                uv.append((l / log_skin.MOTIF, t))
-            self._peau(ecorce, f, coins, uv)
-
-    def _bouts(self, cube, args, rayon, fond, dx, dy, eclat, tex):
+    def _bouts(self, cube, args, demi, face, eclat, tex):
         """Les bouts de buche d'une face en travers du plancher."""
         x, y, z = cube
-        crete = build_grid.z_haut(z)
+        dx, dy = face
+        bas, haut = build_grid.z_bas(z), build_grid.z_haut(z)
+        milieu = (bas + haut) / 2.0
         # La face touchee : celle du cube du cote ou l'on regarde.
         bord = (x + (1 if dx > 0 else 0)) if dx else (y + (1 if dy > 0 else 0))
-        # LE FOND DE LA RAINURE, d'abord. Deux bouts ronds voisins se touchent
-        # en un point : au-dessus d'eux reste une encoche en V, et sans rien
-        # derriere on voyait le decor au travers. Ce qu'on devrait y voir,
-        # c'est le creux entre deux buches -- donc du bois, et dans l'ombre.
-        #
-        # Elle ne couvre que la HAUTEUR DES RONDS : plus bas c'est l'assise,
-        # deja dessinee, et l'assombrir sur toute la hauteur donnait au
-        # plancher l'air d'etre pose sur une ombre.
-        epaule = crete - rayon
         c0, c1 = (y, y + 1) if dx else (x, x + 1)
-        u0, u1 = c0 / log_skin.MOTIF, c1 / log_skin.MOTIF
-        self._peau(log_skin.ecorce(), eclat * CREUX_BUCHE, [
-            self._p(args, *self._grille(dx, bord, c0), epaule),
-            self._p(args, *self._grille(dx, bord, c1), epaule),
-            self._p(args, *self._grille(dx, bord, c1), crete),
-            self._p(args, *self._grille(dx, bord, c0), crete)],
-            [(u0, 0.9), (u1, 0.9), (u1, 0.1), (u0, 0.1)])
+
+        def pt(s, h):
+            gx, gy = (bord, s) if dx else (s, bord)
+            q = build_grid.project(gx, gy, h, *args)
+            return q[0], q[1]
+
+        # LE NOYAU d'abord : deux rondins voisins ne se touchent qu'en un
+        # point, et les creux qui restent au-dessus et au-dessous laissaient
+        # voir le decor au travers.
+        self._peau(None, eclat * AME_BUCHE,
+                   [pt(c0, bas), pt(c1, bas), pt(c1, haut), pt(c0, haut)],
+                   [(0, 0)] * 4)
         for w0, w1, t0, t1 in build_grid.buches_du_cube(cube, self._bandes):
             coins, uv = [], []
-            for s, dz in build_grid.contour_bout(w0, w1, rayon, fond, t0, t1):
-                coins.append(self._p(args, *self._grille(dx, bord, s),
-                                     crete + dz))
-                uv.append(build_grid.uv_bout(s, dz, w0, w1, rayon))
+            for s, dz in build_grid.contour_bout(w0, w1, demi, t0, t1):
+                coins.append(pt(s, milieu + dz))
+                uv.append(build_grid.uv_bout(s, dz, w0, w1, demi))
             self._peau(tex, eclat, coins, uv, eventail=True)
-
-    @staticmethod
-    def _grille(dx, bord, s):
-        """(gx, gy) d'un point d'une face en travers, selon son orientation."""
-        return (bord, s) if dx else (s, bord)
-
-    @staticmethod
-    def _p(args, gx, gy, gz):
-        q = build_grid.project(gx, gy, gz, *args)
-        return q[0], q[1]
 
     @staticmethod
     def _peau(tex, eclat, coins, uv, eventail=False):
@@ -537,15 +531,30 @@ class BuildScreen(Screen):
                               pos_hint={"center_x": 0.5, "center_y": 0.50})
         root.add_widget(self.volume)
 
-        # LES PIECES, a DROITE, toujours visibles : on en glisse une sur un
-        # cube pour la batir. Un tiroir a ouvrir avant chaque pose aurait
-        # double le nombre de gestes.
-        self.parts_box = BoxLayout(orientation="vertical", padding=dp(6),
-                                   spacing=dp(6), size_hint=(0.155, 0.56),
+        # LES CATEGORIES, a DROITE, toujours visibles : on en choisit une, puis
+        # on tape les cubes. Un tiroir a ouvrir avant chaque pose aurait double
+        # le nombre de gestes.
+        #
+        # Elles sont PETITES. Trois gros boutons mangeaient un sixieme de
+        # l'ecran pour trois mots qu'on lit d'un coup d'oeil -- et c'est le
+        # volume, pas eux, qu'on est venu regarder.
+        self.parts_box = BoxLayout(orientation="vertical", padding=dp(4),
+                                   spacing=dp(4), size_hint=(0.115, 0.30),
                                    pos_hint={"right": 0.988,
-                                             "center_y": 0.50})
+                                             "center_y": 0.55})
         panel(self.parts_box, alpha=0.55)
         root.add_widget(self.parts_box)
+
+        # LES MODELES, en bas, TOUJOURS OUVERTS. Ils vivaient replies sous la
+        # categorie en main : il fallait donc prendre une piece pour voir
+        # combien on allait en poser, et le nombre changeait de place a chaque
+        # fois qu'on changeait de piece. C'est un reglage, pas une propriete de
+        # la piece -- il a sa place fixe.
+        self.modeles_box = BoxLayout(orientation="horizontal", padding=dp(4),
+                                     spacing=dp(4), size_hint=(0.30, 0.068),
+                                     pos_hint={"center_x": 0.5, "y": 0.115})
+        panel(self.modeles_box, alpha=0.55)
+        root.add_widget(self.modeles_box)
 
         # LE STOCK, a GAUCHE, ferme par defaut. On le consulte, on n'agit pas
         # dessus : il n'a pas a occuper l'ecran en permanence.
@@ -575,6 +584,10 @@ class BuildScreen(Screen):
         self._piece = None
         self._modele = build_grid.MODELES[0]
         self._geste = None
+        # LES DOIGTS POSES SUR LE VOLUME, et l'ecart au dernier calcul. Deux
+        # doigts pincent, un seul tourne ou pose.
+        self._doigts = {}
+        self._pince = None
 
         self.title = scale_font(Label(text="Chantier", bold=True,
                                 color=(0.96, 0.82, 0.45, 1), halign="center",
@@ -641,8 +654,9 @@ class BuildScreen(Screen):
     # murs demande donc vingt-et-un touchers, contre vingt glissers d'un bout
     # a l'autre de l'ecran.
     #
-    # Un TAP sur le volume pose ; un GLISSER sur le volume le fait tourner.
-    # Seule la distance parcourue les separe -- c'est la meme convention que
+    # Un TAP sur le volume pose ; un GLISSER sur le volume le fait tourner ;
+    # DEUX DOIGTS qui s'ecartent l'agrandissent. Seuls le nombre de doigts et
+    # la distance parcourue les separent -- c'est la meme convention que
     # l'inventaire, ou un tap ouvre la fiche d'un objet et un glisser le
     # deplace.
     def on_touch_down(self, touch):
@@ -673,14 +687,44 @@ class BuildScreen(Screen):
                 self._choisir(btn.piece)
             return True
         # 4. Le VOLUME : on retient d'ou part le doigt. La suite depend de ce
-        #    qu'il fait -- bouger fait tourner, rester pose.
+        #    qu'il fait -- bouger fait tourner, rester pose, et un DEUXIEME
+        #    doigt change le geste en pincement.
         if self.volume.collide_point(*touch.pos):
-            self._geste = {"depart": touch.pos, "dernier": touch.pos,
-                           "bouge": False}
+            self._doigts[touch.uid] = tuple(touch.pos)
+            if len(self._doigts) >= 2:
+                # UN DEUXIEME DOIGT ANNULE LE PREMIER GESTE. Il ne faut ni
+                # poser ni tourner en cours de pincement : les deux doigts
+                # bougent, et l'un d'eux aurait fait pivoter la maquette
+                # pendant qu'on l'agrandit.
+                self._pince = self._ecart()
+                self._geste = None
+            else:
+                self._geste = {"depart": tuple(touch.pos),
+                               "dernier": tuple(touch.pos), "bouge": False}
             return True
         return super().on_touch_down(touch)
 
+    def _ecart(self):
+        """La distance entre les deux doigts poses sur le volume."""
+        points = list(self._doigts.values())[:2]
+        if len(points) < 2:
+            return 0.0
+        (x1, y1), (x2, y2) = points
+        return ((x1 - x2) ** 2 + (y1 - y2) ** 2) ** 0.5
+
     def on_touch_move(self, touch):
+        if touch.uid in self._doigts:
+            self._doigts[touch.uid] = tuple(touch.pos)
+            if len(self._doigts) >= 2:
+                ecart = self._ecart()
+                # Un pincement qui se referme jusqu'a rien donnerait un
+                # rapport infini : on ne zoome qu'a partir d'un ecart qu'un
+                # doigt peut tenir.
+                if self._pince and self._pince > PINCE_MIN \
+                        and ecart > PINCE_MIN:
+                    self.volume.zoome(ecart / self._pince)
+                self._pince = ecart
+                return True
         g = self._geste
         if g is not None:
             if max(abs(touch.x - g["depart"][0]),
@@ -689,11 +733,14 @@ class BuildScreen(Screen):
             if g["bouge"]:
                 self.volume.pivote(touch.x - g["dernier"][0],
                                    touch.y - g["dernier"][1])
-                g["dernier"] = touch.pos
+                g["dernier"] = tuple(touch.pos)
             return True
         return super().on_touch_move(touch)
 
     def on_touch_up(self, touch):
+        vu = self._doigts.pop(touch.uid, None) is not None
+        if len(self._doigts) < 2:
+            self._pince = None
         g, self._geste = self._geste, None
         if g is not None:
             # Un doigt pose et releve SANS BOUGER n'etait pas une rotation :
@@ -701,21 +748,13 @@ class BuildScreen(Screen):
             if not g["bouge"]:
                 self._poser(touch)
             return True
-        return super().on_touch_up(touch)
+        return True if vu else super().on_touch_up(touch)
 
     def _bouton_sous(self, touch):
-        """Le bouton touche dans la colonne de droite, ou None.
-
-        On descend d'un niveau : les modeles vivent dans une rangee, donc pas
-        directement dans la colonne."""
-        for enfant in self.parts_box.children:
-            if not enfant.collide_point(*touch.pos):
-                continue
-            if getattr(enfant, "piece", None) is not None:
-                return enfant
-            for btn in enfant.children:
-                if (getattr(btn, "modele", None) is not None
-                        and btn.collide_point(*touch.pos)):
+        """Le bouton touche dans l'une des deux barres, ou None."""
+        for barre in (self.parts_box, self.modeles_box):
+            for btn in barre.children:
+                if btn.collide_point(*touch.pos):
                     return btn
         return None
 
@@ -737,9 +776,12 @@ class BuildScreen(Screen):
             return
         self._piece = None if self._piece == piece else piece
         self.hint.text = "" if self._piece is None else self._en_main()
-        # La colonne CHANGE DE FORME : les modeles de la piece prise
-        # apparaissent sous elle, ceux de la precedente disparaissent.
-        self._rebuild_parts(state)
+        # LES CASES OUVERTES SUIVENT LA MAIN : elles apparaissent quand on
+        # prend une piece et disparaissent quand on la lache (voir
+        # _Volume.montre_cases).
+        self.volume.montre_cases = self._piece is not None
+        self.volume._redraw()
+        self._sync_parts()
 
     def _choisir_modele(self, modele):
         """Change le nombre de pieces posees d'un coup."""
@@ -778,6 +820,7 @@ class BuildScreen(Screen):
             # La matiere s'est epuisee en cours de serie : on lache la piece,
             # sinon le joueur continue de taper sans que rien ne se passe.
             self._piece = None
+            self.volume.montre_cases = False
             self.hint.text = "Plus de matiere. Vois le stock."
             self._set_drawer(True)
             self._refresh(state)
@@ -872,6 +915,7 @@ class BuildScreen(Screen):
         tenait encore quelque chose ou non. Chaque etage se rouvre donc les
         mains vides."""
         self._piece = None
+        self.volume.montre_cases = False
 
     def _sync_barre(self):
         """Met les boutons du bas en accord avec l'etage en cours."""
@@ -917,11 +961,17 @@ class BuildScreen(Screen):
         # vaut mieux que l'angle bancal ou on l'avait laisse.
         self.volume.tour = build_grid.TOUR_DEFAUT
         self.volume.inclinaison = build_grid.INCLINAISON_DEFAUT
+        self.volume.zoom = 1.0
         self._set_drawer(False)
         self._piece = None
         self._geste = None
+        self._doigts = {}
+        self._pince = None
         self.volume.retrait = False
-        self.hint.text = ""
+        self.volume.montre_cases = False
+        # SANS PIECE EN MAIN, le volume est nu : il faut dire ou l'on prend
+        # les cases, sinon un chantier neuf est un ecran vide.
+        self.hint.text = "Choisis une piece a droite pour voir ou batir."
         self._refresh(state)
 
     def _refresh(self, state):
@@ -971,25 +1021,29 @@ class BuildScreen(Screen):
             self.drawer.add_widget(ligne)
 
     def _rebuild_parts(self, state, nom=None):
-        """Les pieces, a droite. On en CHOISIT une, puis on tape des cubes.
+        """Les categories, a droite ; les modeles, en bas.
 
-        Chaque piece est une CATEGORIE : celle qu'on tient deploie sous elle
-        ses modeles -- une, quatre ou neuf pieces d'un coup. Les modeles des
-        autres restent replies : trois categories fois trois modeles feraient
-        neuf boutons dans une colonne, ou l'on ne trouverait plus rien."""
+        Chaque piece est une CATEGORIE ; le MODELE -- une, quatre ou neuf
+        pieces d'un coup -- est un reglage qui vaut pour toutes. Il vit donc
+        dans sa propre rangee, en bas et toujours ouverte, plutot que replie
+        sous la categorie en main : il fallait sinon prendre une piece pour
+        savoir combien on allait en poser, et le reglage changeait de place a
+        chaque changement de piece."""
         if nom is None:
             nom = self.blueprint[0] if self.blueprint else None
         self.parts_box.clear_widgets()
-        # Un chantier TERMINE n'offre plus rien a poser : la colonne dispa-
-        # rait, au lieu de proposer des pieces qui n'iraient nulle part.
-        if self.volume.etape >= build_grid.TERMINE:
-            self.parts_box.opacity = 0.0
+        self.modeles_box.clear_widgets()
+        # Un chantier TERMINE n'offre plus rien a poser : les deux barres
+        # disparaissent, au lieu de proposer des pieces qui n'iraient nulle
+        # part.
+        fini = self.volume.etape >= build_grid.TERMINE
+        self.parts_box.opacity = self.modeles_box.opacity = 0.0 if fini else 1.0
+        if fini:
             return
-        self.parts_box.opacity = 1.0
         for piece in items.build_parts(nom):
             r, g, b = items.build_part_color(piece)
             btn = scale_font(StyledButton(
-                text=items.BUILD_PART_NAMES.get(piece, piece)), 0.022)
+                text=items.BUILD_PART_NAMES.get(piece, piece)), 0.017)
             # `piece` est accroche au bouton : c'est ainsi que le toucher
             # retrouve ce qu'on a pris, sans table parallele a tenir a jour.
             btn.piece = piece
@@ -997,18 +1051,10 @@ class BuildScreen(Screen):
             # savoir, en regardant le volume, quel cube vient de quel bouton.
             btn.background_color = (r, g, b, 1)
             self.parts_box.add_widget(btn)
-            if piece != self._piece:
-                continue
-            # LES MODELES DE LA PIECE EN MAIN, en rangee sous elle. Plus basse
-            # que la categorie : c'est un reglage de celle-ci, pas un frere.
-            rangee = BoxLayout(orientation="horizontal", spacing=dp(3),
-                               size_hint_y=0.62)
-            for n in build_grid.MODELES:
-                m = scale_font(StyledButton(text="x%d" % n), 0.019)
-                m.modele = n
-                m.background_color = (r * 0.72, g * 0.72, b * 0.72, 1)
-                rangee.add_widget(m)
-            self.parts_box.add_widget(rangee)
+        for n in build_grid.MODELES:
+            m = scale_font(StyledButton(text="x%d" % n), 0.020)
+            m.modele = n
+            self.modeles_box.add_widget(m)
         self._sync_parts()
 
     def _sync_parts(self):
@@ -1016,14 +1062,20 @@ class BuildScreen(Screen):
         state = App.get_running_app().game_state
         attendue = build_grid.piece_de_etape(self.volume.etape)
         payable = state is not None and state.can_build()
+        for m in self.modeles_box.children:
+            # LE MODELE ACTIF s'allume. Il prend la couleur de la piece en
+            # main : le reglage vaut pour toutes les categories, mais on doit
+            # voir d'un coup d'oeil ce qu'on s'apprete a poser.
+            actif = getattr(m, "modele", None) == self._modele
+            m.bold = actif
+            m.opacity = 1.0 if actif else 0.45
+            r, g, b = (items.build_part_color(self._piece) if self._piece
+                       else (0.52, 0.46, 0.40))
+            m.background_color = ((r, g, b, 1) if actif
+                                  else (r * 0.55, g * 0.55, b * 0.55, 1))
         for enfant in self.parts_box.children:
             piece = getattr(enfant, "piece", None)
             if piece is None:
-                # La rangee de modeles : on y allume celui qui est actif.
-                for m in enfant.children:
-                    actif = getattr(m, "modele", None) == self._modele
-                    m.bold = actif
-                    m.opacity = 1.0 if actif else 0.55
                 continue
             bonne = piece == attendue
             # Une piece que l'etage n'attend pas reste VISIBLE mais eteinte :
