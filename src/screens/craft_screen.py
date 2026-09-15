@@ -366,6 +366,18 @@ class CraftScreen(DragDrop, Screen):
         self._show_info(name)
 
     def _craft(self, recipe):
-        App.get_running_app().game_state.do_craft(recipe)
+        state = App.get_running_app().game_state
+        state.do_craft(recipe)
         App.get_running_app().autosave()
+        # UN DEPOSABLE SORT DE L'ATELIER SANS ETRE UN OBJET : il n'est ni dans
+        # une main ni dans le sac, il attend sa place. On enchaine donc
+        # directement sur la pose, et le joueur tranche tout de suite --
+        # poser, ou renoncer et recuperer sa matiere.
+        if state.pending_item() is not None:
+            pose = self.manager.get_screen("place")
+            pose._slot = None
+            pose.mode = "place"
+            pose._action_cell = None
+            self.manager.current = "place"
+            return
         self.refresh()

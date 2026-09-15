@@ -561,6 +561,16 @@ class GameScreen(Screen):
 
     # ------------------------------------------------------------------ #
     def on_pre_enter(self):
+        # UN DEPOSABLE NE RESTE JAMAIS EN ATTENTE hors de l'ecran de pose.
+        # L'ecran de pose rend deja la matiere quand on le quitte, mais une
+        # partie SAUVEGARDEE pendant la pose puis reprise arriverait ici avec
+        # un feu de camp qui attend une place que plus rien ne lui demandera.
+        # On considere alors que la fabrication n'a pas eu lieu.
+        state = App.get_running_app().game_state
+        if state is not None and state.pending_item() is not None:
+            nom = items.display_name(state.pending_item())
+            state.cancel_pending_install()
+            state.add_log("%s non pose : la matiere est revenue au sol." % nom)
         self.refresh()
 
     def on_enter(self):

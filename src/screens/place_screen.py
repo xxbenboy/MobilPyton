@@ -4,10 +4,17 @@ un objet (feu de camp, ...) sur la case courante.
 Le joueur est fixe au centre-bas de la grille (gx=2, gy=0), regardant vers le
 haut (gy croissant).
 
-ON POSE EN GLISSANT. L'objet tenu (main _slot, definie par GameScreen avant la
-navigation) s'affiche sur une carte a DROITE de la grille ; on le prend du
-doigt et on le lache sur la grille. Tant qu'il est tenu, les cases qu'il
-occuperait s'allument -- vertes si ca tient, rouges sinon.
+ON POSE EN GLISSANT. L'objet a poser s'affiche sur une carte a DROITE de la
+grille ; on le prend du doigt et on le lache sur la grille. Tant qu'il est
+tenu, les cases qu'il occuperait s'allument -- vertes si ca tient, rouges
+sinon.
+
+IL VIENT DE DEUX ENDROITS. Le plus souvent de l'ATELIER : fabriquer un
+deposable ne rend rien, cela ouvre directement cet ecran, et le joueur doit
+donner sa place a ce qu'il vient de monter. S'il renonce, la fabrication est
+annulee et sa matiere lui revient -- un feu de camp n'est pas un objet qu'on
+range en attendant. L'autre endroit est une MAIN (_slot) : il n'y reste que
+les deposables des parties commencees avant cette regle.
 
 Un simple tap ne pouvait pas faire cela. Depuis qu'un objet peut couvrir
 PLUSIEURS cases (un plan de construction en prend quatre), la case touchee ne
@@ -624,11 +631,10 @@ class PlaceScreen(Screen):
         self._drag = None                 # {ghost, name} pendant le geste
 
         # Bouton Annuler (bas droite) : retour au jeu sans installer.
-        cancel = scale_font(StyledButton(text="Annuler",
+        self.cancel = cancel = scale_font(StyledButton(text="Annuler",
                             size_hint=(0.20, 0.08),
                             pos_hint={"right": 0.98, "y": 0.02}), 0.022)
-        cancel.bind(on_release=lambda *_: setattr(self.manager,
-                                                  "current", "game"))
+        cancel.bind(on_release=lambda *_: self._annule())
         root.add_widget(cancel)
 
         # Fenetre d'ACTION : remplace la grille quand on choisit un objet
@@ -653,9 +659,15 @@ class PlaceScreen(Screen):
 
     # ---------------- GLISSER l'objet sur la grille -------------------- #
     def _held_item(self):
-        """L'objet a poser : celui de la main d'ou l'on est parti."""
+        """L'objet a poser : celui qui sort de l'atelier, sinon celui de la
+        main d'ou l'on est parti."""
         state = App.get_running_app().game_state
-        if state is None or self._slot not in (0, 1):
+        if state is None:
+            return None
+        attente = state.pending_item()
+        if attente is not None:
+            return attente
+        if self._slot not in (0, 1):
             return None
         return state.hands[self._slot]
 
@@ -676,6 +688,14 @@ class PlaceScreen(Screen):
         fw, fh = items.footprint(name)
         emprise = "1 case" if fw * fh == 1 else "%d x %d cases" % (fw, fh)
         self.item_hint.text = "Glisse-le sur la grille\n(%s)" % emprise
+        # LE BOUTON DIT CE QU'IL FAIT. Quand ce qu'on pose sort de l'atelier,
+        # "Annuler" ne renvoie pas seulement au jeu : il DEFAIT la
+        # fabrication. Le joueur doit le savoir avant d'appuyer, pas apres.
+        state = App.get_running_app().game_state
+        atelier = state is not None and state.pending_item() is not None
+        self.cancel.text = "Annuler la fabrication" if atelier else "Annuler"
+        self.item_hint.text += ("\nAnnuler rend la matiere." if atelier
+                                else "")
 
     def on_touch_down(self, touch):
         # Le geste ne commence que sur la CARTE, et seulement en mode pose.
@@ -898,15 +918,47 @@ class PlaceScreen(Screen):
         self.manager.current = "build"
 
     def _install(self, gx, gy):
-        """Pose l'objet tenu, ancre en (gx, gy), et revient au jeu."""
+        """Pose l'objet a poser, ancre en (gx, gy), et revient au jeu."""
         state = App.get_running_app().game_state
-        if state is None or self._slot is None:
+        if state is None:
             self.manager.current = "game"
             return
-        if state.install_from_hand(self._slot, gx, gy):
+        if state.pending_item() is not None:
+            pose = state.install_pending(gx, gy)
+        elif self._slot is not None:
+            pose = state.install_from_hand(self._slot, gx, gy)
+        else:
+            pose = False
+        if pose:
             App.get_running_app().autosave()
         self._slot = None
         self.manager.current = "game"
+
+    def _annule(self):
+        """Le bouton Annuler : on renonce, et l'on repart au jeu.
+
+        C'est on_leave qui rend la matiere -- ici on ne fait que partir. Ecrit
+        deux fois, un jour l'un des deux aurait oublie le remboursement."""
+        self.manager.current = "game"
+
+    def _renonce(self):
+        """Quitte la pose. Ce qui sortait de l'atelier N'A PAS ETE FABRIQUE.
+
+        C'est le seul endroit ou l'on peut y renoncer, et il faut donc que
+        TOUTE sortie y passe -- pas seulement le bouton Annuler. D'ou
+        on_pre_leave : par la fleche, par une autre navigation ou par le
+        bouton, la matiere revient de la meme facon.
+
+        AVANT de partir, et non apres : Kivy previent l'ecran d'arrivee qu'il
+        entre avant de dire a celui-ci qu'il sort. Rendre la matiere trop tard
+        l'aurait fait apparaitre au sol une image apres le retour au jeu."""
+        state = App.get_running_app().game_state
+        if state is not None and state.pending_item() is not None:
+            state.cancel_pending_install()
+            App.get_running_app().autosave()
+
+    def on_pre_leave(self):
+        self._renonce()
 
     def _do_fire_action(self, what):
         """Une action de la fenetre du foyer : alimenter / attiser / allumer."""

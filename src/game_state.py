@@ -176,7 +176,7 @@ class GameState:
                  hands=None, ground=None, explores=None, harvested=None,
                  log=None, player_x=None, player_y=None, revealed=None,
                  facing=0, installed=None, built=None,
-                 build_stages=None, debug=False,
+                 build_stages=None, pending_install=None, debug=False,
                  weather=None, fog=False, weather_until=0,
                  effects=None, fires=None, hand_wear=None, ground_wear=None,
                  chopped=None, equipment=None, bag=None,
@@ -271,6 +271,11 @@ class GameState:
         # vaut zero -- un chantier commence toujours par son sol.
         self.build_stages = {k: int(v)
                              for k, v in (build_stages or {}).items()}
+        # LE DEPOSABLE QUI ATTEND SA PLACE : {"item": nom, "cost": {...}}.
+        # Il est sauvegarde parce qu'une partie quittee pendant la pose doit
+        # pouvoir, a la reprise, soit la finir soit rendre la matiere -- sans
+        # quoi un feu de camp fabrique disparaitrait avec ses branches.
+        self.pending_install = dict(pending_install or {}) or None
         # Arbres ABATTUS par case : {"x,y": [[gx, gy], ...]}. Un arbre coupe
         # ne repousse pas : sa cellule reste vide dans le decor.
         self.chopped = {}
@@ -1498,18 +1503,14 @@ class GameState:
         self.set_build_stage(gx, gy, etape - 1)
         return True
 
-    def install_from_hand(self, index, gx, gy):
-        """Installe l'objet tenu dans la main donnee sur la case courante, a
-        l'ancrage (gx, gy). Echoue si la main est vide, si l'objet n'est pas
-        installable, ou si son EMPRISE ne tient pas la (voir can_install)."""
-        if index not in (0, 1):
-            return False
-        name = self.hands[index]
-        if name is None or not self.can_install(name, gx, gy):
-            return False
+    def _poser_installe(self, name, gx, gy):
+        """Monte l'objet sur la case, une fois qu'on sait d'ou il vient.
+
+        La main et la fabrication immediate y aboutissent toutes deux : ce qui
+        change entre elles, c'est ce qu'on retire en echange, pas ce qu'on
+        monte."""
         lst = self.installed.setdefault(self._cell_key(), [])
         lst.append((name, int(gx), int(gy)))
-        self.set_hand(index, None)
         if name == "Feu_de_camp":
             # Un foyer monte est ETEINT : il faut y mettre du combustible,
             # l'aerer, puis l'allumer (voir fire_light).
@@ -1518,6 +1519,75 @@ class GameState:
                 "t": self.time_seconds}
         else:
             self.start_effect(name)
+
+    def install_from_hand(self, index, gx, gy):
+        """Installe l'objet tenu dans la main donnee sur la case courante, a
+        l'ancrage (gx, gy). Echoue si la main est vide, si l'objet n'est pas
+        installable, ou si son EMPRISE ne tient pas la (voir can_install).
+
+        Cette voie ne sert plus qu'aux objets deja dans les mains d'une partie
+        commencee avant que la fabrication n'impose la pose immediate -- on ne
+        peut plus en obtenir de nouveaux."""
+        if index not in (0, 1):
+            return False
+        name = self.hands[index]
+        if name is None or not self.can_install(name, gx, gy):
+            return False
+        self._poser_installe(name, gx, gy)
+        self.set_hand(index, None)
+        return True
+
+    # ---- un deposable sort de l'atelier DEJA EN MAIN ------------------- #
+    #
+    # UN DEPOSABLE N'EST JAMAIS UN OBJET. Un feu de camp monte ne tient pas
+    # dans une poche, et un plan de construction n'est pas un plan roule :
+    # c'est un chantier. Les laisser trainer dans le sac posait d'ailleurs une
+    # question sans reponse -- que vaut un foyer dans un inventaire ? -- et
+    # permettait d'en fabriquer dix pour n'en poser aucun.
+    #
+    # La fabrication ne rend donc rien : elle OUVRE LA POSE, et le joueur doit
+    # trancher tout de suite. S'il renonce, la fabrication n'a pas eu lieu et
+    # sa matiere lui revient.
+    def start_pending_install(self, name, cost):
+        """Retient un deposable qui vient d'etre fabrique et attend sa place.
+
+        `cost` est ce qu'il a coute -- c'est ce qu'on rendra si le joueur
+        renonce. On le garde ici plutot que dans l'ecran : une sauvegarde faite
+        pendant la pose doit pouvoir rendre la matiere en la relisant."""
+        self.pending_install = {"item": name,
+                                "cost": {k: int(v) for k, v in cost.items()}}
+
+    def pending_item(self):
+        """Le deposable qui attend sa place, ou None."""
+        p = self.pending_install
+        return p.get("item") if p else None
+
+    def install_pending(self, gx, gy):
+        """Pose le deposable qui attend. La fabrication est alors acquise."""
+        name = self.pending_item()
+        if name is None or not self.can_install(name, gx, gy):
+            return False
+        self._poser_installe(name, gx, gy)
+        self.pending_install = None
+        return True
+
+    def cancel_pending_install(self):
+        """Renonce a poser : la fabrication est ANNULEE et la matiere rendue.
+
+        Elle tombe AU SOL, pas dans les mains : une recette en demande
+        volontiers sept morceaux, et deux mains n'en tiennent pas sept. C'est
+        deja ce que fait le retrait d'une piece de construction, et pour la
+        meme raison -- on ne punit pas le joueur d'avoir change d'avis.
+
+        L'OUTIL, lui, reste use. Il ne s'est pas consomme, il a servi : ce
+        travail-la a bien eu lieu, meme si l'on n'en garde rien."""
+        p = self.pending_install
+        self.pending_install = None
+        if not p:
+            return False
+        for matiere, nombre in p.get("cost", {}).items():
+            for _ in range(int(nombre)):
+                self.add_ground(matiere)
         return True
 
     # ------------------------------------------------------------------ #
@@ -1845,11 +1915,22 @@ class GameState:
         if tool:
             self.wear_tool_nearby(tool, recipe.get("tool_wear", 0.0))
         result = recipe["result"]
-        hand = self.free_hand()
-        if hand is not None:
-            self.set_hand(hand, result)
+        if result in items.INSTALLABLE_ITEMS:
+            # UN DEPOSABLE NE DEVIENT PAS UN OBJET : il attend sa place, et le
+            # joueur doit la lui donner tout de suite (voir
+            # start_pending_install). Le cout est retenu tel qu'il vient
+            # d'etre paye -- matiere au choix comprise -- pour pouvoir le
+            # rendre si le joueur renonce.
+            cout = dict(recipe["ingredients"])
+            if choice is not None:
+                cout[choice] = cout.get(choice, 0) + 1
+            self.start_pending_install(result, cout)
         else:
-            self.add_ground(result)
+            hand = self.free_hand()
+            if hand is not None:
+                self.set_hand(hand, result)
+            else:
+                self.add_ground(result)
         self.gain_xp("fabriquer")
         return True
 
@@ -1885,6 +1966,7 @@ class GameState:
             "installed": self.installed,
             "built": self.built,
             "build_stages": self.build_stages,
+            "pending_install": self.pending_install,
             "debug": self.debug,
             "weather": self.weather,
             "fog": self.fog,
@@ -1938,6 +2020,7 @@ class GameState:
             installed=data.get("installed"),
             built=data.get("built"),
             build_stages=data.get("build_stages"),
+            pending_install=data.get("pending_install"),
             debug=data.get("debug", False),
             weather=data.get("weather"),
             fog=data.get("fog", False),
