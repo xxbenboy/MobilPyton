@@ -138,3 +138,47 @@ def fill_bag(box, title, state):
         grid.add_widget(cell)
     box.add_widget(grid)
     return cells
+
+
+# L'ETABLI d'un atelier. Sa colonne a la meme largeur que celle du sac -- les
+# deux se remplacent dans le meme panneau -- donc le meme nombre de cases par
+# rangee.
+STATION_COLS = BAG_COLS
+
+
+def fill_station(box, title, state):
+    """Remplit la colonne du COFFRE de l'atelier et renvoie ses cases.
+
+    Comme pour le sac, les emplacements VIDES sont dessines : on voit ainsi ce
+    qu'il reste de place sans avoir a compter. Chaque case porte
+    `station_index`, dont le glisser-deposer a besoin.
+
+    Rend une liste VIDE s'il n'y a pas d'atelier ici -- l'ecran n'aurait alors
+    pas du etre ouvert, mais il ne doit pas se casser pour autant."""
+    box.clear_widgets()
+    station = state.station_here() if state is not None else None
+    if station is None:
+        title.text = "Etabli"
+        return []
+    nom, gx, gy = station
+    contenu = state.station_items(gx, gy)
+    capacite = state.station_capacity(nom)
+    title.text = "Etabli (%d/%d)" % (len(contenu), capacite)
+    grid = GridLayout(cols=STATION_COLS, spacing=dp(3), size_hint_y=None)
+    grid.bind(minimum_height=grid.setter("height"))
+    cells = []
+    for i in range(capacite):
+        name = contenu[i] if i < len(contenu) else None
+        cell = BoxLayout(orientation="vertical", size_hint_y=None,
+                         height=dh(CELL_H))
+        cell.station_index = i
+        cell.item = name
+        cell.add_widget(ItemIcon(name, show_name=False) if name
+                        else empty_slot(1.0))
+        cell.name_label = cell_label(item_text(state, name),
+                                     LIT if name else DIM)
+        cell.add_widget(cell.name_label)
+        cells.append(cell)
+        grid.add_widget(cell)
+    box.add_widget(grid)
+    return cells

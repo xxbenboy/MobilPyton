@@ -16,6 +16,8 @@ L'ecran doit fournir :
     hand_slots      les deux mains
     ground_scroll / _ground_cells      la colonne "a proximite"
     bag_scroll / _bag_cells            la colonne du sac
+    station_scroll / _station_cells    le coffre d'un atelier -- FACULTATIF,
+                                       seul l'ecran d'atelier en a un
     _equip_slots    la silhouette -- LISTE VIDE si l'ecran n'en a pas
     hint            un libelle pour les messages (facultatif)
     refresh()       pour se redessiner apres un depot
@@ -158,6 +160,22 @@ class DragDrop:
         """La silhouette, ou rien du tout si l'ecran n'en a pas."""
         return getattr(self, "_equip_slots", ())
 
+    # -- le coffre d'un atelier, quand l'ecran en montre un --------------- #
+    #
+    # Tout ce qui suit rend une valeur NEUTRE quand l'ecran n'a pas de coffre.
+    # C'est ce qui permet a l'inventaire et au craft d'herier du meme
+    # melangeur sans rien savoir des ateliers.
+    def _station_widgets(self):
+        return getattr(self, "_station_cells", ())
+
+    def _station_scroll(self):
+        return getattr(self, "station_scroll", None)
+
+    def _station_anchor(self):
+        """(gx, gy) de l'atelier montre par l'ecran, ou None."""
+        fn = getattr(self, "station_anchor", None)
+        return fn() if fn is not None else None
+
     # -- prise ---------------------------------------------------------- #
     def _start_drag(self, touch):
         """Saisit l'objet sous le doigt.
@@ -177,6 +195,9 @@ class DragDrop:
         for cell in self._ground_cells:
             if cell.item and hit(cell, touch):
                 source = ("ground", cell.item, cell.item)
+        for cell in self._station_widgets():
+            if cell.item and hit(cell, touch):
+                source = ("station", cell.station_index, cell.item)
         if source is None:
             return False
         name = source[2]
@@ -198,8 +219,10 @@ class DragDrop:
     # -- cibles qui clignotent ------------------------------------------ #
     def _targets(self):
         """Tout ce qui peut clignoter, pour tout eteindre d'un coup."""
+        coffre = self._station_scroll()
         return (list(self._equip_widgets()) + list(self.hand_slots)
-                + [self.bag_scroll, self.ground_scroll])
+                + [self.bag_scroll, self.ground_scroll]
+                + ([coffre] if coffre is not None else []))
 
     def _highlight_for(self, kind, name):
         """Fait clignoter TOUTES les destinations possibles de l'objet saisi.
@@ -227,6 +250,13 @@ class DragDrop:
         # Le SOL accepte tout : on peut toujours poser un objet par terre.
         if kind != "ground":
             targets.append(self.ground_scroll)
+        # L'ETABLI, s'il est montre et qu'il reste de la place dessus.
+        coffre = self._station_scroll()
+        ancre = self._station_anchor()
+        if kind != "station" and coffre is not None and ancre is not None:
+            station = state.station_here()
+            if station and state.station_free(station[0], *ancre) > 0:
+                targets.append(coffre)
 
         for widget in self._targets():
             widget.set_highlight(False)
@@ -308,6 +338,45 @@ class DragDrop:
                 return (f"{label} equipe — {spilled} objet(s) du sac "
                         f"tombent au sol.")
             return f"{label} equipe."
+        # ---- vers L'ETABLI ----
+        coffre = self._station_scroll()
+        ancre = self._station_anchor()
+        if coffre is not None and ancre is not None and hit(coffre, touch):
+            if kind == "station":
+                return ""
+            station = state.station_here()
+            if station is None:
+                return "Il n'y a pas d'atelier ici."
+            if state.station_free(station[0], *ancre) <= 0:
+                return "L'etabli est plein."
+            if kind == "hand":
+                state.station_from_hand(*ancre, index)
+                return f"{label} pose sur l'etabli."
+            if kind == "bag":
+                state.station_from_bag(*ancre, index)
+                return f"{label} sorti du sac, pose sur l'etabli."
+            if kind == "ground":
+                state.station_from_ground(*ancre, name)
+                return f"{label} ramasse et pose sur l'etabli."
+            return ""
+        # ---- depuis L'ETABLI, on peut en sortir vers le reste ----
+        if kind == "station" and ancre is not None:
+            if hit(self.bag_scroll, touch):
+                if state.bag_free() <= 0:
+                    return "Le sac est plein."
+                state.station_to_bag(*ancre, index)
+                return f"{label} range dans le sac."
+            if hit(self.ground_scroll, touch):
+                state.station_to_ground(*ancre, index)
+                return f"{label} retire de l'etabli, pose au sol."
+            for slot in self.hand_slots:
+                if not hit(slot, touch):
+                    continue
+                if state.hands[slot.hand] is not None:
+                    return "Cette main est deja occupee."
+                state.station_to_hand(*ancre, index, slot.hand)
+                return f"{label} repris en main."
+            return ""
         # ---- vers le SAC ----
         if hit(self.bag_scroll, touch):
             if kind == "bag":

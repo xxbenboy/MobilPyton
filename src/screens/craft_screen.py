@@ -56,8 +56,15 @@ def _btn_font(w, *_):
 
 
 def _recipe_text_font(w, *_):
-    """Texte d'une recette : la taille courante du jeu (voir fit_text)."""
-    fit_text(w, TEXT_NORMAL)
+    """Texte d'une recette : la taille courante du jeu (voir fit_text).
+
+    AVEC RENVOI A LA LIGNE. Sans lui, fit_text reduit la police jusqu'a ce que
+    la ligne la PLUS LONGUE tienne d'un seul tenant : une recette a quatre
+    conditions -- matieres, outil, atelier, duree -- devenait donc illisible,
+    et c'est la recette la plus compliquee, celle qu'on a le plus besoin de
+    lire, qui ecrivait le plus petit. Renvoyee a la ligne, elle occupe la
+    hauteur de sa rangee et garde la taille de tout le monde."""
+    fit_text(w, TEXT_NORMAL, wrap=True)
 
 
 def _fit_button_font(btn, *_):
@@ -281,8 +288,14 @@ class CraftScreen(DragDrop, Screen):
         self.recipe_box.clear_widgets()
         pool = state.craft_pool()
         for category in items.RECIPE_CATEGORIES:
+            # LES RECETTES D'ATELIER NE SONT PAS ICI. Elles ne se font pas a
+            # mains nues et leur matiere doit etre posee sur l'etabli : les
+            # montrer dans cette liste, c'etait promettre au joueur qu'il
+            # pourrait les faire la ou il se tient. Elles ont leur ecran, ou
+            # l'on n'arrive qu'en ayant monte l'atelier.
             group = [r for r in items.RECIPES
-                     if r.get("category") == category]
+                     if r.get("category") == category
+                     and not r.get("station")]
             if not group:
                 continue
             ready = sum(1 for r in group if state.can_craft(r))
@@ -331,17 +344,6 @@ class CraftScreen(DragDrop, Screen):
                 cost = int(round(recipe.get("tool_wear", 0.0) * 100))
                 label = f"{items.display_name(tool)} (-{cost} %)"
                 if state.recipe_tool_ok(recipe):
-                    parts.append(label)
-                else:
-                    parts.append(f"[color=777777]{label}[/color]")
-            # INSTALLATION requise : un atelier POSE sur la case. Grisee comme
-            # le reste quand elle manque -- sinon le bouton Fabriquer serait
-            # eteint sans que rien ne dise pourquoi, et le joueur chercherait
-            # l'erreur dans ses matieres.
-            station = recipe.get("station")
-            if station:
-                label = f"sur un {items.display_name(station).lower()}"
-                if state.recipe_station_ok(recipe):
                     parts.append(label)
                 else:
                     parts.append(f"[color=777777]{label}[/color]")

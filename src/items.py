@@ -222,6 +222,30 @@ FOOTPRINT = {
 }
 
 
+# CE QU'UNE INSTALLATION PEUT CONTENIR, en emplacements. Un atelier a son
+# propre coffre : ce qu'on y travaille doit y etre POSE. Ce n'est pas une
+# tracasserie -- c'est ce qui fait qu'un atelier est un endroit ou l'on
+# s'installe, et non une case de plus dans l'inventaire.
+STATION_SLOTS = {
+    WORKBENCH_T1: 20,
+}
+
+
+def station_slots(name):
+    """Emplacements de l'installation, ou 0 si elle ne range rien."""
+    return STATION_SLOTS.get(name, 0)
+
+
+def is_station(name):
+    """Vrai si l'installation a un inventaire a elle."""
+    return station_slots(name) > 0
+
+
+def station_recipes(name):
+    """Les recettes qui demandent CETTE installation."""
+    return [r for r in RECIPES if r.get("station") == name]
+
+
 def footprint(name):
     """(largeur, profondeur) en cases. Un objet inconnu tient sur une case."""
     return FOOTPRINT.get(name, (1, 1))

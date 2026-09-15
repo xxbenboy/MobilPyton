@@ -222,7 +222,27 @@ def _wet(cx, cy, s):                                 # gouttes (mouille)
                          bx, by + r * 1.75])
 
 
-ICONS = {"explore": _explore, "wood": _wood, "food": _food, "drink": _drink,
+def _anvil(cx, cy, s):                               # etabli (atelier)
+    """Un etabli vu de face : son plateau et ses quatre pieds.
+
+    La meme forme que l'objet pose dans le decor -- un bouton qui ne
+    ressemble pas a ce qu'il ouvre oblige a l'apprendre par coeur."""
+    Color(0.34, 0.23, 0.13, 1)                       # les pieds
+    for dx in (-0.62, -0.30, 0.30, 0.62):
+        RoundedRectangle(pos=(cx + dx * s - s * 0.07, cy - s * 0.62),
+                         size=(s * 0.14, s * 0.62), radius=[s * 0.05])
+    Color(0.62, 0.45, 0.26, 1)                       # le plateau
+    RoundedRectangle(pos=(cx - s * 0.80, cy - s * 0.04),
+                     size=(s * 1.60, s * 0.30), radius=[s * 0.07])
+    Color(0.46, 0.32, 0.18, 1)                       # sa tranche
+    RoundedRectangle(pos=(cx - s * 0.80, cy - s * 0.14),
+                     size=(s * 1.60, s * 0.12), radius=[s * 0.05])
+    Color(0.78, 0.62, 0.38, 1)                       # l'ouvrage dessus
+    RoundedRectangle(pos=(cx - s * 0.26, cy + s * 0.26),
+                     size=(s * 0.52, s * 0.20), radius=[s * 0.06])
+
+
+ICONS = {"anvil": _anvil, "explore": _explore, "wood": _wood, "food": _food, "drink": _drink,
          "fill": _fill, "rest": _rest, "map": _map, "home": _home,
          "craft": _craft, "move": _move, "fire": _fire, "wet": _wet, "actions": _actions, "hand": _hand, "bag": _bag,
          # Logos des stats (section "Etat"). On reutilise certains logos

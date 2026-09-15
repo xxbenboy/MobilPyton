@@ -176,7 +176,8 @@ class GameState:
                  hands=None, ground=None, explores=None, harvested=None,
                  log=None, player_x=None, player_y=None, revealed=None,
                  facing=0, installed=None, built=None,
-                 build_stages=None, pending_install=None, debug=False,
+                 build_stages=None, pending_install=None, stations=None,
+                 debug=False,
                  weather=None, fog=False, weather_until=0,
                  effects=None, fires=None, hand_wear=None, ground_wear=None,
                  chopped=None, equipment=None, bag=None,
@@ -276,6 +277,17 @@ class GameState:
         # pouvoir, a la reprise, soit la finir soit rendre la matiere -- sans
         # quoi un feu de camp fabrique disparaitrait avec ses branches.
         self.pending_install = dict(pending_install or {}) or None
+        # LE CONTENU DES INSTALLATIONS : {"x,y:gx,gy": {"items": [...],
+        # "wear": [...]}}. Un atelier a son propre coffre, et ce coffre RESTE
+        # LA -- c'est ce qui fait de lui un endroit ou l'on s'installe plutot
+        # qu'une poche de plus. Meme forme que le sac, usure comprise : un
+        # couteau range a moitie use en ressort a moitie use.
+        self.stations = {}
+        for cle, contenu in (stations or {}).items():
+            noms = list((contenu or {}).get("items", []))
+            usure = [float(v) for v in (contenu or {}).get("wear", [])]
+            usure += [0.0] * (len(noms) - len(usure))
+            self.stations[cle] = {"items": noms, "wear": usure[:len(noms)]}
         # Arbres ABATTUS par case : {"x,y": [[gx, gy], ...]}. Un arbre coupe
         # ne repousse pas : sa cellule reste vide dans le decor.
         self.chopped = {}
@@ -1591,6 +1603,228 @@ class GameState:
         return True
 
     # ------------------------------------------------------------------ #
+    # Installations a coffre : l'atelier et son inventaire
+    # ------------------------------------------------------------------ #
+    #
+    # UN ATELIER A SON PROPRE COFFRE, et c'est lui seul qui alimente ses
+    # recettes. Ni les mains, ni le sac, ni ce qui traine autour ne comptent :
+    # il faut POSER sa matiere sur l'etabli. Ce n'est pas une tracasserie --
+    # c'est ce qui fait la difference entre bricoler debout et s'installer
+    # pour travailler, et c'est ce qui donne un sens a l'endroit ou l'on a
+    # monte l'atelier.
+    def _station_key(self, gx, gy):
+        return "%s:%d,%d" % (self._cell_key(), int(gx), int(gy))
+
+    def station_here(self):
+        """(nom, gx, gy) de l'installation a coffre posee ici, ou None.
+
+        La premiere trouvee : on n'en monte pas deux sur la meme case, et si
+        cela arrivait un jour, c'est celle qu'on a posee d'abord qui sert."""
+        for obj in self.installed_objects_here():
+            if items.is_station(obj[0]):
+                return (obj[0], int(obj[1]), int(obj[2]))
+        return None
+
+    def _station(self, gx, gy):
+        return self.stations.setdefault(self._station_key(gx, gy),
+                                        {"items": [], "wear": []})
+
+    def station_items(self, gx, gy):
+        """Ce que contient l'installation, emplacement par emplacement."""
+        return list(self._station(gx, gy)["items"])
+
+    def station_capacity(self, name):
+        return items.station_slots(name)
+
+    def station_free(self, name, gx, gy):
+        return max(0, items.station_slots(name)
+                   - len(self._station(gx, gy)["items"]))
+
+    def station_put(self, gx, gy, name, wear=0.0):
+        """Range un objet dans l'installation. False si elle est pleine."""
+        station = self.station_here()
+        if station is None or name is None:
+            return False
+        if self.station_free(station[0], gx, gy) <= 0:
+            return False
+        coffre = self._station(gx, gy)
+        coffre["items"].append(name)
+        coffre["wear"].append(float(wear))
+        return True
+
+    def station_pop(self, gx, gy, index):
+        """Sort l'objet d'un emplacement : (nom, usure), ou None."""
+        coffre = self._station(gx, gy)
+        if not (0 <= index < len(coffre["items"])):
+            return None
+        nom = coffre["items"].pop(index)
+        usure = (coffre["wear"].pop(index)
+                 if index < len(coffre["wear"]) else 0.0)
+        if not coffre["items"]:
+            self.stations.pop(self._station_key(gx, gy), None)
+        return nom, usure
+
+    # ---- faire entrer et sortir la matiere de l'etabli ----------------- #
+    #
+    # Six chemins, un par provenance et un par destination. Ils vivent ici et
+    # non dans l'ecran pour la meme raison que bag_store et ses voisins :
+    # l'usure d'un outil doit voyager avec lui, et c'est le genre de detail
+    # qu'un ecran oublie.
+    def station_from_hand(self, gx, gy, hand):
+        """Pose sur l'etabli l'objet tenu dans cette main."""
+        nom = self.hands[hand] if hand in (0, 1) else None
+        if nom is None or not self.station_put(gx, gy, nom,
+                                               self.tool_wear(hand)):
+            return False
+        self.set_hand(hand, None)
+        return True
+
+    def station_from_bag(self, gx, gy, index):
+        """Sort du sac un objet et le pose sur l'etabli."""
+        if not (0 <= index < len(self.bag)):
+            return False
+        nom = self.bag[index]
+        usure = self.bag_wear[index] if index < len(self.bag_wear) else 0.0
+        if not self.station_put(gx, gy, nom, usure):
+            return False
+        self.bag.pop(index)
+        if index < len(self.bag_wear):
+            self.bag_wear.pop(index)
+        return True
+
+    def station_from_ground(self, gx, gy, name):
+        """Ramasse un objet au sol et le pose sur l'etabli."""
+        station = self.station_here()
+        if station is None or self.station_free(station[0], gx, gy) <= 0:
+            return False
+        usure = self._pull_ground(name)
+        if usure is None:
+            return False
+        self.station_put(gx, gy, name, usure)
+        self.gain_xp("ramasser")
+        return True
+
+    def station_to_hand(self, gx, gy, index, hand):
+        """Reprend en main un objet de l'etabli."""
+        if hand not in (0, 1) or self.hands[hand] is not None:
+            return False
+        pris = self.station_pop(gx, gy, index)
+        if pris is None:
+            return False
+        self.set_hand(hand, pris[0], pris[1])
+        return True
+
+    def station_to_bag(self, gx, gy, index):
+        """Range dans le sac un objet de l'etabli."""
+        if self.bag_free() <= 0:
+            return False
+        pris = self.station_pop(gx, gy, index)
+        if pris is None:
+            return False
+        self.bag.append(pris[0])
+        self.bag_wear.append(pris[1])
+        return True
+
+    def station_to_ground(self, gx, gy, index):
+        """Retire de l'etabli un objet et le pose au sol."""
+        pris = self.station_pop(gx, gy, index)
+        if pris is None:
+            return False
+        self.add_ground(pris[0], wear=pris[1])
+        return True
+
+    def station_pool(self, gx, gy):
+        """{objet: nombre} de ce qui est POSE sur l'etabli, et rien d'autre.
+
+        C'est le pendant de craft_pool, en beaucoup plus etroit : la ou le
+        craft ordinaire ratisse les mains, le sol et le sac, celui-ci ne
+        regarde que le coffre."""
+        pool = {}
+        for nom in self._station(gx, gy)["items"]:
+            pool[nom] = pool.get(nom, 0) + 1
+        return pool
+
+    def _station_index(self, gx, gy, name):
+        coffre = self._station(gx, gy)
+        for i, nom in enumerate(coffre["items"]):
+            if nom == name:
+                return i
+        return None
+
+    def station_choice(self, recipe, gx, gy):
+        """La matiere au choix disponible DANS l'atelier, ou None."""
+        for nom in recipe.get("any_of") or ():
+            if self._station_index(gx, gy, nom) is not None:
+                return nom
+        return None
+
+    def can_craft_at(self, recipe, gx, gy):
+        """La recette est-elle faisable AVEC LE SEUL CONTENU de l'atelier ?"""
+        station = self.station_here()
+        if station is None or recipe.get("station") != station[0]:
+            return False
+        if self.debug:
+            return True
+        pool = self.station_pool(gx, gy)
+        if not all(pool.get(k, 0) >= v
+                   for k, v in recipe["ingredients"].items()):
+            return False
+        if recipe.get("any_of") and self.station_choice(recipe, gx, gy) is None:
+            return False
+        outil = recipe.get("tool")
+        return outil is None or pool.get(outil, 0) > 0
+
+    def _station_wear_tool(self, gx, gy, name, amount):
+        """Use un outil POSE sur l'etabli. True s'il casse."""
+        if amount <= 0:
+            return False
+        i = self._station_index(gx, gy, name)
+        if i is None:
+            return False
+        coffre = self._station(gx, gy)
+        usure = (coffre["wear"][i] if i < len(coffre["wear"]) else 0.0) + amount
+        if usure >= 1.0 - 1e-9:
+            self.station_pop(gx, gy, i)
+            self.add_log("%s casse" % items.display_name(name))
+            return True
+        coffre["wear"][i] = usure
+        return False
+
+    def do_craft_at(self, recipe, gx, gy):
+        """Fabrique SUR l'etabli : la matiere en sort, le resultat y entre.
+
+        Le resultat retourne au coffre et non dans les mains -- on travaille a
+        l'etabli, on ne range pas au fur et a mesure. S'il n'y a plus de place
+        il tombe au sol, faute de mieux ; et un deposable, lui, n'atterrit
+        nulle part : il attend sa place comme partout ailleurs."""
+        if not self.can_craft_at(recipe, gx, gy):
+            return False
+        cout = dict(recipe["ingredients"])
+        choix = self.station_choice(recipe, gx, gy)
+        if choix is not None:
+            cout[choix] = cout.get(choix, 0) + 1
+        for nom, nombre in cout.items():
+            for _ in range(nombre):
+                i = self._station_index(gx, gy, nom)
+                if i is not None:
+                    self.station_pop(gx, gy, i)
+        outil = recipe.get("tool")
+        if outil:
+            self._station_wear_tool(gx, gy, outil,
+                                    recipe.get("tool_wear", 0.0))
+        minutes = int(recipe.get("minutes", 0))
+        if minutes > 0:
+            self.tick(minutes * 60)
+            self.advance_survival(minutes * 60)
+        resultat = recipe["result"]
+        if resultat in items.INSTALLABLE_ITEMS:
+            self.start_pending_install(resultat, cout)
+        elif not self.station_put(gx, gy, resultat):
+            self.add_ground(resultat)
+        self.gain_xp("fabriquer")
+        return True
+
+    # ------------------------------------------------------------------ #
     # Feux de camp : combustible + comburant + allumage
     # ------------------------------------------------------------------ #
     def _fire_key(self, gx, gy):
@@ -1884,20 +2118,16 @@ class GameState:
         name = recipe.get("tool")
         return name is None or self.craft_pool().get(name, 0) > 0
 
-    def recipe_station_ok(self, recipe):
-        """L'installation demandee est-elle POSEE sur cette case ?
-
-        Un atelier n'est pas un outil qu'on emporte : c'est un lieu. Le
-        chercher dans les mains ou dans le sac n'aurait donc aucun sens -- on
-        le cherche AU SOL, la ou on l'a monte. C'est ce qui fait qu'il vaut la
-        peine de choisir ou l'installer, et qu'un campement finit par valoir
-        mieux qu'un autre endroit."""
-        name = recipe.get("station")
-        if name is None:
-            return True
-        return any(obj[0] == name for obj in self.installed_objects_here())
-
     def can_craft(self, recipe):
+        """La recette est-elle faisable A MAINS NUES, ici et maintenant ?
+
+        UNE RECETTE D'ATELIER N'EN EST JAMAIS. Elle a sa propre voie --
+        can_craft_at -- qui ne regarde que ce qui est POSE sur l'etabli. Si
+        celle-ci l'acceptait, il suffirait d'un ecran qui liste toutes les
+        recettes pour fabriquer un plan avec le contenu de son sac, et la
+        regle de l'atelier ne tiendrait plus qu'a un filtre d'affichage."""
+        if recipe.get("station"):
+            return False
         if self.debug:
             return True            # debug : tout craftable, sans ingredients
         pool = self.craft_pool()
@@ -1906,7 +2136,7 @@ class GameState:
             return False
         if recipe.get("any_of") and self.recipe_choice(recipe) is None:
             return False
-        return self.recipe_tool_ok(recipe) and self.recipe_station_ok(recipe)
+        return self.recipe_tool_ok(recipe)
 
     def do_craft(self, recipe):
         """Fabrique : consomme les ingredients (sol, puis mains, puis sac).
@@ -1989,6 +2219,7 @@ class GameState:
             "built": self.built,
             "build_stages": self.build_stages,
             "pending_install": self.pending_install,
+            "stations": self.stations,
             "debug": self.debug,
             "weather": self.weather,
             "fog": self.fog,
@@ -2043,6 +2274,7 @@ class GameState:
             built=data.get("built"),
             build_stages=data.get("build_stages"),
             pending_install=data.get("pending_install"),
+            stations=data.get("stations"),
             debug=data.get("debug", False),
             weather=data.get("weather"),
             fog=data.get("fog", False),

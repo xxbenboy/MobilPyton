@@ -465,6 +465,33 @@ class GameScreen(Screen):
         prox_cell.add_widget(_button_label("Carte/Zone"))
         root.add_widget(prox_cell)
 
+        # ---- Bouton ATELIER, juste a cote ----
+        # Il n'apparait QUE si un atelier est monte sur la case. C'est un
+        # bouton de LIEU, comme son voisin : il ne dit pas "tu peux fabriquer"
+        # mais "il y a un etabli ici". Le montrer eteint partout ailleurs
+        # aurait encombre un coin d'ecran deja charge, pour une action qui
+        # n'existe que la ou l'on s'est installe.
+        atelier_cell = BoxLayout(orientation="vertical", spacing=2,
+                                 size_hint=(0.06, 0.16),
+                                 pos_hint={"x": 0.072, "y": 0.012})
+        self.atelier_cell = atelier_cell
+        atelier_area = AnchorLayout(size_hint=(1, 0.66))
+        self.atelier_btn = IconButton(icon="anvil", size_hint=(None, None))
+
+        def _atelier_square(a, *_):
+            s = a.height * 0.94
+            self.atelier_btn.size = (s, s)
+        atelier_area.bind(size=_atelier_square)
+        self.atelier_btn.bind(on_release=self._open_atelier)
+        atelier_area.add_widget(self.atelier_btn)
+        atelier_cell.add_widget(atelier_area)
+        self.atelier_label = _button_label("Atelier")
+        atelier_cell.add_widget(self.atelier_label)
+        # PAS DANS L'ARBRE tant qu'il n'y a pas d'atelier. Le masquer par
+        # l'opacite n'aurait pas suffi : un bouton invisible reste sous le
+        # doigt et avale le toucher de ce qui se trouve derriere lui.
+        self._atelier_root = root
+
         # ---- Bouton MENU (bas a droite) ----
         menu_cell = BoxLayout(orientation="vertical", spacing=2, size_hint=(0.06, 0.16),
                               pos_hint={"right": 0.994, "y": 0.012})
@@ -1182,6 +1209,15 @@ class GameScreen(Screen):
         place._action_cell = None
         self.manager.current = "place"
 
+    def _open_atelier(self, *_):
+        """Bouton Atelier : ouvre l'etabli monte sur la case."""
+        state = App.get_running_app().game_state
+        if state is None or self._ff_active or self._moving:
+            return
+        if state.station_here() is None:
+            return
+        self.manager.current = "workbench"
+
     def _open_prox(self, *_):
         """Bouton Carte/Zone : ouvre la ZONE, la grille de la case, ou l'on
         choisit un objet pose pour s'en servir (feu de camp...).
@@ -1667,6 +1703,15 @@ class GameScreen(Screen):
         # n'a pas de carte ; le bouton, lui, n'a plus de raison de grisonner.
         self.prox_btn.disabled = self._ff_active
         self.prox_btn.opacity = 1.0
+        # ATELIER : present ou absent, jamais grise. Un atelier est un LIEU --
+        # soit il y en a un ici, soit il n'y en a pas, et un bouton eteint ne
+        # dirait rien de plus qu'un bouton absent.
+        ici = state.station_here() is not None
+        if ici and self.atelier_cell.parent is None:
+            self._atelier_root.add_widget(self.atelier_cell)
+        elif not ici and self.atelier_cell.parent is not None:
+            self._atelier_root.remove_widget(self.atelier_cell)
+        self.atelier_btn.disabled = self._ff_active
         if self.inv_btn is not None:
             self.inv_btn.disabled = self._ff_active
 
