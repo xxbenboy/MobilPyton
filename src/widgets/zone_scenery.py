@@ -114,6 +114,12 @@ _ECLAT_BUCHE = 0.55
 _CREUX_BUCHE = 0.42
 
 
+# L'ATELIER, en fractions de la largeur de son emprise : hauteur de ses pieds,
+# puis epaisseur de son plateau. Un etabli arrive a la taille : plus bas on
+# travaille a genoux, plus haut on ne voit plus ce qu'on fait.
+_ETABLI_HAUTEUR = 0.30
+_ETABLI_PLATEAU = 0.09
+
 # Taille des flammes selon l'etat du feu (voir game_state.FIRE_LEVELS).
 # "braise" = plus de flamme du tout, seules les braises rougeoient.
 _FLAME_SCALE = {"grand": 1.00, "moyen": 0.66, "petit": 0.36, "braise": 0.0}
@@ -495,6 +501,10 @@ class ZoneScenery(Widget):
                                 lambda c=coins, b=level: self._batiment(c, b)))
                 else:
                     out.append((base, lambda c=coins: self._blueprint(c)))
+            elif name == items.WORKBENCH_T1:
+                coins = self._emprise_coins(name, gx, gy)
+                base = min(c[1] for c in coins)
+                out.append((base, lambda c=coins: self._etabli(c)))
         return out
 
     def _emprise_coins(self, name, gx, gy):
@@ -747,6 +757,66 @@ class ZoneScenery(Widget):
                 pts += [px, py]
                 tc += list(build_grid.uv_bout(s, dz, w0, w1, demi))
             _peau_bois(log_skin.bout(), ombre, pts, tc, eventail=True)
+
+    def _etabli(self, coins):
+        """L'atelier : un plateau de rondins sur quatre pieds.
+
+        C'est un MEUBLE, pas une marque au sol : il a de la hauteur, et son
+        plateau se voit de dessus alors que ses pieds se voient de face. On le
+        monte donc sur l'emprise plutot que de la remplir -- l'emprise est
+        l'encombrement au sol, ce qu'on ne pourra plus traverser.
+
+        Le plateau est fait des memes buches que le plancher, et pour la meme
+        raison : c'est le meme bois, et deux bois differents dans un meme
+        campement se verraient."""
+        (x_ag, y_ag), (x_ad, y_ad), (x_fd, y_fd), (x_fg, y_fg) = coins
+        large = x_ad - x_ag
+        haut = large * _ETABLI_HAUTEUR
+        ep = large * _ETABLI_PLATEAU
+
+        def coin(u, v, dz):
+            """Un point de l'emprise, eleve de `dz`."""
+            xg = x_ag + (x_fg - x_ag) * v
+            yg = y_ag + (y_fg - y_ag) * v
+            xd = x_ad + (x_fd - x_ad) * v
+            yd = y_ad + (y_fd - y_ad) * v
+            return xg + (xd - xg) * u, yg + (yd - yg) * u + dz
+
+        # L'OMBRE PORTEE, d'abord : sans elle le meuble flotte au-dessus du
+        # sol, puisque rien d'autre ne dit ou ses pieds le touchent.
+        Color(0.0, 0.0, 0.0, 0.22)
+        Quad(points=[c for u, v in ((0.02, 0.02), (0.98, 0.02),
+                                    (0.98, 0.98), (0.02, 0.98))
+                     for c in coin(u, v, 0.0)])
+        # LES QUATRE PIEDS. Ceux du fond d'abord : le plateau les recouvrira
+        # en partie, et c'est ce recouvrement qui donne sa profondeur au
+        # meuble.
+        pied = large * 0.055
+        for u, v in ((0.12, 0.88), (0.88, 0.88), (0.12, 0.12), (0.88, 0.12)):
+            bx, by = coin(u, v, 0.0)
+            tx, ty = coin(u, v, haut)
+            Color(0.34, 0.23, 0.13, 1)
+            Quad(points=[bx - pied, by, bx + pied, by,
+                         tx + pied, ty, tx - pied, ty])
+        # LE PLATEAU : sa tranche, puis son dessus en rondins.
+        bas, sommet = haut, haut + ep
+        Color(0.33, 0.22, 0.13, 1)
+        Quad(points=[*coin(0.0, 0.0, bas), *coin(1.0, 0.0, bas),
+                     *coin(1.0, 0.0, sommet), *coin(0.0, 0.0, sommet)])
+        rondins = 5
+        for i in range(rondins):
+            v0, v1 = i / rondins, (i + 1) / rondins
+            # Du fond vers l'avant : le rondin de devant recouvre celui du
+            # fond, comme partout ailleurs dans cette vue rasante.
+            v0, v1 = 1.0 - v1, 1.0 - v0
+            milieu = (v0 + v1) / 2.0
+            galbe = build_grid.profil_buche(milieu)
+            f = _OMBRE_DEVANT + (_OMBRE_DESSUS - _OMBRE_DEVANT) * galbe
+            pts = []
+            for u, v in ((0.0, v0), (1.0, v0), (1.0, v1), (0.0, v1)):
+                pts += list(coin(u, v, sommet))
+            _peau_bois(log_skin.ecorce(), f, pts,
+                       [0, 0, 2, 0, 2, 1, 0, 1])
 
     def _blueprint(self, coins):
         """Plan de construction : quatre piquets relies par une corde.

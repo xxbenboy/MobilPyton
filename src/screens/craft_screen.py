@@ -334,6 +334,23 @@ class CraftScreen(DragDrop, Screen):
                     parts.append(label)
                 else:
                     parts.append(f"[color=777777]{label}[/color]")
+            # INSTALLATION requise : un atelier POSE sur la case. Grisee comme
+            # le reste quand elle manque -- sinon le bouton Fabriquer serait
+            # eteint sans que rien ne dise pourquoi, et le joueur chercherait
+            # l'erreur dans ses matieres.
+            station = recipe.get("station")
+            if station:
+                label = f"sur un {items.display_name(station).lower()}"
+                if state.recipe_station_ok(recipe):
+                    parts.append(label)
+                else:
+                    parts.append(f"[color=777777]{label}[/color]")
+            # LE TEMPS que l'ouvrage prend, s'il en prend. Il se paie en faim
+            # et en soif : il a sa place dans le prix.
+            minutes = int(recipe.get("minutes", 0))
+            if minutes:
+                parts.append("[color=c8b48c]%s[/color]"
+                             % items.duree_texte(minutes))
             ing = ", ".join(parts)
 
             # Rangee bien plus HAUTE qu'avant : l'image (qui garde son ratio)

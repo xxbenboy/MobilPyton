@@ -56,6 +56,11 @@ TOOL_USES = {
     "Hache": 5,
     "Lance": 12,
     "Couteau": 15,
+    # Le MARTEAU sert par gros ouvrages, pas par gestes : cinq utilisations,
+    # soit exactement les cinq ateliers que coute un marteau a vingt pour cent
+    # la piece. Le compte est voulu -- un outil dont l'usure ne tombe pas
+    # juste casse au milieu d'un travail, sans qu'on ait pu le prevoir.
+    "Marteau": 5,
 }
 
 
@@ -194,10 +199,17 @@ def is_bag(name):
 # Le premier palier ne fait encore que cela -- delimiter.
 BLUEPRINT_T1 = "Plan_De_Construction_Tier_1"
 
+# L'ATELIER marque le passage du bricolage a l'ouvrage. Tout ce qu'on
+# fabriquait jusqu'ici tenait dans les mains ; a partir de lui, on fabrique ce
+# qui demande un ETABLI -- une surface, un etau, de quoi poser sa piece. C'est
+# pourquoi il ouvre des recettes au lieu d'en etre une de plus (voir
+# `station`).
+WORKBENCH_T1 = "Atelier_Tier_1"
+
 # Objets INSTALLABLES : peuvent etre "utilises" (montes/installes) depuis la
 # main via un bouton Utiliser dedie. Une fois installes, ils passent dans
 # game_state.installed (pas dans ground) et ne peuvent plus etre ramasses.
-INSTALLABLE_ITEMS = {"Feu_de_camp", BLUEPRINT_T1}
+INSTALLABLE_ITEMS = {"Feu_de_camp", BLUEPRINT_T1, WORKBENCH_T1}
 
 # EMPRISE AU SOL, en cases de la grille 5x5 : (largeur, profondeur). Un objet
 # est ANCRE sur une case -- la plus a gauche de sa rangee la plus proche -- et
@@ -206,6 +218,7 @@ INSTALLABLE_ITEMS = {"Feu_de_camp", BLUEPRINT_T1}
 FOOTPRINT = {
     "Feu_de_camp": (1, 1),
     BLUEPRINT_T1: (2, 2),      # un plan delimite une VRAIE surface
+    WORKBENCH_T1: (2, 1),      # un etabli est un meuble : long et etroit
 }
 
 
@@ -364,9 +377,17 @@ RECIPE_CATEGORIES = ("Outils", "Materiaux", "Equipement", "Installations")
 
 # Recettes : resultat <- ingredients (objet: quantite).
 # Une recette peut demander, en plus de ses `ingredients` (tous consommes) :
-# - "any_of" : une SEULE des matieres listees est consommee (au choix) ;
-# - "tool"   : un OUTIL qui doit etre a proximite. Il n'est pas consomme, mais
-#              "tool_wear" lui coute une part de sa solidite (0.10 = 10 %).
+# - "any_of"  : une SEULE des matieres listees est consommee (au choix) ;
+# - "tool"    : un OUTIL qui doit etre a proximite. Il n'est pas consomme, mais
+#               "tool_wear" lui coute une part de sa solidite (0.10 = 10 %) ;
+# - "station" : un DEPOSABLE qui doit etre POSE sur la case. Il ne s'use pas et
+#               ne se transporte pas -- c'est un lieu, pas un objet. C'est ce
+#               qui fait qu'un atelier vaut la peine d'etre monte quelque part
+#               plutot que trimballe ;
+# - "minutes" : le TEMPS de jeu que l'ouvrage prend. La plupart des recettes
+#               sont des gestes et n'en demandent pas ; un atelier est un
+#               chantier d'une heure, et cette heure se paie en faim, en soif
+#               et en lumiere du jour.
 RECIPES = [
     {"result": "Couteau", "category": "Outils",
      "ingredients": {"Pierre": 1, "Small_Stick": 1}},
@@ -395,8 +416,14 @@ RECIPES = [
      "ingredients": {"Small_Stick": 10, "Feuille": 20, "Corde": 2}},
     {"result": "Feu_de_camp", "category": "Installations",
      "ingredients": {"Small_Stick": 3, "Pierre": 2}},
+    {"result": "Marteau", "category": "Outils",
+     "ingredients": {"Pierre": 1, "Small_Stick": 4, "Corde": 1}},
+    {"result": WORKBENCH_T1, "category": "Installations",
+     "ingredients": {"Pierre": 5, "Long_Stick": 2},
+     "tool": "Marteau", "tool_wear": 0.20, "minutes": 60},
     {"result": BLUEPRINT_T1, "category": "Installations",
-     "ingredients": {"Small_Stick": 4, "Corde": 1}},
+     "ingredients": {"Small_Stick": 4, "Corde": 1},
+     "station": WORKBENCH_T1},
 ]
 
 
@@ -407,6 +434,10 @@ RECIPES = [
 # duree de combustion...) est CALCULE a partir des tables ci-dessus : la
 # fiche ne peut donc pas contredire les regles reelles du jeu.
 ITEM_NOTES = {
+    # Outils et installations
+    "Marteau": "Une pierre emmanchee et liee. Elle frappe la ou l'on vise.",
+    WORKBENCH_T1: "Un etabli de fortune. Ce qu'on y pose, on peut le "
+                  "travailler a deux mains.",
     # Bois et vegetation
     "Small_Stick": "Une brindille seche. La base de presque tout.",
     "Long_Stick": "Une branche droite, assez solide pour faire un manche.",
@@ -487,7 +518,24 @@ def recipe_inputs(recipe):
     if tool:
         cost = int(round(recipe.get("tool_wear", 0.0) * 100))
         parts.append(f"{display_name(tool)} (-{cost} %)")
+    station = recipe.get("station")
+    if station:
+        parts.append(f"sur un {display_name(station).lower()}")
+    minutes = int(recipe.get("minutes", 0))
+    if minutes:
+        parts.append(duree_texte(minutes))
     return ", ".join(parts)
+
+
+def duree_texte(minutes):
+    """Une duree d'ouvrage, ecrite comme on la dirait."""
+    minutes = int(minutes)
+    if minutes >= 60 and minutes % 60 == 0:
+        heures = minutes // 60
+        return "%d h de travail" % heures
+    if minutes >= 60:
+        return "%d h %02d de travail" % (minutes // 60, minutes % 60)
+    return "%d min de travail" % minutes
 
 
 def zones_for(name):

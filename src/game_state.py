@@ -1884,6 +1884,19 @@ class GameState:
         name = recipe.get("tool")
         return name is None or self.craft_pool().get(name, 0) > 0
 
+    def recipe_station_ok(self, recipe):
+        """L'installation demandee est-elle POSEE sur cette case ?
+
+        Un atelier n'est pas un outil qu'on emporte : c'est un lieu. Le
+        chercher dans les mains ou dans le sac n'aurait donc aucun sens -- on
+        le cherche AU SOL, la ou on l'a monte. C'est ce qui fait qu'il vaut la
+        peine de choisir ou l'installer, et qu'un campement finit par valoir
+        mieux qu'un autre endroit."""
+        name = recipe.get("station")
+        if name is None:
+            return True
+        return any(obj[0] == name for obj in self.installed_objects_here())
+
     def can_craft(self, recipe):
         if self.debug:
             return True            # debug : tout craftable, sans ingredients
@@ -1893,7 +1906,7 @@ class GameState:
             return False
         if recipe.get("any_of") and self.recipe_choice(recipe) is None:
             return False
-        return self.recipe_tool_ok(recipe)
+        return self.recipe_tool_ok(recipe) and self.recipe_station_ok(recipe)
 
     def do_craft(self, recipe):
         """Fabrique : consomme les ingredients (sol, puis mains, puis sac).
@@ -1914,6 +1927,15 @@ class GameState:
         tool = recipe.get("tool")
         if tool:
             self.wear_tool_nearby(tool, recipe.get("tool_wear", 0.0))
+        # LE TEMPS DE L'OUVRAGE. La plupart des recettes sont des gestes et
+        # n'en demandent pas ; un atelier est un chantier d'une heure. Elle se
+        # paie comme un deplacement -- l'horloge avance ET la faim, la soif et
+        # le sommeil suivent -- sinon une heure de travail serait gratuite,
+        # alors que douze minutes de marche ne le sont pas.
+        minutes = int(recipe.get("minutes", 0))
+        if minutes > 0:
+            self.tick(minutes * 60)
+            self.advance_survival(minutes * 60)
         result = recipe["result"]
         if result in items.INSTALLABLE_ITEMS:
             # UN DEPOSABLE NE DEVIENT PAS UN OBJET : il attend sa place, et le
