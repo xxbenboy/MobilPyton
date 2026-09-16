@@ -49,6 +49,21 @@ des deux le rendu reste exactement celui d'aujourd'hui.
     de la journee. Et pas d'ombre portee au sol non plus -- le jeu calcule la
     sienne, orientee par l'heure.
 
+    Ce qui compte surtout, c'est l'asymetrie GAUCHE/DROITE : c'est elle qui se
+    retourne au cours de la journee. Un peu de lumiere venant d'en haut est
+    sans danger -- le soleil du jeu est toujours au-dessus, jamais dessous.
+    Mesure sur les pepites livrees : 5 a 12 % d'ecart gauche/droite (c'est
+    peu, ca passe) pour 23 a 36 % d'ecart haut/bas (beaucoup, mais dans le bon
+    sens, donc sans consequence).
+
+SENS DU RELIEF : convention OpenGL, +Y vers le HAUT
+---------------------------------------------------
+Le vert de la carte de normales doit MONTER vers le haut de l'objet : le
+dessus d'une bosse a G > 128, son dessous G < 128. C'est la convention OpenGL.
+Une carte DirectX (vert inverse) eclairerait le dessous des bosses et
+ombrerait leur dessus -- la pierre aurait l'air creuse au lieu de bombee.
+Si ton generateur sort du DirectX, inverse le canal vert avant de deposer.
+
 ----------------------------------------------------------------
 LES NOMS (exacts : minuscules, underscores, sans accent)
 ----------------------------------------------------------------
