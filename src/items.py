@@ -227,7 +227,7 @@ FOOTPRINT = {
 # tracasserie -- c'est ce qui fait qu'un atelier est un endroit ou l'on
 # s'installe, et non une case de plus dans l'inventaire.
 STATION_SLOTS = {
-    WORKBENCH_T1: 20,
+    WORKBENCH_T1: 10,
 }
 
 

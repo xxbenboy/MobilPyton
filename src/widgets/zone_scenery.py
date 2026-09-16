@@ -1004,7 +1004,7 @@ class ZoneScenery(Widget):
         return _ZONE_SPRITES.get(self._zone,
                                  _ZONE_SPRITES["Foret"]).get(key)
 
-    def _sprite(self, name, cx, base, height):
+    def _sprite(self, name, cx, base, height, pick=None, width=None):
         """Dessine l'IMAGE de cet element, posee par son BAS sur (cx, base).
 
         Renvoie Vrai si une image existait et a ete dessinee ; Faux si aucune
@@ -1015,12 +1015,23 @@ class ZoneScenery(Widget):
 
         La VARIANTE est deduite de la position : deux elements voisins ne
         prennent pas la meme image, et un element garde la sienne quand la
-        scene est redessinee."""
+        scene est redessinee. `pick` permet de l'IMPOSER, pour les rares
+        elements dont on veut garantir la variete plutot que la laisser au
+        hasard des positions (voir les pepites)."""
         if not name:
             return False
-        tex = foliage.sprite(name, int(abs(cx) * 7.13 + abs(base) * 3.71))
+        if pick is None:
+            pick = int(abs(cx) * 7.13 + abs(base) * 3.71)
+        tex = foliage.sprite(name, pick)
         if tex is None:
             return False
+        # On dimensionne d'ordinaire par la HAUTEUR : c'est elle qui compte
+        # pour un arbre ou une plante. Un element large et bas -- une pierre
+        # posee au sol -- se mesure au contraire a sa LARGEUR, sinon deux
+        # images d'aplatissements differents ne font plus la meme taille.
+        if width is not None:
+            tw, th = tex.size
+            height = width * (float(th) / float(tw)) if tw else width
         w, h = foliage.size_for(tex, height)
         Color(1, 1, 1, 1)
         Rectangle(pos=(cx - w / 2.0, base), size=(w, h), texture=tex)
@@ -1438,6 +1449,7 @@ class ZoneScenery(Widget):
     # de sa propre taille. Elles ne sont pas estimees : elles sont mesurees sur
     # le dessin reel (voir test_profondeur). Si tu modifies l'une de ces
     # methodes, remesure.
+    DEBORD_PEPITE = 0.10       # x son rayon (l'ombre au sol comprise)
     DEBORD_BUISSON = 0.40      # x son rayon
     DEBORD_BAIES = 0.30        # x son rayon
     DEBORD_BRANCHE = 0.08      # x sa longueur (l'ombre du bois comprise)
@@ -1674,6 +1686,7 @@ class ZoneScenery(Widget):
                               self._forest_tree(tx, tb, th, 0.4, shadow=False)))
         # (Les insectes sont desormais une couche ANIMEE separee : InsectLayer.)
 
+        self._pepites(rng, place, items)     # pepites de mineraux
         items += self._installed_items()     # feu de camp... a leur profondeur
         items += self._edge_items()          # la case d'a cote, qui deborde
         items.sort(key=lambda it: it[0], reverse=True)
@@ -1744,6 +1757,100 @@ class ZoneScenery(Widget):
         Color(0.78, 0.55, 0.14, 0.9)                       # grains au centre
         for dx, dy in ((-0.12, 0.08), (0.12, 0.06), (0.0, -0.12)):
             self._ell_c(cx + dx * size, cy + dy * size, size * 0.12, size * 0.12)
+
+    # -- pepites de mineraux --------------------------------------------- #
+    #
+    # Elles sont dans TOUTES les zones, et c'est le meme code qui les pose
+    # partout : une pierre est une pierre, la foret n'a pas les siennes.
+    #
+    # LEUR TAILLE SE MESURE SUR LE BUISSON DE PLAINE. C'est la reference
+    # demandee, et c'est aussi le seul gros element qu'on trouve a toutes les
+    # profondeurs : une pepite fait de -20 % a +20 % de sa hauteur, donc elle
+    # grossit et retrecit avec la distance comme lui.
+    RAYON_BUISSON_PLAINE = (0.17, 0.09)   # au premier plan, puis ce qu'il
+    ECART_PEPITE = 0.20                   # perd au fond ; -20 % a +20 %
+
+    # LARGEUR REELLE D'UN BUISSON, en rayons. Ce n'est pas 2 : ses trois
+    # masses de feuillage debordent de part et d'autre de son centre (voir
+    # _bush), et il s'etale en fait de -1,4 a +1,5 rayon. Mesure sur le dessin
+    # plutot que devinee -- a 2, la pepite faisait les deux tiers d'un buisson
+    # alors qu'elle etait censee lui ressembler.
+    LARGEUR_BUISSON = 2.9
+
+    def _bande_au_sol(self, rng, bas, haut, horizon):
+        """Un `place` de fortune : tire un point dans une bande de sol.
+
+        La foret et la plaine ont leur propre `place`, qui suit la courbe du
+        terrain ; la montagne et le lac n'en ont pas. Plutot que de priver ces
+        deux zones de pepites, on leur en fabrique un a la meme signature --
+        (x, y, echelle, profondeur) -- pour que _pepites reste unique.
+
+        LA PROFONDEUR SE DEDUIT DE LA HAUTEUR, comme partout ailleurs : c'est
+        la part du chemin parcouru vers l'horizon. Tiree au hasard entre zero
+        et un, comme je l'avais d'abord ecrit, elle donnait des pepites de
+        tout premier plan posees au fond de la scene -- larges comme la
+        moitie de l'ecran sur une bande qui n'en fait qu'un sixieme."""
+        def place(_maxt=1.0, fx=None, floor=0.0):
+            f = rng.uniform(0, 1) if fx is None else fx
+            frac = bas + (haut - bas) * rng.random()
+            t = min(1.0, frac / horizon) if horizon else 0.0
+            return (self.x + f * self.width, self.y + frac * self.height,
+                    1.0 - 0.70 * t, t)
+        return place
+
+    def _pepites(self, rng, place, items):
+        """Ajoute les pepites de la case a la liste des elements a dessiner.
+
+        Le NOMBRE vient du monde, pas de la scene : c'est une propriete de la
+        case (voir world.nugget_count), et il ne doit pas changer selon la
+        zone ni selon le moment ou l'on redessine.
+
+        LES CINQ MODELES SE REPARTISSENT. Les laisser au hasard des positions,
+        comme le reste du decor, donnait parfois cinq fois la meme pierre sur
+        une case qui n'en porte que cinq ; on distribue donc les variantes en
+        rond, a partir d'un decalage tire de la graine."""
+        combien = world.nugget_count(self._seed)
+        if not combien:
+            return
+        depart = rng.randrange(5)
+        a, b = self.RAYON_BUISSON_PLAINE
+        for i in range(combien):
+            px, py, _sc, t = place(1.0, floor=_HARVEST_FLOOR)
+            if self._is_blocked(px, py):
+                continue
+            r = (a - b * t) * rng.uniform(1.0 - self.ECART_PEPITE,
+                                          1.0 + self.ECART_PEPITE) * self.height
+            items.append((py - self.DEBORD_PEPITE * r,
+                          lambda px=px, py=py, r=r, v=depart + i:
+                          self._pepite(px, py, r, v)))
+
+    def _pepite(self, cx, base, r, variante):
+        """Une pepite : un bloc de pierre pose au sol.
+
+        Cent pour cent de pierre grise pour l'instant -- aucun minerai. Quand
+        il y en aura, ils se distingueront ici et nulle part ailleurs : la
+        pepite est un element du decor, pas un objet, et c'est le decor qui
+        dit de quoi elle a l'air."""
+        # ON MESURE SUR LA LARGEUR, pas sur la hauteur : une pepite est large
+        # et basse comme le buisson qui lui sert d'etalon, et deux images
+        # d'aplatissements differents doivent occuper la meme place au sol.
+        largeur = r * self.LARGEUR_BUISSON
+        self._shadow(cx, base - largeur * 0.02, largeur * 1.06)
+        if self._sprite("ore_nugget", cx, base, None, pick=variante,
+                        width=largeur):
+            return
+        # Sans image : un bloc anguleux, plus sombre et plus trapu qu'un
+        # galet, pour qu'on ne le confonde pas avec les pierres a ramasser.
+        w2, haut = largeur / 2.0, largeur * 0.78
+        Color(0.34, 0.34, 0.37, 1)
+        Quad(points=[cx - w2, base, cx + w2, base,
+                     cx + w2 * 0.72, base + haut * 0.66,
+                     cx - w2 * 0.80, base + haut * 0.58])
+        Color(0.48, 0.48, 0.52, 1)
+        Quad(points=[cx - w2 * 0.80, base + haut * 0.58,
+                     cx + w2 * 0.72, base + haut * 0.66,
+                     cx + w2 * 0.18, base + haut,
+                     cx - w2 * 0.52, base + haut * 0.92])
 
     def _stone(self, cx, cy, r, sprite=None):
         self._shadow(cx, cy - r * 0.05, r * 2.1)          # ombre portee
@@ -2038,6 +2145,7 @@ class ZoneScenery(Widget):
         # (Les insectes sont desormais une couche ANIMEE separee : InsectLayer.)
 
         # Rendu trie : plus loin (base haute) d'abord, plus proche par-dessus.
+        self._pepites(rng, place, items)     # pepites de mineraux
         items += self._installed_items()     # feu de camp... a leur profondeur
         items += self._edge_items()          # la case d'a cote, qui deborde
         items.sort(key=lambda it: it[0], reverse=True)
@@ -2109,6 +2217,9 @@ class ZoneScenery(Widget):
             rr = (0.085 - 0.045 * depth) * jit.uniform(0.85, 1.15) * h
             items.append((ry, lambda rx=rx, ry=ry, rr=rr:
                           self._big_rock(rx, ry, rr)))
+        # Pepites de mineraux : sur le BAS de la pente, la ou l'on marche.
+        self._pepites(rng, self._bande_au_sol(rng, _HARVEST_FLOOR, 0.34,
+                                              horizon=0.60), items)
         items.sort(key=lambda it: it[0], reverse=True)
         for _, fn in items:
             fn()
@@ -2165,6 +2276,13 @@ class ZoneScenery(Widget):
                               self._grass_tuft(gx, gb, gh,
                                                (0.18, 0.38, 0.20, 1),
                                                sprite="reed")))
+        # Pepites de mineraux, dans la meme bande que les galets et les
+        # roseaux. C'est deja le BORD DE L'EAU : la plage du lac fait douze
+        # pour cent de la hauteur et disparait derriere les mains, si bien que
+        # tout ce qui se pose ici a les pieds dans l'eau -- y compris les
+        # roseaux, et c'est tres bien ainsi.
+        self._pepites(rng, self._bande_au_sol(rng, _HARVEST_FLOOR, 0.28,
+                                              horizon=0.55), items)
         items.sort(key=lambda it: it[0], reverse=True)
         for _, fn in items:
             fn()

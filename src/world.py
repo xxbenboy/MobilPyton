@@ -122,6 +122,30 @@ NATURE_BIG = {
 }
 
 
+# --------------------------------------------------------------------- #
+# Pepites de mineraux
+# --------------------------------------------------------------------- #
+# Une case du monde en porte de zero a cinq, dans TOUTES les zones. Le tirage
+# n'est pas uniforme : les deux extremes -- aucune, ou le filon complet -- sont
+# deux fois plus rares que les comptes intermediaires. Une case vide reste donc
+# une deception ordinaire, et une case a cinq une vraie trouvaille.
+#
+# La table est ecrite en POURCENTS, et leur somme est verifiee au chargement :
+# c'est le genre de chiffre qu'on retouche, et une somme a 95 ne se verrait
+# jamais autrement qu'en jouant longtemps.
+PEPITES_PAR_CASE = {0: 10, 1: 20, 2: 20, 3: 20, 4: 20, 5: 10}
+assert sum(PEPITES_PAR_CASE.values()) == 100, PEPITES_PAR_CASE
+
+
+def nugget_count(cell_seed):
+    """Combien de pepites porte cette case. Stable : c'est sa graine qui
+    decide, pas le moment ou l'on regarde."""
+    rng = random.Random("%s:pepites" % cell_seed)
+    valeurs = sorted(PEPITES_PAR_CASE)
+    return rng.choices(valeurs,
+                       weights=[PEPITES_PAR_CASE[v] for v in valeurs])[0]
+
+
 def scene_seed(x, y):
     """Graine de la scene d'une case (partagee decor <-> logique de jeu)."""
     return x * 131 + y

@@ -58,6 +58,16 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
     stone_mountain.png    Pierre de montagne (nue, grise)
     snow_patch.png        Plaque de neige
 
+--- PARTOUT ------------------------------------------------------
+    ore_nugget.png        Pepite de mineraux : un bloc de pierre pose au
+                          sol. Elle apparait dans TOUTES les zones, de zero
+                          a cinq par case. Cinq variantes sont fournies
+                          (ore_nugget.png a ore_nugget_5.png) et le jeu les
+                          repartit pour qu'une case a cinq pepites en montre
+                          cinq differentes.
+                          Pour l'instant elles sont toutes en pierre grise ;
+                          les minerais viendront s'y distinguer plus tard.
+
 --- LAC ----------------------------------------------------------
     lily_pad.png          Nenuphar (vu du dessus)
     reed.png              Roseau (touffe haute)
