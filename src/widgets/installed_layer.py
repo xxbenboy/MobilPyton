@@ -24,16 +24,32 @@ la scene ne permettait pas.
 """
 
 
-def grid_to_screen(gx, gy):
+# OU TOMBE LA GRILLE, VERTICALEMENT : la rangee la plus proche, puis ce que
+# la plus lointaine gagne. Ces deux nombres sont exposes parce que les scenes
+# en ont besoin : leur sol n'est pas a la meme hauteur d'une zone a l'autre, et
+# elles resserrent la grille pour que la derniere rangee ne flotte pas au-dessus
+# de lui (voir ZoneScenery.grille).
+GRILLE_PROCHE = 0.05
+GRILLE_PORTEE = 0.42
+
+
+def grid_to_screen(gx, gy, loin=None):
     """Projette une position grille (gx, gy) en (fx, fy, size_frac).
 
     fx, fy : fraction de la surface du widget (0..1).
     size_frac : diametre du cercle en fraction de la largeur du widget.
-    """
+
+    `loin` remplace la hauteur de la rangee la plus LOINTAINE. Sans lui, elle
+    tombe a 0,47 quelle que soit la scene -- or le sol de la foret s'arrete a
+    0,42 et le champ de la plaine a 0,36 : les elements du fond s'y
+    retrouvaient posES EN L'AIR, au-dessus du sol. La scene passe donc la
+    hauteur de son propre sol, et la grille se resserre dessus. La rangee la
+    plus proche, elle, ne bouge jamais : c'est le pied du joueur."""
     depth = gy / 4.0                     # 0 (proche) -> 1 (lointain)
     lx = gx - 2                          # -2 (gauche) .. +2 (droite)
-    # Y ecran : du bas de la scene (0.05) jusqu'a la ligne d'horizon (~0.47).
-    fy = 0.05 + 0.42 * depth
+    # Y ecran : du bas de la scene jusqu'a la ligne d'horizon (~0.47).
+    fond = GRILLE_PROCHE + GRILLE_PORTEE if loin is None else loin
+    fy = GRILLE_PROCHE + (fond - GRILLE_PROCHE) * depth
     # Compression laterale : loin, tout se rapproche du centre.
     horiz = 0.42 * (1 - 0.78 * depth)
     fx = 0.5 + (lx / 2.0) * horiz

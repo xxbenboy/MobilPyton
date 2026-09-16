@@ -404,6 +404,34 @@ class ZoneScenery(Widget):
         taken = self._taken.get(name, 0)
         return (i % self._avail_for(name)) < taken
 
+    # OU S'ARRETE LE SOL DE CHAQUE ZONE, en part de la hauteur de l'ecran :
+    # le point le plus BAS de sa surface proche, celle ou reposent les
+    # elements. C'est la valeur sur laquelle la grille se resserre.
+    #
+    # ON PREND LE MINIMUM de la courbe, pas sa valeur a l'endroit exact de la
+    # case. Le sol ondule, et suivre l'ondulation aurait demande de connaitre
+    # les phases tirees au sort A L'INTERIEUR de chaque scene -- or la grille
+    # est aussi lue AVANT le dessin (les cases bloquees) et DEHORS (le toucher,
+    # dans game_screen). Au minimum, un element du fond est au pire pose un peu
+    # en avant de la crete ; il n'est JAMAIS en l'air, et c'est ce qui compte.
+    #
+    # Les zones absentes gardent la grille d'origine : la pente de la montagne
+    # commence a 0,60 et le lac s'etend jusqu'a 0,60, tous deux au-dessus de
+    # la derniere rangee -- rien n'y flotte.
+    SOL_DE_GRILLE = {
+        "Foret": 0.42 - 0.025 - 0.012,          # voir floor_curve dans _foret
+        "Plaine": (0.55 - 0.06 - 0.13) - 0.030 - 0.014,   # voir field_curve
+    }
+
+    def grille(self, gx, gy):
+        """(fx, fy, taille) d'une case, corrige du sol de la zone.
+
+        TOUT CE QUI TOUCHE A LA GRILLE PASSE PAR ICI : le decor de proximite,
+        les objets installes, leur emprise, les cases bloquees et le toucher
+        dans game_screen. Si deux d'entre eux projetaient differemment, un feu
+        de camp ne serait plus la ou le doigt le cherche."""
+        return grid_to_screen(gx, gy, self.SOL_DE_GRILLE.get(self._zone))
+
     def _compute_blocked_bboxes(self):
         """Reconstruit les rectangles d'ecran couverts par les objets installes
         (feu de camp, ...) a partir des cellules 5x5 (_blocked_grid)."""
@@ -412,7 +440,7 @@ class ZoneScenery(Widget):
             return
         w, h, x0, y0 = self.width, self.height, self.x, self.y
         for (gx, gy) in self._blocked_grid:
-            fx, fy, size = grid_to_screen(gx, gy)
+            fx, fy, size = self.grille(gx, gy)
             cx = x0 + fx * w
             cy = y0 + fy * h
             # Meme forme aplatie que tout ce qui repose a plat, + petite
@@ -464,7 +492,7 @@ class ZoneScenery(Widget):
             if ((ggx, ggy) in self._blocked_grid
                     or (ggx, ggy) in self._removed_grid):
                 continue
-            gfx, gfy, _gs = grid_to_screen(ggx, ggy)
+            gfx, gfy, _gs = self.grille(ggx, ggy)
             jit = random.Random(f"{self._seed}:{ggx}:{ggy}:big")
             rang = rangs.get(kind, 0)
             rangs[kind] = rang + 1
@@ -485,7 +513,7 @@ class ZoneScenery(Widget):
         out = []
         w, h, x0, y0 = self.width, self.height, self.x, self.y
         for name, gx, gy, lit, level in self._installed:
-            fx, fy, size = grid_to_screen(gx, gy)
+            fx, fy, size = self.grille(gx, gy)
             cx = x0 + fx * w
             cy = y0 + fy * h
             s = size * w
@@ -548,7 +576,7 @@ class ZoneScenery(Widget):
         m = _EMPRISE_RETRAIT
         cgx = gx + (fw - 1) / 2.0            # colonne du milieu de l'emprise
         cgy = gy + (fh - 1) / 2.0            # rangee du milieu
-        fx_c, fy_c, taille = grid_to_screen(cgx, cgy)
+        fx_c, fy_c, taille = self.grille(cgx, cgy)
         cx, cy = x0 + fx_c * w, y0 + fy_c * h
         # Largeur : celle du foyer pour UNE case, multipliee par l'emprise.
         large = taille * w * (fw - 2.0 * m)
@@ -1207,7 +1235,7 @@ class ZoneScenery(Widget):
                 # scene garde ainsi exactement le meme decor, qu'il y ait des
                 # voisins ou non (cf. _graine_voisins).
                 jit = random.Random("%d:%s:%d:bord" % (self._seed, cote, row))
-                gfx, gfy, _gs = grid_to_screen(col, row)
+                gfx, gfy, _gs = self.grille(col, row)
                 pose(out, self.x + gfx * self.width,
                      self.y + gfy * self.height, row / 4.0, jit)
         return out
@@ -1709,7 +1737,7 @@ class ZoneScenery(Widget):
         # impossible de mettre un feu de camp sous un arbre).
         for kind, rang, depth, tx, tb, jit in self._iter_nature_big():
             if kind == "nugget":
-                items.append(self._pepite_de_grille(rang, depth, tx, tb, jit))
+                items.extend(self._pepite_de_grille(rang, depth, tx, tb, jit))
                 continue
             if kind == "tree":
                 th = (1.00 - 0.58 * depth) * jit.uniform(0.85, 1.10) * h
@@ -1884,15 +1912,20 @@ class ZoneScenery(Widget):
     #
     # La pepite etait a 2,36 x en foret : plus de deux fois plus claire que le
     # sol, la chose la plus lumineuse de l'ecran. Les teintes ci-dessous la
-    # ramenent a 1,35 x partout -- ENTRE les deux references que le jeu se
-    # donne. Plus claire que le sol, parce qu'une pierre prend le jour du
-    # ciel ; moins qu'un buisson, parce qu'elle n'est pas censee attirer
-    # l'oeil avant lui. A 1,15 x, essaye d'abord, elle devenait un trou noir
-    # dans la foret : le joueur doit pouvoir la REPERER, c'est une ressource.
+    # ramenent a 1,35 x -- ENTRE les deux references que le jeu se donne. Plus
+    # claire que le sol, parce qu'une pierre prend le jour du ciel ; moins
+    # qu'un buisson, parce qu'elle n'est pas censee attirer l'oeil avant lui.
     #
-    # Le rapport est le MEME dans les trois zones : c'est ainsi qu'on
-    # reconnait le meme materiau de l'une a l'autre, alors que les sols, eux,
-    # vont du simple au triple.
+    # LA FORET PREND LA MEME TEINTE QUE LA PLAINE, sur epreuve dans le jeu.
+    # Calee a 1,35 x d'un sol aussi sombre, la pierre y devenait une tache
+    # noire : la regle du rapport constant tenait sur le papier, pas devant
+    # l'ecran. Et elle avait tort sur le fond -- la foret est sombre parce
+    # qu'elle est A L'OMBRE DES ARBRES, alors qu'une pierre qui affleure
+    # recoit le meme ciel qu'ailleurs. Une seule teinte pour les deux zones
+    # dit exactement cela : c'est le meme granit, sous le meme ciel.
+    #
+    # Le rapport au sol n'est donc plus le meme partout. Le test l'affiche
+    # toujours, mais comme un CONSTAT, plus comme une regle a tenir.
     #
     # L'entree du LAC ne sert plus : il n'y a plus de pepites dans l'eau (voir
     # world.SANS_PEPITES). Elle reste pour le jour ou il en reprendrait, mais
@@ -1921,7 +1954,7 @@ class ZoneScenery(Widget):
     BANDES_PEPITE = 7              # en combien de marches (assez pour ne pas
     #                                se voir : mesure, 5 se voyaient)
 
-    TEINTE_PEPITE = {"Foret": (0.271, 0.288, 0.245),
+    TEINTE_PEPITE = {"Foret": (0.815, 0.783, 0.661),   # la meme que la plaine
                      "Plaine": (0.815, 0.783, 0.661),
                      "Montagne": (0.858, 0.858, 0.879),
                      "Lac": (0.607, 0.644, 0.662)}
@@ -1946,9 +1979,16 @@ class ZoneScenery(Widget):
                                           1.0 + self.ECART_PEPITE) * self.height
         decalage = random.Random("%s:variante" % self._seed).randrange(5)
         enfonce = jit.uniform(*self.ENFONCE_PEPITE)
-        return (base - self.DEBORD_PEPITE * r,
-                lambda cx=cx, base=base, r=r, v=rang + decalage,
-                e=enfonce, d=depth: self._pepite(cx, base, r, v, e, d))
+        # LA PIERRE ET SON HERBE SONT DES ELEMENTS SEPARES pour le tri par
+        # profondeur, et il le faut : une touffe qui pousse devant la pierre
+        # doit passer devant elle, une touffe de cote derriere ce qui est plus
+        # proche. Dessinees toutes ensemble a la cle de la pierre, elles
+        # recouvraient ce qui etait devant -- mesure, jusqu'a 72 recouvrements
+        # fautifs par scene de foret, dont des troncs d'arbres.
+        return [(base - self.DEBORD_PEPITE * r,
+                 lambda cx=cx, base=base, r=r, v=rang + decalage,
+                 e=enfonce, d=depth: self._pepite(cx, base, r, v, e, d))] \
+            + self._herbe_de_pepite(cx, base, r * self.LARGEUR_PEPITE, depth)
 
     def _pepite(self, cx, base, r, variante, enfonce=0.35, depth=0.0):
         """Une pepite : un bloc de pierre a demi enterre.
@@ -1975,7 +2015,7 @@ class ZoneScenery(Widget):
         if self._sprite("ore_nugget", cx, base, None, pick=variante,
                         width=largeur, teinte=teinte, coupe_bas=enfonce):
             self._etalonne_pepite(cx, base, largeur, variante, enfonce, depth)
-            self._bourrelet(cx, base, largeur, depth)
+            self._pied_de_pepite(cx, base, largeur, depth)
             return
         # Sans image : un bloc anguleux, plus sombre et plus trapu qu'un
         # galet, pour qu'on ne le confonde pas avec les pierres a ramasser.
@@ -1995,7 +2035,7 @@ class ZoneScenery(Widget):
         Quad(points=[cx - w2 * 0.80, y(0.58), cx + w2 * 0.72, y(0.66),
                      cx + w2 * 0.18, base + haut,
                      cx - w2 * 0.52, base + haut * 0.92])
-        self._bourrelet(cx, base, largeur, depth)
+        self._pied_de_pepite(cx, base, largeur, depth)
 
     def _etalonne_pepite(self, cx, base, largeur, variante, enfonce, depth):
         """Rapproche la photo de pierre des couleurs de la scene.
@@ -2044,96 +2084,106 @@ class ZoneScenery(Widget):
                 break
             bande(y0, y1, sombre, self.PIED_PEPITE * (1.0 - t) ** 2)
 
-    # DE COMBIEN LA TERRE REMONTE contre la pierre, en part de sa largeur, et
-    # de combien le bourrelet deborde de part et d'autre.
-    MONTEE_BOURRELET = 0.075
-    # IL DEBORDE A PEINE, et c'est volontaire. Le bourrelet est dessine avec
-    # la terre de la zone, mais pas en phase avec le sol deja peint : la ou il
-    # sort de la pierre, il pose donc une tuile a cote d'une autre, et l'on
-    # verrait le raccord. Sous la pierre, il n'y a rien a raccorder.
-    DEBORD_BOURRELET = 1.07
+    # L'HERBE AU PIED DE LA PIERRE : combien de touffes, sur quelle largeur
+    # (en part de la largeur de la pierre) et quelle hauteur.
+    # Valeurs prises sur une planche d'essais (9 / 14 / 18 / 24 touffes) : a 9
+    # le trait de coupe se lit encore entre les touffes, a 24 l'herbe avale la
+    # pierre et fait une haie.
+    TOUFFES_PEPITE = 14
+    DEBORD_HERBE = 1.10
+    HAUTEUR_HERBE = (0.16, 0.26)      # au milieu, puis sur les flancs
 
-    def _bourrelet(self, cx, base, largeur, depth, segs=22):
-        """La terre relevee au pied d'une pierre.
+    # LA COULEUR DE L'HERBE DE CHAQUE ZONE, reprise de sa scene. La foret a
+    # son vert sombre de sous-bois, la plaine son vert de pre, la montagne ses
+    # touffes rases et grises. Le lac n'en a pas besoin : plus de pepites dans
+    # l'eau.
+    HERBE_DE_ZONE = {"Foret": (0.10, 0.20, 0.12, 1),
+                     "Plaine": (0.20, 0.40, 0.14, 1),
+                     "Montagne": (0.22, 0.34, 0.16, 1),
+                     "Lac": (0.18, 0.34, 0.16, 1)}
 
-        Sans elle, la pierre coupee net a la ligne du sol a l'air posee
-        derriere un muret. Ce bourrelet est ce qui la fait paraitre INCRUSTEE :
-        la terre s'accumule contre elle et lui mord le bas.
+    def _pied_de_pepite(self, cx, base, largeur, depth):
+        """L'OMBRE DE CONTACT au pied de la pierre, dessinee avec elle.
 
-        SA COURBE EST UN SOURIRE, et ce n'est pas un choix d'esthetique. On
-        regarde la scene d'en haut et de biais : le point du sol le plus PROCHE
-        de nous est celui qui est droit devant la pierre, et le plus proche est
-        aussi le plus BAS a l'ecran. Les cotes de la pierre, eux, sont plus
-        loin, donc plus hauts. La ligne de contact monte donc vers les bords.
-        Bombee dans l'autre sens, la pierre aurait l'air de flotter sur une
-        bosse.
+        La terre au pied d'une pierre ne recoit plus le ciel. Sans ce lisere
+        sombre, la pierre coupee net a la ligne du sol a l'air posee derriere
+        un muret.
 
-        C'EST LA TERRE DE LA ZONE, sa vraie image, a la bonne echelle : la
-        tuile du sol retrecit avec la distance (voir _fill_curve), et le
-        bourrelet suit. Une couleur plate a la place se verrait comme une
-        tache -- c'est justement la matiere qui doit se confondre."""
-        nom = self.SOL_DE_ZONE.get(self._zone)
-        if not nom:
-            return
+        ELLE RESTE SOUS LA PIERRE et s'amincit vers les flancs. Etalee plus
+        largement -- ce qui avait ete fait d'abord -- elle debordait de part et
+        d'autre en deux croissants sombres : la pierre portait une moustache.
+        Une ombre de contact n'existe que la ou il y a contact.
+
+        SA COURBE EST UN SOURIRE : on regarde d'en haut et de biais, le point
+        du sol le plus PROCHE est celui droit devant la pierre, et le plus
+        proche est le plus BAS a l'ecran ; les flancs, eux, sont plus loin
+        donc plus hauts.
+
+        L'herbe qui acheve de la raccorder au sol est ailleurs : elle se trie
+        avec le reste du decor (voir _herbe_de_pepite)."""
         demi = largeur / 2.0
-        deborde = demi * self.DEBORD_BOURRELET
-        montee = largeur * self.MONTEE_BOURRELET
-        bas = base - montee * 0.55      # on mord SOUS la ligne du sol, sinon
-        #                                 un lisere du fond passe entre les deux
-
-        # Le sourire ne part PAS de zero : meme droit devant, la terre mord un
-        # peu la pierre. A zero, la pierre se terminait la par un trait
-        # horizontal parfait -- une coupure, pas un enfouissement.
-        def haut(dx):
-            a = abs(dx)
-            if a <= demi:                       # contre la pierre : le sourire
-                return base + montee * (0.35 + 0.65 * (a / demi) ** 2)
-            u = (a - demi) / max(1e-6, deborde - demi)
-            return base + montee * (1.0 - u) ** 2   # puis retour au sol
-
-        # Echelle de la tuile a CETTE profondeur : c'est le k de _fill_curve.
-        tile = textures.tile_for(nom)
-        k = 1.0 / max(1e-6, 1.0 - (1.0 - 1.0 / GROUND_DEPTH) * depth)
-        tile = max(8.0, tile / k)
-        x0, y0 = self.x, self.y
-
-        tex = paint(nom)
-        self._bind_pbr(nom)
-        verts, idx = [], []
-        for i in range(segs + 1):
-            dx = -deborde + 2.0 * deborde * i / segs
-            for yy in (bas, haut(dx)):
-                # v NEGATIF vers le haut : voir la note de sens dans
-                # textures.py.
-                verts += [cx + dx, yy, (cx + dx - x0) / tile, -(yy - y0) / tile]
-            if i:
-                p = (i - 1) * 2
-                idx += [p, p + 1, p + 2, p + 1, p + 3, p + 2]
-        Mesh(vertices=verts, indices=idx, mode="triangles",
-             texture=tex if tex is not None else None)
-        self._reset_pbr()
-
-        # L'OMBRE DU CREUX : la terre au contact de la pierre ne recoit plus
-        # le ciel. Sans ce lisere sombre, le bourrelet reste un aplat colle
-        # par-dessus, et l'on voit la couture.
-        #
-        # ELLE S'ARRETE AUX FLANCS DE LA PIERRE et s'y amincit jusqu'a rien.
-        # Etalee sur tout le bourrelet -- ce qui avait ete fait d'abord --
-        # elle depassait de part et d'autre en deux croissants sombres : la
-        # pierre portait une moustache. Une ombre de contact n'existe que la
-        # ou il y a contact.
-        verts, idx = [], []
+        creux_max = largeur * 0.065
+        verts, idx, segs = [], [], 22
         for i in range(segs + 1):
             dx = -demi + 2.0 * demi * i / segs
-            h = haut(dx)
-            creux = montee * 0.85 * (1.0 - (dx / demi) ** 2)
-            for yy in (h - creux, h):
+            haut = base + creux_max * 0.35 * (dx / demi) ** 2
+            creux = creux_max * (1.0 - (dx / demi) ** 2)
+            for yy in (haut - creux, haut):
                 verts += [cx + dx, yy, 0, 0]
             if i:
                 p = (i - 1) * 2
                 idx += [p, p + 1, p + 2, p + 1, p + 3, p + 2]
         Color(0.04, 0.04, 0.03, 0.30)
         Mesh(vertices=verts, indices=idx, mode="triangles", texture=None)
+
+    def _herbe_de_pepite(self, cx, base, largeur, depth):
+        """L'herbe qui pousse au pied de la pierre : [(cle de tri, dessin)].
+
+        ON NE SOULEVE PLUS LE TERRAIN. Un bourrelet de terre etait dessine ici,
+        avec la vraie matiere du sol : il faisait le travail, mais il ajoutait
+        une bosse la ou il n'y en a pas, et cela se voyait des qu'on regardait.
+        L'herbe fait mieux et ne ment pas : elle POUSSE au pied des pierres,
+        c'est meme la qu'elle pousse le mieux -- a l'abri du pietinement. Et
+        comme elle est deja partout dans la scene, rien ne signale qu'elle a
+        ete mise la pour cacher quelque chose.
+
+        CHAQUE TOUFFE EST TRIEE POUR ELLE-MEME, a sa propre profondeur : celle
+        qui pousse devant la pierre passe devant elle, celle de cote passe
+        derriere ce qui est plus proche.
+
+        LES TOUFFES SONT PLUS HAUTES SUR LES FLANCS que droit devant, pour la
+        meme raison que l'ombre dessine un sourire : les flancs sont plus loin,
+        donc plus haut a l'ecran, donc il en faut davantage pour couvrir la
+        coupe.
+
+        Elles se balancent au vent comme toutes les autres (voir _grass_tuft) :
+        c'est ce qui acheve de les faire passer pour de l'herbe de la scene et
+        non pour un cache-misere fige."""
+        col = self.HERBE_DE_ZONE.get(self._zone)
+        if not col:
+            return []
+        demi = largeur / 2.0
+        # Le hasard tient a la POSITION : la touffe ne change pas d'un
+        # redessin a l'autre, comme tout le reste du decor.
+        jit = random.Random("%s:%.1f:%.1f:herbe" % (self._seed, cx, base))
+        h0, h1 = self.HAUTEUR_HERBE
+        n = self.TOUFFES_PEPITE
+        out = []
+        for i in range(n):
+            # Reparties sur la largeur, avec un peu de flou : alignees, elles
+            # auraient fait une haie.
+            t = (i + 0.5) / n + jit.uniform(-0.35, 0.35) / n
+            dx = (t * 2.0 - 1.0) * demi * self.DEBORD_HERBE
+            f = min(1.0, abs(dx) / demi)
+            haut = largeur * (h0 + (h1 - h0) * f) * jit.uniform(0.75, 1.25)
+            by = base + largeur * 0.055 * f ** 2 - largeur * 0.02
+            g = jit.uniform(-0.03, 0.05)
+            teinte = (max(0.0, col[0] + g), max(0.0, col[1] + g),
+                      max(0.0, col[2] + g * 0.5), col[3])
+            ech = (1.0 - 0.45 * depth) * jit.uniform(0.8, 1.2)
+            out.append((by, lambda x=cx + dx, y=by, h=haut, c=teinte, e=ech:
+                        self._grass_tuft(x, y, h, c, scale=e)))
+        return out
 
     def _stone(self, cx, cy, r, sprite=None):
         self._shadow(cx, cy - r * 0.05, r * 2.1)          # ombre portee
@@ -2364,7 +2414,7 @@ class ZoneScenery(Widget):
         # 5x5 (cases interdites a l'installation d'un objet).
         for kind, rang, depth, bx, by, jit in self._iter_nature_big():
             if kind == "nugget":
-                items.append(self._pepite_de_grille(rang, depth, bx, by, jit))
+                items.extend(self._pepite_de_grille(rang, depth, bx, by, jit))
                 continue
             g = jit.uniform(0.0, 0.10)
             r = (0.17 - 0.09 * depth) * jit.uniform(0.85, 1.15) * h
@@ -2500,7 +2550,7 @@ class ZoneScenery(Widget):
                           self._grass_tuft(sx, sy, gh, (0.22, 0.34, 0.16, 1))))
         for kind, rang, depth, rx, ry, jit in self._iter_nature_big():
             if kind == "nugget":
-                items.append(self._pepite_de_grille(rang, depth, rx, ry, jit))
+                items.extend(self._pepite_de_grille(rang, depth, rx, ry, jit))
                 continue
             rr = (0.085 - 0.045 * depth) * jit.uniform(0.85, 1.15) * h
             items.append((ry, lambda rx=rx, ry=ry, rr=rr:
@@ -2565,7 +2615,7 @@ class ZoneScenery(Widget):
         # seul gros element du lac : il n'y pousse ni arbre ni buisson.
         for kind, rang, depth, px, pb, jit in self._iter_nature_big():
             if kind == "nugget":
-                items.append(self._pepite_de_grille(rang, depth, px, pb, jit))
+                items.extend(self._pepite_de_grille(rang, depth, px, pb, jit))
         items.sort(key=lambda it: it[0], reverse=True)
         for _, fn in items:
             fn()

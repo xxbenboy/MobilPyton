@@ -30,7 +30,6 @@ from src.widgets.animated_background import (AnimatedBackground,
                                             night_darkness, night_factor)
 from src.widgets import daylight, horizon
 from src.widgets.zone_scenery import ZoneScenery
-from src.widgets.installed_layer import grid_to_screen
 
 from src import items
 from src.widgets.player_hands import PlayerHands
@@ -956,7 +955,11 @@ class GameScreen(Screen):
             if obj[0] not in items.INTERACTIVE_ITEMS:
                 continue
             gx, gy = int(obj[1]), int(obj[2])
-            fx, fy, size = grid_to_screen(gx, gy)
+            # LA MEME PROJECTION QUE LA SCENE, sans quoi le doigt chercherait
+            # le foyer la ou il n'est pas : la grille se resserre sur le sol
+            # de la zone, et ce sol n'est pas le meme partout (voir
+            # ZoneScenery.grille).
+            fx, fy, size = self.scenery.grille(gx, gy)
             cx, cy, pw = x0 + fx * w, y0 + fy * h, size * w
             # Boite genereuse : le foyer ET ses flammes, qui montent au-dessus.
             if (abs(touch.x - cx) <= pw * 0.60
