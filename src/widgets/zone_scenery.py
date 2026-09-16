@@ -1013,7 +1013,8 @@ class ZoneScenery(Widget):
         return _ZONE_SPRITES.get(self._zone,
                                  _ZONE_SPRITES["Foret"]).get(key)
 
-    def _sprite(self, name, cx, base, height, pick=None, width=None):
+    def _sprite(self, name, cx, base, height, pick=None, width=None,
+                teinte=None, coupe_bas=0.0):
         """Dessine l'IMAGE de cet element, posee par son BAS sur (cx, base).
 
         Renvoie Vrai si une image existait et a ete dessinee ; Faux si aucune
@@ -1026,7 +1027,16 @@ class ZoneScenery(Widget):
         prennent pas la meme image, et un element garde la sienne quand la
         scene est redessinee. `pick` permet de l'IMPOSER, pour les rares
         elements dont on veut garantir la variete plutot que la laisser au
-        hasard des positions (voir les pepites)."""
+        hasard des positions (voir les pepites).
+
+        `teinte` multiplie l'image. Nos images viennent de photos, eclairees
+        chacune dans son studio ; la scene, elle, a ses couleurs et sa
+        lumiere. La teinte est ce qui rattache l'une a l'autre.
+
+        `coupe_bas` en retranche le bas -- une fraction de sa hauteur -- au
+        lieu de le dessiner. C'est ainsi qu'un element s'ENFONCE dans le sol :
+        la part enterree n'est pas recouverte, elle n'est pas dessinee du
+        tout, et l'on n'a donc aucune couleur de terre a faire correspondre."""
         if not name:
             return False
         if pick is None:
@@ -1042,8 +1052,19 @@ class ZoneScenery(Widget):
             tw, th = tex.size
             height = width * (float(th) / float(tw)) if tw else width
         w, h = foliage.size_for(tex, height)
-        Color(1, 1, 1, 1)
-        Rectangle(pos=(cx - w / 2.0, base), size=(w, h), texture=tex)
+        Color(*((tuple(teinte[:3]) if teinte else (1, 1, 1)) + (1,)))
+        f = min(0.90, max(0.0, float(coupe_bas)))
+        if f <= 0.0:
+            Rectangle(pos=(cx - w / 2.0, base), size=(w, h), texture=tex)
+        else:
+            # Coins dans l'ordre de Kivy (bas-gauche, bas-droit, haut-droit,
+            # haut-gauche) et v qui DESCEND dans l'image quand l'ecran monte :
+            # voir la note de sens dans textures.py. Le bas du rectangle lit
+            # donc la ligne 1-f du PNG, et tout ce qu'il y a dessous est
+            # laisse sous terre.
+            Rectangle(pos=(cx - w / 2.0, base), size=(w, h * (1.0 - f)),
+                      texture=tex,
+                      tex_coords=(0, 1.0 - f, 1, 1.0 - f, 1, 0, 0, 0))
         return True
 
     def set_ground(self, zone_type, seed=0):
@@ -1794,6 +1815,38 @@ class ZoneScenery(Widget):
     # 2,89 x 0,81.
     LARGEUR_PEPITE = 2.35
 
+    # DE COMBIEN ELLE EST ENTERREE, en part de sa hauteur. Une pierre posee
+    # SUR le sol est une pierre qu'on vient d'y deposer : le decor en paraît
+    # meuble. Enfoncee, elle a toujours ete la.
+    ENFONCE_PEPITE = (0.25, 0.50)
+
+    # LA TERRE DE CHAQUE ZONE, pour le bourrelet au pied de la pierre. C'est
+    # la surface PROCHE de la zone -- celle sur laquelle reposent les elements
+    # de la grille -- et non celle de l'horizon.
+    #
+    # Le lac reste de l'EAU. Un haut-fond de sable y avait ete essaye ; il
+    # dessinait une galette brune autour de chaque pierre, et la pierre avait
+    # l'air posee sur un radeau. L'eau, elle, ne se voit pas contre l'eau : il
+    # ne reste que la ligne de flottaison sombre, qui est exactement ce qu'on
+    # veut voir.
+    SOL_DE_ZONE = {"Foret": "forest_floor", "Plaine": "grass",
+                   "Montagne": "rock", "Lac": "water"}
+
+    # TEINTE DE LA PIERRE, PAR ZONE. Les images sont des photos de granit :
+    # mesure faite, elles sortent a 0,55 de luminosite pour 0,06 de saturation
+    # -- un gris clair et parfaitement neutre. Le sol de foret, lui, est a
+    # 0,12. La pierre etait donc de loin la chose la plus claire de l'ecran,
+    # et sans la moindre couleur commune avec ce qui l'entoure : elle se
+    # decollait de la scene comme un autocollant.
+    #
+    # Chaque zone la ramene donc a sa propre lumiere et lui prete un peu de sa
+    # couleur -- vert sous les arbres, chaud dans l'herbe, froid et bleute
+    # dans l'eau. C'est le meme granit partout, vu sous quatre ciels.
+    TEINTE_PEPITE = {"Foret": (0.50, 0.53, 0.45),
+                     "Plaine": (0.74, 0.71, 0.60),
+                     "Montagne": (0.78, 0.78, 0.80),
+                     "Lac": (0.66, 0.70, 0.72)}
+
     def _pepite_de_grille(self, rang, depth, cx, base, jit):
         """Une pepite posee sur la grille 5x5, comme un arbre ou un buisson.
 
@@ -1813,37 +1866,147 @@ class ZoneScenery(Widget):
         r = (a - b * depth) * jit.uniform(1.0 - self.ECART_PEPITE,
                                           1.0 + self.ECART_PEPITE) * self.height
         decalage = random.Random("%s:variante" % self._seed).randrange(5)
+        enfonce = jit.uniform(*self.ENFONCE_PEPITE)
         return (base - self.DEBORD_PEPITE * r,
-                lambda cx=cx, base=base, r=r, v=rang + decalage:
-                self._pepite(cx, base, r, v))
+                lambda cx=cx, base=base, r=r, v=rang + decalage,
+                e=enfonce, d=depth: self._pepite(cx, base, r, v, e, d))
 
-    def _pepite(self, cx, base, r, variante):
-        """Une pepite : un bloc de pierre pose au sol.
+    def _pepite(self, cx, base, r, variante, enfonce=0.35, depth=0.0):
+        """Une pepite : un bloc de pierre a demi enterre.
 
         Cent pour cent de pierre grise pour l'instant -- aucun minerai. Quand
         il y en aura, ils se distingueront ici et nulle part ailleurs : la
         pepite est un element du decor, pas un objet, et c'est le decor qui
-        dit de quoi elle a l'air."""
+        dit de quoi elle a l'air.
+
+        TROIS CHOSES L'ANCRENT AU SOL, et il les faut toutes les trois : la
+        part enterree n'est pas dessinee, la terre remonte contre elle, et
+        elle est teintee de la lumiere de sa zone."""
         # ON LA POSE PAR SA LARGEUR, pas par sa hauteur : les cinq images
         # n'ont pas le meme aplatissement, et c'est la place prise AU SOL qui
         # doit rester la meme de l'une a l'autre.
         largeur = r * self.LARGEUR_PEPITE
-        self._shadow(cx, base - largeur * 0.02, largeur * 1.06)
+        # UNE OMBRE PORTEE COURTE : la pierre est a demi enterree, elle n'a
+        # plus grand-chose au-dessus du sol pour porter loin. A la taille
+        # qu'elle avait quand la pierre etait POSEE, elle s'etalait autour
+        # d'elle en flaque grise.
+        self._shadow(cx, base - largeur * 0.02, largeur * 0.88, opacity=0.85)
+        teinte = self.TEINTE_PEPITE.get(self._zone,
+                                        self.TEINTE_PEPITE["Plaine"])
         if self._sprite("ore_nugget", cx, base, None, pick=variante,
-                        width=largeur):
+                        width=largeur, teinte=teinte, coupe_bas=enfonce):
+            self._bourrelet(cx, base, largeur, depth)
             return
         # Sans image : un bloc anguleux, plus sombre et plus trapu qu'un
         # galet, pour qu'on ne le confonde pas avec les pierres a ramasser.
-        w2, haut = largeur / 2.0, largeur * 0.78
+        # Il est rogne du meme enfoncement, par le bas.
+        w2 = largeur / 2.0
+        plein = largeur * 0.78
+        haut = plein * (1.0 - enfonce)
+
+        def y(part):
+            """La hauteur `part` du bloc entier, ramenee au-dessus du sol."""
+            return base + max(0.0, plein * part - plein * enfonce)
+
         Color(0.34, 0.34, 0.37, 1)
         Quad(points=[cx - w2, base, cx + w2, base,
-                     cx + w2 * 0.72, base + haut * 0.66,
-                     cx - w2 * 0.80, base + haut * 0.58])
+                     cx + w2 * 0.72, y(0.66), cx - w2 * 0.80, y(0.58)])
         Color(0.48, 0.48, 0.52, 1)
-        Quad(points=[cx - w2 * 0.80, base + haut * 0.58,
-                     cx + w2 * 0.72, base + haut * 0.66,
+        Quad(points=[cx - w2 * 0.80, y(0.58), cx + w2 * 0.72, y(0.66),
                      cx + w2 * 0.18, base + haut,
                      cx - w2 * 0.52, base + haut * 0.92])
+        self._bourrelet(cx, base, largeur, depth)
+
+    # DE COMBIEN LA TERRE REMONTE contre la pierre, en part de sa largeur, et
+    # de combien le bourrelet deborde de part et d'autre.
+    MONTEE_BOURRELET = 0.075
+    # IL DEBORDE A PEINE, et c'est volontaire. Le bourrelet est dessine avec
+    # la terre de la zone, mais pas en phase avec le sol deja peint : la ou il
+    # sort de la pierre, il pose donc une tuile a cote d'une autre, et l'on
+    # verrait le raccord. Sous la pierre, il n'y a rien a raccorder.
+    DEBORD_BOURRELET = 1.07
+
+    def _bourrelet(self, cx, base, largeur, depth, segs=22):
+        """La terre relevee au pied d'une pierre.
+
+        Sans elle, la pierre coupee net a la ligne du sol a l'air posee
+        derriere un muret. Ce bourrelet est ce qui la fait paraitre INCRUSTEE :
+        la terre s'accumule contre elle et lui mord le bas.
+
+        SA COURBE EST UN SOURIRE, et ce n'est pas un choix d'esthetique. On
+        regarde la scene d'en haut et de biais : le point du sol le plus PROCHE
+        de nous est celui qui est droit devant la pierre, et le plus proche est
+        aussi le plus BAS a l'ecran. Les cotes de la pierre, eux, sont plus
+        loin, donc plus hauts. La ligne de contact monte donc vers les bords.
+        Bombee dans l'autre sens, la pierre aurait l'air de flotter sur une
+        bosse.
+
+        C'EST LA TERRE DE LA ZONE, sa vraie image, a la bonne echelle : la
+        tuile du sol retrecit avec la distance (voir _fill_curve), et le
+        bourrelet suit. Une couleur plate a la place se verrait comme une
+        tache -- c'est justement la matiere qui doit se confondre."""
+        nom = self.SOL_DE_ZONE.get(self._zone)
+        if not nom:
+            return
+        demi = largeur / 2.0
+        deborde = demi * self.DEBORD_BOURRELET
+        montee = largeur * self.MONTEE_BOURRELET
+        bas = base - montee * 0.55      # on mord SOUS la ligne du sol, sinon
+        #                                 un lisere du fond passe entre les deux
+
+        # Le sourire ne part PAS de zero : meme droit devant, la terre mord un
+        # peu la pierre. A zero, la pierre se terminait la par un trait
+        # horizontal parfait -- une coupure, pas un enfouissement.
+        def haut(dx):
+            a = abs(dx)
+            if a <= demi:                       # contre la pierre : le sourire
+                return base + montee * (0.35 + 0.65 * (a / demi) ** 2)
+            u = (a - demi) / max(1e-6, deborde - demi)
+            return base + montee * (1.0 - u) ** 2   # puis retour au sol
+
+        # Echelle de la tuile a CETTE profondeur : c'est le k de _fill_curve.
+        tile = textures.tile_for(nom)
+        k = 1.0 / max(1e-6, 1.0 - (1.0 - 1.0 / GROUND_DEPTH) * depth)
+        tile = max(8.0, tile / k)
+        x0, y0 = self.x, self.y
+
+        tex = paint(nom)
+        self._bind_pbr(nom)
+        verts, idx = [], []
+        for i in range(segs + 1):
+            dx = -deborde + 2.0 * deborde * i / segs
+            for yy in (bas, haut(dx)):
+                # v NEGATIF vers le haut : voir la note de sens dans
+                # textures.py.
+                verts += [cx + dx, yy, (cx + dx - x0) / tile, -(yy - y0) / tile]
+            if i:
+                p = (i - 1) * 2
+                idx += [p, p + 1, p + 2, p + 1, p + 3, p + 2]
+        Mesh(vertices=verts, indices=idx, mode="triangles",
+             texture=tex if tex is not None else None)
+        self._reset_pbr()
+
+        # L'OMBRE DU CREUX : la terre au contact de la pierre ne recoit plus
+        # le ciel. Sans ce lisere sombre, le bourrelet reste un aplat colle
+        # par-dessus, et l'on voit la couture.
+        #
+        # ELLE S'ARRETE AUX FLANCS DE LA PIERRE et s'y amincit jusqu'a rien.
+        # Etalee sur tout le bourrelet -- ce qui avait ete fait d'abord --
+        # elle depassait de part et d'autre en deux croissants sombres : la
+        # pierre portait une moustache. Une ombre de contact n'existe que la
+        # ou il y a contact.
+        verts, idx = [], []
+        for i in range(segs + 1):
+            dx = -demi + 2.0 * demi * i / segs
+            h = haut(dx)
+            creux = montee * 0.85 * (1.0 - (dx / demi) ** 2)
+            for yy in (h - creux, h):
+                verts += [cx + dx, yy, 0, 0]
+            if i:
+                p = (i - 1) * 2
+                idx += [p, p + 1, p + 2, p + 1, p + 3, p + 2]
+        Color(0.04, 0.04, 0.03, 0.30)
+        Mesh(vertices=verts, indices=idx, mode="triangles", texture=None)
 
     def _stone(self, cx, cy, r, sprite=None):
         self._shadow(cx, cy - r * 0.05, r * 2.1)          # ombre portee
