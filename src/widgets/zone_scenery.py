@@ -1052,6 +1052,16 @@ class ZoneScenery(Widget):
             tw, th = tex.size
             height = width * (float(th) / float(tw)) if tw else width
         w, h = foliage.size_for(tex, height)
+        # CARTES DE RELIEF, SI ELLES ONT ETE FOURNIES (nom_R / nom_P a cote de
+        # l'image). L'element est alors eclaire par le soleil de la scene et
+        # son cote clair suit l'heure, au lieu de porter un relief peint une
+        # fois pour toutes. On ne lie que s'il y a quelque chose a lier : une
+        # scene pose des centaines de sprites, et deux BindTexture par sprite
+        # sans carte derriere ne seraient que du poids dans le canvas.
+        nor, pak = foliage.relief(name, pick)
+        relief = self._pbr and (nor is not None or pak is not None)
+        if relief:
+            pbr.bind_maps(nor, pak)
         Color(*((tuple(teinte[:3]) if teinte else (1, 1, 1)) + (1,)))
         f = min(0.90, max(0.0, float(coupe_bas)))
         if f <= 0.0:
@@ -1065,6 +1075,11 @@ class ZoneScenery(Widget):
             Rectangle(pos=(cx - w / 2.0, base), size=(w, h * (1.0 - f)),
                       texture=tex,
                       tex_coords=(0, 1.0 - f, 1, 1.0 - f, 1, 0, 0, 0))
+        if relief:
+            # Sans ce retour au neutre, TOUT ce qui est dessine ensuite --
+            # l'herbe, les formes vectorielles, les autres sprites -- garderait
+            # le relief de celui-ci.
+            self._reset_pbr()
         return True
 
     def set_ground(self, zone_type, seed=0):

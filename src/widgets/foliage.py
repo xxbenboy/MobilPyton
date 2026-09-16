@@ -35,6 +35,7 @@ MAX_VARIANTS = 8
 
 _CACHE = {}          # nom -> [textures] (liste vide si aucune image)
 _OMBRES = {}         # nom -> [silhouettes] (voir silhouette())
+_STEMS = {}          # nom -> [noms de fichier retenus], voir _stems_charges
 
 
 def _load(path):
@@ -57,18 +58,30 @@ def _find_one(stem):
     return None
 
 
+def _stems_charges(name):
+    """Les noms de fichier des variantes RETENUES, dans l'ordre.
+
+    UNE SEULE LISTE POUR TOUT LE MONDE, et c'est la raison d'etre de cette
+    fonction. L'image, la silhouette et les cartes de relief d'un element sont
+    trois lectures separees du meme dossier ; si chacune decidait pour son
+    compte quelles variantes existent, il suffirait d'un fichier present mais
+    illisible pour que les listes se decalent -- et une pierre porterait alors
+    la silhouette ou la carte de normales d'une AUTRE. Ici, une variante
+    compte si et seulement si son image se charge."""
+    if name not in _STEMS:
+        gardes = []
+        for stem in [name] + ["%s_%d" % (name, i)
+                              for i in range(2, MAX_VARIANTS + 1)]:
+            if _find_one(stem) is not None:
+                gardes.append(stem)
+        _STEMS[name] = gardes
+    return _STEMS[name]
+
+
 def variants(name):
     """Toutes les images disponibles pour cet element (liste, parfois vide)."""
     if name not in _CACHE:
-        found = []
-        first = _find_one(name)
-        if first is not None:
-            found.append(first)
-        for i in range(2, MAX_VARIANTS + 1):
-            tex = _find_one("%s_%d" % (name, i))
-            if tex is not None:
-                found.append(tex)
-        _CACHE[name] = found
+        _CACHE[name] = [_find_one(s) for s in _stems_charges(name)]
     return _CACHE[name]
 
 
@@ -87,6 +100,39 @@ def sprite(name, pick=None):
     if pick is None:
         return found[0]
     return found[int(pick) % len(found)]
+
+
+# SUFFIXES DES CARTES DE RELIEF, les memes que pour les sols (voir
+# textures.py) : _R pour les normales, _P pour la carte packed dont le canal
+# rouge porte l'occlusion. L'image de base, elle, n'a pas de suffixe.
+#
+# AUCUN RISQUE DE COLLISION AVEC LES VARIANTES : celles-ci se nomment par un
+# CHIFFRE (nom_2 ... nom_8), jamais par une lettre. La carte de normales de la
+# deuxieme variante s'appelle donc nom_2_R.
+SUFFIXE_NORMAL = "_R"
+SUFFIXE_PACKED = "_P"
+
+_RELIEF = {}         # nom -> [(normal, packed), ...], un par variante
+
+
+def relief(name, pick=None):
+    """(normales, packed) de cette variante -- (None, None) si non fournies.
+
+    Deposer nom_R.png a cote de nom.png suffit : l'element est alors ECLAIRE
+    par le soleil de la scene, et son cote clair change avec l'heure, au lieu
+    de porter un relief peint une fois pour toutes. Les deux cartes sont
+    independantes ; l'une sans l'autre marche.
+
+    Dessine tes cartes de base en lumiere NEUTRE, sans ombre peinte dedans :
+    c'est le jeu qui eclaire (meme regle que assets/textures/LISEZMOI.txt)."""
+    if name not in _RELIEF:
+        _RELIEF[name] = [(_find_one(stem + SUFFIXE_NORMAL),
+                          _find_one(stem + SUFFIXE_PACKED))
+                         for stem in _stems_charges(name)]
+    faites = _RELIEF[name]
+    if not faites:
+        return None, None
+    return faites[0 if pick is None else int(pick) % len(faites)]
 
 
 def _silhouette_de(path):
@@ -141,20 +187,11 @@ def silhouette(name, pick=None):
     fournir ses tex_coords -- ce que fait de toute facon l'appelant, qui s'en
     sert pour couper la part enterree."""
     if name not in _OMBRES:
-        faites = []
-        stems = [name] + ["%s_%d" % (name, i)
-                          for i in range(2, MAX_VARIANTS + 1)]
-        for stem in stems:
-            path = _chemin(stem)
-            if path is None:
-                continue
-            # On ecarte les echecs comme le fait variants(), sans quoi les
-            # deux listes ne seraient plus dans le meme ordre et la
-            # silhouette ne serait pas celle de l'image.
-            sil = _silhouette_de(path)
-            if sil is not None:
-                faites.append(sil)
-        _OMBRES[name] = faites
+        # LA MEME LISTE DE VARIANTES QUE L'IMAGE (voir _stems_charges) : une
+        # silhouette qui ne serait pas celle du sprite pose par-dessus
+        # dessinerait un aplat a cote de la pierre.
+        _OMBRES[name] = [_silhouette_de(_chemin(stem))
+                         for stem in _stems_charges(name)]
     faites = _OMBRES[name]
     if not faites:
         return None

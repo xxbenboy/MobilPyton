@@ -23,6 +23,32 @@ Le choix depend de la POSITION de l'element, il est donc stable : une fougere
 ne change pas d'aspect quand tu ramasses une pierre a cote.
 2 ou 3 variantes suffisent pour casser l'effet de copier-coller.
 
+RELIEF : FAIRE REAGIR UN ELEMENT A LA LUMIERE
+---------------------------------------------
+Une image seule porte la lumiere de la photo : son cote clair reste du meme
+cote a midi comme au couchant. Depose a cote d'elle deux cartes facultatives
+et le jeu l'eclaire lui-meme, avec le vrai soleil de la scene :
+
+    <nom>_R.png    Normal  (le relief)          -> eclairage / volume
+    <nom>_P.png    Packed  (canal ROUGE = AO)   -> assombrit les creux
+
+Exemple pour la premiere pepite :  ore_nugget.png  ore_nugget_R.png
+                                   ore_nugget_P.png
+et pour la deuxieme variante    :  ore_nugget_2.png  ore_nugget_2_R.png ...
+
+Les suffixes sont ceux des textures de sol (voir assets/textures/LISEZMOI.txt).
+Pas de confusion possible avec les variantes : celles-ci se numerotent par un
+CHIFFRE, les cartes se suffixent par une LETTRE.
+
+Les deux cartes sont independantes, l'une sans l'autre marche, et sans aucune
+des deux le rendu reste exactement celui d'aujourd'hui.
+
+/!\ Dessine l'image de base en lumiere NEUTRE, a plat, SANS ombre peinte
+    dedans. Le soleil du jeu se leve a gauche, culmine a midi et se couche a
+    droite : une ombre peinte dans l'image tomberait du mauvais cote la moitie
+    de la journee. Et pas d'ombre portee au sol non plus -- le jeu calcule la
+    sienne, orientee par l'heure.
+
 ----------------------------------------------------------------
 LES NOMS (exacts : minuscules, underscores, sans accent)
 ----------------------------------------------------------------
@@ -59,14 +85,24 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
     snow_patch.png        Plaque de neige
 
 --- PARTOUT ------------------------------------------------------
-    ore_nugget.png        Pepite de mineraux : un bloc de pierre pose au
-                          sol. Elle apparait dans TOUTES les zones, de zero
+    ore_nugget.png        Pepite de mineraux : un bloc de pierre A DEMI
+                          ENTERRE (du quart a la moitie de sa hauteur). Elle
+                          apparait dans toutes les zones SAUF LE LAC, de zero
                           a cinq par case. Cinq variantes sont fournies
                           (ore_nugget.png a ore_nugget_5.png) et le jeu les
                           repartit pour qu'une case a cinq pepites en montre
                           cinq differentes.
                           Pour l'instant elles sont toutes en pierre grise ;
                           les minerais viendront s'y distinguer plus tard.
+                          Cadre l'image AU PLUS JUSTE sur la pierre : le jeu
+                          coupe son bas a la ligne du sol, et une marge vide
+                          en dessous la ferait flotter.
+
+--- LA CASE VOISINE ----------------------------------------------
+Les elements des cases voisines debordent le long des bords de la scene, sauf
+en MONTAGNE et au LAC (la pente remplit le cadre, l'autre berge ferme la vue).
+L'horizon, lui, montre partout ce qu'il y a au loin : ce sont deux choses
+differentes.
 
 --- LAC ----------------------------------------------------------
     lily_pad.png          Nenuphar (vu du dessus)

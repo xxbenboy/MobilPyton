@@ -13,9 +13,15 @@ Principe d'integration :
   sur l'unite 2 (bind_maps) ; apres, on remet des cartes "neutres" (reset_maps)
   pour que les formes vectorielles (herbe, pierres dessinees...) restent neutres.
 
-L'eclairage ne s'active QUE si au moins une carte de normales existe
-(textures.has_any_normal()). Sans cartes, on n'installe pas le shader : aucun
-risque, rendu identique a avant.
+Le shader est installe DES QUE LIGHTING est vrai, sans attendre qu'une carte
+existe -- et cela ne change rien au rendu tant qu'il n'y en a aucune : les
+cartes neutres (normale plate, occlusion a 1) donnent exactement l'image
+d'avant. C'est ce qui permet de deposer une carte et de la voir agir sans
+toucher au code.
+
+(Ce commentaire disait le contraire : que rien n'etait installe tant que
+textures.has_any_normal() etait faux. Cette fonction existe toujours mais
+plus personne ne l'appelle, et le shader, lui, est bel et bien toujours la.)
 """
 from kivy.graphics import BindTexture
 from kivy.graphics.texture import Texture
