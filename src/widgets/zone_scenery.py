@@ -1148,19 +1148,18 @@ class ZoneScenery(Widget):
     # voudrait plus rien dire.
     _EDGE_ROWS = (0, 1, 2)
 
-    # LES ZONES QUI NE MONTRENT RIEN DE LEURS VOISINS -- ni sur l'horizon, ni
-    # en debordement sur les bords. Ailleurs, voir la case d'a cote aide a
-    # s'orienter ; ici cela dessert la scene :
+    # LES ZONES SANS DEBORDEMENT SUR LES BORDS. La montagne et le lac ne
+    # recoivent plus les elements de la case d'a cote le long de leurs bords :
+    # ni les arbres, ni les rochers, ni les galets, ni la pente ou la rive
+    # voisines. Leur decor s'arrete au cadre.
     #
-    #  - la MONTAGNE est un versant qui remplit le cadre. Ce qui se verrait
-    #    au-dessus n'est pas la vallee d'a cote mais ce qu'il y a par-dela le
-    #    sommet -- et la pente, par construction, le cache ;
-    #  - le LAC se regarde depuis sa rive : l'autre berge ferme deja la vue,
-    #    et une foret posee par-dessus se lisait comme flottant sur l'eau.
-    #
-    # Les deux chemins sont coupes ENSEMBLE, sans quoi la moitie du voisin
-    # resterait : l'horizon partirait et les arbres du bord resteraient.
-    SANS_VOISINS = {"Montagne", "Lac"}
+    # L'HORIZON, LUI, RESTE. Ce sont deux choses differentes, et il ne faut
+    # surtout pas les confondre : l'horizon montre ce qu'il y a AU LOIN, il
+    # situe la case dans le monde et aide a s'orienter ; le debordement pose
+    # des objets DANS la scene, au premier plan, le long du bord. C'est ce
+    # second qui encombrait la pente et la berge. Les couper tous les deux --
+    # ce qui avait ete fait d'abord -- privait la case de son paysage.
+    SANS_BORDS_VOISINS = {"Montagne", "Lac"}
 
     def _edge_items(self):
         """Les elements de la case voisine qui debordent dans la scene.
@@ -1175,7 +1174,7 @@ class ZoneScenery(Widget):
         - des OBJETS poses sur la grille, rang par rang, exactement comme ceux
           de la case."""
         out = []
-        if self._zone in self.SANS_VOISINS:
+        if self._zone in self.SANS_BORDS_VOISINS:
             return out
         for cote, col in self._EDGE_COL.items():
             zone = self._neighbours.get(cote)
@@ -1297,8 +1296,6 @@ class ZoneScenery(Widget):
         recolter. Le joueur verrait sa case se reconstruire rien qu'en
         tournant sur lui-meme. Ici, la ligne d'horizon depend des voisins,
         et rien d'autre n'en depend."""
-        if self._zone in self.SANS_VOISINS:
-            return
         horizon.draw(self._neighbours, self.x, self.width, crest,
                      self.height, random.Random(self._graine_voisins()))
 
