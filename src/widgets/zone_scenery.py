@@ -1148,6 +1148,20 @@ class ZoneScenery(Widget):
     # voudrait plus rien dire.
     _EDGE_ROWS = (0, 1, 2)
 
+    # LES ZONES QUI NE MONTRENT RIEN DE LEURS VOISINS -- ni sur l'horizon, ni
+    # en debordement sur les bords. Ailleurs, voir la case d'a cote aide a
+    # s'orienter ; ici cela dessert la scene :
+    #
+    #  - la MONTAGNE est un versant qui remplit le cadre. Ce qui se verrait
+    #    au-dessus n'est pas la vallee d'a cote mais ce qu'il y a par-dela le
+    #    sommet -- et la pente, par construction, le cache ;
+    #  - le LAC se regarde depuis sa rive : l'autre berge ferme deja la vue,
+    #    et une foret posee par-dessus se lisait comme flottant sur l'eau.
+    #
+    # Les deux chemins sont coupes ENSEMBLE, sans quoi la moitie du voisin
+    # resterait : l'horizon partirait et les arbres du bord resteraient.
+    SANS_VOISINS = {"Montagne", "Lac"}
+
     def _edge_items(self):
         """Les elements de la case voisine qui debordent dans la scene.
 
@@ -1161,6 +1175,8 @@ class ZoneScenery(Widget):
         - des OBJETS poses sur la grille, rang par rang, exactement comme ceux
           de la case."""
         out = []
+        if self._zone in self.SANS_VOISINS:
+            return out
         for cote, col in self._EDGE_COL.items():
             zone = self._neighbours.get(cote)
             fond = {"Montagne": self._edge_slope,
@@ -1281,6 +1297,8 @@ class ZoneScenery(Widget):
         recolter. Le joueur verrait sa case se reconstruire rien qu'en
         tournant sur lui-meme. Ici, la ligne d'horizon depend des voisins,
         et rien d'autre n'en depend."""
+        if self._zone in self.SANS_VOISINS:
+            return
         horizon.draw(self._neighbours, self.x, self.width, crest,
                      self.height, random.Random(self._graine_voisins()))
 
@@ -1840,12 +1858,61 @@ class ZoneScenery(Widget):
     # decollait de la scene comme un autocollant.
     #
     # Chaque zone la ramene donc a sa propre lumiere et lui prete un peu de sa
-    # couleur -- vert sous les arbres, chaud dans l'herbe, froid et bleute
-    # dans l'eau. C'est le meme granit partout, vu sous quatre ciels.
-    TEINTE_PEPITE = {"Foret": (0.50, 0.53, 0.45),
-                     "Plaine": (0.74, 0.71, 0.60),
-                     "Montagne": (0.78, 0.78, 0.80),
-                     "Lac": (0.66, 0.70, 0.72)}
+    # couleur -- vert sous les arbres, chaud dans l'herbe. C'est le meme
+    # granit partout, vu sous plusieurs ciels.
+    #
+    # LES VALEURS NE SONT PAS CHOISIES A L'OEIL. Ce qui fait qu'un element
+    # "sort" d'une scene n'est pas sa couleur en soi, c'est son ECART avec ce
+    # qui l'entoure. On a donc mesure ce rapport sur le decor que le jeu
+    # dessine DEJA -- c'est lui la direction artistique, pas une intuition :
+    #
+    #   gros rocher de montagne  0,90 x la luminosite de son sol
+    #   buisson de foret         1,81 x
+    #   buisson de plaine        0,66 x
+    #
+    # La pepite etait a 2,36 x en foret : plus de deux fois plus claire que le
+    # sol, la chose la plus lumineuse de l'ecran. Les teintes ci-dessous la
+    # ramenent a 1,35 x partout -- ENTRE les deux references que le jeu se
+    # donne. Plus claire que le sol, parce qu'une pierre prend le jour du
+    # ciel ; moins qu'un buisson, parce qu'elle n'est pas censee attirer
+    # l'oeil avant lui. A 1,15 x, essaye d'abord, elle devenait un trou noir
+    # dans la foret : le joueur doit pouvoir la REPERER, c'est une ressource.
+    #
+    # Le rapport est le MEME dans les trois zones : c'est ainsi qu'on
+    # reconnait le meme materiau de l'une a l'autre, alors que les sols, eux,
+    # vont du simple au triple.
+    #
+    # L'entree du LAC ne sert plus : il n'y a plus de pepites dans l'eau (voir
+    # world.SANS_PEPITES). Elle reste pour le jour ou il en reprendrait, mais
+    # elle n'a PAS ete mesuree comme les autres.
+    # LA TEINTE NE SUFFIT PAS, ET NE PEUT PAS SUFFIRE. Multiplier une image
+    # change sa couleur mais JAMAIS son contraste : la photo garde des noirs
+    # et des blancs que rien d'autre dans la scene ne possede, et la pierre
+    # continue de se detacher comme un decoupage. Deux aplats poses par-dessus
+    # sa silhouette corrigent cela (voir _etalonne_pepite) :
+    #
+    #  - un VOILE de la couleur du decor, d'autant plus epais que la pierre
+    #    est loin : c'est l'air entre l'oeil et elle. Il rapproche ses tons de
+    #    ceux du fond, donc il ecrase son contraste -- exactement ce qu'il
+    #    faut ;
+    #  - un DEGRADE sombre a son pied, qui s'eteint a mi-hauteur : la lumiere
+    #    vient du ciel, le haut d'un caillou la recoit, son pied ne la recoit
+    #    plus. C'est le signal de relief le plus fort dont on dispose sans
+    #    carte de normales.
+    #
+    # L'HEURE n'entre pas ici : le voile de nuit passe sur TOUTE la scene une
+    # fois celle-ci dessinee (voir daylight.veil_color et les ecrans). Teinter
+    # la pierre une deuxieme fois l'aurait desynchronisee du reste.
+    VOILE_PEPITE = (0.12, 0.34)    # epaisseur du voile : au plus pres, au fond
+    PIED_PEPITE = 0.45             # noirceur au pied de la pierre
+    PIED_HAUTEUR = 0.55            # sur quelle part de sa hauteur il s'eteint
+    BANDES_PEPITE = 7              # en combien de marches (assez pour ne pas
+    #                                se voir : mesure, 5 se voyaient)
+
+    TEINTE_PEPITE = {"Foret": (0.271, 0.288, 0.245),
+                     "Plaine": (0.815, 0.783, 0.661),
+                     "Montagne": (0.858, 0.858, 0.879),
+                     "Lac": (0.607, 0.644, 0.662)}
 
     def _pepite_de_grille(self, rang, depth, cx, base, jit):
         """Une pepite posee sur la grille 5x5, comme un arbre ou un buisson.
@@ -1895,6 +1962,7 @@ class ZoneScenery(Widget):
                                         self.TEINTE_PEPITE["Plaine"])
         if self._sprite("ore_nugget", cx, base, None, pick=variante,
                         width=largeur, teinte=teinte, coupe_bas=enfonce):
+            self._etalonne_pepite(cx, base, largeur, variante, enfonce, depth)
             self._bourrelet(cx, base, largeur, depth)
             return
         # Sans image : un bloc anguleux, plus sombre et plus trapu qu'un
@@ -1916,6 +1984,53 @@ class ZoneScenery(Widget):
                      cx + w2 * 0.18, base + haut,
                      cx - w2 * 0.52, base + haut * 0.92])
         self._bourrelet(cx, base, largeur, depth)
+
+    def _etalonne_pepite(self, cx, base, largeur, variante, enfonce, depth):
+        """Rapproche la photo de pierre des couleurs de la scene.
+
+        Voir VOILE_PEPITE : un voile de la couleur du decor, epaissi par la
+        distance, puis un degrade sombre a son pied. Les deux sont poses sur
+        sa SILHOUETTE -- un simple rectangle teinterait aussi le vide autour.
+
+        Sans silhouette (pas d'image, ou image illisible), on ne fait rien :
+        le repli geometrique porte deja ses propres couleurs."""
+        sil = foliage.silhouette("ore_nugget", variante)
+        if sil is None:
+            return
+        tw, th = sil.size
+        if not tw or not th:
+            return
+        haut = largeur * (float(th) / float(tw)) * (1.0 - enfonce)
+        gauche = cx - largeur / 2.0
+        vu = 1.0 - enfonce          # la part de l'image qui sort de terre
+
+        def bande(y0, y1, coul, alpha):
+            """Un morceau de la silhouette, de y0 a y1 (0 = sol, 1 = sommet)."""
+            if alpha <= 0.002 or y1 <= y0:
+                return
+            # v DESCEND dans l'image quand l'ecran MONTE : le bas de la bande
+            # lit donc PLUS BAS dans le PNG que son haut (voir textures.py).
+            v0, v1 = vu * (1.0 - y0), vu * (1.0 - y1)
+            Color(coul[0], coul[1], coul[2], alpha)
+            Rectangle(pos=(gauche, base + haut * y0),
+                      size=(largeur, haut * (y1 - y0)), texture=sil,
+                      tex_coords=(0, v0, 1, v0, 1, v1, 0, v1))
+
+        decor = textures.fallback(self.SOL_DE_ZONE.get(self._zone, "rock"))[:3]
+        pres, loin = self.VOILE_PEPITE
+        bande(0.0, 1.0, decor, pres + (loin - pres) * max(0.0, min(1.0, depth)))
+
+        # LE DEGRADE DU PIED, en marches : une Mesh ne sait pas donner une
+        # couleur par sommet, et c'est la facon la plus simple d'obtenir un
+        # fondu. Sept marches ne se voient pas ; cinq se voyaient.
+        sombre = tuple(c * 0.35 for c in decor)
+        n = self.BANDES_PEPITE
+        for i in range(n):
+            y0, y1 = i / n, (i + 1) / n
+            t = (y0 + y1) / 2.0 / self.PIED_HAUTEUR
+            if t >= 1.0:
+                break
+            bande(y0, y1, sombre, self.PIED_PEPITE * (1.0 - t) ** 2)
 
     # DE COMBIEN LA TERRE REMONTE contre la pierre, en part de sa largeur, et
     # de combien le bourrelet deborde de part et d'autre.

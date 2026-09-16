@@ -22,6 +22,7 @@ une image carree un buisson trapu, sans deformation.
 import os
 
 from kivy.core.image import Image as CoreImage
+from kivy.graphics.texture import Texture
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 FOLIAGE_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", "assets",
@@ -33,6 +34,7 @@ _EXTS = (".png", ".jpg", ".jpeg")
 MAX_VARIANTS = 8
 
 _CACHE = {}          # nom -> [textures] (liste vide si aucune image)
+_OMBRES = {}         # nom -> [silhouettes] (voir silhouette())
 
 
 def _load(path):
@@ -85,6 +87,80 @@ def sprite(name, pick=None):
     if pick is None:
         return found[0]
     return found[int(pick) % len(found)]
+
+
+def _silhouette_de(path):
+    """Construit la SILHOUETTE d'une image : sa forme, en blanc.
+
+    Meme taille, meme canal alpha, mais le rouge, le vert et le bleu mis a
+    fond. Dessinee avec une Color, elle pose donc un APLAT de cette couleur
+    exactement sur la forme de l'element -- ce qu'un Rectangle ne sait pas
+    faire, lui qui teinterait aussi le vide autour.
+
+    C'est l'outil qui manquait pour ETALONNER une photo : la multiplier par
+    une teinte ne change que sa couleur, jamais son contraste, et une photo de
+    studio garde donc dans une scene stylisee des noirs et des blancs que rien
+    d'autre n'a. Un aplat pose par-dessus, lui, rapproche la photo de la
+    couleur du decor -- c'est ce que fait l'air entre l'oeil et la pierre.
+
+    On relit les octets bruts (image._data[0]) plutot que pixel par pixel :
+    une pepite fait 256 px de large, et read_pixel aurait coute une demi-
+    seconde par variante au premier affichage (mesure faite sur les buches).
+    """
+    try:
+        img = CoreImage(path)
+        brut = img.image._data[0]
+        donnees = bytearray(brut.data)
+        if (brut.fmt or "rgba") != "rgba" or len(donnees) < 4:
+            return None
+    except Exception:
+        return None
+    # R, G, B a fond ; l'alpha, lui, ne bouge pas : c'est lui la forme.
+    for c in range(3):
+        donnees[c::4] = b"\xff" * (len(donnees) // 4)
+    tex = Texture.create(size=(brut.width, brut.height), colorfmt="rgba")
+    tex.blit_buffer(bytes(donnees), colorfmt="rgba", bufferfmt="ubyte")
+    tex.wrap = "clamp_to_edge"
+    return tex
+
+
+def _chemin(stem):
+    for ext in _EXTS:
+        path = os.path.join(FOLIAGE_DIR, stem + ext)
+        if os.path.isfile(path):
+            return path
+    return None
+
+
+def silhouette(name, pick=None):
+    """La silhouette de la variante choisie, ou None. Voir _silhouette_de.
+
+    ATTENTION AU SENS : cette texture est televersee dans l'ordre du PNG,
+    comme celle de sprite(), mais ses tex_coords par defaut ne sont pas
+    retournees comme celles d'une image chargee. Il faut donc TOUJOURS lui
+    fournir ses tex_coords -- ce que fait de toute facon l'appelant, qui s'en
+    sert pour couper la part enterree."""
+    if name not in _OMBRES:
+        faites = []
+        stems = [name] + ["%s_%d" % (name, i)
+                          for i in range(2, MAX_VARIANTS + 1)]
+        for stem in stems:
+            path = _chemin(stem)
+            if path is None:
+                continue
+            # On ecarte les echecs comme le fait variants(), sans quoi les
+            # deux listes ne seraient plus dans le meme ordre et la
+            # silhouette ne serait pas celle de l'image.
+            sil = _silhouette_de(path)
+            if sil is not None:
+                faites.append(sil)
+        _OMBRES[name] = faites
+    faites = _OMBRES[name]
+    if not faites:
+        return None
+    if pick is None:
+        return faites[0]
+    return faites[int(pick) % len(faites)]
 
 
 def size_for(tex, height):

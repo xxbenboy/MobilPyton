@@ -150,10 +150,22 @@ def proximite_max(zone_type):
 PEPITES_PAR_CASE = {0: 10, 1: 20, 2: 20, 3: 20, 4: 20, 5: 10}
 assert sum(PEPITES_PAR_CASE.values()) == 100, PEPITES_PAR_CASE
 
+# LES ZONES SANS PEPITES. Le lac n'en porte aucune : ses cases de proximite
+# tombent dans l'eau, et une pierre a demi enfoncee dans un fond de lac ne
+# raconte rien -- ni un filon a extraire, ni un decor de berge.
+SANS_PEPITES = {"Lac"}
 
-def nugget_count(cell_seed):
+
+def nugget_count(cell_seed, zone_type=None):
     """Combien de pepites porte cette case. Stable : c'est sa graine qui
-    decide, pas le moment ou l'on regarde."""
+    decide, pas le moment ou l'on regarde.
+
+    La ZONE peut n'en vouloir aucune (voir SANS_PEPITES). Le compte reste
+    calcule de la meme facon partout -- c'est la zone qui le met a zero, pas
+    une graine differente : le jour ou le lac en reprendra, ses cases
+    retrouveront exactement les pepites qu'elles auraient eues."""
+    if zone_type in SANS_PEPITES:
+        return 0
     rng = random.Random("%s:pepites" % cell_seed)
     valeurs = sorted(PEPITES_PAR_CASE)
     return rng.choices(valeurs,
@@ -182,7 +194,7 @@ def nature_blocked_cells(zone_type, cell_seed):
              if (gx, gy) != (2, 0)]
     plafond = min(plafond, len(cells))
 
-    pepites = min(nugget_count(cell_seed), plafond)
+    pepites = min(nugget_count(cell_seed, zone_type), plafond)
     reste = plafond - pepites
     naturels = 0
     spec = NATURE_BIG.get(zone_type)
