@@ -32,7 +32,7 @@ from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.label import Label
 from kivy.uix.widget import Widget
 from kivy.graphics import (Color, Rectangle, RoundedRectangle, Line, Ellipse,
-                           Triangle, Quad)
+                           Triangle, Quad, Mesh)
 from kivy.metrics import dp
 import math
 
@@ -65,8 +65,9 @@ PREVIEW_NO_BG = (1.00, 0.42, 0.35, 0.30)
 CELL_FREE = (0, 0, 0, 0)                  # aucune : libre
 
 # Nom lisible de chaque obstacle naturel (cf. world.NATURE_BIG).
-NATURE_LABEL = {"tree": "Arbre", "bush": "Buisson", "rock": "Rocher"}
-NATURE_ORDER = ("tree", "bush", "rock")
+NATURE_LABEL = {"tree": "Arbre", "bush": "Buisson", "rock": "Rocher",
+                "nugget": "Pierre"}
+NATURE_ORDER = ("tree", "bush", "rock", "nugget")
 
 # Taille des flammes du pictogramme, selon l'etat du feu (cf. FIRE_LEVELS).
 GLYPH_FLAME = {"grand": 1.00, "moyen": 0.66, "petit": 0.36, "braise": 0.0}
@@ -79,7 +80,11 @@ def draw_nature_glyph(kind, cx, cy, size):
 
     A appeler dans un contexte `with canvas:`. La vue de placement regarde le
     sol d'en haut : un arbre est donc un houppier rond avec son tronc au
-    centre, un buisson une touffe de lobes, un rocher une masse grise."""
+    centre, un buisson une touffe de lobes, un rocher une masse grise.
+
+    LA PEPITE se distingue du rocher par ses FACETTES. Vus de dessus, les deux
+    seraient deux taches grises ; c'est la cassure anguleuse qui dit qu'on a
+    affaire a un bloc et non a un galet use."""
     r = size * 0.5
     if kind == "tree":
         Color(0, 0, 0, 0.28)                                  # ombre portee
@@ -113,6 +118,28 @@ def draw_nature_glyph(kind, cx, cy, size):
         Color(0.62, 0.62, 0.66, 1)                            # facette eclairee
         Ellipse(pos=(cx - r * 0.55, cy - r * 0.28),
                 size=(r * 1.0, r * 0.82))
+    elif kind == "nugget":
+        contour = [(-0.95, -0.30), (-0.55, -0.85), (0.35, -0.90),
+                   (0.95, -0.35), (0.80, 0.45), (0.10, 0.90),
+                   (-0.70, 0.55)]
+        Color(0, 0, 0, 0.28)                                  # ombre portee
+        Mesh(vertices=[v for x, y in contour
+                       for v in (cx + x * r, cy + y * r - r * 0.12, 0, 0)],
+             indices=list(range(len(contour))), mode="triangle_fan")
+        Color(0.46, 0.46, 0.50, 1)                            # masse
+        Mesh(vertices=[v for x, y in contour
+                       for v in (cx + x * r, cy + y * r, 0, 0)],
+             indices=list(range(len(contour))), mode="triangle_fan")
+        Color(0.66, 0.66, 0.70, 1)                            # facette du haut
+        haut = [(-0.55, 0.10), (0.05, -0.25), (0.62, 0.20), (0.05, 0.62)]
+        Mesh(vertices=[v for x, y in haut
+                       for v in (cx + x * r, cy + y * r, 0, 0)],
+             indices=list(range(len(haut))), mode="triangle_fan")
+        Color(0.30, 0.30, 0.34, 1)                            # cassures
+        for (ax, ay) in ((-0.55, 0.10), (0.62, 0.20), (0.05, 0.62)):
+            Line(points=[cx + 0.05 * r, cy - 0.25 * r,
+                         cx + ax * r, cy + ay * r],
+                 width=max(1.0, r * 0.06))
 
 
 def draw_object_glyph(name, cx, cy, size, lit=False, level="grand"):

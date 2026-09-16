@@ -443,10 +443,17 @@ class ZoneScenery(Widget):
         """Itere les GROS elements du decor de la case, positionnes sur la
         GRILLE 5x5 (les memes cases sont refusees a l'installation d'objets).
 
-        Genere (kind, depth, tx, tb, jit) : type ("tree"/"bush"/"rock"),
-        profondeur 0..1, position ecran de la base, et un rng stable pour les
-        variations (taille...). Les cases occupees par un objet INSTALLE sont
-        sautees (l'objet installe a la priorite d'affichage)."""
+        Genere (kind, rang, depth, tx, tb, jit) : type ("tree"/"bush"/
+        "rock"/"nugget"), RANG de l'element parmi ceux de son type, profondeur
+        0..1, position ecran de la base, et un rng stable pour les variations
+        (taille...). Les cases occupees par un objet INSTALLE sont sautees
+        (l'objet installe a la priorite d'affichage).
+
+        LE RANG sert a REPARTIR les variantes d'un meme type. Le decor choisit
+        d'ordinaire son image d'apres la position, ce qui peut donner cinq
+        fois la meme pierre sur une case qui n'en porte que cinq ; avec le
+        rang, on distribue les modeles en rond."""
+        rangs = {}
         w, h, x0, y0 = self.width, self.height, self.x, self.y
         # Trie du plus LOINTAIN au plus proche (gy decroissant) : les zones qui
         # dessinent directement (sans liste triee) obtiennent ainsi le bon
@@ -459,13 +466,15 @@ class ZoneScenery(Widget):
                 continue
             gfx, gfy, _gs = grid_to_screen(ggx, ggy)
             jit = random.Random(f"{self._seed}:{ggx}:{ggy}:big")
+            rang = rangs.get(kind, 0)
+            rangs[kind] = rang + 1
             depth = ggy / 4.0
             # AUCUN decalage : l'element est pose EXACTEMENT au centre de sa
             # case, comme un objet installe. C'est ce qui permet de retrouver
             # la meme position dans la grille de placement et dans le jeu.
             tx = x0 + gfx * w
             tb = y0 + gfy * h
-            yield kind, depth, tx, tb, jit
+            yield kind, rang, depth, tx, tb, jit
 
     def _installed_items(self):
         """Objets INSTALLES, prets a etre tries avec le reste du decor.
@@ -1647,7 +1656,10 @@ class ZoneScenery(Widget):
         # Arbres + buissons PROCHES : GROS elements positionnes sur la GRILLE
         # 5x5 (les memes cases sont interdites a l'installation d'un objet :
         # impossible de mettre un feu de camp sous un arbre).
-        for kind, depth, tx, tb, jit in self._iter_nature_big():
+        for kind, rang, depth, tx, tb, jit in self._iter_nature_big():
+            if kind == "nugget":
+                items.append(self._pepite_de_grille(rang, depth, tx, tb, jit))
+                continue
             if kind == "tree":
                 th = (1.00 - 0.58 * depth) * jit.uniform(0.85, 1.10) * h
                 if jit.random() < 0.5:
@@ -1686,7 +1698,6 @@ class ZoneScenery(Widget):
                               self._forest_tree(tx, tb, th, 0.4, shadow=False)))
         # (Les insectes sont desormais une couche ANIMEE separee : InsectLayer.)
 
-        self._pepites(rng, place, items)     # pepites de mineraux
         items += self._installed_items()     # feu de camp... a leur profondeur
         items += self._edge_items()          # la case d'a cote, qui deborde
         items.sort(key=lambda it: it[0], reverse=True)
@@ -1770,59 +1781,41 @@ class ZoneScenery(Widget):
     RAYON_BUISSON_PLAINE = (0.17, 0.09)   # au premier plan, puis ce qu'il
     ECART_PEPITE = 0.20                   # perd au fond ; -20 % a +20 %
 
-    # LARGEUR REELLE D'UN BUISSON, en rayons. Ce n'est pas 2 : ses trois
-    # masses de feuillage debordent de part et d'autre de son centre (voir
-    # _bush), et il s'etale en fait de -1,4 a +1,5 rayon. Mesure sur le dessin
-    # plutot que devinee -- a 2, la pepite faisait les deux tiers d'un buisson
-    # alors qu'elle etait censee lui ressembler.
-    LARGEUR_BUISSON = 2.9
+    # LARGEUR D'UNE PEPITE, en rayons. Elle vient d'une mesure, pas d'un
+    # calcul : on dessine un buisson et une pepite au meme rayon, on releve
+    # les deux boites, et on cherche le facteur qui leur donne la MEME
+    # EMPRISE (largeur x hauteur).
+    #
+    # Pourquoi l'emprise et non la seule largeur : un buisson mesure 2,89 r de
+    # large pour 1,51 r de haut, une pepite 2,89 r pour 2,33 r. A largeur
+    # egale -- ce qu'on faisait -- la pierre etait donc une fois et demie plus
+    # haute que le buisson, et elle ecrasait la scene comme un rocher. Le
+    # facteur qui egalise les emprises vaut racine(1,51 / 2,33) = 0,81, d'ou
+    # 2,89 x 0,81.
+    LARGEUR_PEPITE = 2.35
 
-    def _bande_au_sol(self, rng, bas, haut, horizon):
-        """Un `place` de fortune : tire un point dans une bande de sol.
+    def _pepite_de_grille(self, rang, depth, cx, base, jit):
+        """Une pepite posee sur la grille 5x5, comme un arbre ou un buisson.
 
-        La foret et la plaine ont leur propre `place`, qui suit la courbe du
-        terrain ; la montagne et le lac n'en ont pas. Plutot que de priver ces
-        deux zones de pepites, on leur en fabrique un a la meme signature --
-        (x, y, echelle, profondeur) -- pour que _pepites reste unique.
+        Elle y a sa place pour deux raisons : on la voit alors dans l'ecran de
+        PROXIMITE au meme titre que le reste du decor, et on ne peut plus
+        installer un feu de camp dessus. Combien il y en a par case est decide
+        par le monde (voir world.nature_blocked_cells) : ici, on ne fait que
+        les dessiner.
 
-        LA PROFONDEUR SE DEDUIT DE LA HAUTEUR, comme partout ailleurs : c'est
-        la part du chemin parcouru vers l'horizon. Tiree au hasard entre zero
-        et un, comme je l'avais d'abord ecrit, elle donnait des pepites de
-        tout premier plan posees au fond de la scene -- larges comme la
-        moitie de l'ecran sur une bande qui n'en fait qu'un sixieme."""
-        def place(_maxt=1.0, fx=None, floor=0.0):
-            f = rng.uniform(0, 1) if fx is None else fx
-            frac = bas + (haut - bas) * rng.random()
-            t = min(1.0, frac / horizon) if horizon else 0.0
-            return (self.x + f * self.width, self.y + frac * self.height,
-                    1.0 - 0.70 * t, t)
-        return place
-
-    def _pepites(self, rng, place, items):
-        """Ajoute les pepites de la case a la liste des elements a dessiner.
-
-        Le NOMBRE vient du monde, pas de la scene : c'est une propriete de la
-        case (voir world.nugget_count), et il ne doit pas changer selon la
-        zone ni selon le moment ou l'on redessine.
-
-        LES CINQ MODELES SE REPARTISSENT. Les laisser au hasard des positions,
-        comme le reste du decor, donnait parfois cinq fois la meme pierre sur
-        une case qui n'en porte que cinq ; on distribue donc les variantes en
-        rond, a partir d'un decalage tire de la graine."""
-        combien = world.nugget_count(self._seed)
-        if not combien:
-            return
-        depart = rng.randrange(5)
+        LE RANG REPARTIT LES MODELES : une case a cinq pepites en montre cinq
+        differentes, au lieu de laisser le hasard des positions en repeter.
+        Il est DECALE d'un cran tire de la graine de la case -- sans ce
+        decalage, le premier modele sortait sur toutes les cases qui portent
+        au moins une pepite et le cinquieme seulement sur celles qui en
+        portent cinq : mesure, un contre huit."""
         a, b = self.RAYON_BUISSON_PLAINE
-        for i in range(combien):
-            px, py, _sc, t = place(1.0, floor=_HARVEST_FLOOR)
-            if self._is_blocked(px, py):
-                continue
-            r = (a - b * t) * rng.uniform(1.0 - self.ECART_PEPITE,
+        r = (a - b * depth) * jit.uniform(1.0 - self.ECART_PEPITE,
                                           1.0 + self.ECART_PEPITE) * self.height
-            items.append((py - self.DEBORD_PEPITE * r,
-                          lambda px=px, py=py, r=r, v=depart + i:
-                          self._pepite(px, py, r, v)))
+        decalage = random.Random("%s:variante" % self._seed).randrange(5)
+        return (base - self.DEBORD_PEPITE * r,
+                lambda cx=cx, base=base, r=r, v=rang + decalage:
+                self._pepite(cx, base, r, v))
 
     def _pepite(self, cx, base, r, variante):
         """Une pepite : un bloc de pierre pose au sol.
@@ -1831,10 +1824,10 @@ class ZoneScenery(Widget):
         il y en aura, ils se distingueront ici et nulle part ailleurs : la
         pepite est un element du decor, pas un objet, et c'est le decor qui
         dit de quoi elle a l'air."""
-        # ON MESURE SUR LA LARGEUR, pas sur la hauteur : une pepite est large
-        # et basse comme le buisson qui lui sert d'etalon, et deux images
-        # d'aplatissements differents doivent occuper la meme place au sol.
-        largeur = r * self.LARGEUR_BUISSON
+        # ON LA POSE PAR SA LARGEUR, pas par sa hauteur : les cinq images
+        # n'ont pas le meme aplatissement, et c'est la place prise AU SOL qui
+        # doit rester la meme de l'une a l'autre.
+        largeur = r * self.LARGEUR_PEPITE
         self._shadow(cx, base - largeur * 0.02, largeur * 1.06)
         if self._sprite("ore_nugget", cx, base, None, pick=variante,
                         width=largeur):
@@ -2079,7 +2072,10 @@ class ZoneScenery(Widget):
                                            sprite=self._zs("branch"))))
         # Buissons (taille humaine) : GROS elements positionnes sur la GRILLE
         # 5x5 (cases interdites a l'installation d'un objet).
-        for kind, depth, bx, by, jit in self._iter_nature_big():
+        for kind, rang, depth, bx, by, jit in self._iter_nature_big():
+            if kind == "nugget":
+                items.append(self._pepite_de_grille(rang, depth, bx, by, jit))
+                continue
             g = jit.uniform(0.0, 0.10)
             r = (0.17 - 0.09 * depth) * jit.uniform(0.85, 1.15) * h
             col = (0.12 + g, 0.30 + g, 0.15, 1)
@@ -2145,7 +2141,6 @@ class ZoneScenery(Widget):
         # (Les insectes sont desormais une couche ANIMEE separee : InsectLayer.)
 
         # Rendu trie : plus loin (base haute) d'abord, plus proche par-dessus.
-        self._pepites(rng, place, items)     # pepites de mineraux
         items += self._installed_items()     # feu de camp... a leur profondeur
         items += self._edge_items()          # la case d'a cote, qui deborde
         items.sort(key=lambda it: it[0], reverse=True)
@@ -2213,13 +2208,13 @@ class ZoneScenery(Widget):
                 continue
             items.append((sy, lambda sx=sx, sy=sy, gh=gh:
                           self._grass_tuft(sx, sy, gh, (0.22, 0.34, 0.16, 1))))
-        for kind, depth, rx, ry, jit in self._iter_nature_big():
+        for kind, rang, depth, rx, ry, jit in self._iter_nature_big():
+            if kind == "nugget":
+                items.append(self._pepite_de_grille(rang, depth, rx, ry, jit))
+                continue
             rr = (0.085 - 0.045 * depth) * jit.uniform(0.85, 1.15) * h
             items.append((ry, lambda rx=rx, ry=ry, rr=rr:
                           self._big_rock(rx, ry, rr)))
-        # Pepites de mineraux : sur le BAS de la pente, la ou l'on marche.
-        self._pepites(rng, self._bande_au_sol(rng, _HARVEST_FLOOR, 0.34,
-                                              horizon=0.60), items)
         items.sort(key=lambda it: it[0], reverse=True)
         for _, fn in items:
             fn()
@@ -2276,13 +2271,11 @@ class ZoneScenery(Widget):
                               self._grass_tuft(gx, gb, gh,
                                                (0.18, 0.38, 0.20, 1),
                                                sprite="reed")))
-        # Pepites de mineraux, dans la meme bande que les galets et les
-        # roseaux. C'est deja le BORD DE L'EAU : la plage du lac fait douze
-        # pour cent de la hauteur et disparait derriere les mains, si bien que
-        # tout ce qui se pose ici a les pieds dans l'eau -- y compris les
-        # roseaux, et c'est tres bien ainsi.
-        self._pepites(rng, self._bande_au_sol(rng, _HARVEST_FLOOR, 0.28,
-                                              horizon=0.55), items)
+        # Pepites de mineraux, sur la GRILLE comme partout ailleurs. C'est le
+        # seul gros element du lac : il n'y pousse ni arbre ni buisson.
+        for kind, rang, depth, px, pb, jit in self._iter_nature_big():
+            if kind == "nugget":
+                items.append(self._pepite_de_grille(rang, depth, px, pb, jit))
         items.sort(key=lambda it: it[0], reverse=True)
         for _, fn in items:
             fn()

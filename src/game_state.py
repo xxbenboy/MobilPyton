@@ -1292,9 +1292,9 @@ class GameState:
         return cell
 
     def nature_cells_here(self):
-        """Cellules 5x5 de la case occupees par un GROS element du decor
-        (arbre, buisson, gros rocher) : {(gx, gy): type}. On ne peut pas y
-        installer d'objet."""
+        """Cellules 5x5 de la case occupees par un element de PROXIMITE
+        (arbre, buisson, gros rocher, pepite) : {(gx, gy): type}. On ne peut
+        pas y installer d'objet."""
         return world.nature_blocked_cells(
             self.current_zone(),
             world.scene_seed(self.player_x, self.player_y))

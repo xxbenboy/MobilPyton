@@ -113,13 +113,27 @@ def random_center_cell(seed):
 # decor les dessine A CES POSITIONS, et on ne peut PAS y installer d'objet
 # (feu de camp...). Stable par case (deduit de la graine de scene).
 
-# Par zone : (nb min, nb max) de cellules occupees, et types possibles
-# (tires au hasard, avec repetition -> "tree" 3x = 75 % d'arbres en foret).
+# COMBIEN D'ELEMENTS AU PLUS sur la grille d'une case. C'est un plafond pour
+# TOUT ce qui pousse naturellement, pepites comprises : au-dela, la grille se
+# remplit et il ne reste plus ou s'installer. La foret en porte le double --
+# c'est ce qui fait qu'on y est a l'etroit, et c'est voulu.
+PROXIMITE_MAX = 5
+PROXIMITE_MAX_ZONE = {"Foret": 10}
+
+# Ce qui pousse dans chaque zone A COTE des pepites, et en quel nombre. Les
+# types sont tires au hasard AVEC REPETITION : "tree" trois fois = 75 %
+# d'arbres en foret. Le Lac n'a rien de gros a lui -- il n'y porte que des
+# pepites.
 NATURE_BIG = {
     "Foret": ((6, 9), ("tree", "tree", "tree", "bush")),
     "Plaine": ((3, 5), ("bush",)),
     "Montagne": ((3, 5), ("rock",)),
 }
+
+
+def proximite_max(zone_type):
+    """Le plafond d'elements de proximite pour cette zone."""
+    return PROXIMITE_MAX_ZONE.get(zone_type, PROXIMITE_MAX)
 
 
 # --------------------------------------------------------------------- #
@@ -152,14 +166,36 @@ def scene_seed(x, y):
 
 
 def nature_blocked_cells(zone_type, cell_seed):
-    """Cellules 5x5 occupees par un GROS element du decor pour cette case :
-    {(gx, gy): "tree" | "bush" | "rock"}. La case joueur (2, 0) reste libre."""
-    spec = NATURE_BIG.get(zone_type)
-    if not spec:
-        return {}
-    (lo, hi), kinds = spec
-    rng = random.Random(f"{cell_seed}:{zone_type}:bigcells")
+    """Cellules 5x5 occupees par un element de PROXIMITE pour cette case :
+    {(gx, gy): "tree" | "bush" | "rock" | "nugget"}.
+
+    LES PEPITES SERVENT LES PREMIERES, et le reste remplit ce qui reste sous
+    le plafond. Leur nombre est une propriete de la case (voir nugget_count),
+    pas un tirage parmi les autres types : une case a cinq pepites en a cinq,
+    et ce sont alors les arbres ou les buissons qui cedent la place. C'est
+    dans ce sens-la que le plafond agit, et non l'inverse -- sinon une case
+    "riche" ne se distinguerait plus d'une autre.
+
+    La case du joueur (2, 0) reste toujours libre : c'est la qu'il se tient."""
+    plafond = proximite_max(zone_type)
     cells = [(gx, gy) for gy in range(5) for gx in range(5)
              if (gx, gy) != (2, 0)]
-    return {cell: rng.choice(kinds)
-            for cell in rng.sample(cells, rng.randint(lo, hi))}
+    plafond = min(plafond, len(cells))
+
+    pepites = min(nugget_count(cell_seed), plafond)
+    reste = plafond - pepites
+    naturels = 0
+    spec = NATURE_BIG.get(zone_type)
+    if spec and reste > 0:
+        (lo, hi), kinds = spec
+        rng = random.Random(f"{cell_seed}:{zone_type}:bigcells")
+        naturels = min(rng.randint(lo, hi), reste)
+    else:
+        kinds = ()
+
+    rng = random.Random(f"{cell_seed}:{zone_type}:bigcells")
+    tires = rng.sample(cells, pepites + naturels)
+    out = {cell: "nugget" for cell in tires[:pepites]}
+    for cell in tires[pepites:]:
+        out[cell] = rng.choice(kinds)
+    return out
