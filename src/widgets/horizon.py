@@ -186,11 +186,18 @@ def neighbours_of(state):
         dx, dy = state.dir_vector(turn)
         nx, ny = state.player_x + dx, state.player_y + dy
         if 0 <= nx < world.GRID_W and 0 <= ny < world.GRID_H:
-            voisin = state.grid[ny][nx]
-            # Une case du MEME type que celle ou l'on est n'apporte rien : le
-            # decor la montre deja. On evite ainsi de poser une ligne d'arbres
-            # sur l'horizon d'une foret.
-            out[cote] = None if voisin == state.current_zone() else voisin
+            # UNE CASE DU MEME TYPE COMPTE AUTANT QU'UNE AUTRE. Elle etait
+            # ecartee ici, au motif que "le decor la montre deja" ; mais ce
+            # qu'on voyait alors, dans une foret entouree de foret, c'etait le
+            # VIDE au-dessus des arbres -- un ciel noir posE sur la cime, comme
+            # si le bois s'arretait net au bout de la case. C'est le contraire
+            # de ce que l'horizon est cense dire.
+            #
+            # Poser une ligne d'arbres sur l'horizon d'une foret etait le
+            # risque redoute. Il ne se produit pas : les silhouettes lointaines
+            # sont noyees de brume (voir _hazy) et decoupees irregulierement,
+            # de sorte qu'elles se lisent comme un fond et non comme une haie.
+            out[cote] = state.grid[ny][nx]
         else:
             out[cote] = None
     return out
