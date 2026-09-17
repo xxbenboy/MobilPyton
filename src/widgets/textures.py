@@ -51,6 +51,11 @@ FALLBACKS = {
 DEFAULT_TILE = 256
 TILE_PX = {
     "grass": 448,        # ~1.75x la taille de base (256)
+    # Le sol de foret porte des BRANCHES et des feuilles, dont la taille est
+    # lisible : a 256 px de repetition elles auraient fait des brindilles de
+    # fourmi. On garde la meme echelle que l'herbe -- les deux sols sont vus
+    # du meme oeil, et une feuille doit faire a peu pres une feuille.
+    "forest_floor": 448,
 }
 
 
@@ -70,6 +75,11 @@ TILE_PX = {
 #    nom emprunteur : (nom source, assombrissement)
 ALIAS = {
     "grass_far": ("grass", 0.82),
+    # Le fond de la foret, c'est LE MEME SOL, plus loin. Sans cet emprunt il
+    # serait reste un aplat de couleur derriere un sol texture : la bande
+    # lointaine se serait detachee comme un morceau de carton. Un peu plus
+    # sombre que le sol proche, comme l'herbe de crete.
+    "forest_floor_far": ("forest_floor", 0.82),
 }
 
 
@@ -86,7 +96,34 @@ def tile_for(name):
     return TILE_PX.get(_alias(name)[0], DEFAULT_TILE)
 
 
-_CACHE = {}      # chemin -> texture (ou None)
+_CACHE = {}          # chemin -> texture (ou None)
+_MOYENNES_PATH = {}  # chemin -> couleur moyenne (voir _moyenne_de)
+
+# Combien de pixels on regarde pour la moyenne d'une texture.
+ECHANTILLONS = 4000
+
+
+def _moyenne_de(img):
+    """Couleur moyenne (0..1) d'une CoreImage deja decodee, ou None.
+
+    On n'echantillonne que quelques MILLIERS de pixels : une moyenne n'a pas
+    besoin de plus, et un pixel sur huit coutait 105 ms sur une image de 1024.
+    """
+    try:
+        brut = img.image._data[0]
+        pas = 4 if (brut.fmt or "rgba") == "rgba" else 3
+        octets = memoryview(brut.data)
+        saut = max(1, (len(octets) // pas) // ECHANTILLONS) * pas
+        total = [0, 0, 0]
+        n = 0
+        for i in range(0, len(octets) - pas + 1, saut):
+            total[0] += octets[i]
+            total[1] += octets[i + 1]
+            total[2] += octets[i + 2]
+            n += 1
+        return tuple(t / (255.0 * n) for t in total) if n else None
+    except Exception:
+        return None
 
 
 def _load(path):
@@ -101,7 +138,13 @@ def _load(path):
             # deja moyennees, et choisit la bonne selon la taille a l'ecran.
             # (Il exige des images en puissance de 2 -- ce que le LISEZMOI
             # demande deja.)
-            tex = CoreImage(path, mipmap=True).texture
+            img = CoreImage(path, mipmap=True)
+            # LA MOYENNE SE PREND MAINTENANT, tant que l'image est decodee
+            # sous la main. La relire plus tard couterait un second decodage
+            # du PNG -- 74 ms sur une image de 1024, mesure -- et garder la
+            # CoreImage en memoire couterait ses quatre mega-octets.
+            _MOYENNES_PATH[path] = _moyenne_de(img)
+            tex = img.texture
             tex.wrap = "repeat"
             try:
                 tex.min_filter = "linear_mipmap_linear"
@@ -119,13 +162,54 @@ def _load(path):
     return _CACHE[path]
 
 
-def _find(name, suffix=""):
-    """Texture pour <name><suffix> si un fichier existe, sinon None."""
+def _chemin(name, suffix=""):
+    """Chemin du fichier <name><suffix>, ou None."""
     for ext in (".png", ".jpg", ".jpeg"):
         p = os.path.join(TEXTURES_DIR, name + suffix + ext)
         if os.path.isfile(p):
-            return _load(p)
+            return p
     return None
+
+
+def _find(name, suffix=""):
+    """Texture pour <name><suffix> si un fichier existe, sinon None."""
+    p = _chemin(name, suffix)
+    return _load(p) if p else None
+
+
+_MOYENNES = {}
+
+
+def average_color(name):
+    """La couleur MOYENNE de cette surface : sa texture si elle en a une,
+    sinon sa couleur de repli.
+
+    A QUOI CELA SERT : quand un element du decor doit se fondre dans le sol
+    (le voile atmospherique d'une pierre, par exemple), c'est la couleur
+    REELLEMENT posee a l'ecran qu'il faut, pas celle qu'on afficherait faute
+    d'image. Les deux s'ecartent beaucoup : le sol de foret est a (0,26 0,25
+    0,12) sur sa texture contre (0,12 0,15 0,09) en repli -- deux fois plus
+    clair, et nettement plus chaud. Une pierre voilee de la seconde aurait
+    pris une teinte qui n'existe nulle part dans la scene.
+
+    La moyenne est prise AU CHARGEMENT de la texture, pas ici : la relire
+    demanderait de decoder le PNG une seconde fois (74 ms sur une image de
+    1024, mesure -- un a-coup visible sur un telephone)."""
+    if name in _MOYENNES:
+        return _MOYENNES[name]
+    src, k = _alias(name)
+    chemin = (_chemin(name, SUFFIX_BASE) or _chemin(name, "")
+              or _chemin(src, SUFFIX_BASE) or _chemin(src, ""))
+    couleur = None
+    if chemin:
+        _load(chemin)               # decode une seule fois, et met la moyenne
+        brute = _MOYENNES_PATH.get(chemin)
+        if brute is not None:
+            couleur = tuple(v * k for v in brute)
+    if couleur is None:
+        couleur = tuple(fallback(name)[:3])
+    _MOYENNES[name] = couleur
+    return couleur
 
 
 def base_texture(name):

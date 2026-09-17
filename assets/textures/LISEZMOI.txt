@@ -30,6 +30,15 @@ COMMENT CA MARCHE
      jurerait aux heures ou l'ombre tombe de l'autre cote.
 - Packed (_P) : le canal ROUGE est utilise comme occlusion ambiante (assombrit
   les creux). Les autres canaux sont reserves (rugosite/metallique).
+  EN PRATIQUE, depose ton occlusion EN GRIS (les trois canaux a la meme
+  valeur) : c'est ce que font toutes les cartes du jeu, et rien ne lit encore
+  le vert ni le bleu. Y ranger une rugosite inventee ne servirait a rien
+  aujourd'hui et tromperait demain.
+- LE FILIGRANE DU GENERATEUR doit disparaitre, et c'est plus grave ici que sur
+  un objet : une texture de sol SE REPETE. Un "Made with AI" oublie dans un
+  coin s'affiche des dizaines de fois sur le terrain. Il ne suffit pas de le
+  recadrer -- cela casserait le raccord : il faut le recouvrir par un morceau
+  de l'image prise ailleurs (voir scratchpad/sol_foret.py).
 - Compat : un ancien fichier  <nom>.png  (sans suffixe) est lu comme BaseColor.
 
 ----------------------------------------------------------------
@@ -46,8 +55,11 @@ Sols / terrain :
                        depose quand meme grass_far_B/_R/_P : elles reprennent
                        la main. Reglage de l'assombrissement : ALIAS dans
                        src/widgets/textures.py.)
-    forest_floor       sol de foret proche
-    forest_floor_far   sol de foret lointain
+    forest_floor       sol de foret proche  (FOURNI : feuilles, brindilles,
+                       mousse -- 1024x1024)
+    forest_floor_far   RIEN A FOURNIR : le fond de la foret reprend
+                       automatiquement forest_floor, assombri. Meme raison que
+                       grass_far, juste au-dessus.
     rock               roche (pente de montagne)
     rock_dark          roche en bas de pente (plus sombre)
     water              eau (lac)

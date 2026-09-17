@@ -2068,7 +2068,11 @@ class ZoneScenery(Widget):
                       size=(largeur, haut * (y1 - y0)), texture=sil,
                       tex_coords=(0, v0, 1, v0, 1, v1, 0, v1))
 
-        decor = textures.fallback(self.SOL_DE_ZONE.get(self._zone, "rock"))[:3]
+        # LA COULEUR REELLEMENT POSEE AU SOL, texture comprise -- pas celle du
+        # repli. Les deux s'ecartent beaucoup des qu'une image existe (voir
+        # textures.average_color), et c'est dans le sol tel qu'on le VOIT que
+        # la pierre doit se fondre.
+        decor = textures.average_color(self.SOL_DE_ZONE.get(self._zone, "rock"))
         pres, loin = self.VOILE_PEPITE
         bande(0.0, 1.0, decor, pres + (loin - pres) * max(0.0, min(1.0, depth)))
 
