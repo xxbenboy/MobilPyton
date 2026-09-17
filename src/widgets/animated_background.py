@@ -1,11 +1,13 @@
 """
 Fond anime pilote par l'HEURE (cycle jour/nuit) avec astres et nuages.
 
-Couches (canvas, aucune image) :
-1. degrade du ciel dont la couleur suit l'heure ;
-2. etoiles, visibles seulement quand il fait sombre ;
-3. SOLEIL et LUNE qui montent puis descendent selon l'heure (arc dans le ciel) ;
-4. NUAGES qui derivent lentement.
+Couches :
+1. degrade du ciel, pris dans la LUT de la journee (assets/Atmospheres/
+   sky_lut.png) ou calcule si elle est absente ;
+2. LUEUR SOLAIRE : le large embrasement du ciel autour du soleil ;
+3. etoiles, visibles seulement quand il fait sombre ;
+4. SOLEIL et LUNE qui montent puis descendent selon l'heure (arc dans le ciel) ;
+5. NUAGES qui derivent lentement.
 
 Usages :
 - MENU : le temps avance tout seul (time_scale) -> cycle visible.
@@ -21,16 +23,21 @@ from kivy.graphics.texture import Texture
 from kivy.metrics import dp
 
 from src.widgets.gl_textures import texture_depuis_octets
-from src.widgets import atmosphere
+from src.widgets import atmosphere, daylight
 
 SECONDS_PER_DAY = 24 * 3600
 
 # 24h en 4 minutes (240 s) => 360 secondes de jeu par seconde reelle.
 MENU_TIME_SCALE = SECONDS_PER_DAY / 240.0
 
-# Couleur du ciel heure par heure. Le JOUR est volontairement clair : un bleu
-# franc mais lumineux (le degrade assombrit deja le haut du cadre de 60 %, le
-# ciel parait donc plus sombre a l'ecran que ces valeurs).
+# Couleur du ciel heure par heure, DE REPLI : c'est ce que le jeu utilise quand
+# sky_lut.png est absente. Sinon la ligne du BAS de la LUT prend le relais (et
+# la LUT livree reproduit cette table a la quantification pres, pour que rien
+# ne change cote nuit et etoiles -- voir sky_color).
+#
+# Le JOUR est volontairement clair : un bleu franc mais lumineux (le degrade
+# assombrit deja le haut du cadre de 60 %, le ciel parait donc plus sombre a
+# l'ecran que ces valeurs).
 _SKY_KEYS = [
     (0.0,  (0.05, 0.07, 0.12)),
     (4.0,  (0.06, 0.08, 0.13)),
@@ -45,7 +52,34 @@ _SKY_KEYS = [
 ]
 
 
+def _lut_place(lut, seconds):
+    """Ou tombe cet instant dans la LUT : (colonne, colonne suivante, part).
+
+    La journee est CYCLIQUE : la derniere colonne est voisine de la premiere,
+    sinon minuit montrerait une couture."""
+    w = lut[0]
+    u = (seconds % SECONDS_PER_DAY) / SECONDS_PER_DAY * w
+    i0 = int(u) % w
+    return i0, (i0 + 1) % w, u - int(u)
+
+
 def sky_color(seconds):
+    """Couleur de REFERENCE du ciel a cet instant.
+
+    C'est la couleur du ciel AU BAS DU CADRE -- la ligne du bas de la LUT. Le
+    jeu ne s'en sert pas seulement pour peindre : sa luminosite decide de la
+    clarte de la nuit (voir sky_luminance, night_darkness, night_factor), donc
+    du voile sombre pose sur tout le decor et de l'apparition des etoiles.
+
+    C'est voulu que ce soit la LUT qui decide : un ciel repeint plus sombre
+    doit assombrir le decor avec lui. La contrepartie est qu'une LUT dont la
+    ligne du bas serait claire en pleine nuit donnerait des nuits claires."""
+    lut = atmosphere.sky_lut()
+    if lut is not None:
+        cols = lut[2]
+        i0, i1, f = _lut_place(lut, seconds)
+        a, b = cols[i0][0], cols[i1][0]
+        return [a[k] + (b[k] - a[k]) * f for k in range(3)]
     h = (seconds % SECONDS_PER_DAY) / 3600.0
     for i in range(len(_SKY_KEYS) - 1):
         h0, c0 = _SKY_KEYS[i]
@@ -54,6 +88,24 @@ def sky_color(seconds):
             t = 0.0 if h1 == h0 else (h - h0) / (h1 - h0)
             return [c0[j] + (c1[j] - c0[j]) * t for j in range(3)]
     return list(_SKY_KEYS[-1][1])
+
+
+def sky_column(seconds):
+    """Le ciel ENTIER a cet instant : du bas du cadre jusqu'au haut.
+
+    Liste de triplets, l'indice 0 etant le bas du cadre. Rend None si aucune
+    LUT n'est en place -- l'appelant retombe alors sur le degrade calcule."""
+    lut = atmosphere.sky_lut()
+    if lut is None:
+        return None
+    h, cols = lut[1], lut[2]
+    i0, i1, f = _lut_place(lut, seconds)
+    a, b = cols[i0], cols[i1]
+    if f <= 0.0:
+        return a
+    return [(a[j][0] + (b[j][0] - a[j][0]) * f,
+             a[j][1] + (b[j][1] - a[j][1]) * f,
+             a[j][2] + (b[j][2] - a[j][2]) * f) for j in range(h)]
 
 
 def _clamp01(v):
@@ -160,13 +212,54 @@ def glow_profile(t):
     return 0.55 * u ** 4 + 0.45 * u ** 1.4
 
 
+# --------------------------------------------------------------------- #
+# LA LUEUR SOLAIRE : le ciel qui s'embrase autour du soleil
+# --------------------------------------------------------------------- #
+# Le HALO (ci-dessus) est l'aureole serree de l'astre, large de trois fois son
+# rayon. La LUEUR est autre chose : c'est la moitie du ciel qui blanchit ou
+# rougeoie autour du soleil. C'est elle qui fait qu'un coucher de soleil se
+# reconnait, et le degrade du ciel ne peut pas la porter -- un degrade varie de
+# haut en bas, alors que la lueur est centree sur un POINT qui se deplace.
+#
+# ELLE EST FORTE QUAND LE SOLEIL EST BAS, et c'est de la physique, pas un
+# reglage : au ras de l'horizon la lumiere traverse une epaisseur d'atmosphere
+# bien plus grande, donc elle se diffuse beaucoup plus. A midi le soleil est un
+# petit disque blanc dans un ciel propre, la lueur est presque absente.
+WASH_RADIUS = 13.0      # rayon, en multiples du rayon de l'astre
+WASH_ALPHA = 0.34       # opacite au bord de l'astre, soleil rasant
+WASH_LOW = 1.00         # force quand le soleil rase l'horizon
+WASH_HIGH = 0.20        # force au zenith
+
+# La lueur prend la COULEUR DE LA LUMIERE de l'heure (daylight.light_tint) --
+# la meme qui eclaire le decor. Le ciel et le sol rougeoient donc ensemble au
+# couchant, au lieu de deux tables de couleurs a tenir d'accord a la main.
+# On la melange un peu de blanc : une teinte pure, etalee sur un quart du
+# cadre, vire a l'aplat colore.
+WASH_WHITE = 0.30
+
+
+def wash_profile(t):
+    """Opacite de la lueur, de 1.0 au bord de l'astre a 0.0 au bord du ciel.
+
+    UN SEUL LOBE, tres doux, contrairement au halo. Le halo a besoin d'un
+    liseré vif contre l'astre ; la lueur, elle, ne doit avoir aucun coeur --
+    son coeur est cache par l'astre et par le halo. Ce qui compte est sa
+    TRAINEE, et qu'elle s'eteigne a zero sans laisser de bord."""
+    return max(0.0, 1.0 - t) ** 2.2
+
+
+def wash_strength(elev):
+    """Force de la lueur selon la hauteur du soleil (0 = horizon, 1 = zenith)."""
+    return WASH_HIGH + (WASH_LOW - WASH_HIGH) * (1.0 - elev) ** 1.6
+
+
 # Finesse de la texture du halo. 128 suffit largement : elle est etiree sur
 # quelques dizaines de pixels et lissee par le filtrage lineaire.
 _GLOW_TEX_SIZE = 128
 _GLOW_TEX = {}
 
 
-def _glow_texture(inner):
+def _glow_texture(inner, profil=None):
     """Texture d'un halo : blanche, l'opacite suivant glow_profile.
 
     `inner` est la part du rayon occupee par l'ASTRE lui-meme, ou le degrade
@@ -174,8 +267,12 @@ def _glow_texture(inner):
     l'image de l'astre. Le degrade court de la jusqu'au bord.
 
     Le blanc laisse la teinte au Color qui la dessine -- doree pour le soleil,
-    bleutee pour la lune -- et permet de partager le meme code."""
-    key = round(inner, 3)
+    bleutee pour la lune -- et permet de partager le meme code.
+
+    `profil` permet d'en tirer aussi la LUEUR, qui a la meme forme radiale mais
+    une decroissance bien plus douce (voir wash_profile)."""
+    profil = profil or glow_profile
+    key = (round(inner, 3), profil.__name__)
     if key in _GLOW_TEX:
         return _GLOW_TEX[key]
     n = _GLOW_TEX_SIZE
@@ -189,7 +286,7 @@ def _glow_texture(inner):
             elif u <= inner:
                 a = 1.0
             else:
-                a = glow_profile((u - inner) / (1.0 - inner))
+                a = profil((u - inner) / (1.0 - inner))
             p = (j * n + i) * 4
             buf[p] = buf[p + 1] = buf[p + 2] = 255
             buf[p + 3] = int(a * 255.0 + 0.5)
@@ -334,7 +431,6 @@ class AnimatedBackground(Widget):
         # Meteo du ciel : valeurs AFFICHEES (lissees) et valeurs VISEES.
         self._wx = dict(_SKY_DEFAULT)
         self._wx_target = dict(_SKY_DEFAULT)
-        self._current = sky_color(self._seconds)
         self._t = 0.0
         self._grad_accum = 0.0
         # Etoile filante : heure de jeu deja tiree, et animation en cours.
@@ -342,7 +438,13 @@ class AnimatedBackground(Widget):
         self._shoot_left = 0.0
         self._shoot_path = None
 
-        self._grad_tex = Texture.create(size=(1, 64), colorfmt="rgba")
+        # Le degrade est une colonne d'un pixel de large, etiree sur tout le
+        # cadre. Sa HAUTEUR est celle de la LUT : on recopie ses etages tels
+        # quels, sans les reechantillonner.
+        lut = atmosphere.sky_lut()
+        self._grad_h = lut[1] if lut is not None else 64
+        self._grad_tex = Texture.create(size=(1, self._grad_h),
+                                        colorfmt="rgba")
         self._grad_tex.wrap = "clamp_to_edge"
         self._grad_tex.mag_filter = "linear"
         self._grad_tex.min_filter = "linear"
@@ -352,6 +454,14 @@ class AnimatedBackground(Widget):
             Color(1, 1, 1, 1)
             self._rect = Rectangle(texture=self._grad_tex,
                                    pos=self.pos, size=self.size)
+
+            # 1b. LUEUR SOLAIRE : juste au-dessus du ciel, donc DERRIERE tout
+            #     le reste. Elle doit passer sous les etoiles (une etoile ne
+            #     brille pas a travers l'embrasement du couchant), sous les
+            #     nuages (ils sont devant le ciel) et sous le halo du soleil.
+            self._wash_c = Color(1, 1, 1, 0.0)
+            self._wash = Ellipse(
+                texture=_glow_texture(1.0 / WASH_RADIUS, wash_profile))
 
             # 2. Etoiles : un halo diffus D'ABORD (donc dessous), puis le
             #    point lumineux par-dessus. Le halo est ce qui donne
@@ -504,17 +614,34 @@ class AnimatedBackground(Widget):
             s["ge"].size = (gz, gz)
             s["ge"].pos = (cx - gz / 2, cy - gz / 2)
 
+    def _sky_column(self):
+        """Le ciel du bas vers le haut du cadre, AVANT la meteo.
+
+        La LUT le donne etage par etage. Sans elle, on retombe sur l'ancien
+        degrade : la couleur de reference en bas, la meme multipliee par 0,4 en
+        haut. C'est ce repli qui ne pouvait pas changer de TEINTE en montant --
+        un orange assombri est un brun, jamais un violet."""
+        col = sky_column(self._seconds)
+        if col is not None:
+            return col
+        h = self._grad_h
+        bot = sky_color(self._seconds)
+        top = [c * 0.4 for c in bot]
+        return [[bot[k] + (top[k] - bot[k]) * (j / (h - 1)) for k in range(3)]
+                for j in range(h)]
+
     def _build_gradient(self):
-        h = 64
-        bot = self._current
-        top = [c * 0.4 for c in self._current]
-        buf = bytearray(h * 4)
-        for i in range(h):
-            t = i / (h - 1)
-            buf[i * 4] = int((bot[0] * (1 - t) + top[0] * t) * 255)
-            buf[i * 4 + 1] = int((bot[1] * (1 - t) + top[1] * t) * 255)
-            buf[i * 4 + 2] = int((bot[2] * (1 - t) + top[2] * t) * 255)
-            buf[i * 4 + 3] = 255
+        # La meteo s'applique etage par etage : une grisaille est un fondu vers
+        # le gris de MEME clarte, elle depend donc de la couleur locale et ne
+        # peut pas se poser comme un voile uniforme par-dessus.
+        buf = bytearray(self._grad_h * 4)
+        for i, c in enumerate(self._sky_column()):
+            r, g, b = self._weather_sky(c)
+            p = i * 4
+            buf[p] = int(r * 255.0 + 0.5)
+            buf[p + 1] = int(g * 255.0 + 0.5)
+            buf[p + 2] = int(b * 255.0 + 0.5)
+            buf[p + 3] = 255
         self._grad_tex.blit_buffer(bytes(buf), colorfmt="rgba",
                                    bufferfmt="ubyte")
 
@@ -635,7 +762,6 @@ class AnimatedBackground(Widget):
         k = _clamp01(dt / WEATHER_FADE)
         for key in _WX_KEYS:
             self._wx[key] += (self._wx_target[key] - self._wx[key]) * k
-        self._current = self._weather_sky(sky_color(self._seconds))
 
         # Redessin du degrade a cadence fixe (~20/s), quel que soit le fps.
         self._grad_accum += dt
@@ -696,6 +822,23 @@ class AnimatedBackground(Widget):
         sp = _clamp01((hour - 5.0) / 14.0)
         sx = x0 + w * (0.12 + 0.76 * sp)
         sy = y0 + h * (0.45 + 0.42 * math.sin(math.pi * sp))
+        # LUEUR : large embrasement du ciel autour du soleil. Elle est forte
+        # quand le soleil rase l'horizon, presque nulle au zenith, eteinte la
+        # nuit (sun_a) et effacee par une couverture nuageuse (astro).
+        #
+        # Elle suit le soleil MEME APRES son coucher : `sp` est borne, donc
+        # l'astre reste au bout de son arc, et la lueur y demeure en palissant.
+        # C'est exactement ce qu'on veut -- la lueur crepusculaire traine du
+        # cote ou le soleil s'est couche, pas au milieu du ciel.
+        teinte = daylight.light_tint(self._seconds)
+        self._wash_c.rgba = (
+            teinte[0] + (1.0 - teinte[0]) * WASH_WHITE,
+            teinte[1] + (1.0 - teinte[1]) * WASH_WHITE,
+            teinte[2] + (1.0 - teinte[2]) * WASH_WHITE,
+            WASH_ALPHA * wash_strength(daylight.sun_elevation(self._seconds))
+            * sun_a * astro)
+        self._place_disc(self._wash, sx, sy, radius * WASH_RADIUS)
+
         self._sun_c.a = sun_a * astro
         self._place_disc(self._sun, sx, sy, radius * self._sun_scale)
         # Le halo fremit. Le degrade entier respire d'un bloc : c'est

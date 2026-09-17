@@ -12,6 +12,7 @@ LES NOMS
 ----------------------------------------------------------------
     sun.png      Soleil
     moon.png     Lune (voir la remarque importante plus bas)
+    sky_lut.png  Le degrade du ciel, journee entiere (voir plus bas)
 
 ----------------------------------------------------------------
 LA LUNE : DESSINE-LA PLEINE
@@ -55,10 +56,64 @@ se dilue et le halo dessine derriere n'a plus de couture avec l'image.
      plus petit qu'il ne devrait.
 
 ----------------------------------------------------------------
+sky_lut.png : LE CIEL D'UNE JOURNEE ENTIERE DANS UNE IMAGE
+----------------------------------------------------------------
+    PNG 96 x 64, sans transparence.
+
+    une COLONNE           = un instant de la journee
+        colonne de gauche = 0 h,  colonne de droite = 24 h
+    dans une colonne      = le ciel de bas en haut du cadre
+        BAS de l'image    = BAS du cadre
+        HAUT de l'image   = HAUT du cadre
+
+L'IMAGE EST LE CIEL. Il n'y a aucune transformation cachee : le jeu prend la
+colonne de l'heure courante et l'etire sur toute la hauteur de l'ecran. Ce que
+tu peins est ce que tu vois.
+
+POURQUOI UNE IMAGE PLUTOT QU'UN CALCUL. Le ciel etait un degrade entre UNE
+couleur et cette meme couleur multipliee par 0,4. Le haut du cadre avait donc
+forcement la meme TEINTE que le bas. A 19 h, le bas etant orange, le haut
+etait un orange sombre -- c'est-a-dire un brun. Or dans un vrai coucher de
+soleil l'horizon flambe pendant que le zenith est deja bleu-violet. Cet ecart
+de teinte sur la verticale est exactement ce qu'une seule couleur ne peut pas
+porter.
+
+CE QU'IL FAUT SAVOIR AVANT DE PEINDRE LA TIENNE
+
+- Dans une scene de jeu, le SOL couvre le bas du cadre. La moitie basse de
+  l'image ne se voit donc qu'en partie, et c'est le HAUT qui compte le plus.
+  (Dans les menus, en revanche, tout le cadre est du ciel.)
+
+- LA LIGNE DU BAS PILOTE AUSSI LA NUIT. Le jeu s'en sert comme couleur de
+  reference : sa clarte decide du voile sombre pose sur tout le decor et de
+  l'apparition des etoiles. C'est voulu -- un ciel repeint plus sombre doit
+  assombrir le decor avec lui. Mais la contrepartie est reelle : une ligne du
+  bas claire a 2 h du matin donne des nuits claires.
+
+- LA JOURNEE EST CYCLIQUE. La colonne de gauche et celle de droite se
+  touchent. Si elles sont differentes, la couture se verra a minuit.
+
+- NE PEINS PAS le soleil, la lune, les etoiles, les etoiles filantes ni les
+  nuages : ils sont dessines par-dessus et ils BOUGENT.
+
+- N'Y PEINS PAS DE LUEUR autour du soleil. Le large embrasement du ciel au
+  couchant est dessine separement, centre sur l'astre, parce qu'il se DEPLACE
+  avec lui -- une image, elle, resterait au meme endroit toute la journee.
+
+- Une autre taille passe aussi. Au-dela de 192 x 128 elle est echantillonnee :
+  plus fin que le quart d'heure et que 128 etages n'apporte rien de visible,
+  le degrade etant de toute facon etire et lisse par la carte graphique.
+
+Retirer le fichier ne casse rien : le ciel revient a son degrade calcule
+(la table _SKY_KEYS dans animated_background.py). La LUT livree reproduit
+cette table sur sa ligne du bas, a la quantification pres.
+
+----------------------------------------------------------------
 CE QUI RESTE DESSINE (ne pas fournir d'image)
 ----------------------------------------------------------------
-    Le degrade du ciel, les nuages, les etoiles, les etoiles filantes.
-    Tous sont animes et changent de couleur d'heure en heure.
+    Les nuages, les etoiles, les etoiles filantes, les halos, et la LUEUR
+    solaire. Tous sont animes : ils changent de couleur, de taille ou de
+    place d'heure en heure, ce qu'une image ne peut pas faire.
 
 Le ciel est gere dans : src/widgets/animated_background.py
 Le chargement des images : src/widgets/atmosphere.py
