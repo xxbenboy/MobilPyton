@@ -2288,20 +2288,23 @@ class ZoneScenery(Widget):
     # valeur, fixe -- le plus fin relief possible faisait cinquante pixels de
     # large sur un telephone : une ondulation, pas un bord.
     #
-    # Six pixels coutent 7 000 sommets de sol au lieu de 1 400, et trois
-    # millisecondes de plus par reconstruction de scene (mesure sur 1080 x
-    # 1920). Une scene ne se reconstruit qu'au deplacement, pas a chaque
-    # image : c'est payable.
-    SEGMENT_FRANGE = 6.0
+    # QUATORZE ET NON SIX. A six, la crete de montagne etait une scie : un
+    # cran tous les douze pixels sur toute la largeur de l'ecran. Ce n'est pas
+    # ainsi qu'un terrain se decoupe -- il a quelques accidents, pas cent.
+    SEGMENT_FRANGE = 14.0
 
     # DE COMBIEN LE BORD S'EFFILOCHE, en part de la TUILE de la texture vue a
     # la crete. C'est ce qui l'accorde a la matiere : une frange se mesure a
     # la taille des brins, pas a la taille de l'ecran. Un sol a grosse maille
     # s'effiloche donc en gros morceaux, un sol fin en petits.
-    FRANGE_TUILE = 0.16
+    FRANGE_TUILE = 0.06
     # ... et jamais plus que cela en part de la hauteur de l'ecran : sur un
     # telephone etroit, la tuile peut faire la moitie de l'image.
-    FRANGE_MAX = 0.02
+    FRANGE_MAX = 0.007
+
+    # PART DU GRAIN FIN dans la frange (le reste est le grain large). Plus il
+    # monte, plus le bord est herisse ; plus il baisse, plus il ondule.
+    POIDS_FIN = 0.28
 
     def _frange(self, tex_name, tile_px, depth, segs):
         """Le decalage a ajouter au bord du sol, sommet par sommet.
@@ -2337,14 +2340,15 @@ class ZoneScenery(Widget):
             large = gros[j] * (1 - f) + gros[j + 1] * f
             # Grain fin, sommet par sommet : la dentelure.
             fin = rng.uniform(-1.0, 1.0)
-            v = 0.62 * large + 0.38 * fin
+            v = (1.0 - self.POIDS_FIN) * large + self.POIDS_FIN * fin
             # Extinction aux deux bouts.
             bord = min(1.0, (min(i, segs - i) / segs) * self.width / 50.0)
             out.append(v * ampl * bord)
         return out
 
     def _fill_curve(self, top_fn, tex_name, segs=None, tile_px=None,
-                    depth=GROUND_DEPTH, rows=GROUND_ROWS, estompe=False):
+                    depth=GROUND_DEPTH, rows=GROUND_ROWS, estompe=False,
+                    frange=True):
         """Remplit du bas du widget jusqu'a la courbe top_fn(fx) (terrain).
 
         Habille avec la texture `tex_name` si elle existe (sinon couleur de
@@ -2358,6 +2362,10 @@ class ZoneScenery(Widget):
         texture au rasoir et le sol se lisait comme une decoupe de papier
         posee sur le fond. Un sol ne finit jamais ainsi -- il s'effiloche en
         brins, en feuilles, en cailloux. Voir _frange.
+
+        `frange=False` rend le bord LISSE. Le lac s'en sert : sa rive d'en
+        face est une ligne d'eau, et l'eau ne s'effiloche pas -- elle a un
+        niveau.
 
         `estompe` ajoute en plus un fondu de matiere au-dessus du bord. IL NE
         VAUT QUE LA OU LE SOL RENCONTRE UN AUTRE SOL -- la bande proche
@@ -2404,7 +2412,8 @@ class ZoneScenery(Widget):
             # ici, elle a disparu de l'ecran.
             ts = [j / rows for j in range(rows + 1)]
 
-        frange = self._frange(tex_name, tile_px, depth, segs)
+        frange = (self._frange(tex_name, tile_px, depth, segs) if frange
+                  else [0.0] * (segs + 1))
         verts = []
         for i in range(segs + 1):
             fx = i / segs
@@ -2758,17 +2767,36 @@ class ZoneScenery(Widget):
         # Paysages voisins, derriere la berge d'en face.
         self._horizon(lambda fx: y0 + 0.70 * h)
 
-        # Collines / berge lointaine (haut), pour reduire le ciel.
-        Color(0.16, 0.30, 0.18, 1)
-        Ellipse(pos=(x0 - 0.25 * w, y0 + 0.58 * h), size=(1.6 * w, 0.18 * h))
-        Color(0.12, 0.24, 0.15, 1)
-        Ellipse(pos=(x0 - 0.30 * w, y0 + 0.54 * h), size=(1.7 * w, 0.14 * h))
-        # Grande etendue d'eau (on est au bord), jusqu'a 0.60h. Sa limite
-        # haute est la RIVE D'EN FACE : c'etait un trait horizontal parfait,
-        # au cordeau. Elle passe donc elle aussi par _fill_curve, qui lui
-        # donne sa frange. (Le bas est recouvert par la rive proche, juste
-        # apres : remplir depuis y0 ne change rien a ce qu'on voit.)
-        self._fill_curve(lambda fx: y0 + 0.60 * h, "water", depth=1.0)
+        # COLLINES / BERGE D'EN FACE : c'est de l'HERBE, et c'est la meme que
+        # celle de la plaine -- elle prend donc sa texture. Ces deux bandes
+        # etaient deux ellipses d'un vert plat, et elles etaient devenues la
+        # derniere grande surface unie du jeu.
+        #
+        # Deux plans, comme en plaine : le lointain assombri (grass_far), le
+        # plus proche a pleine couleur. Chacun est dessine par _fill_curve,
+        # qui repete la tuile en perspective -- sur une bande aussi lointaine,
+        # l'herbe doit etre tres fine, et une ellipse texturee l'aurait
+        # simplement etiree d'un bord a l'autre.
+        def colline(cx, demi, bas, haut):
+            """La silhouette d'une colline : l'arc de l'ellipse d'avant."""
+            def f(fx):
+                d = (fx - cx) / demi
+                return y0 + h * (bas + haut * math.sqrt(max(0.0, 1.0 - d * d)))
+            return f
+
+        self._fill_curve(colline(0.55, 0.80, 0.58, 0.18), "grass_far",
+                         frange=False)
+        self._fill_curve(colline(0.52, 0.85, 0.54, 0.14), "grass",
+                         frange=False)
+        # Grande etendue d'eau (on est au bord), jusqu'a 0.60h.
+        #
+        # SANS FRANGE : l'eau ne s'effiloche pas, elle a un NIVEAU. Une rive
+        # dentelee se lisait comme une cote decoupee vue d'avion, alors qu'on
+        # regarde une surface plane par la tranche.
+        # (Le bas est recouvert par la rive proche, juste apres : remplir
+        # depuis y0 ne change rien a ce qu'on voit.)
+        self._fill_curve(lambda fx: y0 + 0.60 * h, "water", depth=1.0,
+                         frange=False)
         # Reflets clairs.
         Color(0.32, 0.56, 0.74, 1)
         for _ in range(11):
