@@ -334,12 +334,10 @@ def _texture(octets_taille, repete):
         return None
     octets, taille = octets_taille
     try:
-        from kivy.graphics.texture import Texture
-        tex = Texture.create(size=taille, colorfmt="rgba")
-        tex.blit_buffer(octets, colorfmt="rgba", bufferfmt="ubyte")
-        tex.wrap = "repeat" if repete else "clamp_to_edge"
-        tex.min_filter = tex.mag_filter = "linear"
-        return tex
+        from src.widgets.gl_textures import texture_depuis_octets
+        return texture_depuis_octets(
+            taille, octets, wrap="repeat" if repete else "clamp_to_edge",
+            mag_filter="linear", min_filter="linear")
     except Exception:
         return None
 

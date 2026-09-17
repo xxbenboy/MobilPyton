@@ -24,7 +24,8 @@ textures.has_any_normal() etait faux. Cette fonction existe toujours mais
 plus personne ne l'appelle, et le shader, lui, est bel et bien toujours la.)
 """
 from kivy.graphics import BindTexture
-from kivy.graphics.texture import Texture
+
+from src.widgets.gl_textures import texture_depuis_octets
 
 # Mettre False pour desactiver completement l'eclairage (depannage).
 LIGHTING = True
@@ -83,10 +84,10 @@ _flat_packed = None
 
 
 def _flat(color):
-    tex = Texture.create(size=(1, 1), colorfmt="rgba")
-    tex.blit_buffer(bytes(color), colorfmt="rgba", bufferfmt="ubyte")
-    tex.wrap = "repeat"
-    return tex
+    # Ces deux pixels sont lies par DEFAUT a tout le decor : vides apres une
+    # mise en arriere-plan, c'est la scene entiere qui s'eclaire de travers.
+    # D'ou le passage par texture_depuis_octets, qui les remplit a nouveau.
+    return texture_depuis_octets((1, 1), bytes(color), wrap="repeat")
 
 
 def flat_normal():

@@ -22,7 +22,8 @@ une image carree un buisson trapu, sans deformation.
 import os
 
 from kivy.core.image import Image as CoreImage
-from kivy.graphics.texture import Texture
+
+from src.widgets.gl_textures import texture_depuis_octets
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 FOLIAGE_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", "assets",
@@ -164,10 +165,8 @@ def _silhouette_de(path):
     # R, G, B a fond ; l'alpha, lui, ne bouge pas : c'est lui la forme.
     for c in range(3):
         donnees[c::4] = b"\xff" * (len(donnees) // 4)
-    tex = Texture.create(size=(brut.width, brut.height), colorfmt="rgba")
-    tex.blit_buffer(bytes(donnees), colorfmt="rgba", bufferfmt="ubyte")
-    tex.wrap = "clamp_to_edge"
-    return tex
+    return texture_depuis_octets((brut.width, brut.height), bytes(donnees),
+                                 wrap="clamp_to_edge")
 
 
 def _chemin(stem):

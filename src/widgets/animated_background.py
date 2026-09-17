@@ -20,6 +20,7 @@ from kivy.graphics import Color, Rectangle, Ellipse, Mesh, Line
 from kivy.graphics.texture import Texture
 from kivy.metrics import dp
 
+from src.widgets.gl_textures import texture_depuis_octets
 from src.widgets import atmosphere
 
 SECONDS_PER_DAY = 24 * 3600
@@ -192,10 +193,10 @@ def _glow_texture(inner):
             p = (j * n + i) * 4
             buf[p] = buf[p + 1] = buf[p + 2] = 255
             buf[p + 3] = int(a * 255.0 + 0.5)
-    tex = Texture.create(size=(n, n), colorfmt="rgba")
-    tex.blit_buffer(bytes(buf), colorfmt="rgba", bufferfmt="ubyte")
-    # Sans quoi le bord de la texture se repeterait en un liseré tout autour.
-    tex.wrap = "clamp_to_edge"
+    # Sans le wrap, le bord de la texture se repeterait en un liseré tout
+    # autour. Et sans texture_depuis_octets, le halo resterait vide apres une
+    # mise en arriere-plan : ce cache vit aussi longtemps que le processus.
+    tex = texture_depuis_octets((n, n), bytes(buf), wrap="clamp_to_edge")
     _GLOW_TEX[key] = tex
     return tex
 

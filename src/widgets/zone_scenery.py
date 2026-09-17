@@ -1110,6 +1110,19 @@ class ZoneScenery(Widget):
             self._reset_pbr()
         return True
 
+    def reveille(self):
+        """A appeler quand le jeu revient de l'arriere-plan.
+
+        Le contexte graphique a pu etre detruit pendant ce temps. Le shader de
+        relief est donc REINSTALLE -- ses uniformes (numeros d'unites de
+        texture, direction et couleur de la lumiere) vivaient dans le contexte
+        perdu, et sans eux la scene s'eclaire n'importe comment -- puis la
+        scene est redessinee de zero."""
+        if self._pbr:
+            pbr.setup(self.canvas)
+            self._apply_light()
+        self._redraw()
+
     def set_ground(self, zone_type, seed=0):
         """Vue VERS LE BAS : on regarde le sol, qui remplit tout l'ecran."""
         self._zone = zone_type
@@ -1119,9 +1132,14 @@ class ZoneScenery(Widget):
 
     # ------------------------------------------------------------------ #
     def _redraw(self, *_):
-        self.canvas.clear()
+        # ON TESTE LA TAILLE AVANT D'EFFACER. L'inverse -- effacer puis
+        # renoncer -- laissait un canvas VIDE derriere lui : une fenetre
+        # reduite passe par une taille nulle, et si rien ne redemande de
+        # redessiner ensuite, la scene ne revient jamais. Garder l'ancien
+        # dessin ne coute rien : il n'est de toute facon pas visible.
         if self.width <= 0 or self.height <= 0:
             return
+        self.canvas.clear()
         # Les anciennes instructions de flamme viennent d'etre effacees avec
         # le canvas : on repart d'une liste vide (elle sera remplie par
         # _fire_pit pour chaque foyer allume de la scene). Idem pour les

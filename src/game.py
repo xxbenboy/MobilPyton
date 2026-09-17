@@ -21,6 +21,7 @@ from kivy.core.window import Window
 from kivy.uix.screenmanager import ScreenManager, FadeTransition
 
 from src.android_screen import keep_fullscreen
+from src.widgets.gl_textures import reveille_arbre
 from src.save_manager import SaveManager
 from src.audio_manager import AudioManager
 from src.screens.menu_screen import MenuScreen
@@ -66,6 +67,15 @@ class MobilPytonApp(App):
 
         # Sauvegarde juste avant la fermeture de la fenetre (PC).
         Window.bind(on_request_close=self._on_request_close)
+        # LE RETOUR DE FENETRE, sur ordinateur. Sur telephone c'est on_resume
+        # qui previent ; sur PC, reduire puis rouvrir la fenetre ne passe pas
+        # par la. Ces evenements n'existent pas sur toutes les versions de
+        # Kivy ni sur tous les backends : on les prend s'ils sont la.
+        for evenement in ("on_restore", "on_show"):
+            try:
+                Window.bind(**{evenement: self.reveille_affichage})
+            except Exception:
+                pass
         # Plein ecran bord a bord sur Android (sans effet ailleurs).
         keep_fullscreen()
         return sm
@@ -97,3 +107,20 @@ class MobilPytonApp(App):
         # fenetre : revenir dans le jeu ferait donc reapparaitre les bandes
         # noires si on ne redemandait pas le plein ecran ici.
         keep_fullscreen()
+        self.reveille_affichage()
+
+    # ------------------------------------------------------------------ #
+    # Retour d'arriere-plan
+    # ------------------------------------------------------------------ #
+    def reveille_affichage(self, *_):
+        """Remet l'affichage d'aplomb apres un passage en arriere-plan.
+
+        ANDROID PEUT DETRUIRE LE CONTEXTE GRAPHIQUE pendant que le jeu est en
+        arriere-plan. Tout ce qui vivait sur la carte graphique disparait
+        alors : les textures, et les reglages du shader de relief. Kivy
+        recharge celles qui viennent d'un fichier ; pour le reste, le jeu doit
+        s'en charger (voir gl_textures, et ZoneScenery.reveille).
+
+        C'est ce qui evite d'avoir a FERMER ET ROUVRIR LE JEU quand quelque
+        chose n'est pas revenu."""
+        reveille_arbre(getattr(self.root, "current_screen", None))
