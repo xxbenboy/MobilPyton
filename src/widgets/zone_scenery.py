@@ -1682,7 +1682,7 @@ class ZoneScenery(Widget):
         self._horizon(lambda fx: far_curve(fx) - 0.010 * h)
 
         self._fill_curve(far_curve, "forest_floor_far")
-        self._fill_curve(floor_curve, "forest_floor")
+        self._fill_curve(floor_curve, "forest_floor", estompe=True)
 
         GREENS = [(0.10, 0.20, 0.12), (0.08, 0.17, 0.10), (0.12, 0.24, 0.14)]
         LEAVES = [(0.45, 0.32, 0.14, 1), (0.36, 0.40, 0.16, 1),
@@ -2282,17 +2282,99 @@ class ZoneScenery(Widget):
             yy = base + height * (0.56 + 0.11 * i)
             Ellipse(pos=(cx - rr, yy), size=(rr * 2, rr * 1.5))
 
-    def _fill_curve(self, top_fn, tex_name, segs=40, tile_px=None,
-                    depth=GROUND_DEPTH, rows=GROUND_ROWS):
+    # UN SOMMET TOUS LES N PIXELS pour le bord du sol. C'est ce qui fixe la
+    # FINESSE de la dentelure : on ne peut pas decrire un cran plus etroit que
+    # deux segments. A quarante segments pour tout l'ecran -- l'ancienne
+    # valeur, fixe -- le plus fin relief possible faisait cinquante pixels de
+    # large sur un telephone : une ondulation, pas un bord.
+    #
+    # Six pixels coutent 7 000 sommets de sol au lieu de 1 400, et trois
+    # millisecondes de plus par reconstruction de scene (mesure sur 1080 x
+    # 1920). Une scene ne se reconstruit qu'au deplacement, pas a chaque
+    # image : c'est payable.
+    SEGMENT_FRANGE = 6.0
+
+    # DE COMBIEN LE BORD S'EFFILOCHE, en part de la TUILE de la texture vue a
+    # la crete. C'est ce qui l'accorde a la matiere : une frange se mesure a
+    # la taille des brins, pas a la taille de l'ecran. Un sol a grosse maille
+    # s'effiloche donc en gros morceaux, un sol fin en petits.
+    FRANGE_TUILE = 0.16
+    # ... et jamais plus que cela en part de la hauteur de l'ecran : sur un
+    # telephone etroit, la tuile peut faire la moitie de l'image.
+    FRANGE_MAX = 0.02
+
+    def _frange(self, tex_name, tile_px, depth, segs):
+        """Le decalage a ajouter au bord du sol, sommet par sommet.
+
+        DEUX GRAINS SUPERPOSES, parce qu'un seul ne suffit pas : un bruit fin
+        seul donne un peigne regulier, un bruit large seul une simple
+        ondulation de plus. Ensemble ils font une frange -- des touffes
+        irregulieres, chacune dentelee.
+
+        LE BORD SE REFERME AUX DEUX BOUTS (la frange s'eteint sur les
+        cinquante premiers et derniers pixels). Le sol est un ruban qui sort
+        de l'ecran des deux cotes ; un cran au ras du bord se lirait comme un
+        defaut d'affichage.
+
+        Le hasard tient a la GRAINE de la case et au nom de la texture : la
+        meme case garde sa frange d'un redessin a l'autre, et les deux bandes
+        d'un meme sol (la proche et la lointaine) ne se decoupent pas
+        pareil."""
+        if segs < 2:
+            return [0.0] * (segs + 1)
+        # La tuile telle qu'on la voit A LA CRETE : c'est la que se trouve le
+        # bord, et la texture y est deja resserree par la perspective.
+        tuile = tile_px / max(1.0, float(depth))
+        ampl = min(tuile * self.FRANGE_TUILE, self.height * self.FRANGE_MAX)
+        rng = random.Random("%s:%s:frange" % (self._seed, tex_name))
+        gros = [rng.uniform(-1.0, 1.0) for _ in range(segs // 12 + 2)]
+        out = []
+        for i in range(segs + 1):
+            # Grain large, interpole : les touffes.
+            u = i / segs * (len(gros) - 1)
+            j = min(len(gros) - 2, int(u))
+            f = u - j
+            large = gros[j] * (1 - f) + gros[j + 1] * f
+            # Grain fin, sommet par sommet : la dentelure.
+            fin = rng.uniform(-1.0, 1.0)
+            v = 0.62 * large + 0.38 * fin
+            # Extinction aux deux bouts.
+            bord = min(1.0, (min(i, segs - i) / segs) * self.width / 50.0)
+            out.append(v * ampl * bord)
+        return out
+
+    def _fill_curve(self, top_fn, tex_name, segs=None, tile_px=None,
+                    depth=GROUND_DEPTH, rows=GROUND_ROWS, estompe=False):
         """Remplit du bas du widget jusqu'a la courbe top_fn(fx) (terrain).
 
         Habille avec la texture `tex_name` si elle existe (sinon couleur de
         repli), EN PERSPECTIVE : la tuile retrecit a mesure que le terrain
         s'eloigne (voir GROUND_DEPTH).
 
-        `depth=1.0` redonne une repetition reguliere, sans profondeur."""
+        `depth=1.0` redonne une repetition reguliere, sans profondeur.
+
+        LE BORD DU HAUT EST DECHIQUETE, et c'est le point de ce dessin. La
+        courbe est une somme de sinus : parfaitement lisse, elle tranchait la
+        texture au rasoir et le sol se lisait comme une decoupe de papier
+        posee sur le fond. Un sol ne finit jamais ainsi -- il s'effiloche en
+        brins, en feuilles, en cailloux. Voir _frange.
+
+        `estompe` ajoute en plus un fondu de matiere au-dessus du bord. IL NE
+        VAUT QUE LA OU LE SOL RENCONTRE UN AUTRE SOL -- la bande proche
+        par-dessus la bande lointaine. Contre le CIEL il est nuisible, et cela
+        s'est vu tout de suite : la crete de la montagne trainait une bavure
+        grise en diagonale dans le ciel, et la rive du lac un halo bleu
+        par-dessus la berge d'en face. Contre le ciel, la dentelure seule fait
+        le travail -- c'est une silhouette qu'on veut, pas un degrade."""
         if tile_px is None:
             tile_px = textures.tile_for(tex_name)
+        if segs is None:
+            # Assez de sommets pour que la frange ait du grain : un segment
+            # tous les quelques pixels. A quarante segments pour tout l'ecran
+            # -- l'ancienne valeur -- le plus fin relief qu'on puisse decrire
+            # fait vingt-cinq pixels de large, soit une ondulation, pas un
+            # bord.
+            segs = max(40, int(self.width / self.SEGMENT_FRANGE))
         x0, y0, w = self.x, self.y, self.width
         cx = x0 + w / 2.0                      # point de fuite : le milieu
         tex = paint(tex_name)
@@ -2308,23 +2390,38 @@ class ZoneScenery(Widget):
         # l'ecran pres de la crete) : c'est la que la perspective se courbe
         # le plus, et donc la qu'il faut des sommets.
         ks = [1.0 + (depth - 1.0) * j / rows for j in range(rows + 1)]
-        ts = [(1.0 - 1.0 / k) / a if a else 0.0 for k in ks]
+        if a:
+            ts = [(1.0 - 1.0 / k) / a for k in ks]
+        else:
+            # SANS PERSPECTIVE (depth = 1), les rangees se repartissent
+            # simplement sur la hauteur. La formule ci-dessus divise par a,
+            # qui vaut alors zero ; elle rendait 0 pour toutes les rangees, et
+            # le maillage etait PLAT -- hauteur nulle, donc invisible.
+            #
+            # Le cas n'avait jamais servi : la documentation annoncait
+            # "depth=1.0 redonne une repetition reguliere", et personne
+            # n'avait essaye. Le jour ou la pente de montagne est passee par
+            # ici, elle a disparu de l'ecran.
+            ts = [j / rows for j in range(rows + 1)]
 
+        frange = self._frange(tex_name, tile_px, depth, segs)
         verts = []
         for i in range(segs + 1):
             fx = i / segs
             x = x0 + fx * w
-            top = top_fn(fx)
-            # Facteur qui garde la MEME finesse de texture au premier plan
-            # qu'une repetition reguliere : seul le fond se resserre.
-            span = (top - y0) / a if a else (top - y0)
+            top = top_fn(fx) + frange[i]
             for k, t in zip(ks, ts):
                 # A la distance k, l'ecran couvre k fois plus de terrain :
                 # u s'ecarte du point de fuite, v s'enfonce. La tuile
                 # retrecit donc des deux cotes a la fois (pas d'etirement).
-                verts += [x, y0 + t * (top - y0),
-                          (x - cx) * k / tile_px,
-                          -span * (k - 1.0) / tile_px]
+                #
+                # v SE DEDUIT DE LA HAUTEUR A L'ECRAN, pas de (k-1) : les deux
+                # donnent le meme resultat quand il y a de la perspective
+                # (span*(k-1) vaut exactement (y-y0)*k), mais seule celle-ci
+                # garde un sens quand il n'y en a pas.
+                yy = y0 + t * (top - y0)
+                verts += [x, yy, (x - cx) * k / tile_px,
+                          -(yy - y0) * k / tile_px]
 
         stride = rows + 1
         idx = []
@@ -2334,7 +2431,68 @@ class ZoneScenery(Widget):
                 q = p + stride
                 idx += [p, q, q + 1, p, q + 1, p + 1]
         Mesh(vertices=verts, indices=idx, mode="triangles", texture=tex)
+        if estompe:
+            self._estompe(top_fn, frange, tex, tex_name, tile_px, depth, segs)
         self._reset_pbr()
+
+    # LA MECHE QUI S'EFFACE au-dessus du bord : sur quelle hauteur (en part de
+    # la frange) et en combien de paliers.
+    ESTOMPE_HAUTEUR = 2.2
+    ESTOMPE_PALIERS = 4
+
+    def _estompe(self, top_fn, frange, tex, tex_name, tile_px, depth, segs):
+        """Prolonge le sol au-dessus de son bord, en s'effacant.
+
+        POURQUOI CELA NE SUFFISAIT PAS DE DECHIQUETER LE BORD. Un bord
+        dentele reste un BORD : la matiere s'y arrete net, a un pixel pres, et
+        l'oeil lit toujours une decoupe -- une decoupe aux ciseaux cranteurs
+        plutot qu'aux ciseaux droits. Ce qui enleve la coupure, c'est que la
+        matiere s'ECLAIRCISSE en montant, comme un sol qui se perd dans la
+        distance.
+
+        C'est aussi ce qui accorde le bord a LA TEXTURE de la scene, au sens
+        propre : ce qui deborde au-dessus n'est pas une couleur choisie, c'est
+        le sol lui-meme, la meme image, a la meme echelle.
+
+        EN PALIERS, parce qu'un maillage Kivy ne sait pas donner une opacite
+        par sommet. Quatre suffisent : le degrade porte sur une vingtaine de
+        pixels, et l'oeil n'y distingue pas les marches.
+
+        Chaque palier a sa PROPRE dentelure, sinon les quatre se
+        superposeraient exactement et le degrade redeviendrait un bord franc,
+        juste plus epais."""
+        n = self.ESTOMPE_PALIERS
+        ampl = max(abs(v) for v in frange) if frange else 0.0
+        if ampl <= 0.5 or n <= 0:
+            return
+        haut = ampl * self.ESTOMPE_HAUTEUR
+        x0, y0, w = self.x, self.y, self.width
+        cx = x0 + w / 2.0
+        k = max(1.0, float(depth))
+        rng = random.Random("%s:%s:estompe" % (self._seed, tex_name))
+        bas = list(frange)
+        for etage in range(n):
+            # Opacite decroissante : 0.62, 0.42, 0.26, 0.13 pour quatre.
+            alpha = 0.62 * (1.0 - etage / float(n)) ** 1.6
+            dessus = [frange[i] + haut * (etage + 1) / n
+                      + rng.uniform(-0.45, 0.45) * ampl
+                      for i in range(segs + 1)]
+            verts, idx = [], []
+            for i in range(segs + 1):
+                fx = i / segs
+                x = x0 + fx * w
+                for yy in (top_fn(fx) + bas[i], top_fn(fx) + dessus[i]):
+                    verts += [x, yy, (x - cx) * k / tile_px, -(yy - y0) / tile_px]
+                if i:
+                    p = (i - 1) * 2
+                    idx += [p, p + 1, p + 2, p + 1, p + 3, p + 2]
+            if tex is not None:
+                Color(1, 1, 1, alpha)
+            else:
+                r, g, b = textures.fallback(tex_name)[:3]
+                Color(r, g, b, alpha)
+            Mesh(vertices=verts, indices=idx, mode="triangles", texture=tex)
+            bas = dessus
 
     def _plaine(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
@@ -2396,7 +2554,7 @@ class ZoneScenery(Widget):
 
         # Collines : crete lointaine (clair) puis champ proche (fonce) ondules.
         self._fill_curve(horizon_curve, "grass_far")
-        self._fill_curve(field_curve, "grass")
+        self._fill_curve(field_curve, "grass", estompe=True)
 
         # Petites fabriques de "fonctions de dessin" (pour differer le rendu).
         def f_grass(gx, gb, gh, col, sc, flower, fr):
@@ -2522,8 +2680,15 @@ class ZoneScenery(Widget):
         # (dessinee juste apres) vient masquer a mesure qu'elle monte.
         self._horizon(lambda fx: surf(0.0))
 
-        # Pente principale (remplit le cadre, monte vers la droite).
-        self._tquad("rock", [x0, y0, x0 + w, y0, x0 + w, surf(1.0), x0, surf(0.0)])
+        # Pente principale (remplit le cadre, monte vers la droite). Elle
+        # passe par _fill_curve et non par un quadrilatere : sa crete est le
+        # bord du SOL contre le ciel, et elle etait dessinee ici comme un
+        # trait parfaitement droit -- une regle posee sur le paysage. Elle y
+        # gagne la meme frange que les autres sols.
+        #
+        # depth=1.0 : la pente monte, elle ne s'enfonce pas vers un horizon.
+        # Sa tuile ne doit donc pas se resserrer.
+        self._fill_curve(lambda fx: surf(fx), "rock", depth=1.0)
         # Bas plus sombre (profondeur).
         self._tquad("rock_dark",
                     [x0, y0, x0 + w, y0, x0 + w, y0 + 0.22 * h, x0, y0 + 0.14 * h])
@@ -2598,8 +2763,12 @@ class ZoneScenery(Widget):
         Ellipse(pos=(x0 - 0.25 * w, y0 + 0.58 * h), size=(1.6 * w, 0.18 * h))
         Color(0.12, 0.24, 0.15, 1)
         Ellipse(pos=(x0 - 0.30 * w, y0 + 0.54 * h), size=(1.7 * w, 0.14 * h))
-        # Grande etendue d'eau (on est au bord) : 0.10h -> 0.60h.
-        self._trect("water", x0, y0 + 0.10 * h, w, 0.50 * h)
+        # Grande etendue d'eau (on est au bord), jusqu'a 0.60h. Sa limite
+        # haute est la RIVE D'EN FACE : c'etait un trait horizontal parfait,
+        # au cordeau. Elle passe donc elle aussi par _fill_curve, qui lui
+        # donne sa frange. (Le bas est recouvert par la rive proche, juste
+        # apres : remplir depuis y0 ne change rien a ce qu'on voit.)
+        self._fill_curve(lambda fx: y0 + 0.60 * h, "water", depth=1.0)
         # Reflets clairs.
         Color(0.32, 0.56, 0.74, 1)
         for _ in range(11):
