@@ -1042,7 +1042,7 @@ class ZoneScenery(Widget):
                                  _ZONE_SPRITES["Foret"]).get(key)
 
     def _sprite(self, name, cx, base, height, pick=None, width=None,
-                teinte=None, coupe_bas=0.0):
+                teinte=None, coupe_bas=0.0, crans=None):
         """Dessine l'IMAGE de cet element, posee par son BAS sur (cx, base).
 
         Renvoie Vrai si une image existait et a ete dessinee ; Faux si aucune
@@ -1064,7 +1064,14 @@ class ZoneScenery(Widget):
         `coupe_bas` en retranche le bas -- une fraction de sa hauteur -- au
         lieu de le dessiner. C'est ainsi qu'un element s'ENFONCE dans le sol :
         la part enterree n'est pas recouverte, elle n'est pas dessinee du
-        tout, et l'on n'a donc aucune couleur de terre a faire correspondre."""
+        tout, et l'on n'a donc aucune couleur de terre a faire correspondre.
+
+        `crans` DENTELLE cette coupe au lieu de la laisser droite : une liste
+        de decalages en pixels, un par colonne. C'est l'APPELANT qui la
+        fabrique, parce qu'il est parfois seul a pouvoir le faire -- la pepite
+        doit poser exactement les memes crans sur son image et sur les voiles
+        qu'elle peint par-dessus (voir _etalonne_pepite). Deux tirages
+        separes, et le voile debordait dans les echancrures."""
         if not name:
             return False
         if pick is None:
@@ -1094,7 +1101,7 @@ class ZoneScenery(Widget):
         f = min(0.90, max(0.0, float(coupe_bas)))
         if f <= 0.0:
             Rectangle(pos=(cx - w / 2.0, base), size=(w, h), texture=tex)
-        else:
+        elif not crans:
             # Coins dans l'ordre de Kivy (bas-gauche, bas-droit, haut-droit,
             # haut-gauche) et v qui DESCEND dans l'image quand l'ecran monte :
             # voir la note de sens dans textures.py. Le bas du rectangle lit
@@ -1103,12 +1110,71 @@ class ZoneScenery(Widget):
             Rectangle(pos=(cx - w / 2.0, base), size=(w, h * (1.0 - f)),
                       texture=tex,
                       tex_coords=(0, 1.0 - f, 1, 1.0 - f, 1, 0, 0, 0))
+        else:
+            self._sprite_enfoui(tex, cx, base, w, h, f, crans)
         if relief:
             # Sans ce retour au neutre, TOUT ce qui est dessine ensuite --
             # l'herbe, les formes vectorielles, les autres sprites -- garderait
             # le relief de celui-ci.
             self._reset_pbr()
         return True
+
+    def _sprite_enfoui(self, tex, cx, base, w, h, f, crans):
+        """L'image, coupee a la ligne du sol par un bord DENTELE.
+
+        Un rectangle suffisait tant que la coupe etait droite ; une coupe
+        irreguliere demande un maillage -- une colonne par cran, chacune avec
+        son propre bas.
+
+        POURQUOI DENTELER. La pierre etait tranchee par une horizontale
+        parfaite, comme un sol l'etait avant sa frange. Le meme defaut appelle
+        le meme remede : rien dans la nature ne finit au cordeau, et une
+        pierre a demi enterree encore moins -- la terre monte plus haut d'un
+        cote que de l'autre.
+
+        V SUIT LE BORD, et c'est tout l'interet de le faire ici plutot que de
+        masquer le bas avec quelque chose : la ou la coupe remonte, on lit
+        PLUS HAUT dans l'image. La pierre n'est donc ni etiree ni comprimee,
+        elle est reellement rognee -- exactement comme la coupe droite, mais
+        en dents de scie.
+
+        Le pas de v par pixel d'ecran vaut 1/h : l'image entiere (v de 0 a 1)
+        occupe h pixels."""
+        n = len(crans) - 1
+        gauche = cx - w / 2.0
+        haut = base + h * (1.0 - f)
+        verts, idx = [], []
+        for i in range(n + 1):
+            u = i / n
+            x = gauche + u * w
+            d = crans[i]
+            verts += [x, base + d, u, (1.0 - f) - d / h]     # bas, dentele
+            verts += [x, haut, u, 0.0]                       # haut, droit
+            if i:
+                p = (i - 1) * 2
+                idx += [p, p + 1, p + 2, p + 1, p + 3, p + 2]
+        Mesh(vertices=verts, indices=idx, mode="triangles", texture=tex)
+
+    def _crans_de_pepite(self, largeur, variante):
+        """Les crans du bas d'une pierre, de gauche a droite.
+
+        Meme recette que la frange du sol (voir _frange) : un grain large pour
+        les bosses, un grain fin pour la dentelure. Il n'y a PAS d'extinction
+        aux extremites, au contraire du sol : une pierre a des bords, et c'est
+        justement la, sur ses flancs, que la terre monte le plus."""
+        n = max(8, int(largeur / self.SEGMENT_CRAN))
+        ampl = largeur * self.FRANGE_PEPITE
+        rng = random.Random("%s:%s:%s:crans" % (self._seed, largeur, variante))
+        gros = [rng.uniform(-1.0, 1.0) for _ in range(n // 5 + 2)]
+        out = []
+        for i in range(n + 1):
+            t = i / n * (len(gros) - 1)
+            j = min(len(gros) - 2, int(t))
+            large = gros[j] * (1 - (t - j)) + gros[j + 1] * (t - j)
+            fin = rng.uniform(-1.0, 1.0)
+            out.append(((1.0 - self.POIDS_FIN) * large
+                        + self.POIDS_FIN * fin) * ampl)
+        return out
 
     def reveille(self):
         """A appeler quand le jeu revient de l'arriere-plan.
@@ -1891,6 +1957,19 @@ class ZoneScenery(Widget):
     # 2,89 x 0,81.
     LARGEUR_PEPITE = 2.35
 
+    # UN CRAN TOUS LES N PIXELS a la base d'une pierre. Plus fin que le pas
+    # du sol (quatorze) : le sol se dentelle sur toute la largeur de l'ecran,
+    # une pierre sur deux cents pixels. Au pas du sol elle n'aurait eu que
+    # huit crans -- des marches d'escalier, pas une dentelure.
+    SEGMENT_CRAN = 8.0
+
+    # DE COMBIEN SA COUPE EST DENTELEE, en part de sa LARGEUR. La frange du
+    # sol se mesure a la tuile de la texture ; celle d'une pierre se mesure a
+    # la pierre -- une petite pierre a de petits crans. A 3,5 %, une pierre de
+    # 190 px en a de sept, soit l'ordre de grandeur de la frange du sol sur un
+    # telephone : les deux bords se ressemblent, ce qui est le but.
+    FRANGE_PEPITE = 0.035
+
     # DE COMBIEN ELLE EST ENTERREE, en part de sa hauteur. Une pierre posee
     # SUR le sol est une pierre qu'on vient d'y deposer : le decor en paraît
     # meuble. Enfoncee, elle a toujours ete la.
@@ -2030,9 +2109,15 @@ class ZoneScenery(Widget):
         self._shadow(cx, base - largeur * 0.02, largeur * 0.88, opacity=0.85)
         teinte = self.TEINTE_PEPITE.get(self._zone,
                                         self.TEINTE_PEPITE["Plaine"])
+        # LES MEMES CRANS POUR L'IMAGE ET POUR SES VOILES : tires une seule
+        # fois ici, puis passes aux deux. Chacun les tirant de son cote, le
+        # voile aurait peint sa couleur dans les echancrures de la pierre.
+        crans = self._crans_de_pepite(largeur, variante)
         if self._sprite("ore_nugget", cx, base, None, pick=variante,
-                        width=largeur, teinte=teinte, coupe_bas=enfonce):
-            self._etalonne_pepite(cx, base, largeur, variante, enfonce, depth)
+                        width=largeur, teinte=teinte, coupe_bas=enfonce,
+                        crans=crans):
+            self._etalonne_pepite(cx, base, largeur, variante, enfonce, depth,
+                                  crans)
             self._pied_de_pepite(cx, base, largeur, depth)
             return
         # Sans image : un bloc anguleux, plus sombre et plus trapu qu'un
@@ -2055,7 +2140,8 @@ class ZoneScenery(Widget):
                      cx - w2 * 0.52, base + haut * 0.92])
         self._pied_de_pepite(cx, base, largeur, depth)
 
-    def _etalonne_pepite(self, cx, base, largeur, variante, enfonce, depth):
+    def _etalonne_pepite(self, cx, base, largeur, variante, enfonce, depth,
+                         crans=None):
         """Rapproche la photo de pierre des couleurs de la scene.
 
         Voir VOILE_PEPITE : un voile de la couleur du decor, epaissi par la
@@ -2074,17 +2160,36 @@ class ZoneScenery(Widget):
         gauche = cx - largeur / 2.0
         vu = 1.0 - enfonce          # la part de l'image qui sort de terre
 
+        # LES BANDES SUIVENT LA COUPE DENTELEE, colonne par colonne. Posees a
+        # plat, elles debordaient dans les crans : la ou la pierre remonte, la
+        # silhouette est encore opaque, et le voile peignait donc sa couleur
+        # sur le SOL, dans l'echancrure meme qu'on venait de creuser.
+        h_pleine = largeur * (float(th) / float(tw))    # l'image entiere
+        n_cols = len(crans) - 1 if crans else 1
+
         def bande(y0, y1, coul, alpha):
             """Un morceau de la silhouette, de y0 a y1 (0 = sol, 1 = sommet)."""
             if alpha <= 0.002 or y1 <= y0:
                 return
-            # v DESCEND dans l'image quand l'ecran MONTE : le bas de la bande
-            # lit donc PLUS BAS dans le PNG que son haut (voir textures.py).
-            v0, v1 = vu * (1.0 - y0), vu * (1.0 - y1)
+            bas_nom, haut_nom = base + haut * y0, base + haut * y1
             Color(coul[0], coul[1], coul[2], alpha)
-            Rectangle(pos=(gauche, base + haut * y0),
-                      size=(largeur, haut * (y1 - y0)), texture=sil,
-                      tex_coords=(0, v0, 1, v0, 1, v1, 0, v1))
+            verts, idx = [], []
+            for i in range(n_cols + 1):
+                u = i / n_cols
+                x = gauche + u * largeur
+                # Le bas de la colonne : le plus HAUT de la ligne nominale et
+                # du cran. Borne par le haut de la bande, sinon elle
+                # s'inverserait la ou le cran la depasse.
+                cran = base + (crans[i] if crans else 0.0)
+                bas = min(max(bas_nom, cran), haut_nom)
+                # v DESCEND dans l'image quand l'ecran MONTE (voir
+                # textures.py) : un pixel d'ecran vaut 1/h_pleine de v.
+                verts += [x, bas, u, vu - (bas - base) / h_pleine]
+                verts += [x, haut_nom, u, vu - (haut_nom - base) / h_pleine]
+                if i:
+                    p = (i - 1) * 2
+                    idx += [p, p + 1, p + 2, p + 1, p + 3, p + 2]
+            Mesh(vertices=verts, indices=idx, mode="triangles", texture=sil)
 
         # LA COULEUR REELLEMENT POSEE AU SOL, texture comprise -- pas celle du
         # repli. Les deux s'ecartent beaucoup des qu'une image existe (voir
