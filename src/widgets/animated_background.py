@@ -143,6 +143,96 @@ _SKY_DEFAULT = {"cloud": 1.00, "grey": 0.00, "dark": 0.00}
 # le ciel se couvre ou se degage progressivement, jamais d'un coup.
 WEATHER_FADE = 4.0
 
+# --------------------------------------------------------------------- #
+# LES NUAGES ONT UNE DISTANCE
+# --------------------------------------------------------------------- #
+# Ils n'en avaient pas. Chaque nuage portait trois valeurs tirees au sort
+# INDEPENDAMMENT : une hauteur a l'ecran (fy), une taille (scale) et une
+# vitesse (speed). Rien ne les reliait, donc rien ne pouvait donner de
+# profondeur : un nuage lointain n'etait ni plus petit, ni plus bas, ni plus
+# lent, et aucun ne convergeait vers l'horizon. Ils etaient poses SUR le ciel.
+#
+# Desormais un nuage n'a qu'un seul parametre de position : sa DISTANCE. Tout
+# le reste en decoule, par la meme perspective que le sol (voir GROUND_DEPTH
+# dans zone_scenery). On la range a l'envers, en facteur k = 1/distance :
+#
+#   hauteur au-dessus de l'horizon   = NUAGE_ALTITUDE * ciel_libre * k
+#   taille                           = NUAGE_ECHELLE  * k
+#   vitesse apparente                = NUAGE_VENT     * k
+#
+# LES TROIS PARTAGENT LE MEME k, et c'est tout le point : un nuage deux fois
+# plus loin est deux fois plus petit, deux fois plus pres de l'horizon et
+# traverse l'ecran deux fois plus lentement. C'est ce dernier point qui donne
+# la parallaxe -- le ciel cesse d'etre un decor qui glisse d'un bloc.
+# QUATORZE ET NON SIX. Ce n'est pas une envie de ciel plus charge : avec la
+# profondeur, les nuages lointains sont PETITS, donc la surface de ciel
+# couverte a chute a nombre egal. On en remet pour retrouver la densite
+# d'avant. Ils ne coutent presque rien -- ce sont justement les petits.
+NUAGES = 14
+NUAGE_PROCHE = 1.00     # k du nuage le plus proche
+NUAGE_LOIN = 0.13       # k du plus lointain (donc ~7,7 fois plus loin)
+
+# Hauteur du nuage le plus PROCHE, en part du CIEL LIBRE -- c'est-a-dire de ce
+# qui reste entre la crete et le haut du cadre, et non de l'ecran entier.
+#
+# CETTE DISTINCTION N'EST PAS UN DETAIL. Mesuree sur l'ecran entiere, une
+# altitude de 0,42 posee au-dessus de la crete du LAC (0,75) envoyait les
+# nuages proches a 1,15 : hors du cadre. La planche d'apercu montrait un ciel
+# de lac vide. Rapportee au ciel libre, la meme valeur marche a toutes les
+# cretes, de la foret (0,47) au lac (0,75).
+#
+# Altitude et taille du nuage le plus PROCHE. Au plus loin, les deux sont
+# multipliees par NUAGE_LOIN.
+#
+# NUAGE_ECHELLE N'EST PAS LA LARGEUR DU NUAGE. Un nuage est un amas d'ellipses
+# qui s'etale bien au-dela de cette valeur : la largeur VISIBLE, mesuree, vaut
+# environ 3,9 fois NUAGE_ECHELLE. A 0,34 -- la premiere valeur essayee -- le
+# nuage le plus proche faisait 1 391 px de large sur un ecran de 1 080, ce que
+# la mesure a montre aussitot. A 0,20 il occupe 0,78 de la largeur d'ecran,
+# soit a peu pres le plus gros nuage d'avant, et c'est le LOINTAIN qui devient
+# petit -- ce qu'on cherchait.
+NUAGE_ALTITUDE = 0.85
+NUAGE_ECHELLE = 0.20
+
+NUAGE_VENT = 0.020
+
+# De combien ils depassent de l'ecran avant de reapparaitre de l'autre cote.
+# Il faut au moins la DEMI-LARGEUR VISIBLE du plus gros, sinon on le verrait
+# disparaitre par morceaux. Mesuree, elle vaut 0,39 de la largeur d'ecran (et
+# non 0,10 comme le donnerait NUAGE_ECHELLE / 2 : voir la remarque ci-dessus
+# sur l'etalement de l'amas).
+MARGE_NUAGE = 0.42
+
+# BRUME : part de la couleur du CIEL que prend le nuage le plus lointain. Sans
+# elle, un petit nuage loin reste aussi blanc qu'un gros tout pres, et l'oeil
+# ne lit plus la distance -- il lit deux nuages de tailles differentes.
+#
+# La couleur visee est celle du ciel A LA HAUTEUR DU NUAGE, prise dans la
+# colonne affichee. C'est ce qui accorde les nuages au reste : au couchant les
+# lointains rosissent, parce que le ciel y est rose.
+BRUME_NUAGE = 0.78
+
+# ETALEMENT d'un nuage dessine : sa largeur visible vaut ce facteur fois
+# NUAGE_ECHELLE (voir la remarque plus haut). Il sert a donner a une IMAGE de
+# nuage exactement la taille qu'aurait l'amas d'ellipses qu'elle remplace, de
+# sorte que deposer des images ne change pas les proportions du ciel.
+ETALEMENT_NUAGE = 3.9
+
+# Noms cherches dans assets/Atmospheres/ : le premier absent arrete la serie.
+# Sans aucune image, le ciel garde ses nuages dessines au canvas.
+NOMS_NUAGE = ("cloud", "cloud_2", "cloud_3", "cloud_4", "cloud_5", "cloud_6")
+
+
+def images_de_nuage():
+    """Les images de nuage en place, dans l'ordre. Vide s'il n'y en a pas."""
+    out = []
+    for nom in NOMS_NUAGE:
+        tex = atmosphere.sprite(nom)
+        if tex is None:
+            break
+        out.append(tex)
+    return out
+
 # Couleurs de base des 4 couches d'un nuage. Elles sont assombries par gros
 # temps (voir "dark"), d'ou le besoin de les connaitre.
 _CLOUD_RGB = {
@@ -431,6 +521,13 @@ class AnimatedBackground(Widget):
         # Meteo du ciel : valeurs AFFICHEES (lissees) et valeurs VISEES.
         self._wx = dict(_SKY_DEFAULT)
         self._wx_target = dict(_SKY_DEFAULT)
+        # Ou le sol rencontre le ciel, en part de la hauteur. Les nuages y
+        # convergent. La scene le dit (voir set_horizon) ; sans scene, on garde
+        # cette valeur, celle de la plaine.
+        self._horizon = 0.49
+        # La colonne du ciel REELLEMENT affichee (meteo comprise), rangee du
+        # bas vers le haut. Les nuages lointains s'y fondent.
+        self._colonne_vue = None
         self._t = 0.0
         self._grad_accum = 0.0
         # Etoile filante : heure de jeu deja tiree, et animation en cours.
@@ -533,45 +630,79 @@ class AnimatedBackground(Widget):
             #    dans cet ORDRE pour respecter la profondeur.
             self._clouds = []
             crng = random.Random(777)
-            for _ in range(6):
-                nha = crng.randint(2, 3)
-                halo_shape = [(crng.uniform(-1.2, 1.2),
-                               crng.uniform(0.05, 0.45),
-                               crng.uniform(1.8, 2.6),
-                               crng.uniform(1.0, 1.4)) for _ in range(nha)]
-                nb = crng.randint(4, 6)
-                base_shape = [((k / (nb - 1) - 0.5) * 2.7,
-                               crng.uniform(-0.04, 0.04),
-                               crng.uniform(1.05, 1.55),
-                               crng.uniform(0.45, 0.6)) for k in range(nb)]
-                nt = crng.randint(6, 8)
-                top_shape = [(crng.uniform(-1.1, 1.1),
-                              crng.uniform(0.16, 0.66),
-                              crng.uniform(0.8, 1.5),
-                              crng.uniform(0.7, 1.1)) for _ in range(nt)]
-                nl = crng.randint(3, 4)
-                hi_shape = [(crng.uniform(-0.85, 0.55),
-                             crng.uniform(0.5, 0.92),
-                             crng.uniform(0.5, 0.95),
-                             crng.uniform(0.5, 0.85)) for _ in range(nl)]
-                self._clouds.append({
-                    "c_halo": Color(0.95, 0.97, 1.0, 0.0),
-                    "halo_ell": [Ellipse() for _ in halo_shape],
-                    "halo_shape": halo_shape,
-                    "c_base": Color(0.74, 0.78, 0.86, 0.0),
-                    "base_ell": [Ellipse() for _ in base_shape],
-                    "base_shape": base_shape,
-                    "c_top": Color(0.97, 0.98, 1.0, 0.0),
-                    "top_ell": [Ellipse() for _ in top_shape],
-                    "top_shape": top_shape,
-                    "c_hi": Color(1, 1, 1, 0.0),
-                    "hi_ell": [Ellipse() for _ in hi_shape],
-                    "hi_shape": hi_shape,
-                    "fy": crng.uniform(0.55, 0.90),
-                    "scale": crng.uniform(0.10, 0.20),
-                    "speed": crng.uniform(0.005, 0.016),
-                    "base": crng.uniform(0.0, 1.0),
-                })
+            # LES DISTANCES SONT ETALEES, PAS TIREES AU HASARD, puis rangees
+            # du plus loin au plus pres.
+            #
+            # Etalees : un tirage uniforme peut donner dix nuages a peu pres a
+            # la meme distance, et il n'y a alors plus de profondeur a voir.
+            # C'est arrive a la premiere mesure -- dix tirages dans [0,13 ; 1]
+            # etaient tous tombes entre 0,37 et 0,94, soit un rapport de 2,6
+            # au lieu de 7,7. On decoupe donc la plage en NUAGES tranches et on
+            # tire DANS chacune : le ciel a toujours du lointain et du proche.
+            #
+            # Rangees : l'ordre du canvas est fige une fois pour toutes, c'est
+            # donc ici, et seulement ici, qu'on peut garantir qu'un nuage
+            # proche passe DEVANT un nuage lointain.
+            profondeurs = sorted(
+                NUAGE_LOIN + (NUAGE_PROCHE - NUAGE_LOIN)
+                * (i + crng.uniform(0.15, 0.85)) / NUAGES
+                for i in range(NUAGES))
+            # Des IMAGES de nuage si le dossier en contient ; sinon le ciel
+            # garde ses amas d'ellipses. La PROJECTION est la meme dans les
+            # deux cas -- c'est la peinture qui change, pas la profondeur.
+            images = images_de_nuage()
+            for k in profondeurs:
+                nuage = {
+                    # k = 1/distance : la SEULE valeur de position du nuage.
+                    "k": k,
+                    # Sa place de depart en travers du ciel.
+                    "ang": crng.uniform(0.0, 1.0 + 2 * MARGE_NUAGE),
+                    # Sa part de brume : 0 au plus proche, 1 au plus lointain.
+                    "brume": (NUAGE_PROCHE - k)
+                             / max(1e-6, NUAGE_PROCHE - NUAGE_LOIN),
+                }
+                if images:
+                    tex = images[crng.randrange(len(images))]
+                    nuage["c_img"] = Color(1, 1, 1, 0.0)
+                    nuage["img"] = Rectangle(texture=tex)
+                    tw, th = tex.size
+                    nuage["ratio"] = th / float(tw or 1)
+                else:
+                    nha = crng.randint(2, 3)
+                    halo_shape = [(crng.uniform(-1.2, 1.2),
+                                   crng.uniform(0.05, 0.45),
+                                   crng.uniform(1.8, 2.6),
+                                   crng.uniform(1.0, 1.4)) for _ in range(nha)]
+                    nb = crng.randint(4, 6)
+                    base_shape = [((j / (nb - 1) - 0.5) * 2.7,
+                                   crng.uniform(-0.04, 0.04),
+                                   crng.uniform(1.05, 1.55),
+                                   crng.uniform(0.45, 0.6)) for j in range(nb)]
+                    nt = crng.randint(6, 8)
+                    top_shape = [(crng.uniform(-1.1, 1.1),
+                                  crng.uniform(0.16, 0.66),
+                                  crng.uniform(0.8, 1.5),
+                                  crng.uniform(0.7, 1.1)) for _ in range(nt)]
+                    nl = crng.randint(3, 4)
+                    hi_shape = [(crng.uniform(-0.85, 0.55),
+                                 crng.uniform(0.5, 0.92),
+                                 crng.uniform(0.5, 0.95),
+                                 crng.uniform(0.5, 0.85)) for _ in range(nl)]
+                    nuage.update({
+                        "c_halo": Color(0.95, 0.97, 1.0, 0.0),
+                        "halo_ell": [Ellipse() for _ in halo_shape],
+                        "halo_shape": halo_shape,
+                        "c_base": Color(0.74, 0.78, 0.86, 0.0),
+                        "base_ell": [Ellipse() for _ in base_shape],
+                        "base_shape": base_shape,
+                        "c_top": Color(0.97, 0.98, 1.0, 0.0),
+                        "top_ell": [Ellipse() for _ in top_shape],
+                        "top_shape": top_shape,
+                        "c_hi": Color(1, 1, 1, 0.0),
+                        "hi_ell": [Ellipse() for _ in hi_shape],
+                        "hi_shape": hi_shape,
+                    })
+                self._clouds.append(nuage)
 
         self._build_gradient()
         self.bind(pos=self._update_layout, size=self._update_layout)
@@ -600,6 +731,14 @@ class AnimatedBackground(Widget):
     def set_seconds(self, seconds):
         self._seconds = float(seconds) % SECONDS_PER_DAY
         self._abs_seconds = float(seconds)
+
+    def set_horizon(self, fraction):
+        """Dit au ciel ou le sol le rencontre, en part de la hauteur d'ecran.
+
+        C'est la scene qui sait : la crete est a 0,47 en foret et a 0,70 au
+        lac (voir ZoneScenery.CRETE). Les nuages convergent vers ce point ; une
+        valeur unique les aurait fait flotter au-dessus de la ligne d'eau."""
+        self._horizon = max(0.0, min(1.0, float(fraction)))
 
     def _update_layout(self, *_):
         self._rect.pos = self.pos
@@ -635,15 +774,26 @@ class AnimatedBackground(Widget):
         # le gris de MEME clarte, elle depend donc de la couleur locale et ne
         # peut pas se poser comme un voile uniforme par-dessus.
         buf = bytearray(self._grad_h * 4)
+        vue = []
         for i, c in enumerate(self._sky_column()):
             r, g, b = self._weather_sky(c)
+            vue.append((r, g, b))
             p = i * 4
             buf[p] = int(r * 255.0 + 0.5)
             buf[p + 1] = int(g * 255.0 + 0.5)
             buf[p + 2] = int(b * 255.0 + 0.5)
             buf[p + 3] = 255
+        self._colonne_vue = vue
         self._grad_tex.blit_buffer(bytes(buf), colorfmt="rgba",
                                    bufferfmt="ubyte")
+
+    def _ciel_a(self, part):
+        """Couleur du ciel affichee a cette hauteur d'ecran (0 en bas)."""
+        vue = self._colonne_vue
+        if not vue:
+            return self._weather_sky(sky_color(self._seconds))
+        i = int(max(0.0, min(1.0, part)) * (len(vue) - 1))
+        return vue[i]
 
     def _lum(self):
         """Luminosite du ciel due au SEUL cycle du jour.
@@ -857,6 +1007,10 @@ class AnimatedBackground(Widget):
         # Nuages (cumulus) : halo doux, dessous ombre, bouffees blanches,
         # reflets clairs du cote eclaire.
         cloud_a = 0.55 * (0.30 + 0.70 * sun_a) * self._wx["cloud"]
+        # Une IMAGE porte sa propre transparence : elle n'a pas besoin du 0,55
+        # qui attenue l'empilement d'ellipses. Sans cela, un nuage photographie
+        # apparaitrait a moitie efface.
+        img_a = (0.30 + 0.70 * sun_a) * self._wx["cloud"]
         # Par gros temps, les nuages sont nettement plus sombres.
         shade = 1.0 - 0.55 * self._wx["dark"]
 
@@ -866,16 +1020,43 @@ class AnimatedBackground(Widget):
                 ell.pos = (cx + dx * s - sw * s / 2, cy + dy * s)
 
         for cl in self._clouds:
-            fx = (cl["base"] + self._t * cl["speed"]) % 1.4 - 0.2
-            cx = x0 + fx * w
-            cy = y0 + cl["fy"] * h
-            s = w * cl["scale"]
+            # TOUT DECOULE DE k. La place en travers du ciel est calculee et
+            # non accumulee : a vitesse constante, une formule ne derive pas,
+            # la ou une integration image par image finit par le faire.
+            k = cl["k"]
+            ang = (cl["ang"] + self._t * NUAGE_VENT * k) \
+                % (1.0 + 2 * MARGE_NUAGE) - MARGE_NUAGE
+            ciel_libre = 1.0 - self._horizon
+            part = self._horizon + NUAGE_ALTITUDE * ciel_libre * k
+            cx = x0 + ang * w
+            cy = y0 + part * h
+            s = w * NUAGE_ECHELLE * k
+            # BRUME : le nuage se fond dans le ciel DE SA PROPRE HAUTEUR.
+            brume = BRUME_NUAGE * cl["brume"]
+            ciel = self._ciel_a(part)
+
+            if "img" in cl:
+                # UNE IMAGE. Sa largeur est celle qu'aurait eu l'amas
+                # d'ellipses a la meme distance (voir ETALEMENT_NUAGE), pour
+                # que deposer des images ne change pas l'echelle du ciel. Son
+                # BAS -- le dessous plat du nuage -- se pose sur cy.
+                larg = s * ETALEMENT_NUAGE
+                cl["img"].size = (larg, larg * cl["ratio"])
+                cl["img"].pos = (cx - larg / 2.0, cy)
+                # L'image porte sa propre couleur : le Color ne fait que la
+                # voiler de brume et l'assombrir par gros temps.
+                cl["c_img"].rgba = tuple(
+                    (1.0 + (ciel[i] - 1.0) * brume) * shade
+                    for i in range(3)) + (img_a,)
+                continue
+
             for key, ells, shapes, mult in (
                     ("c_halo", "halo_ell", "halo_shape", 0.22),
                     ("c_base", "base_ell", "base_shape", 0.85),
                     ("c_top", "top_ell", "top_shape", 1.00),
                     ("c_hi", "hi_ell", "hi_shape", 0.85)):
-                cr, cg, cb = _CLOUD_RGB[key]
-                cl[key].rgba = (cr * shade, cg * shade, cb * shade,
-                                cloud_a * mult)
+                base = _CLOUD_RGB[key]
+                cl[key].rgba = tuple(
+                    (base[i] + (ciel[i] - base[i]) * brume) * shade
+                    for i in range(3)) + (cloud_a * mult,)
                 place(cl[ells], cl[shapes], cx, cy, s)

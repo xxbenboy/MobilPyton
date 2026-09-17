@@ -13,6 +13,8 @@ LES NOMS
     sun.png      Soleil
     moon.png     Lune (voir la remarque importante plus bas)
     sky_lut.png  Le degrade du ciel, journee entiere (voir plus bas)
+    cloud.png    Un nuage. Puis cloud_2, cloud_3... jusqu'a cloud_6
+                 (voir plus bas ; sans eux, les nuages restent dessines)
 
 ----------------------------------------------------------------
 LA LUNE : DESSINE-LA PLEINE
@@ -109,9 +111,44 @@ Retirer le fichier ne casse rien : le ciel revient a son degrade calcule
 cette table sur sa ligne du bas, a la quantification pres.
 
 ----------------------------------------------------------------
+cloud.png : LES NUAGES
+----------------------------------------------------------------
+    PNG a FOND TRANSPARENT, un seul nuage par image, plus large que haut.
+    Cherches dans l'ordre : cloud, cloud_2, ... jusqu'a cloud_6. Le premier
+    manquant arrete la serie -- trois ou quatre suffisent largement, le jeu
+    les repartit au hasard entre ses quatorze nuages.
+
+CE QU'IL FAUT
+
+- UN SEUL NUAGE, entier, DETACHE du fond. Pas de ciel derriere, pas de degrade
+  bleu : le jeu pose l'image sur son propre ciel.
+
+- IL NE DOIT PAS TOUCHER LE BORD du cadre. Un nuage coupe par le bord de
+  l'image resterait coupe net dans le ciel. Laisse une marge tout autour.
+
+- DESSOUS PLAT, et cale EN BAS du cadre. Le jeu pose le BAS de l'image sur la
+  hauteur calculee : c'est la que se trouve le niveau de condensation, le
+  meme pour tous les nuages d'un meme ciel. Une grande marge vide sous le
+  nuage le ferait flotter trop haut.
+
+- BLANC A GRIS-BLEU, eclaire d'EN HAUT. Ne peins pas l'ombre en gris neutre
+  ni en noir : un nuage a l'ombre prend le bleu du ciel.
+
+- N'Y PEINS PAS le couchant ni la nuit. Le jeu teinte l'image lui-meme : il
+  la voile de la couleur du ciel selon la distance, et l'assombrit par gros
+  temps. Une image deja rose au couchant serait rosie deux fois.
+
+- Autour de 512 x 320 suffit : le plus gros nuage occupe ~0,78 de la largeur
+  d'ecran, les lointains quelques dizaines de pixels.
+
+LA TAILLE ET LA FORME DU CADRE SONT RESPECTEES : le jeu garde les proportions
+de ton image et lui donne exactement la largeur qu'aurait le nuage dessine
+qu'elle remplace. Deposer des images ne change donc pas l'echelle du ciel.
+
+----------------------------------------------------------------
 CE QUI RESTE DESSINE (ne pas fournir d'image)
 ----------------------------------------------------------------
-    Les nuages, les etoiles, les etoiles filantes, les halos, et la LUEUR
+    Les etoiles, les etoiles filantes, les halos, et la LUEUR
     solaire. Tous sont animes : ils changent de couleur, de taille ou de
     place d'heure en heure, ce qu'une image ne peut pas faire.
 

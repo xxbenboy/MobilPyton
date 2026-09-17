@@ -1719,6 +1719,10 @@ class GameScreen(Screen):
             self.inv_btn.disabled = self._ff_active
 
         self.background.set_seconds(state.time_seconds)
+        # OU LE SOL RENCONTRE LE CIEL. Le fond en a besoin pour y faire
+        # converger ses nuages, et la hauteur change beaucoup d'une zone a
+        # l'autre : 0,47 en foret, 0,70 au lac. C'est la scene qui sait.
+        self.background.set_horizon(self.scenery.hauteur_horizon())
         # Assombrit le decor selon l'heure (voile de nuit). Sa TEINTE suit
         # l'heure elle aussi : chaude au couchant, bleue en pleine nuit. Un
         # voile toujours bleu marine donnait un crepuscule froid alors que le

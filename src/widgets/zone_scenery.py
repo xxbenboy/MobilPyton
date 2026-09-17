@@ -423,6 +423,41 @@ class ZoneScenery(Widget):
         "Plaine": (0.55 - 0.06 - 0.13) - 0.030 - 0.014,   # voir field_curve
     }
 
+    # OU LE SOL RENCONTRE LE CIEL, en part de la hauteur de l'ecran : la CRETE
+    # de la scene. C'est le POINT DE FUITE DES NUAGES -- en s'eloignant ils s'y
+    # rapetissent et s'y tassent (voir animated_background).
+    #
+    # ON PREND LA VALEUR MOYENNE de la courbe, et non son maximum comme le fait
+    # SOL_DE_GRILLE juste au-dessus. Les deux ne servent pas a la meme chose :
+    # la grille doit garantir que RIEN NE FLOTTE, elle prend donc le pire cas ;
+    # les nuages doivent converger la ou l'oeil lit l'horizon, c'est-a-dire au
+    # milieu de l'ondulation. Et le terrain, dessine par-dessus, cache l'ecart.
+    #
+    # CES QUATRE VALEURS SONT TRES DIFFERENTES, et c'est pour cela qu'il a fallu
+    # ce dictionnaire plutot qu'une constante : entre la foret et le lac,
+    # l'horizon se deplace de presque un quart de la hauteur de l'ecran. Une
+    # valeur unique aurait fait flotter les nuages lointains bien au-dessus de
+    # la ligne d'eau -- exactement le defaut qu'on cherche a corriger.
+    CRETE = {
+        "Foret": 0.42 + 0.05,       # voir horizon_curve dans _foret
+        "Plaine": 0.55 - 0.06,      # voir edge / horizon_curve dans _plaine
+        "Montagne": 0.60,           # surf(0.0) : le pied de la pente
+        # LE LAC, C'EST 0,75 ET NON 0,70. On avait pris 0,70, qui est la
+        # hauteur ou _lac appelle _horizon -- mais _horizon dessine les
+        # silhouettes LOINTAINES, derriere la scene. Le sol, lui, ce sont les
+        # collines d'herbe, dont la mesure donne un profil de 0,711 a 0,760.
+        # A 0,70 les nuages auraient converge SOUS le sol.
+        "Lac": 0.75,                # voir colline() dans _lac
+    }
+
+    # Pour les ecrans SANS scene (menu, inventaire, atelier...) : il n'y a pas
+    # de sol, mais les nuages ont quand meme besoin d'un point de fuite.
+    CRETE_DEFAUT = 0.49
+
+    def hauteur_horizon(self):
+        """Part de la hauteur d'ecran ou le sol rencontre le ciel."""
+        return self.CRETE.get(self._zone, self.CRETE_DEFAUT)
+
     def grille(self, gx, gy):
         """(fx, fy, taille) d'une case, corrige du sol de la zone.
 
