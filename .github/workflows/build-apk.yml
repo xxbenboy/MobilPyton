@@ -251,22 +251,102 @@ jobs:
       # Publie une Release a chaque push. Marquee "latest" => le lien
       # .../releases/latest/download/MobilPyton.apk pointe toujours sur la
       # version la plus recente. Le fichier versionne, lui, a un nom unique.
+      #
+      # POURQUOI CETTE ETAPE EST ECRITE A LA MAIN ET NON CONFIEE A UNE ACTION.
+      #
+      # Elle utilisait softprops/action-gh-release, a qui on donnait les DEUX
+      # APK d'un coup. Cette action les televerse EN PARALLELE, sur une release
+      # tout juste creee -- et au build 290 cela a casse deux fois de suite :
+      #
+      #   tentative 1 : "Error saving asset" sur MobilPyton.apk en 9 s, alors
+      #                 que MobilPyton-0.1.0.290.apk passait. Juste avant,
+      #                 l'action ecrivait elle-meme "Release 391072248 is not
+      #                 yet discoverable by tag build-290, retrying" ;
+      #   tentative 2 : sept minutes et demie de retentatives, puis abandon,
+      #                 GitHub renvoyant une page d'erreur HTML au lieu d'une
+      #                 reponse d'API.
+      #
+      # L'action a bien ses propres retentatives : elles n'ont pas suffi. Et
+      # comme elle cree la release en BROUILLON avant d'y deposer les fichiers,
+      # un echec laisse un brouillon sans tag -- il en restait deux dans le
+      # depot, du build 290 et du build 67, meme panne.
+      #
+      # gh est pre-installe sur les serveurs GitHub. On fait donc les trois
+      # choses qui manquaient :
+      #   1. la release est creee PUBLIEE d'emblee : plus de brouillon fantome ;
+      #   2. les APK sont deposes UN PAR UN, jamais en parallele ;
+      #   3. chaque depot est retente avec une attente croissante.
+      #
+      # Et tout est REJOUABLE : --clobber remplace un fichier deja depose, et
+      # la release existante est reprise au lieu d'etre dupliquee. Relancer le
+      # job suffit donc a reparer une publication a moitie faite.
+      #
+      # Ce que cela ne repare PAS : si le depot d'asset echoue durablement du
+      # cote de GitHub, l'etape echouera quand meme -- mais apres cinq essais
+      # au lieu d'un, et sans laisser de brouillon. L'APK reste de toute facon
+      # telechargeable : l'artifact est publie a l'etape precedente.
       - name: Publier la Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: build-${{ github.run_number }}
-          name: MobilPyton (build ${{ github.run_number }})  v${{ env.APP_VERSION }}
-          body: |
-            APK Android genere automatiquement depuis le commit ${{ github.sha }}.
-            Version : ${{ env.APP_VERSION }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: build-${{ github.run_number }}
+          TITRE: MobilPyton (build ${{ github.run_number }})  v${{ env.APP_VERSION }}
+        run: |
+          set -euo pipefail
 
-            >> Telechargement RECOMMANDE (nom unique, jamais de cache) :
-            https://github.com/xxbenboy/MobilPyton/releases/download/build-${{ github.run_number }}/MobilPyton-${{ env.APP_VERSION }}.apk
+          NOTES="$RUNNER_TEMP/notes-release.md"
+          cat > "$NOTES" <<EOF
+          APK Android genere automatiquement depuis le commit ${GITHUB_SHA}.
+          Version : ${APP_VERSION}
 
-            Lien "toujours la derniere version" (nom fixe, peut etre mis en cache
-            par le navigateur -- vider le cache si besoin) :
-            https://github.com/xxbenboy/MobilPyton/releases/latest/download/MobilPyton.apk
-          files: |
-            MobilPyton.apk
-            MobilPyton-${{ env.APP_VERSION }}.apk
-          make_latest: true
+          >> Telechargement RECOMMANDE (nom unique, jamais de cache) :
+          https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/MobilPyton-${APP_VERSION}.apk
+
+          Lien "toujours la derniere version" (nom fixe, peut etre mis en cache
+          par le navigateur -- vider le cache si besoin) :
+          https://github.com/${GITHUB_REPOSITORY}/releases/latest/download/MobilPyton.apk
+          EOF
+
+          # 1) La release. Si elle existe deja (relance du job), on la reprend.
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo ">>> release $TAG deja presente : on la met a jour"
+            gh release edit "$TAG" --title "$TITRE" --notes-file "$NOTES" \
+                                   --draft=false --latest
+          else
+            echo ">>> creation de la release $TAG"
+            gh release create "$TAG" --title "$TITRE" --notes-file "$NOTES" \
+                                     --target "$GITHUB_SHA" --latest
+          fi
+
+          # 2) Les APK, un par un, chacun avec ses retentatives.
+          for apk in "MobilPyton.apk" "MobilPyton-${APP_VERSION}.apk"; do
+            depose=0
+            for essai in 1 2 3 4 5; do
+              if gh release upload "$TAG" "$apk" --clobber; then
+                echo ">>> $apk depose (essai $essai)"
+                depose=1
+                break
+              fi
+              if [ "$essai" -lt 5 ]; then
+                attente=$((essai * 15))
+                echo ">>> echec du depot de $apk (essai $essai/5)," \
+                     "nouvelle tentative dans ${attente} s"
+                sleep "$attente"
+              fi
+            done
+            if [ "$depose" -eq 0 ]; then
+              echo "!! $apk n'a pas pu etre depose apres 5 essais."
+              echo "!! L'APK reste telechargeable via l'artifact du run."
+              echo "!! Relancer ce job reprendra la release sans la dupliquer."
+              exit 1
+            fi
+          done
+
+          # Recapitulatif, et RIEN DE PLUS : le "|| true" n'est pas une
+          # negligence. Consulter une release par son tag juste apres l'avoir
+          # ecrite est precisement l'operation que GitHub sert mal par moments
+          # -- c'est le "Release is not yet discoverable by tag, retrying" du
+          # build 290. Sans ce garde-fou, cette ligne purement cosmetique
+          # pourrait faire echouer une publication entierement reussie.
+          gh release view "$TAG" --json tagName,isDraft,assets \
+            --jq '"release \(.tagName) (brouillon: \(.isDraft)) -> " +
+                  (([.assets[].name] | join(", ")))' || true
