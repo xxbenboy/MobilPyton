@@ -178,6 +178,17 @@ NOM_HERBE = "grass_tuft"
 HERBE_DECOR_PLAINE = 120
 HERBE_FORET = 190          # etait 130, toutes deja decoratives
 
+# Touffes de la BANDE LOINTAINE de la plaine, entre le haut du champ proche et
+# la crete. Elle etait a peu pres vide : `place` ne depasse jamais le champ, et
+# la seule passe qui allait plus loin se serrait sur la crete meme. Elles sont
+# petites, donc on peut en mettre beaucoup.
+HERBE_LOIN_PLAINE = 150
+
+# Echelle apparente d'une touffe au SOMMET DU CHAMP PROCHE. C'est la valeur
+# que `place` y donne (1 - 0,70 x 1) : la bande lointaine part de la, et
+# continue de retrecir comme le fait la tuile du sol.
+ECHELLE_HERBE_CHAMP = 0.30
+
 # Comment la courbure se repartit sur la hauteur. AU-DESSUS DE 1 : le bas
 # reste droit et seule la pointe se couche, ce qui est la definition meme d'un
 # brin qui plie. A 1 la touffe entiere s'inclinerait comme un panneau.
@@ -2886,17 +2897,58 @@ class ZoneScenery(Widget):
             if (not self._take_or_skip("Herbe")
                     and not self._is_blocked(gx, gb, gb + gh)):
                 items.append((gb, f_grass(gx, gb, gh, green_at(t), sc, fcol, fr)))
-        n = 125                                        # herbe d'horizon [Herbe]
-        for i in range(n):
-            fx = i / (n - 1)
-            gx = x0 + fx * w + rng.uniform(-0.006, 0.006) * w
-            gb = horizon_curve(fx) - rng.uniform(0.0, 0.03) * h  # sur la crete
-            gh = rng.uniform(0.05, 0.11) * h
-            if (not self._take_or_skip("Herbe")
-                    and not self._is_blocked(gx, gb, gb + gh)):
+        # HERBE DE LA BANDE LOINTAINE -- entre le haut du champ proche et la
+        # crete. C'est la bande ou l'on voit le sol "grass_far", et elle etait
+        # a peu pres vide : `place` ne depasse jamais field_curve, et la seule
+        # passe qui allait plus loin se serrait sur la crete.
+        #
+        # ET SURTOUT, ELLE EST MISE A L'ECHELLE. Cette passe posait
+        # gh = uniform(0,05 ; 0,11) x hauteur d'ecran, SANS facteur de
+        # profondeur, alors que toutes les passes du premier plan en ont un.
+        # Mesure : les touffes de la crete faisaient 112 a 239 px quand celles
+        # de devant en font 110 a 218. L'herbe RAGRANDISSAIT avec la distance.
+        # (Cela ne se voyait pas tant qu'elles etaient cinq triangles fins :
+        # la passe leur donnait scale=0,5, qui amincit les brins. Une image,
+        # elle, garde ses proportions -- le defaut de hauteur est devenu
+        # visible d'un coup.)
+        def echelle_loin(gb):
+            """L'echelle apparente a cette hauteur, par la MEME perspective
+            que le sol.
+
+            On la raccorde a celle de `place` au sommet du champ proche
+            (0,30), puis on la laisse decroitre comme le fait la tuile du sol
+            -- soit 1/k avec k = 1/(1 - t(1 - 1/GROUND_DEPTH)). A la crete
+            cela donne 0,18 : une touffe y est donc trois fois plus petite
+            qu'au premier plan, et deux fois plus petite qu'au bout du champ."""
+            t = min(1.0, max(0.0, (gb - y0) / max(1.0, hor * h)))
+            k = 1.0 / (1.0 - t * (1.0 - 1.0 / GROUND_DEPTH))
+            t_champ = (edge - 0.13) / hor
+            k_champ = 1.0 / (1.0 - t_champ * (1.0 - 1.0 / GROUND_DEPTH))
+            return ECHELLE_HERBE_CHAMP * k_champ / k
+
+        def pose_loin(n, recoltable):
+            for i in range(n):
+                fx = (i + rng.uniform(0.0, 1.0)) / n
+                gx = x0 + fx * w + rng.uniform(-0.010, 0.010) * w
+                bas = field_curve(fx)
+                haut = horizon_curve(fx)
+                gb = bas + (haut - bas) * rng.random() ** 0.7
+                sc = echelle_loin(gb)
+                gh = rng.uniform(0.05, 0.16) * h * sc
+                if recoltable and self._take_or_skip("Herbe"):
+                    continue
+                if self._is_blocked(gx, gb, gb + gh):
+                    continue
                 items.append((gb, f_grass(gx, gb, gh,
                                           green_at(rng.uniform(0.85, 1.0)),
-                                          0.5, None, 0)))
+                                          sc, None, 0)))
+
+        # Les 125 recoltables d'avant : meme nombre, meme comptage, donc rien
+        # ne change du cote de la recolte -- seulement leur taille et leur
+        # repartition.
+        pose_loin(125, True)
+        # Et de quoi garnir la bande, celles-ci decoratives.
+        pose_loin(HERBE_LOIN_PLAINE, False)
         # GAZON DE REMPLISSAGE, et il est DECORATIF : aucun appel a
         # _take_or_skip, donc rien de plus a ramasser.
         #
