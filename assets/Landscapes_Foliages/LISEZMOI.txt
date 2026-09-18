@@ -100,6 +100,22 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
     snow_patch.png        Plaque de neige
 
 --- PARTOUT ------------------------------------------------------
+    grass_tuft.png        Touffe d'herbe. Deux modeles sont fournis, le
+                          second etant le MIROIR gauche-droite du premier
+                          (grass_tuft_2.png) : les brins ne penchent plus du
+                          meme cote, ce qui suffit a casser la repetition.
+                          Attention, un miroir et non une rotation de 180
+                          degres -- celle-ci mettrait la touffe racines en
+                          l'air.
+                          UNE SEULE IMAGE SERT TOUTES LES ZONES : le jeu ne
+                          lui impose que sa CLARTE (un gris, jamais une
+                          couleur), pour retrouver le vert sombre du
+                          sous-bois comme le vert clair du champ lointain.
+                          Fournis-la donc en lumiere NEUTRE, ni tres sombre
+                          ni delavee.
+                          Cadre au plus juste, le bas de la touffe sur le
+                          bord du bas : le jeu y pose le niveau du sol.
+
     ore_nugget.png        Pepite de mineraux : un bloc de pierre A DEMI
                           ENTERRE (du quart a la moitie de sa hauteur). Elle
                           apparait dans toutes les zones SAUF LE LAC, de zero
@@ -127,11 +143,13 @@ differentes.
 ----------------------------------------------------------------
 CE QUI RESTE DESSINE (ne pas fournir d'image)
 ----------------------------------------------------------------
-- Les TOUFFES D'HERBE : il y en a plus de 130 par scene, et surtout elles
-  sont maintenant ANIMEES (elles se courbent sous le vent, d'autant plus
-  fort qu'il fait mauvais). Une image ne pourrait pas plier.
-  Exception : le ROSEAU du lac accepte une image (reed.png), parce qu'ils
-  sont peu nombreux.
+- (PLUS D'ACTUALITE : les touffes d'herbe acceptent desormais une image, voir
+  grass_tuft.png plus haut. On les avait ecartees parce qu'elles se COURBENT
+  sous le vent et qu'"une image ne pourrait pas plier" -- c'est vrai d'un
+  rectangle, pas d'un maillage. Elles sont maintenant posees en maillage de
+  cinq rangees, chacune decalee d'autant plus qu'elle est haute : la base
+  reste plantee, la pointe se couche. Elles plient donc comme avant, et
+  coutent meme moins cher qu'en triangles.)
 - Les ONDULATIONS DE L'EAU et les INSECTES : animes eux aussi.
 - Les OMBRES PORTEES : le jeu les calcule selon la position du soleil.
   NE DESSINE PAS d'ombre dans tes images, elle serait en double et

@@ -150,6 +150,57 @@ _SWAY_AMPLITUDE = 0.06
 # a fait droite tant qu'il souffle, elle oscille autour d'une position penchee.
 _SWAY_BIAS = 0.35
 
+# UNE TOUFFE EN IMAGE PLIE AUSSI, parce qu'elle est posee en MAILLAGE et non
+# en rectangle. C'etait la raison pour laquelle l'herbe etait restee dessinee
+# en triangles : "une image ne pourrait pas plier" (LISEZMOI des feuillages).
+# C'est vrai d'un rectangle, pas d'un maillage -- on decoupe l'image en
+# tranches horizontales et on decale chacune d'autant plus qu'elle est haute.
+#
+# CINQ RANGEES suffisent : l'oeil lit la COURBURE, pas le nombre de tranches.
+# A trois, le pli se voit par morceaux ; au-dela de cinq, on paie des sommets
+# pour rien (il y a des centaines de touffes par scene).
+RANGEES_HERBE = 5
+
+# L'image des touffes. C'est le DEFAUT de _grass_tuft, et non un nom passe par
+# chacun des huit endroits qui dessinent de l'herbe : une touffe d'herbe, par
+# definition, utilise l'image d'une touffe d'herbe. Le roseau du lac, lui,
+# passe la sienne et garde donc son propre aspect.
+NOM_HERBE = "grass_tuft"
+
+# COMBIEN DE TOUFFES EN PLUS, par zone. Elles sont decoratives : elles ne
+# passent pas par _take_or_skip, donc elles n'ajoutent rien a ramasser et ne
+# disparaissent pas quand on recolte.
+#
+# Le sol en porte ainsi 350 en plaine (230 + 120) et 190 en foret, contre 230
+# et 130 avant. Et cela coute MOINS cher qu'avant : une touffe en image est un
+# Color et un maillage, la ou une touffe dessinee etait cinq Color et cinq
+# triangles.
+HERBE_DECOR_PLAINE = 120
+HERBE_FORET = 190          # etait 130, toutes deja decoratives
+
+# Comment la courbure se repartit sur la hauteur. AU-DESSUS DE 1 : le bas
+# reste droit et seule la pointe se couche, ce qui est la definition meme d'un
+# brin qui plie. A 1 la touffe entiere s'inclinerait comme un panneau.
+COURBE_HERBE = 1.7
+
+# Luminance moyenne de l'image d'herbe livree, MESUREE (voir
+# scratchpad/herbe_images.py). La scene teinte l'image pour retrouver la
+# couleur que ses triangles avaient : le facteur vaut la clarte voulue divisee
+# par celle-ci. Sans ce rapport, une seule image ne pourrait pas servir a la
+# fois le sous-bois sombre et le champ en pleine lumiere.
+CLARTE_HERBE = 0.395
+
+# Bornes de cette teinte. Le plafond laisse de la marge au-dessus de 1 pour
+# l'herbe lointaine, plus claire que l'image ; le plancher evite qu'un vert de
+# sous-bois ne la rende noire.
+#
+# LE PLAFOND NE DOIT PAS ETRE LA CONTRAINTE QUI MORD. A 1,15 il l'etait : le
+# vert le plus lointain de la plaine demande 1,24, et 135 touffes sur 406
+# sortaient donc a la meme valeur exacte -- toute la moitie lointaine du champ
+# etait d'une clarte uniforme, et la perspective aerienne qu'on voulait garder
+# etait ecrasee. A 1,25 elle repasse.
+TEINTE_HERBE_MIN, TEINTE_HERBE_MAX = 0.45, 1.25
+
 # Force du vent par meteo : le decor se courbe quand il souffle.
 _WIND = {"clair": 0.55, "nuageux": 0.9, "pluie": 1.5, "neige": 1.0,
          "orage": 2.6, "blizzard": 3.0}
@@ -1063,10 +1114,24 @@ class ZoneScenery(Widget):
             return
         self._sway_t += dt
         push = _SWAY_AMPLITUDE * self._wind
+        n = RANGEES_HERBE
         for bl in self._sway:
             t = self._sway_t * bl["speed"] + bl["phase"]
             wave = _SWAY_BIAS + math.sin(t) + 0.35 * math.sin(t * 2.3 + 1.1)
             dx = wave * push * bl["h"]
+            maillage = bl.get("mesh")
+            if maillage is not None:
+                # Une TOUFFE EN IMAGE : on repart des sommets AU REPOS et on
+                # decale chaque rangee. Repartir du repos et non de l'etat
+                # courant est ce qui empeche la touffe de deriver a force de
+                # decalages ajoutes les uns aux autres.
+                v = list(bl["repos"])
+                for i in range(n + 1):
+                    d = dx * (i / n) ** COURBE_HERBE
+                    v[i * 8] += d
+                    v[i * 8 + 4] += d
+                maillage.vertices = v
+                continue
             bl["tri"].points = [bl["x0"], bl["y"], bl["x1"], bl["y"],
                                 bl["tipx"] + dx, bl["tipy"]]
 
@@ -1077,7 +1142,7 @@ class ZoneScenery(Widget):
                                  _ZONE_SPRITES["Foret"]).get(key)
 
     def _sprite(self, name, cx, base, height, pick=None, width=None,
-                teinte=None, coupe_bas=0.0, crans=None):
+                teinte=None, coupe_bas=0.0, crans=None, plie=False):
         """Dessine l'IMAGE de cet element, posee par son BAS sur (cx, base).
 
         Renvoie Vrai si une image existait et a ete dessinee ; Faux si aucune
@@ -1106,7 +1171,11 @@ class ZoneScenery(Widget):
         fabrique, parce qu'il est parfois seul a pouvoir le faire -- la pepite
         doit poser exactement les memes crans sur son image et sur les voiles
         qu'elle peint par-dessus (voir _etalonne_pepite). Deux tirages
-        separes, et le voile debordait dans les echancrures."""
+        separes, et le voile debordait dans les echancrures.
+
+        `plie` la pose en MAILLAGE plutot qu'en rectangle, et l'inscrit au
+        vent : elle se courbe alors comme les brins dessines (voir
+        _sprite_plie). C'est ce qui permet a l'herbe de passer en image."""
         if not name:
             return False
         if pick is None:
@@ -1134,7 +1203,9 @@ class ZoneScenery(Widget):
             pbr.bind_maps(nor, pak)
         Color(*((tuple(teinte[:3]) if teinte else (1, 1, 1)) + (1,)))
         f = min(0.90, max(0.0, float(coupe_bas)))
-        if f <= 0.0:
+        if plie:
+            self._sprite_plie(tex, cx, base, w, h)
+        elif f <= 0.0:
             Rectangle(pos=(cx - w / 2.0, base), size=(w, h), texture=tex)
         elif not crans:
             # Coins dans l'ordre de Kivy (bas-gauche, bas-droit, haut-droit,
@@ -1153,6 +1224,40 @@ class ZoneScenery(Widget):
             # le relief de celui-ci.
             self._reset_pbr()
         return True
+
+    def _sprite_plie(self, tex, cx, base, w, h):
+        """L'image posee en MAILLAGE de rangees, pour qu'elle puisse PLIER.
+
+        C'est ce qui leve l'objection qui tenait l'herbe a l'ecart des images :
+        une touffe se courbe sous le vent, et un rectangle ne se courbe pas.
+        Un maillage, si -- chaque rangee se decale horizontalement, d'autant
+        plus qu'elle est haute, et la rangee du bas ne bouge jamais. Une
+        touffe plie donc, elle ne glisse pas sur le sol.
+
+        On garde les sommets au repos : le vent ne fait que les relire et y
+        ajouter son decalage, ce qui evite de recalculer la geometrie et
+        surtout de faire deriver la touffe a force de decalages cumules.
+
+        v DESCEND quand l'ecran MONTE (voir la note de sens de textures.py) :
+        la rangee du bas lit le bas du PNG."""
+        n = RANGEES_HERBE
+        gauche = cx - w / 2.0
+        verts = []
+        for i in range(n + 1):
+            t = i / n
+            y = base + h * t
+            verts += [gauche, y, 0.0, 1.0 - t,
+                      gauche + w, y, 1.0, 1.0 - t]
+        m = Mesh(vertices=verts, indices=list(range(2 * (n + 1))),
+                 mode="triangle_strip", texture=tex)
+        if SWAY:
+            # Meme allure que pour un brin dessine : sa propre vitesse et sa
+            # propre phase, tirees de sa position. Une scene ou tout ondule
+            # ensemble fait carton-pate.
+            self._sway.append({
+                "mesh": m, "repos": tuple(verts), "h": h,
+                "speed": 1.35 + 0.0007 * (abs(cx) % 400),
+                "phase": (cx * 0.11 + base * 0.07) % 6.28})
 
     def _sprite_enfoui(self, tex, cx, base, w, h, f, crans):
         """L'image, coupee a la ligne du sol par un bord DENTELE.
@@ -1663,8 +1768,26 @@ class ZoneScenery(Widget):
     DEBORD_FEUILLE = 0.40      # x sa taille
     DEBORD_FLEUR = 0.33        # x son rayon
 
-    def _grass_tuft(self, cx, base, height, color, scale=1.0, sprite=None):
-        if self._sprite(sprite, cx, base, height * 1.15):
+    def _teinte_herbe(self, color):
+        """Le facteur qui donne a l'image d'herbe la clarte voulue.
+
+        UN GRIS, PAS UNE COULEUR : l'image est deja verte, la multiplier par
+        un vert la verdirait deux fois. On ne lui impose donc que la CLARTE
+        que le triangle avait, et elle garde sa propre teinte -- ses jaunes de
+        pointe, ses verts sombres de coeur, que jamais un aplat n'aurait eus.
+        C'est ce qui permet a UNE image de servir le sous-bois sombre comme le
+        champ en pleine lumiere, et de garder la perspective aerienne (l'herbe
+        du fond est plus pale que celle du premier plan)."""
+        r, g, b = color[0], color[1], color[2]
+        lum = 0.3 * r + 0.6 * g + 0.1 * b
+        k = lum / CLARTE_HERBE if CLARTE_HERBE else 1.0
+        k = max(TEINTE_HERBE_MIN, min(TEINTE_HERBE_MAX, k))
+        return (k, k, k)
+
+    def _grass_tuft(self, cx, base, height, color, scale=1.0,
+                    sprite=NOM_HERBE):
+        if self._sprite(sprite, cx, base, height * 1.15,
+                        teinte=self._teinte_herbe(color), plie=True):
             return
         bw = max(1.2, self.width * 0.0035 * scale)
         r, g, b, a = color
@@ -1821,8 +1944,10 @@ class ZoneScenery(Widget):
                               lambda bx=bx, by=by, ln=ln:
                               self._branch(bx, by, ln,
                                            sprite=self._zs("branch"))))
-        # Herbe de sous-bois (sombre), en touffes (dense).
-        for _ in range(130):
+        # Herbe de sous-bois (sombre), en touffes (dense). Toutes DECORATIVES :
+        # la foret n'a jamais donne d'herbe a ramasser, c'est la plaine qui en
+        # donne.
+        for _ in range(HERBE_FORET):
             fx = grass_pick() if rng.random() < 0.72 else None
             gx, gb, sc, t = place(fx=fx)
             gh = rng.uniform(0.05, 0.13) * h * sc
@@ -2772,6 +2897,26 @@ class ZoneScenery(Widget):
                 items.append((gb, f_grass(gx, gb, gh,
                                           green_at(rng.uniform(0.85, 1.0)),
                                           0.5, None, 0)))
+        # GAZON DE REMPLISSAGE, et il est DECORATIF : aucun appel a
+        # _take_or_skip, donc rien de plus a ramasser.
+        #
+        # Ce n'etait de toute facon pas la ou se decidait la recolte : le
+        # nombre de ramassages possibles vaut min(_avail_for, touffes
+        # dessinees), et _avail_for tire entre 2 et 5. Avec 230 touffes deja
+        # dessinees pour 2 a 5 recoltes, le nombre de touffes n'a jamais ete
+        # le facteur limitant -- mesure faite avant d'ecrire ceci.
+        #
+        # Le laisser hors du comptage a quand meme un effet, et c'est le bon :
+        # ce gazon-la ne disparait pas quand on recolte. Un champ ne se
+        # denude pas parce qu'on y a cueilli quelques poignees d'herbe -- il
+        # s'eclaircit, et c'est ce que font les 230 autres.
+        for _ in range(HERBE_DECOR_PLAINE):
+            fx = grass_pick() if rng.random() < 0.55 else None
+            gx, gb, sc, t = place(fx=fx, floor=_HARVEST_FLOOR)
+            gh = rng.uniform(0.04, 0.13) * h * sc
+            if self._is_blocked(gx, gb, gb + gh):
+                continue
+            items.append((gb, f_grass(gx, gb, gh, green_at(t), sc, None, 0)))
         for _ in range(rng.randint(10, 14)):           # plantes feuillues (bosquets)
             px, py, sc, t = place(fx=plant_pick())
             s = rng.uniform(0.05, 0.09) * h * sc
