@@ -71,7 +71,12 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
 --- FORET --------------------------------------------------------
     pine_tree.png         Sapin, vu en entier (grand : jusqu'a ~100 % de
                           la hauteur d'ecran au premier plan)
-    forest_tree.png       Arbre feuillu, vu en entier
+    forest_tree.png       Arbre feuillu, vu en entier. Deux modeles en place,
+                          le second etant le MIROIR du premier.
+                          Le PORTRAIT reste recommande : celui-ci est en
+                          paysage (rapport 1,08), donc large. Mesure en jeu :
+                          l arbre median fait 337 px de large sur un ecran de
+                          1080, et un ou deux du premier plan le depassent.
     fern.png              Fougere / plante de sous-bois
     bush_forest.png       Buisson de foret (vert fonce)
     mushroom_forest.png   Champignon brun au sol
