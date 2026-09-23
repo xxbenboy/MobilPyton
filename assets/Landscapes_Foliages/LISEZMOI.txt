@@ -71,12 +71,35 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
 --- FORET --------------------------------------------------------
     pine_tree.png         Sapin, vu en entier (grand : jusqu'a ~100 % de
                           la hauteur d'ecran au premier plan)
-    forest_tree.png       Arbre feuillu, vu en entier. Deux modeles en place,
-                          le second etant le MIROIR du premier.
+    forest_tree.png       Arbre feuillu, vu en entier, AVEC SES DEUX CARTES
+                          (forest_tree_R.png et forest_tree_P.png). Deux
+                          modeles en place, le second etant le MIROIR du
+                          premier.
                           Le PORTRAIT reste recommande : celui-ci est en
-                          paysage (rapport 1,08), donc large. Mesure en jeu :
-                          l arbre median fait 337 px de large sur un ecran de
+                          paysage (rapport 1,09), donc large. Mesure en jeu :
+                          l arbre median fait 341 px de large sur un ecran de
                           1080, et un ou deux du premier plan le depassent.
+
+                          /!\ LE MIROIR D UNE CARTE DE NORMALES N EST PAS SON
+                          MIROIR. Retourner la geometrie de gauche a droite
+                          change le signe de la composante X de chaque
+                          normale : le canal ROUGE doit etre inverse
+                          (R -> 255-R). Sans cela l arbre miroir serait
+                          eclaire a l envers, son cote gauche recevant la
+                          lumiere de droite. L AO, scalaire, se retourne
+                          simplement.
+
+                          CE QUE LES CARTES APPORTENT ICI, mesure : le relief
+                          des feuilles suit le soleil (un pixel peut changer
+                          de 0,25 de clarte entre 7 h et 18 h, contre 0,04
+                          sans les cartes). En revanche le COTE ECLAIRE de
+                          l arbre entier ne bascule pas : la base color porte
+                          sa propre lumiere (cote droit 6 % plus clair) et la
+                          carte de normales n encode que le detail des
+                          feuilles, pas la forme d ensemble du dome. Pour que
+                          l arbre entier tourne avec le soleil, il faudrait
+                          une base a plat et un normal portant la forme du
+                          houppier.
     fern.png              Fougere / plante de sous-bois
     bush_forest.png       Buisson de foret (vert fonce)
     mushroom_forest.png   Champignon brun au sol
