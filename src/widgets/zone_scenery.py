@@ -194,6 +194,84 @@ ECHELLE_HERBE_CHAMP = 0.30
 # brin qui plie. A 1 la touffe entiere s'inclinerait comme un panneau.
 COURBE_HERBE = 1.7
 
+# --- LE VENT DANS LE FEUILLAGE DES ARBRES ---------------------------------- #
+# Meme levier que pour l'herbe -- l'image est posee en MAILLAGE, donc elle peut
+# se deformer -- mais un arbre n'est pas un brin d'herbe, et deux choses l'en
+# separent.
+#
+# SON TRONC NE BOUGE PAS. Un brin plie a partir du sol ; un arbre a un fut
+# rigide, et seul ce qui est au-dessus des premieres branches bruisse.
+#
+# SON HOUPPIER NE PIVOTE PAS D'UN BLOC. C'est pourquoi on pose une GRILLE et
+# non des rangees : chaque COLONNE recoit sa propre phase, si bien qu'une
+# rafale TRAVERSE le feuillage de gauche a droite au lieu de l'incliner tout
+# entier. C'est ce qui distingue des feuilles qui remuent d'un panneau qui
+# oscille -- et c'est aussi la seule chose qu'une simple rangee ne sait pas
+# faire.
+#
+# 8 x 6 cases, soit 63 sommets : assez pour que la deformation soit continue a
+# l'oeil, assez peu pour que six arbres animes a 15 images par seconde ne
+# coutent que 378 sommets par image.
+RANGEES_ARBRE = 8
+COLONNES_ARBRE = 6
+
+# Hauteur, en fraction de l'image depuis le bas, en dessous de laquelle RIEN
+# ne bouge : le tronc. Mesuree sur l'image livree (voir
+# scratchpad/arbre_pbr2.py, base_du_feuillage) : les premieres feuilles
+# apparaissent a 0,256 de la hauteur.
+#
+# C'est une constante et non une mesure faite en jeu : la relever demanderait
+# d'ouvrir les pixels de chaque image au moment de dessiner. Si quelqu'un
+# depose un arbre de proportions tres differentes, le pire qui arrive est que
+# le haut de son tronc frissonne un peu, ou que ses feuilles les plus basses
+# restent immobiles. Rien ne casse.
+TRONC_FIXE = 0.26
+
+# Comment l'amplitude monte au-dessus du tronc. AU-DESSUS DE 1 : la base du
+# houppier bouge a peine, la cime prend tout -- le comportement d'une branche
+# encastree. Plus doux que pour l'herbe (1,7), parce que le tronc a deja
+# retire le quart du bas du mouvement.
+COURBE_ARBRE = 1.5
+
+# Amplitude, en fraction de la HAUTEUR de l'arbre, a vent maximal.
+#
+# MESURE SUR L'ARBRE DE PREMIER PLAN DE LA FORET (1144 px de haut) : sa cime
+# s'ecarte de 10 px par temps clair et de 54 px en blizzard, soit 0,9 % et
+# 4,7 % de sa hauteur. C'est l'ordre de grandeur d'un vrai houppier. L'herbe,
+# elle, va jusqu'a 29 % de sa hauteur : un brin se couche, un arbre non.
+#
+# Un premier reglage a 0,012 donnait 4 px par temps clair -- exact sur le
+# papier, invisible a l'ecran, et c'est par temps clair qu'on joue le plus
+# souvent.
+VENT_ARBRE_AMPLITUDE = 0.030
+
+# Les deux frequences du mouvement, en HERTZ (et non en radians comme la
+# vitesse de l'herbe, qui se lit mal). Lentes, et dans un rapport irrationnel
+# pour que le motif ne se referme pas a l'oeil.
+#
+# CE SONT LES VALEURS CENTRALES, pas les extremes : chaque arbre les ecarte de
+# +/- 6 % (voir _sprite_feuillage) pour que la foret ne respire pas d'un seul
+# souffle. 0,53 et 0,94 sont donc choisies pour que MEME APRES cet ecart tout
+# reste dans la plage voulue -- 0,50 a 0,56 et 0,88 a 1,00. A 0,5 et 0,9 pile,
+# les arbres les plus lents tombaient a 0,47 Hz, mesure.
+VENT_ARBRE_HZ = (0.53, 0.94)
+VENT_ARBRE_MELANGE = 0.35       # poids de la seconde onde
+
+# Inclinaison permanente dans le sens du vent, comme pour l'herbe (0,35) mais
+# plus discrete : un houppier s'appuie sur le vent, il ne se couche pas.
+VENT_ARBRE_BIAIS = 0.25
+
+# Decalage de phase entre le bord gauche et le bord droit du houppier, en
+# radians. C'est LUI qui fait traverser la rafale : a 0 tout le feuillage
+# bougerait ensemble, a 2*pi les deux bords seraient de nouveau en phase. A
+# 1,9 le bord droit a un peu moins d'un tiers de cycle de retard.
+VENT_ARBRE_TRAVERSE = 1.9
+
+# Combien d'arbres on anime. Ils ont leur QUOTA PROPRE, et c'est necessaire :
+# le tri se fait sur la hauteur, et un arbre est dix fois plus haut qu'une
+# touffe. Dans une seule liste, les arbres videraient le quota de l'herbe.
+_SWAY_ARBRES = 6
+
 # Luminance moyenne de l'image d'herbe livree, MESUREE (voir
 # scratchpad/herbe_images.py). La scene teinte l'image pour retrouver la
 # couleur que ses triangles avaient : le facteur vaut la clarte voulue divisee
@@ -362,6 +440,17 @@ class ZoneScenery(Widget):
     def set_wind(self, kind):
         """Force du vent, d'apres la meteo : le decor se courbe davantage."""
         self._wind = _WIND.get(kind, _WIND_DEFAULT)
+
+    def force_du_vent(self):
+        """La force du vent RAMENEE ENTRE 0 ET 1.
+
+        _WIND donne un multiplicateur non borne (0,55 par temps clair, 3,0 en
+        blizzard). C'est commode pour l'herbe, dont l'amplitude est petite et
+        qui peut se coucher franchement. Le feuillage d'un arbre demande au
+        contraire une grandeur BORNEE : au-dela de 1 la grille se cisaillerait
+        au lieu de bruire, et les feuilles glisseraient les unes sur les
+        autres."""
+        return min(1.0, self._wind / _WIND["blizzard"])
 
     def _apply_light(self):
         if self._pbr:
@@ -1097,14 +1186,25 @@ class ZoneScenery(Widget):
 
     # -- balancement de la vegetation ----------------------------------- #
     def _keep_tallest_sway(self):
-        """Ne garde que les touffes du PREMIER PLAN pour l'animation.
+        """Ne garde que les elements du PREMIER PLAN pour l'animation.
 
-        Les autres restent dessinees, simplement immobiles : on lache juste
+        Les autres restent dessines, simplement immobiles : on lache juste
         leurs references. C'est ce qui garde le cout du vent constant, que la
-        scene compte dix touffes ou cent trente."""
-        if len(self._sway) > _SWAY_MAX:
-            self._sway.sort(key=lambda bl: bl["h"], reverse=True)
-            del self._sway[_SWAY_MAX:]
+        scene compte dix touffes ou cent trente.
+
+        CHAQUE SORTE A SON QUOTA. Une seule liste triee sur la hauteur ne
+        marcherait pas : un arbre fait dix fois la hauteur d'une touffe, les
+        neuf arbres de la foret passeraient donc toujours devant, et une
+        trentaine d'arbres d'horizon videraient le quota de l'herbe a eux
+        seuls."""
+        garde = []
+        for sorte, quota in (("herbe", _SWAY_MAX), ("arbre", _SWAY_ARBRES)):
+            lot = [bl for bl in self._sway if bl.get("sorte", "herbe") == sorte]
+            if len(lot) > quota:
+                lot.sort(key=lambda bl: bl["h"], reverse=True)
+                del lot[quota:]
+            garde += lot
+        self._sway = garde
 
     def _sync_sway_clock(self):
         """L'horloge du vent ne tourne que s'il y a quelque chose a balancer."""
@@ -1125,8 +1225,12 @@ class ZoneScenery(Widget):
             return
         self._sway_t += dt
         push = _SWAY_AMPLITUDE * self._wind
+        force = self.force_du_vent()
         n = RANGEES_HERBE
         for bl in self._sway:
+            if "grille" in bl:
+                self._tick_feuillage(bl, force)
+                continue
             t = self._sway_t * bl["speed"] + bl["phase"]
             wave = _SWAY_BIAS + math.sin(t) + 0.35 * math.sin(t * 2.3 + 1.1)
             dx = wave * push * bl["h"]
@@ -1145,6 +1249,46 @@ class ZoneScenery(Widget):
                 continue
             bl["tri"].points = [bl["x0"], bl["y"], bl["x1"], bl["y"],
                                 bl["tipx"] + dx, bl["tipy"]]
+
+    def _tick_feuillage(self, bl, force):
+        """Le feuillage d'un arbre : une rafale qui TRAVERSE le houppier.
+
+        Deux differences avec un brin d'herbe, et ce sont elles qui font que
+        l'arbre ne ressemble pas a une pancarte qui oscille :
+
+        - l'onde depend de la COLONNE, pas seulement de la rangee. Le bord
+          droit est en retard sur le gauche, donc le feuillage se deforme au
+          lieu de se pencher ;
+
+        - rien ne bouge en dessous de TRONC_FIXE.
+
+        On repart des sommets AU REPOS -- comme pour l'herbe, et pour la meme
+        raison : des decalages ajoutes les uns aux autres feraient deriver
+        l'arbre hors de son sol."""
+        v = list(bl["repos"])
+        nc, nr = COLONNES_ARBRE, RANGEES_ARBRE
+        t = self._sway_t
+        amp = VENT_ARBRE_AMPLITUDE * force * bl["h"]
+        # UNE VALEUR D'ONDE PAR COLONNE, calculee une fois : elle ne depend
+        # pas de la rangee, et la refaire a chaque sommet serait huit sinus
+        # pour rien.
+        ondes = []
+        for i in range(nc + 1):
+            u = VENT_ARBRE_TRAVERSE * i / nc
+            ondes.append(
+                VENT_ARBRE_BIAIS
+                + math.sin(bl["w1"] * t + bl["phase"] + u)
+                + VENT_ARBRE_MELANGE
+                * math.sin(bl["w2"] * t + bl["phase"] * 1.7 + 1.6 * u))
+        for j in range(nr + 1):
+            s = j / nr
+            if s <= TRONC_FIXE:
+                continue                       # le tronc ne bouge pas
+            r = ((s - TRONC_FIXE) / (1.0 - TRONC_FIXE)) ** COURBE_ARBRE
+            depart = j * (nc + 1) * 4
+            for i in range(nc + 1):
+                v[depart + i * 4] += amp * r * ondes[i]
+        bl["grille"].vertices = v
 
     # -- image du decor (si elle a ete fournie) -------------------------- #
     def _zs(self, key):
@@ -1185,8 +1329,15 @@ class ZoneScenery(Widget):
         separes, et le voile debordait dans les echancrures.
 
         `plie` la pose en MAILLAGE plutot qu'en rectangle, et l'inscrit au
-        vent : elle se courbe alors comme les brins dessines (voir
-        _sprite_plie). C'est ce qui permet a l'herbe de passer en image."""
+        vent. Deux facons de plier, parce que deux choses ne plient pas
+        pareil :
+
+            "herbe"  -- des rangees, la base plantee et la pointe qui se
+                        couche (voir _sprite_plie) ;
+            "arbre"  -- une grille, le tronc immobile et une rafale qui
+                        traverse le houppier (voir _sprite_feuillage).
+
+        Vrai vaut "herbe" : c'etait le seul cas quand le parametre est ne."""
         if not name:
             return False
         if pick is None:
@@ -1214,7 +1365,9 @@ class ZoneScenery(Widget):
             pbr.bind_maps(nor, pak)
         Color(*((tuple(teinte[:3]) if teinte else (1, 1, 1)) + (1,)))
         f = min(0.90, max(0.0, float(coupe_bas)))
-        if plie:
+        if plie == "arbre":
+            self._sprite_feuillage(tex, cx, base, w, h)
+        elif plie:
             self._sprite_plie(tex, cx, base, w, h)
         elif f <= 0.0:
             Rectangle(pos=(cx - w / 2.0, base), size=(w, h), texture=tex)
@@ -1266,9 +1419,54 @@ class ZoneScenery(Widget):
             # propre phase, tirees de sa position. Une scene ou tout ondule
             # ensemble fait carton-pate.
             self._sway.append({
-                "mesh": m, "repos": tuple(verts), "h": h,
+                "mesh": m, "repos": tuple(verts), "h": h, "sorte": "herbe",
                 "speed": 1.35 + 0.0007 * (abs(cx) % 400),
                 "phase": (cx * 0.11 + base * 0.07) % 6.28})
+
+    def _sprite_feuillage(self, tex, cx, base, w, h):
+        """L'image d'un arbre posee en GRILLE, pour que ses feuilles remuent.
+
+        Une rangee par bande horizontale suffisait a l'herbe : toute la touffe
+        se couche du meme cote, seule la hauteur decide de combien. Un arbre
+        non -- son houppier qui s'inclinerait d'un bloc ferait une pancarte au
+        bout d'un mat. Il faut donc aussi des COLONNES, chacune avec son
+        retard de phase, pour qu'une rafale le traverse.
+
+        Les sommets portent leurs coordonnees d'image, que le vent ne touche
+        jamais : il ne deplace que les x. LES CARTES DE RELIEF SUIVENT DONC
+        TOUTES SEULES, puisque le shader les lit aux memes coordonnees que la
+        couleur (voir pbr.py) -- le relief d'une feuille reste sur cette
+        feuille pendant qu'elle bouge.
+
+        v DESCEND quand l'ecran MONTE (voir la note de sens de textures.py) :
+        la rangee du bas lit le bas du PNG."""
+        nc, nr = COLONNES_ARBRE, RANGEES_ARBRE
+        gauche = cx - w / 2.0
+        verts = []
+        for j in range(nr + 1):
+            t = j / nr
+            y = base + h * t
+            for i in range(nc + 1):
+                u = i / nc
+                verts += [gauche + u * w, y, u, 1.0 - t]
+        idx = []
+        for j in range(nr):
+            for i in range(nc):
+                a = j * (nc + 1) + i
+                c = a + nc + 1
+                idx += [a, a + 1, c + 1, a, c + 1, c]
+        m = Mesh(vertices=verts, indices=idx, mode="triangles", texture=tex)
+        if SWAY:
+            # Chaque arbre a sa phase ET ses frequences, tirees de sa
+            # position : une allee ou tout bruisse ensemble fait carton-pate.
+            # L'ecart reste petit (+/- 6 %), les deux frequences restent donc
+            # dans la plage voulue.
+            ecart = 1.0 + 0.12 * ((abs(cx) % 37) / 37.0 - 0.5)
+            self._sway.append({
+                "grille": m, "repos": tuple(verts), "h": h, "sorte": "arbre",
+                "w1": 6.2832 * VENT_ARBRE_HZ[0] * ecart,
+                "w2": 6.2832 * VENT_ARBRE_HZ[1] * ecart,
+                "phase": (cx * 0.017 + base * 0.011) % 6.2832})
 
     def _sprite_enfoui(self, tex, cx, base, w, h, f, crans):
         """L'image, coupee a la ligne du sol par un bord DENTELE.
@@ -1853,7 +2051,13 @@ class ZoneScenery(Widget):
         trentaine a replacer a chaque mouvement du soleil pour rien."""
         if shadow:
             self._shadow(cx, base, th * 0.45)
-        if self._sprite("forest_tree", cx, base, th):
+        # LA LIGNE D'HORIZON NE BRUIT PAS, et c'est le meme drapeau qui le dit
+        # que pour l'ombre portee, parce que c'est la meme raison : a cette
+        # distance le mouvement ne se verrait pas, et il y a une trentaine
+        # d'arbres a poser -- autant de grilles de 63 sommets au lieu de
+        # simples rectangles, pour rien.
+        if self._sprite("forest_tree", cx, base, th,
+                        plie="arbre" if shadow else False):
             return
         tw = max(2.0, self.width * 0.012 * scale)
         btex = paint_color("bark", (0.28, 0.19, 0.11, 1))

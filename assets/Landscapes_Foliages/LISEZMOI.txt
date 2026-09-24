@@ -64,6 +64,20 @@ Une carte DirectX (vert inverse) eclairerait le dessous des bosses et
 ombrerait leur dessus -- la pierre aurait l'air creuse au lieu de bombee.
 Si ton generateur sort du DirectX, inverse le canal vert avant de deposer.
 
+ET LE ROUGE AUSSI PEUT ETRE A L'ENVERS. C'est plus rare, et ca s'est pourtant
+produit sur le deuxieme lot d'arbre. Le rouge dit vers ou la surface penche a
+GAUCHE ou a DROITE : R > 128 regarde a droite. A l'envers, l'objet est eclaire
+du mauvais cote toute la journee, ce qui ne se voit pas sur une vignette.
+
+COMMENT LE VERIFIER SANS OUTIL. Prends le BORD de la silhouette : au contour
+d'une forme bombee, la surface se detourne du regard, donc la normale y pointe
+vers l'exterieur. Le bord gauche doit donc etre plus SOMBRE en rouge que le
+bord droit. Un TRONC, qui est un cylindre, marche encore mieux : son cote
+gauche sombre, son cote droit clair, et le milieu a 128.
+
+Mesure sur les deux lots d'arbre : le premier donne +0,80 de correlation entre
+le rouge et la direction exterieure, le second -0,34 (il a donc ete corrige).
+
 ----------------------------------------------------------------
 LES NOMS (exacts : minuscules, underscores, sans accent)
 ----------------------------------------------------------------
@@ -75,10 +89,20 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
                           (forest_tree_R.png et forest_tree_P.png). Deux
                           modeles en place, le second etant le MIROIR du
                           premier.
-                          Le PORTRAIT reste recommande : celui-ci est en
-                          paysage (rapport 1,09), donc large. Mesure en jeu :
-                          l arbre median fait 341 px de large sur un ecran de
-                          1080, et un ou deux du premier plan le depassent.
+                          Rapport 0,98, donc presque carre. Mesure en jeu :
+                          les arbres de la scene font 674 a 1122 px de large
+                          sur un ecran de 1080 -- celui du premier plan
+                          remplit le cadre.
+
+                          IL BOUGE AU VENT. Il est pose en GRILLE et non en
+                          rectangle, son tronc reste fixe et une rafale
+                          traverse son houppier de gauche a droite (0,5 et
+                          0,9 Hz, cime a 10 px par temps clair et 47 px par
+                          orage). La hauteur ou commencent les feuilles est
+                          une constante du code, mesuree sur CETTE image
+                          (0,26 de la hauteur) : un arbre de proportions tres
+                          differentes verra le haut de son tronc frissonner
+                          un peu, rien de plus.
 
                           /!\ LE MIROIR D UNE CARTE DE NORMALES N EST PAS SON
                           MIROIR. Retourner la geometrie de gauche a droite
@@ -89,17 +113,24 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
                           lumiere de droite. L AO, scalaire, se retourne
                           simplement.
 
-                          CE QUE LES CARTES APPORTENT ICI, mesure : le relief
-                          des feuilles suit le soleil (un pixel peut changer
-                          de 0,25 de clarte entre 7 h et 18 h, contre 0,04
-                          sans les cartes). En revanche le COTE ECLAIRE de
-                          l arbre entier ne bascule pas : la base color porte
-                          sa propre lumiere (cote droit 6 % plus clair) et la
-                          carte de normales n encode que le detail des
-                          feuilles, pas la forme d ensemble du dome. Pour que
-                          l arbre entier tourne avec le soleil, il faudrait
-                          une base a plat et un normal portant la forme du
-                          houppier.
+                          /!\ ET LE LOT LIVRE AVAIT DEJA SON ROUGE A L ENVERS,
+                          avant tout miroir. Le generateur le mesure et le
+                          corrige (voir plus bas, SENS DU RELIEF), mais si tu
+                          fabriques tes cartes toi-meme : verifie sur un
+                          TRONC, qui est un cylindre. Son bord gauche doit
+                          avoir n.x < 0 et son bord droit n.x > 0.
+
+                          CE QUE LES CARTES APPORTENT ICI, mesure : 78 % du
+                          feuillage change de plus de 0,05 de clarte entre
+                          7 h et 18 h (0,115 en moyenne, 0,355 au plus), la
+                          ou sans elles rien ne bouge du tout. En revanche le
+                          COTE ECLAIRE de l arbre entier ne bascule toujours
+                          pas : la carte de normales encode le detail des
+                          feuilles, pas la forme d ensemble du dome. Il
+                          faudrait pour cela un normal portant la courbure du
+                          houppier. La base color, elle, est bien a plat
+                          cette fois : 0,3 % d ecart gauche/droite, contre 6 %
+                          sur le lot precedent.
     fern.png              Fougere / plante de sous-bois
     bush_forest.png       Buisson de foret (vert fonce)
     mushroom_forest.png   Champignon brun au sol
