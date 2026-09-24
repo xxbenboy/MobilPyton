@@ -270,7 +270,83 @@ VENT_ARBRE_TRAVERSE = 1.9
 # Combien d'arbres on anime. Ils ont leur QUOTA PROPRE, et c'est necessaire :
 # le tri se fait sur la hauteur, et un arbre est dix fois plus haut qu'une
 # touffe. Dans une seule liste, les arbres videraient le quota de l'herbe.
+# Les deux sortes d'arbre le PARTAGENT : ce qui coute, c'est le nombre de
+# maillages a repositionner, pas leur espece.
 _SWAY_ARBRES = 6
+
+# --- ET LE VENT DANS UN SAPIN, QUI N'EST PAS LE MEME ----------------------- #
+# Un houppier de feuillu est une masse souple portee par un tronc : le vent le
+# traverse de gauche a droite et le fait ondoyer. Un sapin est tout le
+# contraire -- une fleche rigide portant des etages de branches raides. Ce qui
+# bouge chez lui, ce n'est pas la masse, ce sont LES POINTES DES BRANCHES, et
+# elles ne bougent pas dans le meme sens.
+#
+# D'ou trois differences, et non un simple reglage plus faible :
+#
+#   1. LE BALANCEMENT SE CONCENTRE DANS LA FLECHE. L'exposant passe de 1,5 a
+#      2,6 : les etages du bas ne bougent presque pas, la cime fouette.
+#
+#   2. LES BRANCHES REBONDISSENT VERTICALEMENT. C'est la signature d'un
+#      conifere, et aucun feuillu ne la montre : une branche de sapin est un
+#      porte-a-faux souple, elle bat de haut en bas. L'amplitude ne depend
+#      donc pas de la hauteur mais de la DISTANCE A L'AXE -- nulle sur le
+#      tronc, maximale au bout des branches.
+#
+#   3. LE REBOND MONTE LE LONG DE L'ARBRE. Les etages ne battent pas
+#      ensemble : une onde les parcourt du bas vers le haut.
+#
+# Le sapin est haut et etroit : on lui donne plus de RANGEES (ses etages) et
+# moins de COLONNES (sa largeur) qu'au feuillu. 10 x 4 fait 55 sommets, huit
+# de moins que la grille du feuillu.
+RANGEES_SAPIN = 10
+COLONNES_SAPIN = 4
+
+# Les branches d'un sapin descendent presque jusqu'au sol : il ne reste qu'un
+# empattement. Mesure sur l'image livree : les premieres aiguilles apparaissent
+# a 0,109 de la hauteur (le feuillu, lui, est a 0,26).
+TRONC_FIXE_SAPIN = 0.11
+COURBE_SAPIN = 2.6
+
+# Amplitude laterale, en fraction de la hauteur, a vent maximal. La MOITIE du
+# feuillu (0,030) : un sapin est raide. Et il est plus haut -- jusqu'a toute
+# la hauteur d'ecran contre 1144 px -- donc en pixels l'ecart reste du meme
+# ordre.
+VENT_SAPIN_AMPLITUDE = 0.016
+
+# Le rebond vertical des pointes, meme unite.
+#
+# MESURE PLUTOT QUE DEDUITE. Le premier reglage, 0,006, venait d'un
+# raisonnement sur du vrai bois -- une branche d'un metre qui bat de cinq
+# centimetres sur un arbre de quinze metres, c'est bien 0,3 % de sa hauteur.
+# Sauf qu'a l'ecran cela faisait 1,8 px par temps clair : la signature du
+# conifere n'existait tout simplement pas. A 0,014 elle vaut 4 px par temps
+# clair et 20 px par orage, soit un cisaillement de 4 % entre deux colonnes
+# voisines -- visible comme un battement, pas comme une dechirure.
+VENT_SAPIN_BOND = 0.014
+
+# De combien la phase du rebond avance entre le pied et la cime, en radians.
+# C'est ce qui fait MONTER l'onde d'un etage a l'autre au lieu de les faire
+# battre tous ensemble.
+VENT_SAPIN_MONTEE = 2.4
+
+# Plus rapide que le feuillu (0,53 et 0,94 Hz) : une structure plus raide et
+# plus legere vibre plus vite. Toujours dans la plage voulue, ecart de +/- 6 %
+# par arbre compris (0,62 a 0,70 et 0,83 a 0,93).
+VENT_SAPIN_HZ = (0.66, 0.88)
+VENT_SAPIN_MELANGE = 0.30
+VENT_SAPIN_BIAIS = 0.18
+
+# La rafale traverse peu : l'arbre est etroit et raide, elle le prend presque
+# d'un bloc. 0,8 radian contre 1,9 pour le feuillu.
+VENT_SAPIN_TRAVERSE = 0.8
+
+# De combien la HAUTEUR d'un sapin varie d'un pied a l'autre, en plus du
+# tirage que fait deja la scene. Les quatre images livrees donnent quatre
+# silhouettes (deux miroirs, une trapue, une elancee) ; ce facteur-ci y ajoute
+# la taille, pour qu'une sapiniere n'aligne pas des arbres de meme stature.
+# Il est tire de la POSITION, donc stable : un sapin ne change pas de taille
+# quand on ramasse une pierre a cote.
+HAUTEUR_SAPIN = (0.82, 1.18)
 
 # Luminance moyenne de l'image d'herbe livree, MESUREE (voir
 # scratchpad/herbe_images.py). La scene teinte l'image pour retrouver la
@@ -1251,46 +1327,73 @@ class ZoneScenery(Widget):
                                 bl["tipx"] + dx, bl["tipy"]]
 
     def _tick_feuillage(self, bl, force):
-        """Le feuillage d'un arbre : une rafale qui TRAVERSE le houppier.
+        """Le feuillage d'un arbre. Une seule boucle pour les deux especes :
+        leurs reglages sont ranges dans l'inscription au vent, pas ici.
 
-        Deux differences avec un brin d'herbe, et ce sont elles qui font que
-        l'arbre ne ressemble pas a une pancarte qui oscille :
+        CE QUI EST COMMUN AUX DEUX. L'onde depend de la COLONNE et pas
+        seulement de la rangee -- le bord droit est en retard sur le gauche,
+        donc le feuillage se deforme au lieu de se pencher d'un bloc, ce
+        qu'aucune rangee seule ne sait faire. Et rien ne bouge en dessous du
+        tronc.
 
-        - l'onde depend de la COLONNE, pas seulement de la rangee. Le bord
-          droit est en retard sur le gauche, donc le feuillage se deforme au
-          lieu de se pencher ;
-
-        - rien ne bouge en dessous de TRONC_FIXE.
+        CE QUI LES SEPARE. Le sapin ajoute un REBOND VERTICAL des pointes de
+        branches (`bond`), nul sur l'axe du tronc et maximal au bord, dont la
+        phase MONTE le long de l'arbre. C'est la signature d'un conifere : ses
+        branches sont des porte-a-faux qui battent, la ou une masse de feuilles
+        ondoie. Le feuillu a `bond` a zero et ne paie donc rien pour cela.
 
         On repart des sommets AU REPOS -- comme pour l'herbe, et pour la meme
         raison : des decalages ajoutes les uns aux autres feraient deriver
         l'arbre hors de son sol."""
         v = list(bl["repos"])
-        nc, nr = COLONNES_ARBRE, RANGEES_ARBRE
+        nc, nr = bl["nc"], bl["nr"]
         t = self._sway_t
-        amp = VENT_ARBRE_AMPLITUDE * force * bl["h"]
+        tronc = bl["tronc"]
+        amp = bl["amp"] * force * bl["h"]
+        bond = bl["bond"] * force * bl["h"]
         # UNE VALEUR D'ONDE PAR COLONNE, calculee une fois : elle ne depend
-        # pas de la rangee, et la refaire a chaque sommet serait huit sinus
+        # pas de la rangee, et la refaire a chaque sommet serait dix sinus
         # pour rien.
         ondes = []
         for i in range(nc + 1):
-            u = VENT_ARBRE_TRAVERSE * i / nc
+            u = bl["traverse"] * i / nc
             ondes.append(
-                VENT_ARBRE_BIAIS
+                bl["biais"]
                 + math.sin(bl["w1"] * t + bl["phase"] + u)
-                + VENT_ARBRE_MELANGE
+                + bl["melange"]
                 * math.sin(bl["w2"] * t + bl["phase"] * 1.7 + 1.6 * u))
+        # LES POINTES : 0 sur l'axe du tronc, 1 au bord des branches.
+        pointes = [abs(i / nc - 0.5) * 2.0 for i in range(nc + 1)]
         for j in range(nr + 1):
             s = j / nr
-            if s <= TRONC_FIXE:
+            if s <= tronc:
                 continue                       # le tronc ne bouge pas
-            r = ((s - TRONC_FIXE) / (1.0 - TRONC_FIXE)) ** COURBE_ARBRE
+            lin = (s - tronc) / (1.0 - tronc)
+            r = lin ** bl["courbe"]
             depart = j * (nc + 1) * 4
+            dy = 0.0
+            if bond:
+                # Le rebond suit l'onde RAPIDE (une pointe de branche bat plus
+                # vite que le tronc ne se penche) et sa phase monte avec s.
+                dy = bond * lin * math.sin(bl["w2"] * t + bl["phase"]
+                                           + bl["montee"] * s)
             for i in range(nc + 1):
                 v[depart + i * 4] += amp * r * ondes[i]
+                if dy:
+                    v[depart + i * 4 + 1] += dy * pointes[i]
         bl["grille"].vertices = v
 
     # -- image du decor (si elle a ete fournie) -------------------------- #
+    @staticmethod
+    def _pick(cx, base):
+        """Le tirage de variante d'un element, deduit de sa POSITION.
+
+        Deux voisins ne prennent donc pas la meme image, et un element garde
+        la sienne quand la scene est redessinee. Sorti de _sprite parce que
+        _pine a besoin de la MEME valeur avant de dessiner, pour connaitre la
+        largeur de l'image et y poser son ombre."""
+        return int(abs(cx) * 7.13 + abs(base) * 3.71)
+
     def _zs(self, key):
         """Nom de l'image de cet element pour la ZONE en cours."""
         return _ZONE_SPRITES.get(self._zone,
@@ -1329,19 +1432,22 @@ class ZoneScenery(Widget):
         separes, et le voile debordait dans les echancrures.
 
         `plie` la pose en MAILLAGE plutot qu'en rectangle, et l'inscrit au
-        vent. Deux facons de plier, parce que deux choses ne plient pas
+        vent. Trois facons de plier, parce que trois choses ne plient pas
         pareil :
 
-            "herbe"  -- des rangees, la base plantee et la pointe qui se
-                        couche (voir _sprite_plie) ;
-            "arbre"  -- une grille, le tronc immobile et une rafale qui
-                        traverse le houppier (voir _sprite_feuillage).
+            "herbe"     -- des rangees, la base plantee et la pointe qui se
+                           couche (voir _sprite_plie) ;
+            "feuillu"   -- une grille, le tronc immobile et une rafale qui
+                           traverse le houppier ;
+            "conifere"  -- la meme grille, mais la fleche fouette et les
+                           pointes de branches rebondissent verticalement
+                           (voir _sprite_feuillage et _tick_feuillage).
 
         Vrai vaut "herbe" : c'etait le seul cas quand le parametre est ne."""
         if not name:
             return False
         if pick is None:
-            pick = int(abs(cx) * 7.13 + abs(base) * 3.71)
+            pick = self._pick(cx, base)
         tex = foliage.sprite(name, pick)
         if tex is None:
             return False
@@ -1365,8 +1471,8 @@ class ZoneScenery(Widget):
             pbr.bind_maps(nor, pak)
         Color(*((tuple(teinte[:3]) if teinte else (1, 1, 1)) + (1,)))
         f = min(0.90, max(0.0, float(coupe_bas)))
-        if plie == "arbre":
-            self._sprite_feuillage(tex, cx, base, w, h)
+        if plie in self._FEUILLAGE:
+            self._sprite_feuillage(tex, cx, base, w, h, plie)
         elif plie:
             self._sprite_plie(tex, cx, base, w, h)
         elif f <= 0.0:
@@ -1423,24 +1529,45 @@ class ZoneScenery(Widget):
                 "speed": 1.35 + 0.0007 * (abs(cx) % 400),
                 "phase": (cx * 0.11 + base * 0.07) % 6.28})
 
-    def _sprite_feuillage(self, tex, cx, base, w, h):
-        """L'image d'un arbre posee en GRILLE, pour que ses feuilles remuent.
+    # Les deux especes d'arbre, et tout ce qui les separe au vent. Les ranger
+    # ici plutot que dans le corps du code evite deux boucles jumelles qui
+    # divergeraient a la premiere retouche -- et met les differences cote a
+    # cote, ou on peut les lire.
+    _FEUILLAGE = {
+        "feuillu": {"nc": COLONNES_ARBRE, "nr": RANGEES_ARBRE,
+                    "tronc": TRONC_FIXE, "courbe": COURBE_ARBRE,
+                    "amp": VENT_ARBRE_AMPLITUDE, "bond": 0.0, "montee": 0.0,
+                    "hz": VENT_ARBRE_HZ, "melange": VENT_ARBRE_MELANGE,
+                    "biais": VENT_ARBRE_BIAIS,
+                    "traverse": VENT_ARBRE_TRAVERSE},
+        "conifere": {"nc": COLONNES_SAPIN, "nr": RANGEES_SAPIN,
+                     "tronc": TRONC_FIXE_SAPIN, "courbe": COURBE_SAPIN,
+                     "amp": VENT_SAPIN_AMPLITUDE, "bond": VENT_SAPIN_BOND,
+                     "montee": VENT_SAPIN_MONTEE,
+                     "hz": VENT_SAPIN_HZ, "melange": VENT_SAPIN_MELANGE,
+                     "biais": VENT_SAPIN_BIAIS,
+                     "traverse": VENT_SAPIN_TRAVERSE},
+    }
+
+    def _sprite_feuillage(self, tex, cx, base, w, h, espece):
+        """L'image d'un arbre posee en GRILLE, pour que son feuillage remue.
 
         Une rangee par bande horizontale suffisait a l'herbe : toute la touffe
         se couche du meme cote, seule la hauteur decide de combien. Un arbre
-        non -- son houppier qui s'inclinerait d'un bloc ferait une pancarte au
+        non -- un feuillage qui s'inclinerait d'un bloc ferait une pancarte au
         bout d'un mat. Il faut donc aussi des COLONNES, chacune avec son
         retard de phase, pour qu'une rafale le traverse.
 
         Les sommets portent leurs coordonnees d'image, que le vent ne touche
-        jamais : il ne deplace que les x. LES CARTES DE RELIEF SUIVENT DONC
-        TOUTES SEULES, puisque le shader les lit aux memes coordonnees que la
-        couleur (voir pbr.py) -- le relief d'une feuille reste sur cette
-        feuille pendant qu'elle bouge.
+        jamais : il ne deplace que la geometrie. LES CARTES DE RELIEF SUIVENT
+        DONC TOUTES SEULES, puisque le shader les lit aux memes coordonnees
+        que la couleur (voir pbr.py) -- le relief d'une aiguille reste sur
+        cette aiguille pendant qu'elle bouge.
 
         v DESCEND quand l'ecran MONTE (voir la note de sens de textures.py) :
         la rangee du bas lit le bas du PNG."""
-        nc, nr = COLONNES_ARBRE, RANGEES_ARBRE
+        reg = self._FEUILLAGE[espece]
+        nc, nr = reg["nc"], reg["nr"]
         gauche = cx - w / 2.0
         verts = []
         for j in range(nr + 1):
@@ -1462,11 +1589,15 @@ class ZoneScenery(Widget):
             # L'ecart reste petit (+/- 6 %), les deux frequences restent donc
             # dans la plage voulue.
             ecart = 1.0 + 0.12 * ((abs(cx) % 37) / 37.0 - 0.5)
-            self._sway.append({
+            bl = {k: reg[k] for k in ("nc", "nr", "tronc", "courbe", "amp",
+                                      "bond", "montee", "melange", "biais",
+                                      "traverse")}
+            bl.update({
                 "grille": m, "repos": tuple(verts), "h": h, "sorte": "arbre",
-                "w1": 6.2832 * VENT_ARBRE_HZ[0] * ecart,
-                "w2": 6.2832 * VENT_ARBRE_HZ[1] * ecart,
+                "w1": 6.2832 * reg["hz"][0] * ecart,
+                "w2": 6.2832 * reg["hz"][1] * ecart,
                 "phase": (cx * 0.017 + base * 0.011) % 6.2832})
+            self._sway.append(bl)
 
     def _sprite_enfoui(self, tex, cx, base, w, h, f, crans):
         """L'image, coupee a la ligne du sol par un bord DENTELE.
@@ -1940,10 +2071,34 @@ class ZoneScenery(Widget):
 
     # -- helpers -------------------------------------------------------- #
     def _pine(self, cx, base, tw, th, color, shadow=True):
+        """Sapin : image si elle existe, sinon deux triangles.
+
+        QUAND L'IMAGE EXISTE, C'EST ELLE QUI DECIDE DE LA LARGEUR, et donc de
+        l'ombre. `tw` est la base du triangle dessine -- un neuvieme de
+        l'ecran ; le sapin photographie fait 0,59 fois sa hauteur, soit
+        plusieurs fois plus large. L'ombre calculee sur `tw` aurait fait une
+        flaque sous un arbre de dix metres.
+
+        LA HAUTEUR RECOIT SON PROPRE FACTEUR, tire de la position comme la
+        variante. La scene tire deja une hauteur, mais la meme pour les deux
+        especes ; ce facteur-ci est ce qui empeche une sapiniere d'aligner des
+        arbres de meme stature. Il ne s'applique QUE quand l'image existe :
+        les triangles, eux, avaient deja leur propre variete de forme."""
+        pick = self._pick(cx, base)
+        tex = foliage.sprite("pine_tree", pick)
+        if tex is not None:
+            lo, hi = HAUTEUR_SAPIN
+            th = th * (lo + (hi - lo) * ((pick * 0.6180339887) % 1.0))
+            if shadow:
+                self._shadow(cx, base, foliage.size_for(tex, th)[0] * 0.5)
+            # LA LIGNE D'HORIZON NE BRUIT PAS (meme drapeau, meme raison que
+            # pour le feuillu : a cette distance cela ne se verrait pas, et il
+            # y a une trentaine d'arbres a poser).
+            self._sprite("pine_tree", cx, base, th, pick=pick,
+                         plie="conifere" if shadow else False)
+            return
         if shadow:
             self._shadow(cx, base, tw * 0.9)
-        if self._sprite("pine_tree", cx, base, th):
-            return
         tex = paint_color("foliage", color)
         self._bind_pbr("foliage")
         Triangle(points=[cx - tw / 2, base, cx + tw / 2, base,
@@ -2057,7 +2212,7 @@ class ZoneScenery(Widget):
         # d'arbres a poser -- autant de grilles de 63 sommets au lieu de
         # simples rectangles, pour rien.
         if self._sprite("forest_tree", cx, base, th,
-                        plie="arbre" if shadow else False):
+                        plie="feuillu" if shadow else False):
             return
         tw = max(2.0, self.width * 0.012 * scale)
         btex = paint_color("bark", (0.28, 0.19, 0.11, 1))

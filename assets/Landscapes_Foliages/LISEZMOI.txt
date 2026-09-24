@@ -84,7 +84,49 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
 
 --- FORET --------------------------------------------------------
     pine_tree.png         Sapin, vu en entier (grand : jusqu'a ~100 % de
-                          la hauteur d'ecran au premier plan)
+                          la hauteur d'ecran au premier plan), AVEC SES DEUX
+                          CARTES. QUATRE MODELES a partir d'une seule photo :
+
+                            pine_tree     rapport 0,594   la photo livree
+                            pine_tree_2   rapport 0,594   son miroir
+                            pine_tree_3   rapport 0,748   trapu, large
+                            pine_tree_4   rapport 0,464   elance, en miroir
+
+                          C'est le RAPPORT qui fait la difference et non la
+                          taille : le jeu commande la hauteur et la largeur
+                          suit. A hauteur egale, le trapu est donc 61 % plus
+                          large que l'elance. La HAUTEUR, elle, recoit en plus
+                          un facteur propre a chaque pied (0,82 a 1,18, tire
+                          de sa position) : mesure en jeu, 727 a 1644 px.
+
+                          /!\ ETIRER UNE CARTE DE NORMALES N'EST PAS
+                          L'ETIRER. Elargir d'un facteur a divise les pentes
+                          horizontales par a : la normale devient (nx/a, ny,
+                          nz), renormalisee. Sans cela, un sapin elargi de
+                          26 % garderait le relief d'un sapin etroit et
+                          paraitrait plus bossele qu'il ne l'est. Le miroir,
+                          lui, inverse le canal rouge (voir forest_tree).
+
+                          SON VENT N'EST PAS CELUI DU FEUILLU, et ce n'est pas
+                          qu'une question de force. Un houppier de feuillu est
+                          une masse souple que le vent traverse ; un sapin est
+                          une fleche rigide portant des etages de branches
+                          raides. Trois differences :
+                            - le balancement se concentre dans la FLECHE (a
+                              mi-hauteur il ne vaut que 12 % de celui de la
+                              cime) ;
+                            - LES POINTES DE BRANCHES REBONDISSENT
+                              VERTICALEMENT -- nulle sur l'axe du tronc,
+                              maximale au bout des branches. Aucun feuillu ne
+                              fait cela ;
+                            - ce rebond MONTE le long de l'arbre, etage par
+                              etage, au lieu de les faire battre ensemble.
+                          Et il vibre plus vite (0,66 et 0,88 Hz contre 0,53
+                          et 0,94) : plus raide et plus leger.
+
+                          Ses branches descendent presque au sol : seul
+                          l'empattement est immobile (0,11 de la hauteur,
+                          contre 0,26 pour le feuillu).
     forest_tree.png       Arbre feuillu, vu en entier, AVEC SES DEUX CARTES
                           (forest_tree_R.png et forest_tree_P.png). Deux
                           modeles en place, le second etant le MIROIR du
