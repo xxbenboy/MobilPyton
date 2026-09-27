@@ -434,6 +434,43 @@ BRUME_COURBE = 1.5
 # pres autant. Sans cela les collines viraient au bleu franc.
 BRUME_BLANCHE = 0.45
 
+class _BordDuSol(object):
+    """Le bord REEL d'un sol dessine par _fill_curve.
+
+    Pas la courbe lisse qu'on lui a donnee : la courbe PLUS sa dentelure
+    (voir _frange), telle que le maillage la trace -- des segments droits
+    d'un sommet au suivant. C'est ce bord-la que l'oeil voit contre le ciel,
+    et c'est donc sur lui qu'une touffe doit reposer. Posee sur la courbe
+    lisse, elle flottait au-dessus de chaque creux de la dentelure."""
+
+    def __init__(self, x0, largeur, sommets):
+        self.x0 = float(x0)
+        self.largeur = max(1.0, float(largeur))
+        self.ys = list(sommets)
+        self.n = max(1, len(self.ys) - 1)
+
+    def _u(self, x):
+        return min(float(self.n),
+                   max(0.0, (x - self.x0) / self.largeur * self.n))
+
+    def __call__(self, x):
+        """Hauteur du bord a l'abscisse x (en pixels)."""
+        u = self._u(x)
+        i = min(self.n - 1, int(u))
+        f = u - i
+        return self.ys[i] + (self.ys[i + 1] - self.ys[i]) * f
+
+    def plus_bas(self, xa, xb):
+        """Le point le plus BAS du bord entre xa et xb. Le bord etant fait de
+        segments droits, il est a l'un des deux bouts ou sur un sommet."""
+        bas = min(self(xa), self(xb))
+        ia = int(math.ceil(self._u(min(xa, xb))))
+        ib = int(math.floor(self._u(max(xa, xb))))
+        for i in range(ia, ib + 1):
+            bas = min(bas, self.ys[i])
+        return bas
+
+
 _RAMPE_BRUME = []
 
 
@@ -3315,10 +3352,12 @@ class ZoneScenery(Widget):
         frange = (self._frange(tex_name, tile_px, depth, segs) if frange
                   else [0.0] * (segs + 1))
         verts = []
+        bord = []
         for i in range(segs + 1):
             fx = i / segs
             x = x0 + fx * w
             top = top_fn(fx) + frange[i]
+            bord.append(top)
             for k, t in zip(ks, ts):
                 # A la distance k, l'ecran couvre k fois plus de terrain :
                 # u s'ecarte du point de fuite, v s'enfonce. La tuile
@@ -3343,6 +3382,34 @@ class ZoneScenery(Widget):
         if estompe:
             self._estompe(top_fn, frange, tex, tex_name, tile_px, depth, segs)
         self._reset_pbr()
+        return _BordDuSol(x0, w, bord)
+
+    # LE PIED D'UNE TOUFFE POSEE PRES D'UN BORD DE SOL, sous ce bord, en part
+    # de sa hauteur dessinee. Posee pile sur le bord, une touffe tient en
+    # equilibre sur une ligne ; enfoncee, elle se lit comme une touffe du
+    # versant qui depasse de la crete -- ce qu'elle est.
+    ENFONCE_BORD = 0.15
+
+    # Demi-largeur du PIED d'une touffe, en part de la largeur de son image.
+    # Mesuree sur l'image livree : a 3 % de sa hauteur la touffe n'occupe que
+    # +/- 0,16 de sa largeur, mais des 6 % elle en occupe +/- 0,32. C'est
+    # toute cette largeur qui doit reposer sur le sol, sinon le ciel passe
+    # sous l'un de ses cotes.
+    PIED_TOUFFE = 0.35
+
+    def _plante_sur(self, bord, gx, gb, gh):
+        """La base d'une touffe, ramenee SOUS le bord reel du sol.
+
+        `bord` est ce que rend _fill_curve : le bord tel qu'il est DESSINE,
+        dentelure comprise. La touffe est descendue sous son point le plus
+        bas sur toute la largeur de son pied -- elle ne remonte jamais."""
+        haut = gh * 1.15                         # hauteur dessinee (_grass_tuft)
+        tex = foliage.sprite(NOM_HERBE)
+        rapport = (float(tex.width) / float(tex.height)
+                   if tex is not None and tex.height else 1.0)
+        demi = self.PIED_TOUFFE * haut * rapport
+        plafond = bord.plus_bas(gx - demi, gx + demi) - self.ENFONCE_BORD * haut
+        return min(gb, plafond)
 
     # LA MECHE QUI S'EFFACE au-dessus du bord : sur quelle hauteur (en part de
     # la frange) et en combien de paliers.
@@ -3465,7 +3532,7 @@ class ZoneScenery(Widget):
         # lointaine est de la MEME herbe, a pleine couleur ("grass_loin") :
         # c'est la brume, posee plus bas, qui la recule -- elle ne se detache
         # plus du champ en plus sombre.
-        self._fill_curve(horizon_curve, "grass_loin")
+        crete = self._fill_curve(horizon_curve, "grass_loin")
         self._fill_curve(field_curve, "grass", estompe=True)
 
         # Petites fabriques de "fonctions de dessin" (pour differer le rendu).
@@ -3573,6 +3640,14 @@ class ZoneScenery(Widget):
                 gb = bas + (haut - bas) * rng.random() ** 0.7
                 sc = echelle_loin(gb)
                 gh = rng.uniform(0.05, 0.16) * h * sc
+                # SOUS LE BORD REEL DE LA CRETE, a l'endroit ou la touffe est
+                # vraiment posee. La hauteur ci-dessus est prise en fx, AVANT
+                # le petit decalage de gx : la ou la crete descend, la touffe
+                # se retrouvait au-dessus du vide. Et la courbe lisse ignore
+                # la dentelure du bord, dont chaque creux laissait passer le
+                # ciel sous une touffe. Aucun tirage en plus : le decor ne
+                # bouge pas, seules les touffes de crete descendent.
+                gb = self._plante_sur(crete, gx, gb, gh)
                 if recoltable and self._take_or_skip("Herbe"):
                     continue
                 if self._is_blocked(gx, gb, gb + gh):
