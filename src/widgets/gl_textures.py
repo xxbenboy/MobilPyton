@@ -60,14 +60,19 @@ def reveille_arbre(racine):
 
 
 def texture_depuis_octets(size, data, colorfmt="rgba", wrap=None,
-                          mag_filter=None, min_filter=None):
+                          mag_filter=None, min_filter=None, mipmap=False):
     """Une texture remplie avec `data`, qui se REREMPLIT apres coup.
 
     Meme signature d'usage que Texture.create + blit_buffer, avec les
     reglages courants en prime pour qu'ils soient reappliques eux aussi : un
-    wrap perdu fait baver le bord oppose sur la silhouette."""
+    wrap perdu fait baver le bord oppose sur la silhouette.
+
+    `mipmap` EXIGE UNE TAILLE EN PUISSANCE DE 2 : un telephone en OpenGL ES 2
+    refuse les mipmaps sur une autre taille, et la texture s'affiche alors
+    NOIRE. C'est a l'appelant de garantir la taille. Les niveaux reduits sont
+    regeneres a chaque remplissage -- donc aussi apres un reveil."""
     octets = bytes(data)
-    tex = Texture.create(size=size, colorfmt=colorfmt)
+    tex = Texture.create(size=size, colorfmt=colorfmt, mipmap=mipmap)
 
     def remplir(*_):
         tex.blit_buffer(octets, colorfmt=colorfmt, bufferfmt="ubyte")

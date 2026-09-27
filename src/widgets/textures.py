@@ -74,7 +74,14 @@ TILE_PX = {
 #
 #    nom emprunteur : (nom source, assombrissement)
 ALIAS = {
-    "grass_far": ("grass", 0.92),
+    # La berge d'en face du lac : assombrie pour se detacher de la colline
+    # qui la precede.
+    "grass_far": ("grass", 0.82),
+    # La bande lointaine de la PLAINE, elle, garde la pleine couleur : ce qui
+    # la recule, c'est la brume (voir ZoneScenery._brume). L'assombrir en plus
+    # faisait l'inverse de ce que fait l'air -- le lointain fonce, alors qu'il
+    # palit -- et se lisait comme une zone d'ombre.
+    "grass_loin": ("grass", 1.0),
     # Le fond de la foret, c'est LE MEME SOL, plus loin. Sans cet emprunt il
     # serait reste un aplat de couleur derriere un sol texture : la bande
     # lointaine se serait detachee comme un morceau de carton. Un peu plus

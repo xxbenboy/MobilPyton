@@ -199,6 +199,215 @@ def silhouette(name, pick=None):
     return faites[int(pick) % len(faites)]
 
 
+# --------------------------------------------------------------------- #
+# L'HERBE OMBREE, EN UNE SEULE PLANCHE
+# --------------------------------------------------------------------- #
+# Une touffe d'herbe n'est pas un aplat : ses brins se font de l'ombre les uns
+# aux autres, et le COEUR de la touffe, au ras du sol, ne voit presque pas le
+# ciel. Il est donc sombre, et seules les pointes prennent la lumiere. C'est
+# ce contraste qui donne du VOLUME a une touffe ; sans lui elle se lit comme
+# une decoupe collee sur le sol -- ce qui etait precisement le reproche.
+#
+# L'image livree n'en porte qu'un soupcon (son pied est 1,6 fois plus sombre
+# que ses pointes). On le creuse ici, une fois, au chargement : chaque rangee
+# de pixels est multipliee par un facteur qui monte du pied vers le haut.
+#
+# LA PLANCHE REUNIT TOUTES LES VARIANTES dans une seule texture, pour une
+# raison de cout : une scene de plaine pose plus de deux mille touffes, et une
+# touffe par dessin ferait deux mille dessins par image. Sur une meme texture,
+# des touffes voisines en profondeur se dessinent D'UN SEUL COUP (voir
+# ZoneScenery._lot_herbe).
+#
+# ELLE EST EN PUISSANCE DE 2, avec des MIPMAPS. Une touffe du fond fait une
+# vingtaine de pixels pour une image de 448 : sans version reduite, la carte
+# graphique y pioche un pixel au hasard, et le fond fourmille de points
+# vert vif. Avec, la touffe lointaine se fond en une tache douce -- ce que
+# l'oeil voit vraiment a cette distance.
+#
+# Tout se fait sur les OCTETS, sans bibliotheque d'image : l'APK n'embarque
+# que Kivy. Les operations sont des traductions d'octets et des operations
+# sur de grands entiers, faites en C par Python : quelques millisecondes.
+
+# Clarte au ras du sol, en part de la couleur de l'image.
+OMBRE_PIED = 0.40
+# Part de la hauteur (depuis le pied) ou la touffe atteint sa pleine lumiere.
+OMBRE_HAUTEUR = 0.62
+# Plus grande planche admise (cote, en pixels) : 2048 passe partout.
+PLANCHE_MAX = 2048
+
+_PLANCHES = {}
+
+
+def _pow2(n):
+    p = 1
+    while p < n:
+        p *= 2
+    return p
+
+
+def _clarte_rangee(s):
+    """Facteur de clarte a la hauteur s (0 au pied, 1 en haut de l'image)."""
+    x = max(0.0, min(1.0, s / OMBRE_HAUTEUR))
+    lisse = x * x * (3.0 - 2.0 * x)
+    return OMBRE_PIED + (1.0 - OMBRE_PIED) * lisse
+
+
+def _octets_rgba(path):
+    """(largeur, hauteur, octets RGBA serres) de l'image, ou None."""
+    try:
+        img = CoreImage(path, keep_data=True)
+        brut = img.image._data[0]
+        if (brut.fmt or "rgba") != "rgba":
+            return None
+        w, h = int(brut.width), int(brut.height)
+        donnees = bytes(brut.data)
+    except Exception:
+        return None
+    # LE PAS D'UNE LIGNE SE DEDUIT DES DONNEES, pas de `rowlength` : selon le
+    # chargeur, celui-ci est compte en pixels, en octets, ou laisse a zero
+    # (SDL2, celui du telephone, y met 1 792 pour une image de 448 pixels --
+    # des octets). La taille reelle, elle, ne ment pas.
+    pas = len(donnees) // h if h else 0
+    if pas < w * 4:
+        return None
+    if pas != w * 4:                   # lignes rembourrees : on les resserre
+        donnees = b"".join(donnees[r * pas:r * pas + w * 4] for r in range(h))
+    return w, h, donnees
+
+
+def _ombre_la(w, h, donnees):
+    """Assombrit les rangees vers le PIED de la touffe.
+
+    LE PIED EST LA DERNIERE RANGEE DES OCTETS, quel que soit le chargeur :
+    c'est elle que le maillage de la touffe pose au sol (voir
+    ZoneScenery._sprite_plie, ou le bas de la touffe lit v = 1). L'ombre suit
+    donc toujours le dessin, meme si un chargeur rangeait l'image a l'envers."""
+    out = bytearray(donnees)
+    tables = {}
+    ligne = w * 4
+    for r in range(h):
+        s = (h - 1 - r) / float(max(1, h - 1))
+        f = round(_clarte_rangee(s) * 128.0) / 128.0
+        if f >= 0.999:
+            continue
+        tab = tables.get(f)
+        if tab is None:
+            tab = bytes(min(255, int(v * f + 0.5)) for v in range(256))
+            tables[f] = tab
+        a = r * ligne
+        rangee = out[a:a + ligne]
+        for c in range(3):
+            rangee[c::4] = rangee[c::4].translate(tab)
+        out[a:a + ligne] = rangee
+    return out
+
+
+def _moyenne_opaque(donnees):
+    """Couleur moyenne (0..255) des pixels franchement opaques."""
+    n = len(donnees) // 4
+    pas = max(1, n // 6000) * 4
+    total = [0, 0, 0]
+    k = 0
+    for i in range(0, len(donnees) - 3, pas):
+        if donnees[i + 3] >= 200:
+            total[0] += donnees[i]
+            total[1] += donnees[i + 1]
+            total[2] += donnees[i + 2]
+            k += 1
+    if not k:
+        return (0, 0, 0)
+    return tuple(int(t / k) for t in total)
+
+
+def _borde(atlas, couleur):
+    """Donne aux pixels TRANSPARENTS la couleur moyenne de l'herbe.
+
+    Ils sont noirs dans l'image livree, et cela ne se voyait pas : leur alpha
+    est nul. Mais une version reduite (mipmap) MOYENNE les pixels voisins,
+    transparents compris -- leur noir se melangeait alors au vert, et chaque
+    touffe lointaine s'entourait d'un halo sombre. Avec la couleur de l'herbe
+    dessous, la moyenne reste verte.
+
+    Fait sur tout le canal d'un coup, en grands entiers : un masque ou
+    l'alpha est nul, puis un choix bit a bit entre l'ancien octet et le
+    nouveau."""
+    n = len(atlas) // 4
+    tout = (1 << (8 * n)) - 1
+    alpha = bytes(atlas[3::4])
+    masque = int.from_bytes(alpha.translate(bytes([255] + [0] * 255)), "big")
+    garde = masque ^ tout
+    for c in range(3):
+        canal = int.from_bytes(bytes(atlas[c::4]), "big")
+        fond = int.from_bytes(bytes([couleur[c]]) * n, "big")
+        atlas[c::4] = ((canal & garde) | (fond & masque)).to_bytes(n, "big")
+
+
+class Planche(object):
+    """Toutes les variantes d'une herbe, ombrees, dans une seule texture.
+
+    `cases[i]` = (u0, u1, v_haut, v_pied, largeur_px, hauteur_px) de la
+    variante i : ou la lire dans la planche, et sa taille d'origine (pour
+    garder ses proportions a l'ecran)."""
+
+    def __init__(self, tex, cases, moyenne):
+        self.tex = tex
+        self.cases = cases
+        self.moyenne = moyenne          # couleur moyenne (0..1) apres ombrage
+
+    def case(self, pick):
+        return self.cases[int(pick) % len(self.cases)]
+
+
+def planche_ombree(name):
+    """La planche ombree de cette herbe (voir plus haut), ou None.
+
+    None si aucune image n'a ete fournie, ou si l'une d'elles ne se lit pas en
+    RGBA : l'appelant garde alors son dessin d'origine, image par image."""
+    if name in _PLANCHES:
+        return _PLANCHES[name]
+    _PLANCHES[name] = None
+    images = []
+    for stem in _stems_charges(name):
+        chemin = _chemin(stem)
+        lu = _octets_rgba(chemin) if chemin else None
+        if lu is None:
+            return None
+        images.append(lu)
+    if not images:
+        return None
+    n = len(images)
+    colonnes = min(n, 4)
+    lignes = -(-n // colonnes)
+    cw = max(w for w, _h, _d in images)
+    ch = max(h for _w, h, _d in images)
+    pw, ph = _pow2(colonnes * cw), _pow2(lignes * ch)
+    if pw > PLANCHE_MAX or ph > PLANCHE_MAX:
+        return None
+    atlas = bytearray(pw * ph * 4)
+    cases = []
+    for i, (w, h, donnees) in enumerate(images):
+        ombree = _ombre_la(w, h, donnees)
+        x0 = (i % colonnes) * cw
+        y0 = (i // colonnes) * ch
+        for r in range(h):
+            a = ((y0 + r) * pw + x0) * 4
+            atlas[a:a + w * 4] = ombree[r * w * 4:(r + 1) * w * 4]
+        # v = 0 est la PREMIERE rangee des octets : le HAUT de la touffe.
+        cases.append((x0 / float(pw), (x0 + w) / float(pw),
+                      y0 / float(ph), (y0 + h) / float(ph), w, h))
+    moyenne = _moyenne_opaque(bytes(atlas))
+    _borde(atlas, moyenne)
+    try:
+        tex = texture_depuis_octets((pw, ph), atlas, wrap="clamp_to_edge",
+                                    mipmap=True,
+                                    min_filter="linear_mipmap_linear")
+    except Exception:
+        return None
+    planche = Planche(tex, cases, tuple(c / 255.0 for c in moyenne))
+    _PLANCHES[name] = planche
+    return planche
+
+
 def size_for(tex, height):
     """(largeur, hauteur) d'une image posee a cette HAUTEUR, sans deformation."""
     tw, th = tex.size

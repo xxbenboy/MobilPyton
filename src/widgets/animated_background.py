@@ -787,6 +787,12 @@ class AnimatedBackground(Widget):
         self._grad_tex.blit_buffer(bytes(buf), colorfmt="rgba",
                                    bufferfmt="ubyte")
 
+    def couleur_ciel(self, part):
+        """Couleur du ciel AFFICHEE a cette hauteur d'ecran (0 en bas),
+        meteo comprise. Le decor s'en sert pour fondre son lointain dans le
+        ciel (voir ZoneScenery.set_brume)."""
+        return self._ciel_a(part)
+
     def _ciel_a(self, part):
         """Couleur du ciel affichee a cette hauteur d'ecran (0 en bas)."""
         vue = self._colonne_vue

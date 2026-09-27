@@ -1731,6 +1731,10 @@ class GameScreen(Screen):
         self._night_color.a = night_darkness(state.time_seconds)
         # Le decor suit le soleil : couleur de la lumiere et ombres portees.
         self.scenery.set_daylight(state.time_seconds)
+        # Et son lointain se fond dans le ciel TEL QU'IL EST AFFICHE -- meteo
+        # comprise : un ciel qui se couvre grise aussi les collines du fond.
+        self.scenery.set_brume(self.background.couleur_ciel(
+            self.scenery.hauteur_horizon()))
         # Releve jour/nuit de la petite faune : les insectes de jour s'effacent
         # a mesure que la nuit tombe, les lucioles apparaissent (et l'inverse
         # au lever du jour).

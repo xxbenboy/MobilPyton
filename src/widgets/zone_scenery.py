@@ -28,6 +28,8 @@ from kivy.graphics import (Color, Ellipse, Rectangle, Triangle, Line, Quad,
 from src import world, items
 from src.widgets import textures, pbr, foliage, daylight
 from src.widgets import horizon
+from src.widgets import animated_background
+from src.widgets.gl_textures import texture_depuis_octets
 from src.widgets.textures import paint, paint_color, tiled_coords
 from src.widgets.installed_layer import grid_to_screen
 from src.widgets import build_grid
@@ -183,6 +185,11 @@ HERBE_FORET = 950          # x5 (etait 190)
 # la seule passe qui allait plus loin se serrait sur la crete meme. Elles sont
 # petites, donc on peut en mettre beaucoup.
 HERBE_LOIN_PLAINE = 750    # x5 (etait 150)
+
+# Touffes AU PIED du joueur, sous le plancher des objets a ramasser (voir
+# _plaine). Plus grandes a l'ecran que celles du champ -- elles sont tout
+# pres -- il en faut donc moins pour couvrir la bande.
+HERBE_PIED_PLAINE = 260
 
 # Echelle apparente d'une touffe au SOMMET DU CHAMP PROCHE. C'est la valeur
 # que `place` y donne (1 - 0,70 x 1) : la bande lointaine part de la, et
@@ -355,16 +362,109 @@ HAUTEUR_SAPIN = (0.82, 1.18)
 # fois le sous-bois sombre et le champ en pleine lumiere.
 CLARTE_HERBE = 0.395
 
-# Bornes de cette teinte. Le plafond laisse de la marge au-dessus de 1 pour
-# l'herbe lointaine, plus claire que l'image ; le plancher evite qu'un vert de
-# sous-bois ne la rende noire.
+# Bornes de cette teinte. Le plancher evite qu'un vert de sous-bois ne rende
+# l'herbe noire ; le plafond, qu'une couleur trop claire ne la delave.
+TEINTE_HERBE_MIN, TEINTE_HERBE_MAX = 0.45, 1.25
+
+# LA COULEUR DE L'HERBE, ET NON PLUS SEULEMENT SA CLARTE. L'image livree est
+# d'un vert froid, presque cyan (ses pointes : 0,42 0,65 0,29), alors que le
+# sol de la plaine est un vert olive chaud (0,33 0,42 0,10) : posees dessus,
+# les touffes semblaient decoupees dans une autre photo -- pales, et d'une
+# autre lumiere. On retire donc une part de leur bleu et un soupcon de leur
+# vert, ce qui les ramene dans la famille du sol sans les rendre jaunes.
+TEINTE_HERBE_RVB = (1.00, 0.95, 0.66)
+
+# COULEUR D'UNE TOUFFE DE PLAINE : celle que prendrait l'image d'origine,
+# avant que son pied soit assombri (voir foliage.planche_ombree). Un peu plus
+# sombre que le sol (0,31 de clarte contre 0,36) : les pointes arrivent a peu
+# pres a la clarte du sol, le pied descend nettement en dessous -- c'est ce
+# qui fait qu'une touffe se POSE sur le sol au lieu de flotter dessus en plus
+# clair.
 #
-# LE PLAFOND NE DOIT PAS ETRE LA CONTRAINTE QUI MORD. A 1,15 il l'etait : le
-# vert le plus lointain de la plaine demande 1,24, et 135 touffes sur 406
-# sortaient donc a la meme valeur exacte -- toute la moitie lointaine du champ
-# etait d'une clarte uniforme, et la perspective aerienne qu'on voulait garder
-# etait ecrasee. A 1,25 elle repasse.
-TEINTE_HERBE_MIN, TEINTE_HERBE_MAX = 0.45, 1.10
+# LA MEME PARTOUT DANS LA PLAINE, du premier plan a la crete. L'herbe du fond
+# etait autrefois eclaircie a la main (jusqu'a 1,24 fois l'image) pour faire
+# la distance ; c'est desormais la BRUME qui s'en charge (voir _brume), et un
+# vert qui palit tout seul par-dessus aurait fait la distance deux fois --
+# d'ou les touffes vert vif sur le fond.
+HERBE_PLAINE = (0.25, 0.37, 0.10)
+
+# --- DESSIN DE L'HERBE PAR LOTS -------------------------------------------- #
+# Plus de deux mille touffes par scene de plaine : dessinees une par une, cela
+# ferait autant de dessins par image, et Kivy redessine TOUTE la scene a
+# chaque image (le ciel bouge sans arret). Les touffes immobiles qui se
+# suivent en profondeur partagent la meme planche et la meme teinte : on les
+# pose donc dans un seul maillage (voir _dessine). Un maillage Kivy compte ses
+# sommets sur 16 bits, soit 65 535 au plus : 4 000 touffes de 4 sommets
+# restent tres en dessous.
+LOT_HERBE_MAX = 4000
+
+# --- LA BRUME DU LOINTAIN -------------------------------------------------- #
+# Entre l'oeil et une colline eloignee il y a de l'air, et l'air diffuse la
+# lumiere du ciel : ce qui est loin se rapproche de la couleur du CIEL A
+# L'HORIZON. Il palit, bleuit, perd son contraste -- il ne fonce jamais. C'est
+# la perspective aerienne, et c'est la regle que suit l'oeil pour juger d'une
+# distance.
+#
+# Le fond de la plaine faisait l'inverse : il etait ASSOMBRI (x 0,82) pour se
+# detacher du champ. L'oeil le lisait comme une zone d'ombre, et la crete se
+# decoupait en vert sombre sur un ciel clair -- le plus fort contraste de
+# l'image, la ou il aurait du etre le plus faible.
+#
+# Part de brume a la crete (0 = aucune, 1 = le ciel lui-meme). Par temps
+# clair, une colline a un kilometre reste verte : elle palit et bleuit, elle
+# ne disparait pas. Au-dela de 0,45 elle virait au gris-bleu d'un jour de
+# brouillard.
+BRUME_CRETE = 0.46
+# Hauteur, au-dessus de la crete, que couvre encore le voile. LES TOUFFES DE
+# LA CRETE depassent du sol sur le ciel : un voile qui s'arretait au ras de la
+# crete laissait leur sommet net, et la ligne d'horizon se herissait de petits
+# buissons vert sombre. Le voile garde donc sa pleine force sur une hauteur de
+# touffe, puis s'efface dans le ciel -- ou il se voit a peine, puisqu'il est
+# de la couleur du ciel.
+BRUME_AU_DESSUS = 0.036
+# Part de cette hauteur ou le voile reste a pleine force avant de s'effacer.
+BRUME_PALIER = 0.55
+# Comment la brume monte entre le champ proche et la crete : AU-DESSUS DE 1,
+# elle reste legere sur la premiere moitie de la bande et s'epaissit vers le
+# fond -- la distance, elle, croit de plus en plus vite a mesure qu'on
+# approche de l'horizon.
+BRUME_COURBE = 1.5
+# La brume est plus BLANCHE que le ciel a l'horizon : pres du sol, l'air
+# porte de la vapeur et des poussieres qui diffusent toutes les couleurs a peu
+# pres autant. Sans cela les collines viraient au bleu franc.
+BRUME_BLANCHE = 0.45
+
+_RAMPE_BRUME = []
+
+
+def _rampe_brume():
+    """La rampe d'opacite de la brume : une petite texture, blanche.
+
+    Lue de bas en haut (v = 0 au bord du champ proche) : l'opacite monte
+    jusqu'a BRUME_CRETE a mi-hauteur (v = 0,5 : la crete), tient ce palier
+    sur la hauteur des touffes de crete, puis retombe a zero en haut (v = 1).
+    C'est la Color du voile qui lui donne sa couleur."""
+    if _RAMPE_BRUME:
+        return _RAMPE_BRUME[0]
+    n, larg = 64, 4
+    octets = bytearray()
+    for j in range(n):
+        v = (j + 0.5) / n
+        if v <= 0.5:
+            a = BRUME_CRETE * (v / 0.5) ** BRUME_COURBE
+        else:
+            s = (v - 0.5) / 0.5
+            s = max(0.0, (s - BRUME_PALIER) / (1.0 - BRUME_PALIER))
+            a = BRUME_CRETE * (1.0 - s * s * (3.0 - 2.0 * s))
+        octets += bytes((255, 255, 255, int(max(0.0, min(1.0, a)) * 255
+                                             + 0.5))) * larg
+    try:
+        tex = texture_depuis_octets((larg, n), octets, wrap="clamp_to_edge",
+                                    mag_filter="linear", min_filter="linear")
+    except Exception:
+        tex = None
+    _RAMPE_BRUME.append(tex)
+    return tex
 
 # Force du vent par meteo : le decor se courbe quand il souffle.
 _WIND = {"clair": 0.55, "nuageux": 0.9, "pluie": 1.5, "neige": 1.0,
@@ -486,6 +586,16 @@ class ZoneScenery(Widget):
         self._sway_ev = None
         self._sway_t = 0.0
         self._wind = _WIND_DEFAULT
+        # Herbe en attente d'etre dessinee d'un seul coup (voir _dessine) ;
+        # None hors d'un dessin trie. Et la hauteur a partir de laquelle une
+        # touffe ondule au vent -- celles-la sont dessinees une par une.
+        self._lot = None
+        self._seuil_vent = 0.0
+        # Brume du lointain (voir _brume) : son instruction de couleur, et la
+        # couleur du ciel a l'horizon telle que le fond l'affiche (None tant
+        # que personne ne l'a donnee : on la lit alors dans la LUT du ciel).
+        self._brume_couleur = None
+        self._brume_ciel = None
         # Eclairage par shader. Il est desormais installe DES QUE l'eclairage
         # est actif, et non plus seulement quand des cartes de normales
         # existent : c'est lui qui porte aussi la COULEUR de la lumiere (doree
@@ -509,9 +619,52 @@ class ZoneScenery(Widget):
         crainte."""
         self._seconds = float(seconds)
         self._apply_light()
+        self._applique_brume()
         off, length, alpha = daylight.shadow(self._seconds)
         for sh in self._shadows:
             self._place_shadow(sh, off, length, alpha)
+
+    def set_brume(self, ciel):
+        """Donne la couleur du CIEL A L'HORIZON telle que le fond l'affiche.
+
+        C'est vers elle que le lointain se fond (voir _brume). La lire ici,
+        plutot que la recalculer, fait suivre la brume a TOUT ce que le fond
+        applique au ciel -- la meteo comprise, et ses transitions : un ciel
+        qui se couvre grise aussi les collines, au meme rythme.
+
+        Comme set_daylight, cela ne redessine rien : une seule couleur change."""
+        self._brume_ciel = tuple(float(v) for v in ciel[:3])
+        self._applique_brume()
+
+    def _ciel_horizon(self):
+        """Couleur du ciel a la hauteur de la crete (voir set_brume)."""
+        if self._brume_ciel is not None:
+            return self._brume_ciel
+        colonne = animated_background.sky_column(self._seconds)
+        if colonne:
+            i = int(max(0.0, min(1.0, self.hauteur_horizon()))
+                    * (len(colonne) - 1))
+            return tuple(colonne[i])
+        return tuple(animated_background.sky_color(self._seconds))
+
+    def _applique_brume(self):
+        """Colore la brume. Aucune forme n'est recreee.
+
+        LA TEINTE DE LA LUMIERE EST RETIREE : le shader de la scene multiplie
+        tout ce qu'il dessine par elle (doree le matin, orange au couchant),
+        or la brume n'est pas une surface eclairee -- c'est la lumiere du ciel
+        elle-meme. Sans cette division, la crete aurait pris au couchant un
+        orange plus sombre que le ciel juste au-dessus, et la ligne d'horizon
+        serait reapparue."""
+        if not self._brume_couleur:
+            return
+        r, g, b = self._ciel_horizon()
+        lum = min(1.0, (0.3 * r + 0.6 * g + 0.1 * b) * 1.15)
+        teinte = (daylight.light_tint(self._seconds) if self._pbr
+                  else (1.0, 1.0, 1.0))
+        for c, k in self._brume_couleur:
+            brume = (r + (lum - r) * k, g + (lum - g) * k, b + (lum - b) * k)
+            c.rgb = tuple(brume[i] / max(0.05, teinte[i]) for i in range(3))
 
     def set_wind(self, kind):
         """Force du vent, d'apres la meteo : le decor se courbe davantage."""
@@ -1529,6 +1682,30 @@ class ZoneScenery(Widget):
                 "speed": 1.35 + 0.0007 * (abs(cx) % 400),
                 "phase": (cx * 0.11 + base * 0.07) % 6.28})
 
+    def _touffe_pliee(self, planche, teinte, cx, base, w, h, uv):
+        """Une touffe OMBREE posee seule, en rangees, pour qu'elle ondule.
+
+        C'est _sprite_plie, lu dans la planche d'herbe plutot que dans une
+        image entiere : `uv` = (u gauche, u droite, v du haut, v du pied) de
+        sa variante. Meme maillage, meme inscription au vent."""
+        u0, u1, v_haut, v_pied = uv
+        Color(teinte[0], teinte[1], teinte[2], 1)
+        n = RANGEES_HERBE
+        gauche = cx - w / 2.0
+        verts = []
+        for i in range(n + 1):
+            t = i / n
+            y = base + h * t
+            v = v_pied + (v_haut - v_pied) * t
+            verts += [gauche, y, u0, v, gauche + w, y, u1, v]
+        m = Mesh(vertices=verts, indices=list(range(2 * (n + 1))),
+                 mode="triangle_strip", texture=planche.tex)
+        if SWAY:
+            self._sway.append({
+                "mesh": m, "repos": tuple(verts), "h": h, "sorte": "herbe",
+                "speed": 1.35 + 0.0007 * (abs(cx) % 400),
+                "phase": (cx * 0.11 + base * 0.07) % 6.28})
+
     # Les deux especes d'arbre, et tout ce qui les separe au vent. Les ranger
     # ici plutot que dans le corps du code evite deux boucles jumelles qui
     # divergeraient a la premiere retouche -- et met les differences cote a
@@ -1694,6 +1871,9 @@ class ZoneScenery(Widget):
         self._flames = []
         self._shadows = []
         self._sway = []
+        # Idem pour la brume : seule une scene qui en pose une la recree.
+        self._brume_couleur = None
+        self._lot = None
         # Reinitialise le comptage des objets recoltables pour cette passe.
         self._ord = {}
         self._harvest_total = {}
@@ -2002,8 +2182,7 @@ class ZoneScenery(Widget):
                 gx, gy = rnd()
                 gh = rng.uniform(0.04, 0.09) * h
                 col = rng.choice(greens)
-                items.append((gy, lambda gx=gx, gy=gy, gh=gh, col=col:
-                              self._grass_tuft(gx, gy, gh, col, scale=0.8)))
+                items.append((gy, self._touffe(gx, gy, gh, col, 0.8)))
             for _ in range(rng.randint(8, 14)):        # petites pierres
                 gx, gy = rnd()
                 r = rng.uniform(0.015, 0.035) * h
@@ -2040,10 +2219,8 @@ class ZoneScenery(Widget):
             for _ in range(45):                        # touffes sombres
                 gx, gy = rnd()
                 gh = rng.uniform(0.03, 0.07) * h
-                items.append((gy, lambda gx=gx, gy=gy, gh=gh:
-                              self._grass_tuft(gx, gy, gh,
-                                               (0.12, 0.22, 0.13, 1),
-                                               scale=0.7)))
+                items.append((gy, self._touffe(gx, gy, gh,
+                                               (0.12, 0.22, 0.13, 1), 0.7)))
             for _ in range(rng.randint(8, 14)):        # pierres mousseuses
                 gx, gy = rnd()
                 r = rng.uniform(0.02, 0.045) * h
@@ -2060,14 +2237,10 @@ class ZoneScenery(Widget):
             for _ in range(rng.randint(8, 14)):        # touffes rares
                 gx, gy = rnd()
                 gh = rng.uniform(0.03, 0.06) * h
-                items.append((gy, lambda gx=gx, gy=gy, gh=gh:
-                              self._grass_tuft(gx, gy, gh,
-                                               (0.22, 0.34, 0.16, 1),
-                                               scale=0.7)))
+                items.append((gy, self._touffe(gx, gy, gh,
+                                               (0.22, 0.34, 0.16, 1), 0.7)))
 
-        items.sort(key=lambda it: it[0], reverse=True)
-        for _, fn in items:
-            fn()
+        self._dessine(items)
 
     # -- helpers -------------------------------------------------------- #
     def _pine(self, cx, base, tw, th, color, shadow=True):
@@ -2132,24 +2305,119 @@ class ZoneScenery(Widget):
     DEBORD_FEUILLE = 0.40      # x sa taille
     DEBORD_FLEUR = 0.33        # x son rayon
 
-    def _teinte_herbe(self, color):
+    def _teinte_herbe(self, color, planche=None):
         """Le facteur qui donne a l'image d'herbe la clarte voulue.
 
-        UN GRIS, PAS UNE COULEUR : l'image est deja verte, la multiplier par
-        un vert la verdirait deux fois. On ne lui impose donc que la CLARTE
-        que le triangle avait, et elle garde sa propre teinte -- ses jaunes de
-        pointe, ses verts sombres de coeur, que jamais un aplat n'aurait eus.
-        C'est ce qui permet a UNE image de servir le sous-bois sombre comme le
-        champ en pleine lumiere, et de garder la perspective aerienne (l'herbe
-        du fond est plus pale que celle du premier plan)."""
+        SURTOUT UNE CLARTE, PAS UNE COULEUR : l'image est deja verte, la
+        multiplier par le vert demande la verdirait deux fois. On lui impose
+        donc la CLARTE que le triangle avait, et elle garde l'essentiel de sa
+        teinte -- ses jaunes de pointe, ses verts sombres de coeur, que jamais
+        un aplat n'aurait eus. C'est ce qui permet a UNE image de servir le
+        sous-bois sombre comme le champ en pleine lumiere.
+
+        A une correction pres, la meme partout : TEINTE_HERBE_RVB, qui
+        rapproche le vert froid de l'image du vert olive des sols.
+
+        LA REFERENCE RESTE L'IMAGE D'ORIGINE, meme quand la planche ombree
+        est dessinee (`planche` ne sert qu'a le dire). Se caler sur la
+        moyenne de la planche aurait ete un piege : son pied a ete assombri,
+        sa moyenne a donc baisse, et la teinte aurait ECLAIRCI les pointes
+        d'autant pour la ramener au meme niveau -- l'ombrage aurait rendu
+        l'herbe plus pale, exactement le contraire du but. Ici l'ombrage ne
+        fait qu'assombrir le pied ; les pointes gardent leur clarte.
+
+        La teinte est ARRONDIE au 1/32 : deux touffes de teintes presque
+        egales doivent pouvoir se dessiner d'un seul coup (voir _dessine)."""
         r, g, b = color[0], color[1], color[2]
         lum = 0.3 * r + 0.6 * g + 0.1 * b
-        k = lum / CLARTE_HERBE if CLARTE_HERBE else 1.0
+        clarte = CLARTE_HERBE
+        k = lum / clarte if clarte else 1.0
         k = max(TEINTE_HERBE_MIN, min(TEINTE_HERBE_MAX, k))
-        return (k, k, k)
+        return tuple(round(k * c * 32.0) / 32.0 for c in TEINTE_HERBE_RVB)
+
+    def _touffe(self, gx, gb, gh, col, sc=1.0, sprite=NOM_HERBE):
+        """La fonction de dessin d'une touffe, MARQUEE comme de l'herbe.
+
+        La marque (sa hauteur) sert a _dessine : elle lui dit que cette
+        fonction peut rejoindre le lot d'herbe en cours, et lesquelles sont
+        assez hautes pour onduler au vent."""
+        def fn():
+            self._grass_tuft(gx, gb, gh, col, scale=sc, sprite=sprite)
+        fn.herbe = gh
+        return fn
+
+    def _dessine(self, items):
+        """Dessine les elements du plus LOIN au plus PROCHE, l'herbe par lots.
+
+        L'ORDRE NE CHANGE PAS : les elements sont tries comme avant, et un
+        lot d'herbe est VIDE (dessine) des qu'autre chose doit passer -- une
+        pierre, une fleur, un buisson. Seules les touffes qui se suivent sans
+        rien entre elles partagent un dessin, et comme elles se suivent en
+        profondeur, se recouvrent entre elles dans le meme ordre qu'avant.
+
+        LES TOUFFES QUI ONDULENT sont les plus hautes, comme avant (voir
+        _keep_tallest_sway) : on les repere ici, avant de dessiner, et elles
+        seules sont posees une par une -- un lot ne sait pas plier."""
+        items.sort(key=lambda it: it[0], reverse=True)
+        hauteurs = sorted((getattr(fn, "herbe", 0.0) for _, fn in items),
+                          reverse=True)
+        if SWAY and len(hauteurs) >= _SWAY_MAX:
+            self._seuil_vent = max(1e-6, hauteurs[_SWAY_MAX - 1])
+        elif SWAY:
+            self._seuil_vent = 1e-6
+        else:
+            self._seuil_vent = float("inf")
+        self._lot = {"cle": None, "sommets": []}
+        try:
+            for _, fn in items:
+                if not getattr(fn, "herbe", 0.0):
+                    self._vide_lot()
+                fn()
+            self._vide_lot()
+        finally:
+            self._lot = None
+
+    def _vide_lot(self):
+        """Dessine d'un coup les touffes en attente, puis repart a vide."""
+        lot = self._lot
+        if not lot or not lot["sommets"]:
+            return
+        tex, teinte = lot["cle"]
+        sommets = lot["sommets"]
+        n = len(sommets) // 16
+        indices = []
+        for i in range(n):
+            p = 4 * i
+            indices += (p, p + 1, p + 2, p, p + 2, p + 3)
+        Color(teinte[0], teinte[1], teinte[2], 1)
+        Mesh(vertices=sommets, indices=indices, mode="triangles", texture=tex)
+        lot["sommets"] = []
+        lot["cle"] = None
 
     def _grass_tuft(self, cx, base, height, color, scale=1.0,
                     sprite=NOM_HERBE):
+        planche = foliage.planche_ombree(sprite) if sprite else None
+        if planche is not None:
+            teinte = self._teinte_herbe(color, planche)
+            h = height * 1.15
+            u0, u1, v_haut, v_pied, pw, ph = planche.case(
+                self._pick(cx, base))
+            w = h * float(pw) / float(ph) if ph else h
+            lot = self._lot
+            if lot is not None and height < self._seuil_vent:
+                cle = (planche.tex, teinte)
+                if lot["cle"] != cle or len(lot["sommets"]) >= 16 * LOT_HERBE_MAX:
+                    self._vide_lot()
+                    lot["cle"] = cle
+                g, d, haut = cx - w / 2.0, cx + w / 2.0, base + h
+                lot["sommets"] += (g, base, u0, v_pied, d, base, u1, v_pied,
+                                   d, haut, u1, v_haut, g, haut, u0, v_haut)
+                return
+            self._vide_lot()
+            self._touffe_pliee(planche, teinte, cx, base, w, h,
+                               (u0, u1, v_haut, v_pied))
+            return
+        self._vide_lot()
         if self._sprite(sprite, cx, base, height * 1.15,
                         teinte=self._teinte_herbe(color), plie=True):
             return
@@ -2283,7 +2551,7 @@ class ZoneScenery(Widget):
                   (0.52, 0.38, 0.18, 1), (0.30, 0.26, 0.12, 1)]
 
         def f_grass(gx, gb, gh, col, sc):
-            return lambda: self._grass_tuft(gx, gb, gh, col, scale=sc)
+            return self._touffe(gx, gb, gh, col, sc)
 
         items = []   # (y_base, fonction) -> tri par profondeur
 
@@ -2393,9 +2661,7 @@ class ZoneScenery(Widget):
 
         items += self._installed_items()     # feu de camp... a leur profondeur
         items += self._edge_items()          # la case d'a cote, qui deborde
-        items.sort(key=lambda it: it[0], reverse=True)
-        for _, fn in items:
-            fn()
+        self._dessine(items)
 
     # -- objets recoltables / insectes (details) ----------------------- #
     def _mushroom(self, cx, base, size, cap, sprite=None):
@@ -2838,8 +3104,7 @@ class ZoneScenery(Widget):
             teinte = (max(0.0, col[0] + g), max(0.0, col[1] + g),
                       max(0.0, col[2] + g * 0.5), col[3])
             ech = (1.0 - 0.45 * depth) * jit.uniform(0.8, 1.2)
-            out.append((by, lambda x=cx + dx, y=by, h=haut, c=teinte, e=ech:
-                        self._grass_tuft(x, y, h, c, scale=e)))
+            out.append((by, self._touffe(cx + dx, by, haut, teinte, ech)))
         return out
 
     def _stone(self, cx, cy, r, sprite=None):
@@ -3142,12 +3407,12 @@ class ZoneScenery(Widget):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
         hor = 0.55
         edge = hor - 0.06
-        near = (0.20, 0.40, 0.14)
-        far = (0.42, 0.55, 0.32)
 
-        def green_at(t):
-            return tuple(near[i] + (far[i] - near[i]) * t for i in range(3)) \
-                + (1,)
+        def green_at(_t):
+            # La meme couleur a toute profondeur : c'est la brume qui fait la
+            # distance (voir HERBE_PLAINE). Le parametre reste, pour que les
+            # appels qui passent la profondeur n'aient pas a changer.
+            return HERBE_PLAINE + (1,)
 
         # Terrain ONDULE : deux courbes (sommes de sinus) pour un relief
         # naturel. horizon_curve = crete lointaine (l'horizon) ; field_curve =
@@ -3196,17 +3461,26 @@ class ZoneScenery(Widget):
         # Ce qu'il y a AUTOUR, tout au fond, avant le moindre brin d'herbe.
         self._horizon(lambda fx: horizon_curve(fx) - 0.012 * h)
 
-        # Collines : crete lointaine (clair) puis champ proche (fonce) ondules.
-        self._fill_curve(horizon_curve, "grass_far")
+        # Collines : crete lointaine puis champ proche, ondules. La bande
+        # lointaine est de la MEME herbe, a pleine couleur ("grass_loin") :
+        # c'est la brume, posee plus bas, qui la recule -- elle ne se detache
+        # plus du champ en plus sombre.
+        self._fill_curve(horizon_curve, "grass_loin")
         self._fill_curve(field_curve, "grass", estompe=True)
 
         # Petites fabriques de "fonctions de dessin" (pour differer le rendu).
         def f_grass(gx, gb, gh, col, sc, flower, fr):
+            if not flower:
+                return self._touffe(gx, gb, gh, col, sc)
+
             def fn():
                 self._grass_tuft(gx, gb, gh, col, scale=sc)
-                if flower:
-                    fcol, fsprite = flower
-                    self._flower(gx, gb + gh, fr * 2.4, fcol, sprite=fsprite)
+                # La fleur passe PAR-DESSUS sa touffe : celle-ci doit donc
+                # etre dessinee avant, et non rester dans le lot en attente.
+                self._vide_lot()
+                fcol, fsprite = flower
+                self._flower(gx, gb + gh, fr * 2.4, fcol, sprite=fsprite)
+            fn.herbe = gh
             return fn
 
         # On collecte chaque element avec sa PROFONDEUR (= y de sa base), puis
@@ -3251,7 +3525,12 @@ class ZoneScenery(Widget):
             fx = grass_pick() if rng.random() < 0.72 else None  # amas + un peu partout
             gx, gb, sc, t = place(fx=fx, floor=_HARVEST_FLOOR)
             gh = rng.uniform(0.05, 0.16) * h * sc
-            fcol = rng.choice(_FLOWERS) if rng.random() < 0.10 else None
+            # UNE FLEUR POUR CINQUANTE TOUFFES, et non pour dix : les touffes
+            # ont ete multipliees par cinq, pas les fleurs. A une sur dix, le
+            # champ s'etait couvert de fleurs du jour au lendemain -- une
+            # quarantaine au lieu d'une dizaine, chacune dessinee petale par
+            # petale (une soixantaine d'instructions la fleur).
+            fcol = rng.choice(_FLOWERS) if rng.random() < 0.02 else None
             fr = max(1.5, w * 0.004 * sc)
             if (not self._take_or_skip("Herbe")
                     and not self._is_blocked(gx, gb, gb + gh)):
@@ -3365,12 +3644,85 @@ class ZoneScenery(Widget):
 
         # (Les insectes sont desormais une couche ANIMEE separee : InsectLayer.)
 
+        # HERBE AU PIED DU JOUEUR. Tout le gazon s'arretait au plancher des
+        # objets a ramasser (_HARVEST_FLOOR, la hauteur des mains) : dessous,
+        # le sol restait nu, et la limite se lisait comme un trait tire en
+        # travers du champ. Cette herbe-la est DECORATIVE (elle ne passe pas
+        # par _take_or_skip : rien de plus a ramasser) et plus BASSE que le
+        # reste -- au pied, une touffe haute boucherait la vue.
+        #
+        # Tiree EN DERNIER, apres tout le reste de la scene : le hasard de ce
+        # qui precede ne bouge donc pas, et les pierres, les fleurs, les
+        # objets a ramasser restent exactement ou ils etaient.
+        for _ in range(HERBE_PIED_PLAINE):
+            fx = grass_pick() if rng.random() < 0.55 else rng.uniform(0, 1)
+            fx = min(0.999, max(0.001, fx))
+            surf = (field_curve(fx) - y0) / h
+            fy = rng.uniform(0.0, _HARVEST_FLOOR)
+            t = (fy / surf) if surf else 0.0
+            sc = 1.0 - 0.70 * t
+            gx, gb = x0 + fx * w, y0 + fy * h
+            gh = rng.uniform(0.03, 0.08) * h * sc
+            if self._is_blocked(gx, gb, gb + gh):
+                continue
+            items.append((gb, f_grass(gx, gb, gh, green_at(t), sc, None, 0)))
+
+        # LA BRUME DU LOINTAIN, posee DANS le tri et non par-dessus la scene :
+        # tout ce qui est plus loin que le bord du champ proche -- la bande
+        # lointaine, son herbe, ce qu'on y a installe -- est dessine AVANT
+        # elle, donc voile ; le champ proche, dessine apres, reste net. Un
+        # buisson du premier plan qui monte jusque dans la bande lointaine ne
+        # prend donc pas le voile du fond. Une seule forme pour toute la scene.
+        bas_champ = min(field_curve(i / 64.0) for i in range(65))
+        items.append((bas_champ - 0.5,
+                      lambda: self._brume(field_curve, horizon_curve)))
+
         # Rendu trie : plus loin (base haute) d'abord, plus proche par-dessus.
         items += self._installed_items()     # feu de camp... a leur profondeur
         items += self._edge_items()          # la case d'a cote, qui deborde
-        items.sort(key=lambda it: it[0], reverse=True)
-        for _, fn in items:
-            fn()
+        self._dessine(items)
+
+    def _brume(self, bas_fn, crete_fn):
+        """Le voile d'air entre l'oeil et le lointain (voir BRUME_CRETE).
+
+        Une bande qui suit le terrain : nulle au bord du champ proche, elle
+        s'epaissit jusqu'a la crete puis s'efface juste au-dessus. Sa couleur
+        est celle du ciel a l'horizon (voir _applique_brume) : a la crete, la
+        colline se fond a moitie dans le ciel, et la ligne d'horizon cesse
+        d'etre une decoupe.
+
+        UNE TEXTURE PORTE LE DEGRADE, parce qu'un maillage Kivy ne sait pas
+        donner une opacite par sommet : le voile est une couleur unie dont
+        l'alpha est lu, rangee par rangee, dans une rampe (voir _rampe_brume).
+
+        DEUX BANDES, DEUX COULEURS. Sur le TERRAIN, la brume est blanchie
+        (BRUME_BLANCHE). AU-DESSUS DE LA CRETE, elle recouvre surtout du ciel
+        -- elle n'est la que pour voiler le sommet des touffes de crete -- et
+        prend donc la couleur exacte du ciel : blanchie, elle y dessinait un
+        halo pale qui suivait le contour des collines."""
+        rampe = _rampe_brume()
+        if rampe is None:
+            return
+        x0, w, h = self.x, self.width, self.height
+        segs = max(24, int(w / 36.0))
+        dessus = BRUME_AU_DESSUS * h
+        terrain, ciel, idx = [], [], []
+        for i in range(segs + 1):
+            fx = i / float(segs)
+            x = x0 + fx * w
+            bas = bas_fn(fx)
+            crete = max(bas + 1.0, crete_fn(fx))
+            terrain += [x, bas, 0.5, 0.0, x, crete, 0.5, 0.5]
+            ciel += [x, crete, 0.5, 0.5, x, crete + dessus, 0.5, 1.0]
+            if i:
+                p, q = (i - 1) * 2, i * 2
+                idx += [p, q, q + 1, p, q + 1, p + 1]
+        self._brume_couleur = []
+        for sommets, blanche in ((terrain, BRUME_BLANCHE), (ciel, 0.0)):
+            self._brume_couleur.append((Color(1, 1, 1, 1), blanche))
+            Mesh(vertices=sommets, indices=idx, mode="triangles",
+                 texture=rampe)
+        self._applique_brume()
 
     def _montagne(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
@@ -3436,8 +3788,7 @@ class ZoneScenery(Widget):
             gh = rng.uniform(0.03, 0.06) * h
             if self._is_blocked(sx, sy, sy + gh):
                 continue
-            items.append((sy, lambda sx=sx, sy=sy, gh=gh:
-                          self._grass_tuft(sx, sy, gh, (0.22, 0.34, 0.16, 1))))
+            items.append((sy, self._touffe(sx, sy, gh, (0.22, 0.34, 0.16, 1))))
         for kind, rang, depth, rx, ry, jit in self._iter_nature_big():
             if kind == "nugget":
                 items.extend(self._pepite_de_grille(rang, depth, rx, ry, jit))
@@ -3445,9 +3796,7 @@ class ZoneScenery(Widget):
             rr = (0.085 - 0.045 * depth) * jit.uniform(0.85, 1.15) * h
             items.append((ry, lambda rx=rx, ry=ry, rr=rr:
                           self._big_rock(rx, ry, rr)))
-        items.sort(key=lambda it: it[0], reverse=True)
-        for _, fn in items:
-            fn()
+        self._dessine(items)
 
     def _big_rock(self, rx, ry, rr):
         self._shadow(rx, ry + rr * 0.15, rr * 2.4)
@@ -3520,8 +3869,7 @@ class ZoneScenery(Widget):
             gh = rng.uniform(0.08, 0.22) * h
             if (not self._take_or_skip("Roseau")
                     and not self._is_blocked(gx, gb, gb + gh)):
-                items.append((gb, lambda gx=gx, gb=gb, gh=gh:
-                              self._grass_tuft(gx, gb, gh,
+                items.append((gb, self._touffe(gx, gb, gh,
                                                (0.18, 0.38, 0.20, 1),
                                                sprite="reed")))
         # Pepites de mineraux, sur la GRILLE comme partout ailleurs. C'est le
@@ -3529,9 +3877,7 @@ class ZoneScenery(Widget):
         for kind, rang, depth, px, pb, jit in self._iter_nature_big():
             if kind == "nugget":
                 items.extend(self._pepite_de_grille(rang, depth, px, pb, jit))
-        items.sort(key=lambda it: it[0], reverse=True)
-        for _, fn in items:
-            fn()
+        self._dessine(items)
 
     def _pebble(self, rx, ry, rr):
         self._shadow(rx, ry + rr * 0.1, rr * 2.2, opacity=0.8)
