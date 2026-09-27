@@ -388,6 +388,12 @@ TEINTE_HERBE_RVB = (1.00, 0.95, 0.66)
 # d'ou les touffes vert vif sur le fond.
 HERBE_PLAINE = (0.25, 0.37, 0.10)
 
+# TEINTE DES PLANTES FEUILLUES (le trefle). La photo livree est d'un vert plus
+# clair et plus froid que l'herbe teintee -- sa moyenne (77, 114, 44) contre
+# (64, 94, 26) pour une touffe -- et ses touffes ressortaient donc en pale
+# sur le champ. Cette teinte la ramene dans la meme famille.
+TEINTE_PLANTE = (0.86, 0.84, 0.66)
+
 # --- DESSIN DE L'HERBE PAR LOTS -------------------------------------------- #
 # Plus de deux mille touffes par scene de plaine : dessinees une par une, cela
 # ferait autant de dessins par image, et Kivy redessine TOUTE la scene a
@@ -1585,9 +1591,21 @@ class ZoneScenery(Widget):
         return int(abs(cx) * 7.13 + abs(base) * 3.71)
 
     def _zs(self, key):
-        """Nom de l'image de cet element pour la ZONE en cours."""
-        return _ZONE_SPRITES.get(self._zone,
-                                 _ZONE_SPRITES["Foret"]).get(key)
+        """Nom de l'image de cet element pour la ZONE en cours.
+
+        SI LA ZONE N'A PAS SON IMAGE, ELLE PREND CELLE DE LA PLAINE. La foret
+        attend une fougere ("fern") et une branche de foret ; tant qu'elles
+        n'ont pas ete livrees, elle dessinait des formes geometriques -- trois
+        ovales verts, trois traits bruns -- a cote d'arbres photographiques.
+        Le trefle et les branches de la plaine y font bien meilleure figure,
+        et il suffira de deposer fern.png pour que la fougere reprenne sa
+        place."""
+        nom = _ZONE_SPRITES.get(self._zone, _ZONE_SPRITES["Foret"]).get(key)
+        if nom and not foliage.variants(nom):
+            repli = _ZONE_SPRITES["Plaine"].get(key)
+            if repli and foliage.variants(repli):
+                return repli
+        return nom
 
     def _sprite(self, name, cx, base, height, pick=None, width=None,
                 teinte=None, coupe_bas=0.0, crans=None, plie=False):
@@ -2338,7 +2356,11 @@ class ZoneScenery(Widget):
     DEBORD_PEPITE = 0.10       # x son rayon (l'ombre au sol comprise)
     DEBORD_BUISSON = 0.40      # x son rayon
     DEBORD_BAIES = 0.30        # x son rayon
-    DEBORD_BRANCHE = 0.08      # x sa longueur (l'ombre du bois comprise)
+    # x sa longueur. Le baton en IMAGE (voir _baton) est centre sur son
+    # point : il en descend de sa demi-epaisseur (0,09 pour la plus epaisse
+    # des variantes, fourche comprise), plus 0,5 x sin 9 = 0,078 quand il
+    # penche, plus le decalage de son ombre (0,025).
+    DEBORD_BRANCHE = 0.20
     DEBORD_FEUILLE = 0.40      # x sa taille
     DEBORD_FLEUR = 0.33        # x son rayon
 
@@ -3158,9 +3180,17 @@ class ZoneScenery(Widget):
         Line(points=[cx - r * 0.3, cy + r * 0.2,
                      cx + r * 0.1, cy + r * 0.95], width=1.0)
 
+    # Inclinaison maximale d'un baton pose au sol, en degres. Tous a plat et
+    # alignes, ils se liraient comme des traits de regle ; un peu de pente,
+    # et ils tombent au hasard comme de vrais bois morts.
+    BATON_PENTE = 9.0
+    # Opacite de son ombre de contact. Sans elle, un baton sur l'herbe
+    # semblait colle par-dessus l'image, pas pose sur le sol.
+    BATON_OMBRE = 0.32
+
     def _branch(self, cx, cy, length, sprite=None):
         wdt = max(1.5, length * 0.07)
-        if self._sprite(sprite, cx, cy - wdt, length * 0.30):
+        if sprite and self._baton(sprite, cx, cy, length):
             return
         Color(0, 0, 0, 0.14)                              # ombre
         Line(points=[cx - length / 2, cy - wdt * 0.6,
@@ -3181,9 +3211,66 @@ class ZoneScenery(Widget):
                      cx + length * 0.42, cy + wdt * 0.3 + length * 0.08],
              width=max(1.0, wdt * 0.35))
 
+    def _baton(self, name, cx, centre, length):
+        """Un baton en IMAGE, couche au sol, centre sur (cx, centre). Faux si
+        aucune image.
+
+        DIMENSIONNE PAR SA LONGUEUR, pas par sa hauteur : les images livrees
+        sont des batons fins, dix a vingt fois plus longs que larges. Par la
+        hauteur (ce que fait _sprite), un baton fin serait devenu plusieurs
+        fois plus long que prevu.
+
+        POSE PAR SON CENTRE, parce que chaque image est un cadre de 512 x 128
+        (puissance de 2, pour les mipmaps) ou le baton est centre, plus ou
+        moins epais selon la variante : c'est son axe qui est connu, pas son
+        bord.
+
+        Chaque baton recoit, tires de sa POSITION (donc stables d'un redessin
+        a l'autre) : une legere pente et un sens (l'image ou son miroir) --
+        dix images suffisent alors a ne jamais voir deux fois le meme baton.
+        Son ombre est sa propre silhouette, en noir, glissee sous lui."""
+        pick = self._pick(cx, centre)
+        tex = foliage.sprite(name, pick)
+        if tex is None:
+            return False
+        tw, th = tex.size
+        w = float(length)
+        h = w * float(th) / float(tw) if tw else w * 0.1
+        jit = random.Random(pick)
+        angle = jit.uniform(-self.BATON_PENTE, self.BATON_PENTE)
+        miroir = jit.random() < 0.5
+        tc = tuple(tex.tex_coords)
+        if miroir:
+            tc = (tc[2], tc[3], tc[0], tc[1], tc[6], tc[7], tc[4], tc[5])
+        bas = centre - h / 2.0
+        PushMatrix()
+        Rotate(angle=angle, origin=(cx, centre))
+        sil = foliage.silhouette(name, pick)
+        if sil is not None:
+            # La silhouette n'a pas de coordonnees retournees par defaut
+            # (voir foliage.silhouette) : on les donne toujours. Son decalage
+            # suit la LONGUEUR du baton, pas la hauteur du cadre, dont une
+            # bonne part est du vide.
+            stc = ((1, 1, 0, 1, 0, 0, 1, 0) if miroir
+                   else (0, 1, 1, 1, 1, 0, 0, 0))
+            Color(0, 0, 0, self.BATON_OMBRE)
+            Rectangle(pos=(cx - w / 2.0, bas - max(1.0, w * 0.025)),
+                      size=(w, h), texture=sil, tex_coords=stc)
+        Color(1, 1, 1, 1)
+        Rectangle(pos=(cx - w / 2.0, bas), size=(w, h), texture=tex,
+                  tex_coords=tc)
+        PopMatrix()
+        return True
+
     def _plant(self, cx, base, size, sprite=None):
-        self._shadow(cx, base, size * 1.1, opacity=0.7)
-        if self._sprite(sprite, cx, base, size * 1.05):
+        # L'ombre suit la LARGEUR de ce qui est dessine : le trefle livre est
+        # une touffe deux fois plus large que haute, l'ancienne plante en
+        # formes geometriques tenait dans un carre.
+        tex = foliage.sprite(sprite, self._pick(cx, base)) if sprite else None
+        large = (size * 1.05 * float(tex.width) / float(tex.height)
+                 if tex is not None and tex.height else size * 1.1)
+        self._shadow(cx, base, large * 0.85, opacity=0.7)
+        if self._sprite(sprite, cx, base, size * 1.05, teinte=TEINTE_PLANTE):
             return
         Color(0.18, 0.36, 0.16, 1)                       # tige
         Rectangle(pos=(cx - size * 0.06, base), size=(size * 0.12, size * 0.8))

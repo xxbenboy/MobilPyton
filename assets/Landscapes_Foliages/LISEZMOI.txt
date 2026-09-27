@@ -17,7 +17,7 @@ VARIANTES (fortement conseille)
 Une foret ou les 9 arbres sont le MEME dessin se voit tout de suite. Ajoute
 des versions numerotees et le jeu les repartit tout seul :
 
-    fern.png    fern_2.png    fern_3.png   ... jusqu'a fern_8.png
+    fern.png    fern_2.png    fern_3.png   ... jusqu'a fern_10.png
 
 Le choix depend de la POSITION de l'element, il est donc stable : une fougere
 ne change pas d'aspect quand tu ramasses une pierre a cote.
@@ -173,11 +173,17 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
                           houppier. La base color, elle, est bien a plat
                           cette fois : 0,3 % d ecart gauche/droite, contre 6 %
                           sur le lot precedent.
-    fern.png              Fougere / plante de sous-bois
+    fern.png              Fougere / plante de sous-bois. TANT QU'ELLE MANQUE,
+                          la foret prend le TREFLE de la plaine
+                          (plant_leafy) : mieux qu'une forme dessinee a cote
+                          d'arbres photographiques. Depose fern.png et elle
+                          reprend sa place, sans toucher au code.
     bush_forest.png       Buisson de foret (vert fonce)
     mushroom_forest.png   Champignon brun au sol
     leaf_litter.png       Feuille morte au sol (posee a plat)
-    branch_forest.png     Branche cassee au sol
+    branch_forest.png     Branche cassee au sol. TANT QU'ELLE MANQUE, la
+                          foret prend les branches de la plaine
+                          (branch_plain), comme pour la fougere.
     stone_forest.png      Pierre couverte de mousse
 
 --- PLAINE -------------------------------------------------------
@@ -189,11 +195,32 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
     flower_purple.png     Fleur violette
     bush_plain.png        Buisson de plaine (vert clair)
     stone_plain.png       Pierre nue (gris clair)
-    branch_plain.png      Branche au sol
+    branch_plain.png      Branche au sol. DIX MODELES en place
+                          (branch_plain.png a branch_plain_10.png), decoupes
+                          dans la planche de batons livree et COUCHES A
+                          L'HORIZONTALE : un baton repose sur le sol.
+                          Chacun est centre dans un cadre de 512 x 128
+                          (puissance de 2, voir FORMAT). Le jeu les pose par
+                          leur CENTRE et les dimensionne par leur LONGUEUR ;
+                          il leur donne une legere pente (jusqu'a 9 degres),
+                          un sens (l'image ou son miroir) et une ombre de
+                          contact, tous tires de leur position.
+                          PAS DE CARTES DE RELIEF : celles livrees avec la
+                          planche ne se superposaient pas a l'image de
+                          couleur (batons decales, formes differentes). Un
+                          relief faux eclairerait chaque baton de travers.
     hay.png               Touffe de foin (jaune dore)
     wheat.png             Epi de cereale
     berries_bush.png      Buisson de baies rouges
-    plant_leafy.png       Plante feuillue (tige + feuilles)
+    plant_leafy.png       TREFLE : une touffe de trefle blanc en fleurs,
+                          AVEC SES DEUX CARTES (plant_leafy_R.png et
+                          plant_leafy_P.png). Deux modeles en place, le
+                          second etant le MIROIR du premier (rouge de la
+                          normale inverse). 512 x 256 : puissance de 2.
+                          Racines et stolons coupes -- la touffe pousse du
+                          sol, elle n'y pose pas ses racines. Le jeu la
+                          teinte un peu (plus sombre, plus chaude) pour
+                          qu'elle rejoigne le vert de l'herbe.
 
 --- MONTAGNE -----------------------------------------------------
     boulder.png           Gros rocher
@@ -260,6 +287,22 @@ CE QUI RESTE DESSINE (ne pas fournir d'image)
 FORMAT
 ----------------------------------------------------------------
 - PNG a FOND TRANSPARENT. Un fond blanc ferait un carre blanc autour.
+  /!\ UN DAMIER N'EST PAS DE LA TRANSPARENCE. Les generateurs d'images
+  "detourees" peignent souvent le damier gris et blanc DANS l'image : il
+  s'afficherait en jeu. C'etait le cas du trefle et des branches livres (des
+  JPG et PNG sans canal alpha, damier peint, et meme un damier CASSE d'une
+  demi-case au milieu de l'image). Ils ont ete detoures a la main : couleur
+  du damier retiree des bords, fleurs blanches sauvees grace a leur carte de
+  relief, filigranes effaces.
+- PUISSANCE DE 2 (256, 512, 1024... sur chaque cote) : le jeu donne alors a
+  l'image des MIPMAPS, des versions reduites deja moyennees. C'est ce qui
+  garde a un PETIT element sa couleur quand il est dessine bien plus petit
+  que son image : sans elles, un baton lointain de trois pixels devenait un
+  trait gris clair, fait des taches de lichen piochees au hasard. Une image
+  d'une autre taille reste acceptee, simplement sans mipmaps.
+  Dans ce cas, les pixels TRANSPARENTS doivent porter la couleur de l'objet
+  et non du noir : les versions reduites les melangent a leurs voisins, et
+  du noir assombrirait les bords de l'objet au loin.
 - 256 x 256 pour les petits elements (pierres, fleurs, champignons).
   256 x 512 (portrait) pour les arbres et les plantes hautes.
 - Le jeu pose le BAS de l'image au niveau du sol et respecte les

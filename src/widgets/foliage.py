@@ -31,23 +31,61 @@ FOLIAGE_DIR = os.path.abspath(os.path.join(_HERE, "..", "..", "assets",
 
 _EXTS = (".png", ".jpg", ".jpeg")
 
-# Nombre maximum de variantes cherchees par nom (nom, nom_2 ... nom_8).
-MAX_VARIANTS = 8
+# Nombre maximum de variantes cherchees par nom (nom, nom_2 ... nom_10).
+# Dix : la planche de branches livree en porte dix, toutes differentes.
+MAX_VARIANTS = 10
 
 _CACHE = {}          # nom -> [textures] (liste vide si aucune image)
 _OMBRES = {}         # nom -> [silhouettes] (voir silhouette())
 _STEMS = {}          # nom -> [noms de fichier retenus], voir _stems_charges
 
 
-def _load(path):
+def _taille_png(path):
+    """(largeur, hauteur) lues dans l'en-tete d'un PNG, sans le decoder ; ou
+    None pour tout autre fichier."""
     try:
-        tex = CoreImage(path).texture
+        with open(path, "rb") as f:
+            tete = f.read(24)
+    except OSError:
+        return None
+    if len(tete) < 24 or tete[:8] != b"\x89PNG\r\n\x1a\n":
+        return None
+    return (int.from_bytes(tete[16:20], "big"),
+            int.from_bytes(tete[20:24], "big"))
+
+
+def _puissance_de_2(n):
+    return n > 0 and n & (n - 1) == 0
+
+
+def _load(path):
+    # UNE IMAGE EN PUISSANCE DE 2 RECOIT DES MIPMAPS. Un petit element du
+    # decor -- un baton, une touffe de trefle -- est dessine dix fois plus
+    # petit que son image : sans version reduite, la carte graphique y
+    # pioche un pixel au hasard, et un baton brun devenait un trait de lichen
+    # gris clair. Les mipmaps lui rendent sa couleur moyenne.
+    #
+    # SEULEMENT en puissance de 2 : un telephone en OpenGL ES 2 refuse les
+    # mipmaps sur une autre taille, et l'image s'afficherait NOIRE. Les
+    # images plus anciennes (arbres, pepites, herbe) ne le sont pas : elles
+    # restent dessinees exactement comme avant. Une image deposee en
+    # puissance de 2 doit avoir ses pixels transparents de la couleur de
+    # l'objet (et non noirs), sinon ses versions reduites s'assombrissent.
+    taille = _taille_png(path)
+    mip = bool(taille) and all(_puissance_de_2(v) for v in taille)
+    try:
+        tex = CoreImage(path, mipmap=mip).texture
     except Exception:
         return None
     # Les images du decor sont DETOUREES et posees une par une : elles ne se
     # repetent jamais. Un bord "clamp" evite qu'un pixel du bord oppose vienne
     # baver sur la silhouette.
     tex.wrap = "clamp_to_edge"
+    if mip:
+        try:
+            tex.min_filter = "linear_mipmap_linear"
+        except Exception:
+            pass
     return tex
 
 
