@@ -175,14 +175,14 @@ NOM_HERBE = "grass_tuft"
 # et 130 avant. Et cela coute MOINS cher qu'avant : une touffe en image est un
 # Color et un maillage, la ou une touffe dessinee etait cinq Color et cinq
 # triangles.
-HERBE_DECOR_PLAINE = 120
-HERBE_FORET = 190          # etait 130, toutes deja decoratives
+HERBE_DECOR_PLAINE = 600   # x5 : l'herbe doit couvrir presque tout le sol
+HERBE_FORET = 950          # x5 (etait 190)
 
 # Touffes de la BANDE LOINTAINE de la plaine, entre le haut du champ proche et
 # la crete. Elle etait a peu pres vide : `place` ne depasse jamais le champ, et
 # la seule passe qui allait plus loin se serrait sur la crete meme. Elles sont
 # petites, donc on peut en mettre beaucoup.
-HERBE_LOIN_PLAINE = 150
+HERBE_LOIN_PLAINE = 750    # x5 (etait 150)
 
 # Echelle apparente d'une touffe au SOMMET DU CHAMP PROCHE. C'est la valeur
 # que `place` y donne (1 - 0,70 x 1) : la bande lointaine part de la, et
@@ -364,7 +364,7 @@ CLARTE_HERBE = 0.395
 # sortaient donc a la meme valeur exacte -- toute la moitie lointaine du champ
 # etait d'une clarte uniforme, et la perspective aerienne qu'on voulait garder
 # etait ecrasee. A 1,25 elle repasse.
-TEINTE_HERBE_MIN, TEINTE_HERBE_MAX = 0.45, 1.25
+TEINTE_HERBE_MIN, TEINTE_HERBE_MAX = 0.45, 1.10
 
 # Force du vent par meteo : le decor se courbe quand il souffle.
 _WIND = {"clair": 0.55, "nuageux": 0.9, "pluie": 1.5, "neige": 1.0,
@@ -3247,7 +3247,7 @@ class ZoneScenery(Widget):
                           lambda bx=bx, by=by, r=r, col=col:
                           self._bush(bx, by, r, col,
                                      sprite=self._zs("bush"))))
-        for _ in range(105):                           # gazon (en touffes) [Herbe]
+        for _ in range(525):                           # gazon x5 (etait 105) [Herbe]
             fx = grass_pick() if rng.random() < 0.72 else None  # amas + un peu partout
             gx, gb, sc, t = place(fx=fx, floor=_HARVEST_FLOOR)
             gh = rng.uniform(0.05, 0.16) * h * sc
@@ -3302,10 +3302,10 @@ class ZoneScenery(Widget):
                                           green_at(rng.uniform(0.85, 1.0)),
                                           sc, None, 0)))
 
-        # Les 125 recoltables d'avant : meme nombre, meme comptage, donc rien
-        # ne change du cote de la recolte -- seulement leur taille et leur
-        # repartition.
-        pose_loin(125, True)
+        # Recoltables x5 (etait 125) : le nombre affecte l'aspect visuel mais
+        # pas la quantite recoltable (harvest_max reste plafonne par _avail_for
+        # qui tire 2 a 5).
+        pose_loin(625, True)
         # Et de quoi garnir la bande, celles-ci decoratives.
         pose_loin(HERBE_LOIN_PLAINE, False)
         # GAZON DE REMPLISSAGE, et il est DECORATIF : aucun appel a
@@ -3428,11 +3428,9 @@ class ZoneScenery(Widget):
         # les objets installes : un feu de camp pose derriere un rocher passe
         # donc derriere lui.
         items = self._installed_items() + self._edge_items()
-        # Touffes rares sur la pente basse. Elles etaient dessinees ici meme,
-        # HORS du tri : elles passaient donc toujours derriere les rochers, et
-        # surtout dans un ordre quelconque ENTRE ELLES -- une touffe lointaine
-        # pouvait recouvrir une touffe proche. Elles rejoignent la liste.
-        for _ in range(8):
+        # Touffes sur la pente basse : x5 (etait 8), pour qu'elles couvrent
+        # bien le sol de montagne au lieu d'y flotter.
+        for _ in range(40):
             sx = x0 + rng.uniform(0, 1) * w
             sy = y0 + rng.uniform(0.03, 0.18) * h
             gh = rng.uniform(0.03, 0.06) * h

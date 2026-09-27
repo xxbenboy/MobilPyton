@@ -74,7 +74,7 @@ TILE_PX = {
 #
 #    nom emprunteur : (nom source, assombrissement)
 ALIAS = {
-    "grass_far": ("grass", 0.82),
+    "grass_far": ("grass", 0.92),
     # Le fond de la foret, c'est LE MEME SOL, plus loin. Sans cet emprunt il
     # serait reste un aplat de couleur derriere un sol texture : la bande
     # lointaine se serait detachee comme un morceau de carton. Un peu plus
