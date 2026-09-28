@@ -1831,7 +1831,7 @@ class ZoneScenery(Widget):
                 "phase": (cx * 0.017 + base * 0.011) % 6.2832})
             self._sway.append(bl)
 
-    def _sprite_enfoui(self, tex, cx, base, w, h, f, crans):
+    def _sprite_enfoui(self, tex, cx, base, w, h, f, crans, uv=None):
         """L'image, coupee a la ligne du sol par un bord DENTELE.
 
         Un rectangle suffisait tant que la coupe etait droite ; une coupe
@@ -1851,17 +1851,24 @@ class ZoneScenery(Widget):
         en dents de scie.
 
         Le pas de v par pixel d'ecran vaut 1/h : l'image entiere (v de 0 a 1)
-        occupe h pixels."""
+        occupe h pixels.
+
+        `uv` = (u gauche, u droite, v du haut, v du pied) quand l'image n'est
+        qu'une CASE d'une planche (voir _caillou) ; les u et v ci-dessus se
+        lisent alors dans cette case."""
         n = len(crans) - 1
         gauche = cx - w / 2.0
         haut = base + h * (1.0 - f)
+        u0, u1, vh, vp = uv or (0.0, 1.0, 0.0, 1.0)
         verts, idx = [], []
         for i in range(n + 1):
             u = i / n
             x = gauche + u * w
             d = crans[i]
-            verts += [x, base + d, u, (1.0 - f) - d / h]     # bas, dentele
-            verts += [x, haut, u, 0.0]                       # haut, droit
+            uu = u0 + (u1 - u0) * u
+            verts += [x, base + d, uu,
+                      vh + (vp - vh) * ((1.0 - f) - d / h)]  # bas, dentele
+            verts += [x, haut, uu, vh]                       # haut, droit
             if i:
                 p = (i - 1) * 2
                 idx += [p, p + 1, p + 2, p + 1, p + 3, p + 2]
@@ -2069,7 +2076,8 @@ class ZoneScenery(Widget):
     def _edge_pebble(self, out, tx, tb, depth, jit):
         """Un galet de la rive voisine, comme ceux de _lac."""
         rr = jit.uniform(0.012, 0.03) * self.height
-        out.append((tb, lambda: self._pebble(tx, tb, rr)))
+        out.append((tb - self.DEBORD_CAILLOU * rr,
+                    lambda: self._pebble(tx, tb, rr, depth)))
 
     def _edge_slope(self, out, cote):
         """LE PIED de la montagne voisine : la ou le terrain commence a monter.
@@ -2241,7 +2249,8 @@ class ZoneScenery(Widget):
             for _ in range(rng.randint(8, 14)):        # petites pierres
                 gx, gy = rnd()
                 r = rng.uniform(0.015, 0.035) * h
-                items.append((gy, lambda gx=gx, gy=gy, r=r:
+                items.append((gy - self.DEBORD_CAILLOU * r,
+                              lambda gx=gx, gy=gy, r=r:
                               self._stone(gx, gy, r,
                                           sprite=self._zs("stone"))))
             for _ in range(rng.randint(5, 9)):          # fleurs (peu nombreuses)
@@ -2279,14 +2288,16 @@ class ZoneScenery(Widget):
             for _ in range(rng.randint(8, 14)):        # pierres mousseuses
                 gx, gy = rnd()
                 r = rng.uniform(0.02, 0.045) * h
-                items.append((gy, lambda gx=gx, gy=gy, r=r:
+                items.append((gy - self.DEBORD_CAILLOU * r,
+                              lambda gx=gx, gy=gy, r=r:
                               self._stone(gx, gy, r,
                                           sprite=self._zs("stone"))))
         else:                                          # Montagne (rocaille)
             for _ in range(rng.randint(45, 65)):       # rochers / galets
                 gx, gy = rnd()
                 r = rng.uniform(0.02, 0.06) * h
-                items.append((gy, lambda gx=gx, gy=gy, r=r:
+                items.append((gy - self.DEBORD_CAILLOU * r,
+                              lambda gx=gx, gy=gy, r=r:
                               self._stone(gx, gy, r,
                                           sprite=self._zs("stone"))))
             for _ in range(rng.randint(8, 14)):        # touffes rares
@@ -2629,9 +2640,10 @@ class ZoneScenery(Widget):
             sx, sy, sc, t = place(1.0, fx=stone_pick(), floor=_HARVEST_FLOOR)
             r = rng.uniform(0.02, 0.05) * h * sc
             if not self._take_or_skip("Pierre") and not self._is_blocked(sx, sy):
-                items.append((sy, lambda sx=sx, sy=sy, r=r:
-                              self._stone(sx, sy, r,
-                                          sprite=self._zs("stone"))))
+                items.append((sy - self.DEBORD_CAILLOU * r,
+                              lambda sx=sx, sy=sy, r=r, t=t:
+                              self._stone(sx, sy, r, sprite=self._zs("stone"),
+                                          depth=t)))
         # Branches au sol. [recoltable: Small_Stick]
         for _ in range(rng.randint(7, 11)):
             bx, by, sc, t = place(1.0, floor=_HARVEST_FLOOR)
@@ -3011,15 +3023,27 @@ class ZoneScenery(Widget):
         tw, th = sil.size
         if not tw or not th:
             return
-        haut = largeur * (float(th) / float(tw)) * (1.0 - enfonce)
+        self._voiles(sil, None, cx, base, largeur,
+                     largeur * (float(th) / float(tw)), enfonce, depth, crans,
+                     self.SOL_DE_ZONE.get(self._zone, "rock"),
+                     self.BANDES_PEPITE)
+
+    def _voiles(self, sil, uv, cx, base, largeur, h_pleine, enfonce, depth,
+                crans, sol, bandes):
+        """Le voile et le degrade du pied (voir _etalonne_pepite), poses sur
+        la silhouette `sil` -- une image entiere, ou une case de planche si
+        `uv` est donne (voir _caillou). `h_pleine` est la hauteur a l'ecran
+        de l'image ENTIERE, part enterree comprise ; `sol`, le nom de la
+        texture du sol dans lequel la pierre doit se fondre."""
+        haut = h_pleine * (1.0 - enfonce)
         gauche = cx - largeur / 2.0
         vu = 1.0 - enfonce          # la part de l'image qui sort de terre
+        u0, u1, vh, vp = uv or (0.0, 1.0, 0.0, 1.0)
 
         # LES BANDES SUIVENT LA COUPE DENTELEE, colonne par colonne. Posees a
         # plat, elles debordaient dans les crans : la ou la pierre remonte, la
         # silhouette est encore opaque, et le voile peignait donc sa couleur
         # sur le SOL, dans l'echancrure meme qu'on venait de creuser.
-        h_pleine = largeur * (float(th) / float(tw))    # l'image entiere
         n_cols = len(crans) - 1 if crans else 1
 
         def bande(y0, y1, coul, alpha):
@@ -3032,6 +3056,7 @@ class ZoneScenery(Widget):
             for i in range(n_cols + 1):
                 u = i / n_cols
                 x = gauche + u * largeur
+                uu = u0 + (u1 - u0) * u
                 # Le bas de la colonne : le plus HAUT de la ligne nominale et
                 # du cran. Borne par le haut de la bande, sinon elle
                 # s'inverserait la ou le cran la depasse.
@@ -3039,8 +3064,10 @@ class ZoneScenery(Widget):
                 bas = min(max(bas_nom, cran), haut_nom)
                 # v DESCEND dans l'image quand l'ecran MONTE (voir
                 # textures.py) : un pixel d'ecran vaut 1/h_pleine de v.
-                verts += [x, bas, u, vu - (bas - base) / h_pleine]
-                verts += [x, haut_nom, u, vu - (haut_nom - base) / h_pleine]
+                verts += [x, bas, uu,
+                          vh + (vp - vh) * (vu - (bas - base) / h_pleine)]
+                verts += [x, haut_nom, uu,
+                          vh + (vp - vh) * (vu - (haut_nom - base) / h_pleine)]
                 if i:
                     p = (i - 1) * 2
                     idx += [p, p + 1, p + 2, p + 1, p + 3, p + 2]
@@ -3050,7 +3077,7 @@ class ZoneScenery(Widget):
         # repli. Les deux s'ecartent beaucoup des qu'une image existe (voir
         # textures.average_color), et c'est dans le sol tel qu'on le VOIT que
         # la pierre doit se fondre.
-        decor = textures.average_color(self.SOL_DE_ZONE.get(self._zone, "rock"))
+        decor = textures.average_color(sol)
         pres, loin = self.VOILE_PEPITE
         bande(0.0, 1.0, decor, pres + (loin - pres) * max(0.0, min(1.0, depth)))
 
@@ -3058,7 +3085,7 @@ class ZoneScenery(Widget):
         # couleur par sommet, et c'est la facon la plus simple d'obtenir un
         # fondu. Sept marches ne se voient pas ; cinq se voyaient.
         sombre = tuple(c * 0.35 for c in decor)
-        n = self.BANDES_PEPITE
+        n = bandes
         for i in range(n):
             y0, y1 = i / n, (i + 1) / n
             t = (y0 + y1) / 2.0 / self.PIED_HAUTEUR
@@ -3166,7 +3193,95 @@ class ZoneScenery(Widget):
             out.append((by, self._touffe(cx + dx, by, haut, teinte, ech)))
         return out
 
-    def _stone(self, cx, cy, r, sprite=None):
+    # -- petites pierres ------------------------------------------------- #
+    #
+    # CE SONT DES PEPITES EN PETIT : memes photos, memes cartes de relief,
+    # memes astuces. Elles etaient dessinees en ovales gris -- trois ellipses
+    # et un trait -- a cote de pepites photographiques eclairees par le
+    # soleil : deux mondes sur le meme sol.
+    #
+    # Elles se lisent dans une PLANCHE reduite, et non dans les images de la
+    # pepite : dessinees trois a six fois plus petites que celles-ci, elles
+    # fourmillaient sans versions reduites (voir foliage.planche_pierres).
+    #
+    # LES MEMES STRATAGEMES QUE LA PEPITE POUR QU'AUCUNE NE SE RESSEMBLE. Il
+    # y en a des dizaines par scene -- une quarantaine sur la pente de
+    # montagne -- pour cinq photos. Chacune tire donc, de sa position :
+    #   - sa FORME parmi dix : les cinq photos, et chacune en miroir ;
+    #   - son ENFONCEMENT (ENFONCE_PEPITE) : la meme photo coupee au quart ou
+    #     a la moitie n'a plus la meme silhouette -- c'est le stratageme qui
+    #     change le plus une pierre ;
+    #   - sa COUPE DENTELEE, propre a elle (voir _crans_de_pepite) ;
+    #   - une CLARTE et une NUANCE a elle, un peu plus chaude ou plus froide :
+    #     des cailloux d'un meme tas n'ont jamais tout a fait le meme gris.
+    # Et comme la pepite, elle prend la teinte de sa zone, le voile de sa
+    # distance, un pied sombre et une ombre de contact.
+    #
+    # PAS D'HERBE A SON PIED, a la difference de la pepite : a cette taille,
+    # quatorze touffes l'auraient noyee, et le sol en porte deja partout.
+    LARGEUR_CAILLOU = 2.2        # x son rayon : l'emprise de l'ancien ovale
+    ECLAT_CAILLOU = 0.08         # clarte : +/- 8 % d'une pierre a l'autre
+    NUANCE_CAILLOU = 0.04        # plus chaude ou plus froide : +/- 4 %
+    # Cinq marches suffisent au degrade du pied : il fait ici une quinzaine
+    # de pixels, pas une centaine (voir BANDES_PEPITE).
+    BANDES_CAILLOU = 5
+    # Son debord sous sa base (voir DEBORD_PEPITE) : la meme forme que la
+    # pepite, donc le meme debord a proportion de sa largeur.
+    DEBORD_CAILLOU = DEBORD_PEPITE * LARGEUR_CAILLOU / LARGEUR_PEPITE
+
+    def _caillou(self, cx, base, r, depth=0.0):
+        """Une petite pierre, tiree des photos de la pepite (voir plus haut).
+
+        Faux si la planche n'a pas pu etre faite : l'appelant garde alors son
+        dessin d'origine."""
+        planche = foliage.planche_pierres("ore_nugget")
+        if planche is None:
+            return False
+        pick = self._pick(cx, base)
+        uv, uv_sil, pw, ph = planche.case(pick)
+        if not pw or not ph:
+            return False
+        jit = random.Random("%s:%.1f:%.1f:caillou" % (self._seed, cx, base))
+        enfonce = jit.uniform(*self.ENFONCE_PEPITE)
+        eclat = 1.0 + jit.uniform(-self.ECLAT_CAILLOU, self.ECLAT_CAILLOU)
+        nuance = jit.uniform(-self.NUANCE_CAILLOU, self.NUANCE_CAILLOU)
+        base_teinte = self.TEINTE_PEPITE.get(self._zone,
+                                             self.TEINTE_PEPITE["Plaine"])
+        # Le vert suit le rouge a moitie : une pierre chaude tire sur le
+        # beige. Le rouge seul la faisait tirer sur le rose.
+        teinte = (min(1.0, base_teinte[0] * eclat * (1.0 + nuance)),
+                  min(1.0, base_teinte[1] * eclat * (1.0 + nuance * 0.5)),
+                  min(1.0, base_teinte[2] * eclat * (1.0 - nuance)))
+        largeur = r * self.LARGEUR_CAILLOU
+        h_pleine = largeur * float(ph) / float(pw)
+        crans = self._crans_de_pepite(largeur, pick)
+
+        self._shadow(cx, base - largeur * 0.02, largeur * 0.88, opacity=0.85)
+        # Les cartes de relief restent liees pendant les voiles : leurs
+        # silhouettes tombent, dans la planche des normales, sur des cases
+        # PLATES -- le voile n'est donc pas eclaire, comme sur la pepite.
+        if self._pbr:
+            pbr.bind_maps(planche.normales, planche.packed)
+        Color(teinte[0], teinte[1], teinte[2], 1)
+        self._sprite_enfoui(planche.tex, cx, base, largeur, h_pleine, enfonce,
+                            crans, uv)
+        self._voiles(planche.tex, uv_sil, cx, base, largeur, h_pleine,
+                     enfonce, depth, crans,
+                     self.SOL_DE_ZONE.get(self._zone, "rock"),
+                     self.BANDES_CAILLOU)
+        if self._pbr:
+            self._reset_pbr()
+        self._pied_de_pepite(cx, base, largeur, depth)
+        return True
+
+    def _stone(self, cx, cy, r, sprite=None, depth=0.0):
+        # UNE IMAGE PROPRE A LA ZONE passe avant tout : il suffit d'en deposer
+        # une (stone_plain.png...). A defaut, la pierre prend les photos de
+        # la pepite (voir _caillou), et ce n'est que sans elles qu'elle
+        # retombe sur son dessin geometrique.
+        if not (sprite and foliage.variants(sprite)) \
+                and self._caillou(cx, cy, r, depth):
+            return
         self._shadow(cx, cy - r * 0.05, r * 2.1)          # ombre portee
         if self._sprite(sprite, cx, cy, r * 1.5):
             return
@@ -3646,9 +3761,10 @@ class ZoneScenery(Widget):
             sx, sy, sc, t = place(1.0, fx=stone_pick(), floor=_HARVEST_FLOOR)
             r = rng.uniform(0.018, 0.045) * h * sc
             if not self._take_or_skip("Pierre") and not self._is_blocked(sx, sy):
-                items.append((sy, lambda sx=sx, sy=sy, r=r:
-                              self._stone(sx, sy, r,
-                                          sprite=self._zs("stone"))))
+                items.append((sy - self.DEBORD_CAILLOU * r,
+                              lambda sx=sx, sy=sy, r=r, t=t:
+                              self._stone(sx, sy, r, sprite=self._zs("stone"),
+                                          depth=t)))
         for _ in range(rng.randint(6, 9)):             # branches [Small_Stick]
             bx, by, sc, t = place(1.0, floor=_HARVEST_FLOOR)
             ln = rng.uniform(0.06, 0.12) * w * sc
@@ -3922,7 +4038,14 @@ class ZoneScenery(Widget):
             rr = rng.uniform(0.015, 0.05) * h
             s = rng.uniform(-0.06, 0.06)
             if not self._take_or_skip("Pierre") and not self._is_blocked(sx, sy):
-                if not self._sprite(self._zs("stone"), sx, sy, rr * 1.5):
+                # Une petite pierre comme les autres (voir _caillou) : la
+                # pente monte vers le fond, sa hauteur dit donc sa distance.
+                propre = self._zs("stone")
+                if (not (propre and foliage.variants(propre))
+                        and self._caillou(sx, sy, rr,
+                                          min(1.0, (sy - y0) / h))):
+                    continue
+                if not self._sprite(propre, sx, sy, rr * 1.5):
                     Color(0.45 + s, 0.44 + s, 0.49 + s, 1)
                     Ellipse(pos=(sx - rr, sy), size=(rr * 2.2, rr * 1.5))
         # Plaques de neige en haut de la pente.
@@ -4022,8 +4145,11 @@ class ZoneScenery(Widget):
             ry = y0 + rng.uniform(_HARVEST_FLOOR, 0.28) * h
             rr = rng.uniform(0.012, 0.03) * h
             if not self._take_or_skip("Pierre") and not self._is_blocked(rx, ry):
-                items.append((ry, lambda rx=rx, ry=ry, rr=rr:
-                              self._pebble(rx, ry, rr)))
+                # Leur distance se lit sur l'eau, qui monte jusqu'a 0,60 h.
+                items.append((ry - self.DEBORD_CAILLOU * rr,
+                              lambda rx=rx, ry=ry, rr=rr,
+                              d=(ry - y0) / (0.60 * h):
+                              self._pebble(rx, ry, rr, d)))
         # Roseaux (remontes a partir des jointures). [recoltable: Roseau]
         for _ in range(34):
             gx = x0 + rng.uniform(0, 1) * w
@@ -4041,7 +4167,10 @@ class ZoneScenery(Widget):
                 items.extend(self._pepite_de_grille(rang, depth, px, pb, jit))
         self._dessine(items)
 
-    def _pebble(self, rx, ry, rr):
+    def _pebble(self, rx, ry, rr, depth=0.0):
+        # Un galet est une petite pierre comme les autres (voir _stone).
+        if not foliage.variants("pebble") and self._caillou(rx, ry, rr, depth):
+            return
         self._shadow(rx, ry + rr * 0.1, rr * 2.2, opacity=0.8)
         if self._sprite("pebble", rx, ry, rr * 1.4):
             return

@@ -184,7 +184,9 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
     branch_forest.png     Branche cassee au sol. TANT QU'ELLE MANQUE, la
                           foret prend les branches de la plaine
                           (branch_plain), comme pour la fougere.
-    stone_forest.png      Pierre couverte de mousse
+    stone_forest.png      Pierre couverte de mousse. TANT QU'ELLE MANQUE,
+                          les petites pierres prennent la pepite en petit
+                          (voir ore_nugget, plus bas).
 
 --- PLAINE -------------------------------------------------------
     flower_red.png        Fleur rouge
@@ -194,7 +196,8 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
     flower_white.png      Fleur blanche
     flower_purple.png     Fleur violette
     bush_plain.png        Buisson de plaine (vert clair)
-    stone_plain.png       Pierre nue (gris clair)
+    stone_plain.png       Pierre nue (gris clair). Meme repli que
+                          stone_forest : la pepite en petit.
     branch_plain.png      Branche au sol. DIX MODELES en place
                           (branch_plain.png a branch_plain_10.png), decoupes
                           dans la planche de batons livree et COUCHES A
@@ -224,7 +227,8 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
 
 --- MONTAGNE -----------------------------------------------------
     boulder.png           Gros rocher
-    stone_mountain.png    Pierre de montagne (nue, grise)
+    stone_mountain.png    Pierre de montagne (nue, grise). Meme repli :
+                          la pepite en petit.
     snow_patch.png        Plaque de neige
 
 --- PARTOUT ------------------------------------------------------
@@ -256,6 +260,21 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
                           Cadre l'image AU PLUS JUSTE sur la pierre : le jeu
                           coupe son bas a la ligne du sol, et une marge vide
                           en dessous la ferait flotter.
+                          LES PETITES PIERRES LA REPRENNENT, cartes de relief
+                          comprises, tant qu'aucune image stone_* ou pebble
+                          ne leur est donnee. Le jeu en fait une planche au
+                          chargement : chaque image reduite de moitie, et
+                          aussi en MIROIR (rouge de la normale inverse) --
+                          dix formes pour cinq photos. Chaque petite pierre
+                          tire de sa position sa forme, son enfoncement, sa
+                          coupe dentelee, sa clarte et sa nuance ; comme la
+                          pepite, elle prend la teinte de sa zone, le voile
+                          de sa distance et une ombre a son pied.
+                          Une nouvelle variante (ore_nugget_6...) les sert
+                          donc aussi. Garde-la dans 256 x 256 PIXELS, avec
+                          une largeur PAIRE : la planche range des cases de
+                          128, et une image trop grande rendrait aux petites
+                          pierres leur dessin geometrique.
 
 --- LA CASE VOISINE ----------------------------------------------
 Les elements des cases voisines debordent le long des bords de la scene, sauf
@@ -266,7 +285,7 @@ differentes.
 --- LAC ----------------------------------------------------------
     lily_pad.png          Nenuphar (vu du dessus)
     reed.png              Roseau (touffe haute)
-    pebble.png            Galet de rive
+    pebble.png            Galet de rive. Meme repli : la pepite en petit.
 
 ----------------------------------------------------------------
 CE QUI RESTE DESSINE (ne pas fournir d'image)

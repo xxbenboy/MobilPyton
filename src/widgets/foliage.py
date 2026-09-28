@@ -446,6 +446,221 @@ def planche_ombree(name):
     return planche
 
 
+# --------------------------------------------------------------------- #
+# LES PETITES PIERRES : LES PEPITES, EN PETIT
+# --------------------------------------------------------------------- #
+# Les petites pierres prennent les photos de la pepite ET ses cartes de relief
+# (normales, occlusion) : c'est le meme granit, il doit prendre le meme jour.
+#
+# PAS LES IMAGES TELLES QUELLES, pourtant. Une pepite est dessinee a peu pres
+# a la taille de son image ; une petite pierre, trois a six fois plus petite.
+# Sans version reduite (mipmaps), la carte graphique pioche alors un pixel sur
+# cinq : le granit fourmille, et le relief scintille de points clairs. Or les
+# images de pepite ne sont pas en puissance de 2, et un telephone refuse les
+# mipmaps sur une autre taille (voir _load).
+#
+# On en fait donc une PLANCHE, une fois, au chargement :
+#   - chaque image REDUITE DE MOITIE (128 pixels de large : la plus grosse
+#     petite pierre en fait une centaine a l'ecran) ;
+#   - chacune aussi EN MIROIR, ce qui double les formes : cinq pierres en
+#     font dix. Le miroir d'une carte de normales n'est pas un simple miroir
+#     -- ce qui penchait vers la droite penche desormais vers la gauche, donc
+#     son canal rouge s'inverse (voir plant_leafy_2 dans le LISEZMOI) ;
+#   - la SILHOUETTE de chacune, en blanc, sur la meme texture que les
+#     couleurs : les voiles qui etalonnent la pierre (voir
+#     ZoneScenery._etalonne_pepite) se lisent la, sans texture de plus ;
+#   - trois textures de meme plan -- couleurs, normales, occlusion -- en
+#     puissance de 2, avec mipmaps. Une case a la meme place dans les trois :
+#     le shader lit les trois aux memes coordonnees.
+#
+# CHAQUE CASE FAIT 128 x 128, et la pierre y est posee EN BAS : il reste un
+# vide transparent au-dessus d'elle. Une version reduite melange les pixels
+# voisins ; ce vide garde le haut de la pierre a l'ecart de la case du
+# dessus. Les silhouettes, blanches, sont rangees a part des couleurs, une
+# case vide les en separe : un lisere blanc au flanc d'une pierre grise se
+# serait vu.
+
+CASE_PIERRE = 128
+COLONNES_PIERRE = 4
+
+_PIERRES = {}
+_INVERSE = bytes(255 - i for i in range(256))
+
+
+def _moyenne_octets(a, b):
+    """La moyenne, octet par octet, de deux suites d'octets de meme longueur.
+
+    En un seul calcul sur de grands entiers : (a ET b) + ((a OU-X b) / 2) est
+    la moyenne entiere de deux nombres, et le masque 0xFE empeche le decalage
+    de faire deborder un bit d'un octet dans son voisin."""
+    n = len(a)
+    x = int.from_bytes(a, "big")
+    y = int.from_bytes(b, "big")
+    masque = int.from_bytes(b"\xfe" * n, "big")
+    return ((x & y) + (((x ^ y) & masque) >> 1)).to_bytes(n, "big")
+
+
+def _moitie(w, h, donnees):
+    """(w/2, h/2, octets) : l'image reduite de moitie, chaque carre de 2 x 2
+    pixels remplace par sa moyenne.
+
+    Une hauteur impaire recoit une rangee de plus EN HAUT (la premiere des
+    octets), copie de celle-ci : le bas de la pierre, celui qui touche le sol,
+    reste exactement a sa place."""
+    ligne = w * 4
+    if h % 2:
+        donnees = donnees[:ligne] + donnees
+        h += 1
+    rangees = [donnees[r * ligne:(r + 1) * ligne] for r in range(h)]
+    v = _moyenne_octets(b"".join(rangees[0::2]), b"".join(rangees[1::2]))
+    px = memoryview(v).cast("I")
+    return w // 2, h // 2, _moyenne_octets(px[0::2].tobytes(),
+                                           px[1::2].tobytes())
+
+
+def _miroir(w, h, donnees):
+    """L'image retournee de gauche a droite (pixel par pixel, pas octet par
+    octet : chaque pixel garde l'ordre de ses canaux)."""
+    px = memoryview(donnees).cast("I")
+    return b"".join(px[r * w:(r + 1) * w][::-1].tobytes() for r in range(h))
+
+
+def _inverse_rouge(donnees):
+    """Carte de normales retournee : sa pente gauche-droite change de sens."""
+    out = bytearray(donnees)
+    out[0::4] = out[0::4].translate(_INVERSE)
+    return bytes(out)
+
+
+class PlanchePierres(object):
+    """Les pierres reduites, en miroir et en silhouette (voir plus haut).
+
+    `cases[i]` = (uv de la pierre, uv de sa silhouette, largeur, hauteur),
+    chaque uv valant (u gauche, u droite, v du haut, v du pied). La
+    silhouette d'une pierre en miroir est celle de l'original, lue a
+    l'envers : son u gauche est plus grand que son u droit."""
+
+    def __init__(self, tex, normales, packed, cases):
+        self.tex = tex
+        self.normales = normales
+        self.packed = packed
+        self.cases = cases
+
+    def case(self, pick):
+        return self.cases[int(pick) % len(self.cases)]
+
+
+def _lit_carte(stem, suffixe, w, h):
+    """Les octets d'une carte de relief, ou None si absente ou d'une autre
+    taille que l'image (elle ne tomberait pas sur la pierre)."""
+    chemin = _chemin(stem + suffixe)
+    lu = _octets_rgba(chemin) if chemin else None
+    if lu is None or lu[0] != w or lu[1] != h:
+        return None
+    return lu[2]
+
+
+def planche_pierres(name):
+    """La planche des petites pierres tiree des images `name`, ou None.
+
+    None si aucune image n'a ete fournie ou si l'une ne se lit pas : les
+    petites pierres gardent alors leur dessin d'origine."""
+    if name in _PIERRES:
+        return _PIERRES[name]
+    _PIERRES[name] = None
+    if memoryview(b"\0\0\0\0").cast("I").itemsize != 4:
+        return None
+    lues = []
+    for stem in _stems_charges(name):
+        chemin = _chemin(stem)
+        lu = _octets_rgba(chemin) if chemin else None
+        if lu is None or lu[0] % 2:
+            return None
+        w, h, couleur = lu
+        couleur = bytearray(couleur)
+        _borde(couleur, _moyenne_opaque(couleur))
+        w2, h2, c = _moitie(w, h, bytes(couleur))
+        if w2 > CASE_PIERRE or h2 > CASE_PIERRE:
+            return None
+        cartes = []
+        for suffixe in (SUFFIXE_NORMAL, SUFFIXE_PACKED):
+            brut = _lit_carte(stem, suffixe, w, h)
+            cartes.append(_moitie(w, h, brut)[2] if brut else None)
+        lues.append((w2, h2, c, cartes[0], cartes[1]))
+    if not lues:
+        return None
+
+    n = len(lues)
+    debut_sil = 2 * n + 1              # une case vide entre couleurs et blanc
+    nb = debut_sil + n
+    cote = CASE_PIERRE
+    pw = _pow2(COLONNES_PIERRE * cote)
+    ph = _pow2(-(-nb // COLONNES_PIERRE) * cote)
+    if pw > PLANCHE_MAX or ph > PLANCHE_MAX:
+        return None
+    fond = _moyenne_opaque(b"".join(c for _w, _h, c, _n, _p in lues))
+    couleurs = bytearray(bytes(fond) + b"\0") * (pw * ph)
+    normales = bytearray(b"\x80\x80\xff\xff") * (pw * ph)
+    packed = bytearray(b"\xff") * (pw * ph * 4)
+
+    def coin(k):
+        return (k % COLONNES_PIERRE) * cote, (k // COLONNES_PIERRE) * cote
+
+    def pose(atlas, k, w, h, donnees):
+        """Copie une image dans la case k, posee en bas et centree."""
+        x0, y0 = coin(k)
+        x0 += (cote - w) // 2
+        y0 += cote - h
+        for r in range(h):
+            a = ((y0 + r) * pw + x0) * 4
+            atlas[a:a + w * 4] = donnees[r * w * 4:(r + 1) * w * 4]
+
+    def uv(k, w, h, miroir=False):
+        x0, y0 = coin(k)
+        x0 += (cote - w) // 2
+        u0, u1 = x0 / float(pw), (x0 + w) / float(pw)
+        if miroir:
+            u0, u1 = u1, u0
+        return (u0, u1, (y0 + cote - h) / float(ph), (y0 + cote) / float(ph))
+
+    blanc = bytearray(b"\xff\xff\xff\0") * cote
+    cases_miroir = []
+    cases = []
+    for i, (w, h, c, nor, pak) in enumerate(lues):
+        # La case de la silhouette est BLANCHE jusque dans son vide : c'est
+        # du blanc que ses versions reduites y melangent, pas du gris.
+        x0, y0 = coin(debut_sil + i)
+        for r in range(cote):
+            a = ((y0 + r) * pw + x0) * 4
+            couleurs[a:a + cote * 4] = blanc
+        sil = bytearray(c)
+        for k in range(3):
+            sil[k::4] = b"\xff" * (len(sil) // 4)
+        pose(couleurs, debut_sil + i, w, h, sil)
+        pose(couleurs, i, w, h, c)
+        pose(couleurs, n + i, w, h, _miroir(w, h, c))
+        if nor is not None:
+            pose(normales, i, w, h, nor)
+            pose(normales, n + i, w, h, _inverse_rouge(_miroir(w, h, nor)))
+        if pak is not None:
+            pose(packed, i, w, h, pak)
+            pose(packed, n + i, w, h, _miroir(w, h, pak))
+        cases.append((uv(i, w, h), uv(debut_sil + i, w, h), w, h))
+        cases_miroir.append((uv(n + i, w, h),
+                             uv(debut_sil + i, w, h, miroir=True), w, h))
+    try:
+        textures = [texture_depuis_octets((pw, ph), bytes(atlas),
+                                          wrap="clamp_to_edge", mipmap=True,
+                                          min_filter="linear_mipmap_linear")
+                    for atlas in (couleurs, normales, packed)]
+    except Exception:
+        return None
+    planche = PlanchePierres(textures[0], textures[1], textures[2],
+                             cases + cases_miroir)
+    _PIERRES[name] = planche
+    return planche
+
+
 def size_for(tex, height):
     """(largeur, hauteur) d'une image posee a cette HAUTEUR, sans deformation."""
     tw, th = tex.size
