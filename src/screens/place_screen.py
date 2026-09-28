@@ -1,5 +1,5 @@
-"""Ecran PLACEMENT : vue de dessus + grille 5x5 pour choisir ou installer
-un objet (feu de camp, ...) sur la case courante.
+"""Ecran PLACEMENT : grille 5x5, vue de dessus, posee sur la SCENE de la case
+courante, pour choisir ou installer un objet (feu de camp, ...).
 
 Le joueur est fixe au centre-bas de la grille (gx=2, gy=0), regardant vers le
 haut (gy croissant).
@@ -7,7 +7,8 @@ haut (gy croissant).
 ON POSE EN GLISSANT. L'objet a poser s'affiche sur une carte a DROITE de la
 grille ; on le prend du doigt et on le lache sur la grille. Tant qu'il est
 tenu, les cases qu'il occuperait s'allument -- vertes si ca tient, rouges
-sinon.
+sinon -- et L'OBJET SE POSE EN MEME TEMPS DANS LA SCENE, derriere, la ou il
+tomberait : on voit le resultat avant de lacher.
 
 IL VIENT DE DEUX ENDROITS. Le plus souvent de l'ATELIER : fabriquer un
 deposable ne rend rien, cela ouvre directement cet ecran, et le joueur doit
@@ -603,10 +604,10 @@ class PlaceScreen(Screen):
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         root.add_widget(self.background)
-        # Fond = vue VERS LE BAS du sol de la case courante.
+        # Fond = la SCENE de la case courante, comme dans le jeu (voir
+        # on_pre_enter).
         self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.scenery)
-        self._scene_key = None
 
         # Voile de nuit (comme dans la carte et le craft).
         self.night = Widget(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
@@ -808,8 +809,24 @@ class PlaceScreen(Screen):
             # peut donc pas promettre un emplacement que le depot refuserait.
             self.grid_overlay.preview_ok = state.can_install(name, *ancre)
         self.grid_overlay._redraw()
+        # ET DANS LA SCENE, derriere : l'objet s'y pose en direct, la ou il
+        # tomberait (voir ZoneScenery.montre_apercu). Seulement quand la case
+        # visee change -- le doigt bouge bien plus souvent qu'il ne change de
+        # case, et redessiner l'objet a chaque pixel ne montrerait rien de
+        # plus.
+        vise = (ancre, self.grid_overlay.preview_ok)
+        if vise != self._drag.get("vise"):
+            self._drag["vise"] = vise
+            if ancre is None:
+                self.scenery.montre_apercu(None)
+            else:
+                self.scenery.montre_apercu(ancre[0], ancre[1],
+                                           self.grid_overlay.preview_ok)
 
-    def _clear_drag(self):
+    def _clear_drag(self, garder_apercu=False):
+        """Fin du geste. `garder_apercu` laisse l'objet dans la scene : il
+        vient d'y etre pose pour de bon, et l'effacer le ferait clignoter
+        pendant le fondu vers le jeu, le temps que celui-ci le redessine."""
         drag, self._drag = self._drag, None
         if drag is not None:
             self.drag_layer.remove_widget(drag["ghost"])
@@ -817,20 +834,24 @@ class PlaceScreen(Screen):
         self.grid_overlay.preview_ok = False
         self.grid_overlay._redraw()
         self.item_card.opacity = 1.0
+        if not garder_apercu:
+            self.scenery.montre_apercu(None)
 
     def _drop(self, touch):
         """Lache l'objet : il se pose si l'emprise entiere convient."""
         drag = self._drag
         ancre = drag.get("ancre")
         name = drag["name"]
-        self._clear_drag()
         state = App.get_running_app().game_state
+        pose = (state is not None and ancre is not None
+                and state.can_install(name, *ancre))
+        self._clear_drag(garder_apercu=pose)
         if state is None:
             return
         if ancre is None:
             self.item_hint.text = "Glisse-le SUR la grille."
             return
-        if not state.can_install(name, *ancre):
+        if not pose:
             # On dit POURQUOI. Un refus muet, sur un geste qui vient d'aboutir,
             # se lit comme une panne.
             self.item_hint.text = "Pas de place ici pour\n%s." \
@@ -867,24 +888,22 @@ class PlaceScreen(Screen):
         self._night_color.rgb = daylight.veil_color(state.time_seconds)
         self._night_color.a = night_darkness(state.time_seconds)
         self.scenery.set_daylight(state.time_seconds)
-        zone = state.current_zone()
         objs = state.scene_installed()
-        # Fond : la GRILLE se lit d'en haut (vue du sol), mais la fenetre
-        # d'action s'ouvre sur la SCENE du jeu -> on voit le decor et, si le
-        # foyer est allume, ses flammes derriere la fenetre.
-        seed = state.player_x * 131 + state.player_y
-        if self._action_cell is not None:
-            # LA MEME SCENE QUE L'ECRAN DE JEU, par la meme methode : arbres
-            # abattus, recoltes, voisins. Preparee ici a part, elle avait
-            # oublie les arbres abattus -- ils repoussaient derriere la
-            # fenetre du foyer -- et ne se refaisait pas apres une recolte.
-            self.scenery.montre_la_case(state)
-            self._scene_key = None
-        else:
-            key = (zone, seed)
-            if key != self._scene_key:
-                self.scenery.set_ground(zone, seed)
-                self._scene_key = key
+        # FOND : LA SCENE DU JEU, dans tous les modes -- la grille, la pose et
+        # la fenetre du foyer. Et la meme que l'ecran de jeu, par la meme
+        # methode : arbres abattus, recoltes, voisins.
+        #
+        # La grille avait pour fond la vue du SOL, en plongee. Mais c'est la
+        # scene qu'on amenage : en pose, l'objet glisse s'y dessine en direct
+        # (voir _aim), et l'on voit ce qu'on s'apprete a faire la ou on le
+        # fera. La scene lui reserve alors sa place a chaque profondeur.
+        tenu = self._held_item() if self.mode == "place" else None
+        self.scenery.montre_la_case(state, apercu=tenu)
+        # Le fond suit le meme ciel que dans le jeu : nuages qui convergent
+        # vers SON horizon, lointain fondu dans le ciel affiche.
+        self.background.set_horizon(self.scenery.hauteur_horizon())
+        self.scenery.set_brume(self.background.couleur_ciel(
+            self.scenery.hauteur_horizon()))
         # Marque les positions deja installees comme non cliquables, et les
         # cases occupees par un GROS element du decor (arbre, buisson, rocher).
         # L'EMPRISE de chaque objet : un plan de construction en couvre quatre.

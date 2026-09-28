@@ -38,10 +38,9 @@ class MapScreen(Screen):
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         root.add_widget(self.background)
-        # Decor du sol de la zone courante en fond (au lieu du ciel seul).
+        # La scene de la case en fond, comme dans le jeu (voir refresh_hud).
         self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.scenery)
-        self._scene_key = None
 
         # Voile de NUIT : assombrit le ciel + le sol selon l'heure (comme
         # dans l'ecran de jeu). Ajoute APRES decor, AVANT le HUD : le HUD
@@ -136,11 +135,16 @@ class MapScreen(Screen):
         self._night_color.rgb = daylight.veil_color(state.time_seconds)
         self._night_color.a = night_darkness(state.time_seconds)
         self.scenery.set_daylight(state.time_seconds)
-        # Fond = vue VERS LE BAS du sol de la zone (on regarde la carte/le sol).
-        key = (zone, state.player_x, state.player_y)
-        if key != self._scene_key:
-            self.scenery.set_ground(zone, state.player_x * 131 + state.player_y)
-            self._scene_key = key
+        # FOND : LA SCENE DE LA CASE, telle qu'elle est -- la meme que le jeu
+        # et que l'autre volet (ZONE), par la meme methode. C'etait la vue du
+        # sol en plongee, alors que la fenetre du foyer, qu'on ouvre depuis
+        # la ZONE, montrait deja la scene : le fond changeait en chemin. Rien
+        # n'est redessine d'une image a l'autre tant que la case ne change
+        # pas (voir montre_la_case).
+        self.scenery.montre_la_case(state)
+        self.background.set_horizon(self.scenery.hauteur_horizon())
+        self.scenery.set_brume(self.background.couleur_ciel(
+            self.scenery.hauteur_horizon()))
 
     def _periodic_autosave(self, _dt):
         App.get_running_app().autosave()

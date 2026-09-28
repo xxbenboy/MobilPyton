@@ -23,7 +23,8 @@ import random
 from kivy.clock import Clock
 from kivy.uix.widget import Widget
 from kivy.graphics import (Color, Ellipse, Rectangle, Triangle, Line, Quad,
-                           Mesh, RenderContext, PushMatrix, PopMatrix, Rotate)
+                           Mesh, RenderContext, PushMatrix, PopMatrix, Rotate,
+                           Canvas)
 
 from src import world, items
 from src.widgets import textures, pbr, foliage, daylight
@@ -640,6 +641,12 @@ class ZoneScenery(Widget):
         self._mode = "scene"        # "scene" = vue horizon ; "ground" = vue sol
         # Ce que montre_la_case a dessine en dernier (None : rien de connu).
         self._cle_case = None
+        # L'APERCU de l'objet qu'on pose (voir montre_apercu) : son nom, les
+        # places reservees pour lui dans la scene (une par rangee de la
+        # grille), et ce qui y est dessine en ce moment.
+        self._apercu_nom = None
+        self._apercu_places = {}
+        self._apercu_vu = None
         # Recolte : nombre deja recolte par objet (applique au dessin pour
         # MASQUER les objets recoltes) et totaux/budgets calcules a la
         # construction de la scene.
@@ -858,8 +865,12 @@ class ZoneScenery(Widget):
         self._neighbours = dict(neighbours or {})
         self._redraw()
 
-    def montre_la_case(self, state):
+    def montre_la_case(self, state, apercu=None):
         """La case ou se tient le joueur, TELLE QU'ELLE EST MAINTENANT.
+
+        `apercu` : le nom de l'objet qu'on s'apprete a poser, s'il y en a un.
+        La scene lui reserve alors sa place a chaque profondeur ou il pourrait
+        tomber (voir montre_apercu).
 
         Arbres abattus, objets recoltes, objets poses (et l'etat de leur feu),
         cases voisines : tout vient de l'etat du jeu, ici et nulle part
@@ -892,12 +903,116 @@ class ZoneScenery(Widget):
             "neighbours": horizon.neighbours_of(state),
         }
         cle = tuple((k, tuple(sorted(v.items())) if isinstance(v, dict)
-                     else v) for k, v in sorted(decor.items()))
+                     else v) for k, v in sorted(decor.items())) + (apercu,)
         if (self._mode == "scene" and cle == self._cle_case
                 and dict(taken) == self._taken):
             return
+        self._apercu_nom = apercu
         self.set_scene(taken=taken, **decor)
         self._cle_case = cle
+
+    # -- apercu de pose -------------------------------------------------- #
+    #
+    # PENDANT QU'ON GLISSE UN OBJET SUR LA GRILLE, IL SE POSE AUSSI DANS LA
+    # SCENE, en direct, la ou il tomberait. On voit donc le resultat -- sa
+    # taille, ce qui le cache, ce qu'il cache -- avant de lacher.
+    #
+    # SANS REDESSINER LA SCENE. La refaire a chaque case survolee couterait
+    # des dixiemes de seconde sur un telephone, et le glisse saccaderait. La
+    # scene RESERVE donc, au moment ou elle se dessine, une place vide dans
+    # son ordre de profondeur pour chaque rangee de la grille -- la ou l'objet
+    # pose se trierait (voir _dessine). Pendant le geste, on ne fait que
+    # dessiner l'objet dans la bonne place, et l'effacer de l'ancienne : ce
+    # qui est plus pres que lui passe devant, comme une fois pose.
+    #
+    # Une seule chose differe du resultat final : le decor de sa case n'est
+    # pas ecarte (voir _is_blocked). Une touffe qui pousse la le recouvre
+    # encore un peu ; elle disparaitra a la pose.
+
+    def _places_apercu(self):
+        """[(cle de tri, gy)] des rangees ou l'objet a poser peut s'ancrer,
+        de la plus LOINTAINE a la plus proche.
+
+        La cle d'un objet ne depend que de sa rangee (voir grid_to_screen :
+        la profondeur ne tient qu'a gy), d'ou une place par rangee et non par
+        case."""
+        if not self._apercu_nom or self._mode != "scene":
+            return []
+        _fw, fh = items.footprint(self._apercu_nom)
+        out = []
+        for gy in range(0, 5 - fh + 1):
+            objet = self._objet_pose(self._apercu_nom, 0, gy)
+            if objet is not None:
+                out.append((objet[0], gy))
+        out.sort(reverse=True)
+        return out
+
+    def _reserve_place(self, gy):
+        """Pose une place vide dans le canvas, a l'endroit ou l'on dessine."""
+        self._vide_lot()          # l'herbe en attente passe avant elle
+        self._apercu_places[gy] = Canvas()
+
+    def montre_apercu(self, gx=None, gy=None, ok=True):
+        """Dessine l'objet a poser en (gx, gy) -- ou l'efface si gx est None.
+
+        `ok` : la pose y est-elle permise ? Sinon, pas d'objet : une empreinte
+        rouge au sol, de la taille qu'il prendrait -- la grille dit deja
+        pourquoi en rouge, la scene montre ou."""
+        self._efface_apercu()
+        if gx is None or not self._apercu_nom:
+            return
+        place = self._apercu_places.get(gy)
+        objet = self._objet_pose(self._apercu_nom, gx, gy)
+        if place is None or objet is None:
+            return
+        # Ce que l'objet inscrit en dessinant (ombres a tourner avec le
+        # soleil, flammes, feuillage au vent) : on le note pour le retirer
+        # avec lui.
+        avant = (len(self._shadows), len(self._flames), len(self._sway))
+        with place:
+            if ok:
+                objet[1]()
+            else:
+                self._empreinte_refus(self._apercu_nom, gx, gy)
+        self._apercu_vu = (place, self._shadows[avant[0]:],
+                           self._flames[avant[1]:], self._sway[avant[2]:])
+        self._sync_flame_clock()
+
+    def _efface_apercu(self):
+        vu, self._apercu_vu = self._apercu_vu, None
+        if vu is None:
+            return
+        place, ombres, flammes, feuillages = vu
+        place.clear()
+        for liste, retires in ((self._shadows, ombres),
+                               (self._flames, flammes),
+                               (self._sway, feuillages)):
+            for x in retires:
+                if x in liste:
+                    liste.remove(x)
+        self._sync_flame_clock()
+
+    def _empreinte_refus(self, name, gx, gy):
+        """L'emprise au sol de l'objet, en rouge : ici, il ne tient pas."""
+        fw, fh = items.footprint(name)
+        if fw == 1 and fh == 1:
+            fx, fy, size = self.grille(gx, gy)
+            s = size * self.width
+            cx, cy = self.x + fx * self.width, self.y + fy * self.height
+            h = s * _PLAT_PROFONDEUR
+            Color(1.0, 0.30, 0.25, 0.35)
+            Ellipse(pos=(cx - s / 2.0, cy - h / 2.0), size=(s, h))
+            Color(1.0, 0.42, 0.35, 0.90)
+            Line(ellipse=(cx - s / 2.0, cy - h / 2.0, s, h),
+                 width=max(1.5, s * 0.012))
+            return
+        coins = self._emprise_coins(name, gx, gy)
+        pts = [v for c in coins for v in c]
+        Color(1.0, 0.30, 0.25, 0.35)
+        Quad(points=pts)
+        Color(1.0, 0.42, 0.35, 0.90)
+        Line(points=pts, close=True,
+             width=max(1.5, (coins[1][0] - coins[0][0]) * 0.012))
 
     def set_taken(self, taken):
         """Met a jour les objets recoltes (masques) et redessine la scene."""
@@ -1066,39 +1181,46 @@ class ZoneScenery(Widget):
         elements du decor, donc le tri par profondeur les melange correctement
         (ce qui est plus PROCHE est dessine par-dessus)."""
         out = []
-        w, h, x0, y0 = self.width, self.height, self.x, self.y
         for name, gx, gy, lit, level in self._installed:
-            fx, fy, size = self.grille(gx, gy)
-            cx = x0 + fx * w
-            cy = y0 + fy * h
-            s = size * w
-            if name == "Feu_de_camp":
-                # Pose A PLAT et etale de part et d'autre de son centre : son
-                # bord PROCHE descend d'une demi-profondeur sous (cx, cy).
-                # C'est la qu'il touche le sol, donc c'est la sa cle de tri --
-                # sans quoi il passerait pour plus lointain qu'il ne parait, et
-                # l'herbe situee derriere se dessinerait par-dessus (meme piege
-                # que les buissons).
-                out.append((cy - s * _PLAT_PROFONDEUR / 2.0,
-                            lambda cx=cx, cy=cy, s=s, lit=lit, lv=level,
-                            d=gy / 4.0: self._fire_pit(cx, cy, s, lit, lv,
-                                                       d)))
-            elif name == items.BLUEPRINT_T1:
-                coins = self._emprise_coins(name, gx, gy)
-                base = min(c[1] for c in coins)
-                if lit and level:
-                    # CHANTIER TERMINE : ce n'est plus un plan, c'est une
-                    # construction. Les piquets et la corde n'ont plus rien a
-                    # dire -- ils marquaient une intention, elle est realisee.
-                    out.append((base,
-                                lambda c=coins, b=level: self._batiment(c, b)))
-                else:
-                    out.append((base, lambda c=coins: self._blueprint(c)))
-            elif name == items.WORKBENCH_T1:
-                coins = self._emprise_coins(name, gx, gy)
-                base = min(c[1] for c in coins)
-                out.append((base, lambda c=coins: self._etabli(c)))
+            objet = self._objet_pose(name, gx, gy, lit, level)
+            if objet is not None:
+                out.append(objet)
         return out
+
+    def _objet_pose(self, name, gx, gy, lit=False, level="grand"):
+        """(cle de tri, dessin) d'UN objet pose en (gx, gy), ou None.
+
+        Ecrit a part pour servir deux fois : aux objets installes, et a
+        l'APERCU de celui qu'on est en train de poser (voir montre_apercu).
+        L'apercu est ainsi dessine par le meme code que l'objet pose -- il ne
+        peut pas promettre autre chose que ce qui sortira."""
+        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        fx, fy, size = self.grille(gx, gy)
+        cx = x0 + fx * w
+        cy = y0 + fy * h
+        s = size * w
+        if name == "Feu_de_camp":
+            # Pose A PLAT et etale de part et d'autre de son centre : son bord
+            # PROCHE descend d'une demi-profondeur sous (cx, cy). C'est la
+            # qu'il touche le sol, donc c'est la sa cle de tri -- sans quoi il
+            # passerait pour plus lointain qu'il ne parait, et l'herbe situee
+            # derriere se dessinerait par-dessus (meme piege que les
+            # buissons).
+            return (cy - s * _PLAT_PROFONDEUR / 2.0,
+                    lambda: self._fire_pit(cx, cy, s, lit, level, gy / 4.0))
+        if name == items.BLUEPRINT_T1:
+            coins = self._emprise_coins(name, gx, gy)
+            base = min(c[1] for c in coins)
+            if lit and level:
+                # CHANTIER TERMINE : ce n'est plus un plan, c'est une
+                # construction. Les piquets et la corde n'ont plus rien a dire
+                # -- ils marquaient une intention, elle est realisee.
+                return (base, lambda: self._batiment(coins, level))
+            return (base, lambda: self._blueprint(coins))
+        if name == items.WORKBENCH_T1:
+            coins = self._emprise_coins(name, gx, gy)
+            return (min(c[1] for c in coins), lambda: self._etabli(coins))
+        return None
 
     def _emprise_coins(self, name, gx, gy):
         """Les quatre coins ECRAN de l'emprise au sol d'un objet pose.
@@ -2105,6 +2227,9 @@ class ZoneScenery(Widget):
         self._flames = []
         self._shadows = []
         self._sway = []
+        # Et les places de l'apercu, effacees avec lui (voir _dessine).
+        self._apercu_places = {}
+        self._apercu_vu = None
         # Idem pour la brume : seule une scene qui en pose une la recree.
         self._brume_couleur = None
         self._lot = None
@@ -2610,11 +2735,18 @@ class ZoneScenery(Widget):
         else:
             self._seuil_vent = float("inf")
         self._lot = {"cle": None, "sommets": []}
+        # LES PLACES DE L'APERCU, glissees dans l'ordre de profondeur la ou
+        # l'objet pose se trierait (voir montre_apercu). Vide hors pose.
+        places = self._places_apercu()
         try:
-            for _, fn in items:
+            for cle, fn in items:
+                while places and cle < places[0][0]:
+                    self._reserve_place(places.pop(0)[1])
                 if not getattr(fn, "herbe", 0.0):
                     self._vide_lot()
                 fn()
+            for _cle, gy in places:
+                self._reserve_place(gy)
             self._vide_lot()
         finally:
             self._lot = None
