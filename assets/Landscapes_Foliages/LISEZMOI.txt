@@ -178,7 +178,9 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
                           (plant_leafy) : mieux qu'une forme dessinee a cote
                           d'arbres photographiques. Depose fern.png et elle
                           reprend sa place, sans toucher au code.
-    bush_forest.png       Buisson de foret (vert fonce)
+    bush_forest.png       Buisson de foret (vert fonce). TANT QU'IL MANQUE,
+                          la foret prend le buisson de la plaine, que le jeu
+                          assombrit a la clarte du sous-bois.
     mushroom_forest.png   Champignon brun au sol
     leaf_litter.png       Feuille morte au sol (posee a plat)
     branch_forest.png     Branche cassee au sol. TANT QU'ELLE MANQUE, la
@@ -195,7 +197,26 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
                                             en version dessinee)
     flower_white.png      Fleur blanche
     flower_purple.png     Fleur violette
-    bush_plain.png        Buisson de plaine (vert clair)
+    bush_plain.png        Buisson de plaine. UNE PHOTO DE BUISSON AVEC SES
+                          DEUX CARTES (bush_plain_R.png, bush_plain_P.png),
+                          et sa variante MIROIR (bush_plain_2, rouge de la
+                          normale inverse). 1024 x 512 : puissance de 2, le
+                          buisson en occupe 827 x 508, son pied AU RAS DU
+                          BAS. Le damier peint dans l'image livree a ete
+                          retire, et ses reflets presque blancs ramenes vers
+                          le vert des feuilles : a cote de l'herbe ils lui
+                          donnaient un feuillage argente.
+                          Le jeu le pose a 1,65 fois son rayon de haut -- la
+                          place de l'ancien dessin, puisque les pepites se
+                          mesurent sur lui --, lui impose la CLARTE que la
+                          scene demande (et non une couleur), et fait
+                          onduler son feuillage au vent comme celui des
+                          arbres, sans tronc fixe.
+                          Une autre photo de buisson peut le remplacer, mais
+                          la clarte que le jeu en attend est reglee sur
+                          celle-ci (CLARTE_BUISSON dans zone_scenery.py) :
+                          une photo plus claire sortirait d'autant plus
+                          claire, tant que la constante n'est pas remesuree.
     stone_plain.png       Pierre nue (gris clair). Meme repli que
                           stone_forest : la pepite en petit.
     branch_plain.png      Branche au sol. DIX MODELES en place

@@ -355,6 +355,57 @@ VENT_SAPIN_TRAVERSE = 0.8
 # quand on ramasse une pierre a cote.
 HAUTEUR_SAPIN = (0.82, 1.18)
 
+# --- LE BUISSON EN IMAGE --------------------------------------------------- #
+# Un buisson est un feuillu SANS TRONC : ses tiges partent du sol, et c'est
+# toute sa masse qui ondoie. Meme grille que le feuillu, reglee autrement :
+#
+#   - PLUS DE COLONNES QUE DE RANGEES : il est plus large que haut, et la
+#     rafale a davantage de chemin a faire pour le traverser ;
+#   - PRESQUE PAS DE PIED FIXE : le feuillage descend jusqu'au sol, seules
+#     les tiges du bas (le dixieme de la hauteur) restent plantees ;
+#   - UNE AMPLITUDE PLUS FORTE, en part de sa hauteur : des tiges fines
+#     plient plus qu'un fut. Il est aussi trois fois moins haut qu'un arbre :
+#     a 0,030 comme lui, il n'aurait bouge que de deux pixels par temps clair ;
+#   - UN PEU PLUS VITE : plus petit et plus souple, il bat plus vite (le
+#     feuillu est a 0,53 et 0,94 Hz).
+RANGEES_BUISSON = 5
+COLONNES_BUISSON = 8
+TRONC_FIXE_BUISSON = 0.10
+COURBE_BUISSON = 1.2
+VENT_BUISSON_AMPLITUDE = 0.06
+VENT_BUISSON_HZ = (0.71, 1.23)
+VENT_BUISSON_TRAVERSE = 2.4
+
+# SA HAUTEUR A L'ECRAN, en rayons. Le buisson est la REFERENCE de taille du
+# decor -- les pepites se mesurent sur lui -- et il doit donc garder l'emprise
+# de son ancien dessin : 2,89 r de large pour 1,51 r de haut. L'image est plus
+# haute a proportion (1,63 fois plus large que haute) ; a 1,65 r de haut elle
+# fait 2,67 r de large, soit la meme surface (4,4 r2). A la hauteur prevue
+# auparavant pour une image quelconque (2,1 r), il aurait pris 60 % de place
+# en plus et ecrase tout ce qui se mesure sur lui.
+HAUTEUR_BUISSON = 1.65
+
+# Clarte moyenne du buisson TEL QUE LE JEU LE DESSINE, a teinte neutre. Comme
+# pour l'herbe : la scene demande une couleur de buisson -- vert de pre en
+# plaine, vert sombre de sous-bois en foret -- et l'image en prend la clarte,
+# pas la couleur.
+#
+# CE N'EST PAS LA CLARTE DE L'IMAGE (0,297), et c'est ce qui l'avait rendu
+# presque noir au premier essai : ses cartes de relief l'assombrissent. Ses
+# feuilles regardent dans tous les sens, et une feuille tournee vers le
+# soleil ne gagne pas autant que perd celle qui s'en detourne ; son occlusion
+# creuse encore le coeur. Simule sur le shader (scratchpad/simule_pbr.py) :
+# il en reste 69 %, a 8 h comme a 17 h. 0,297 x 0,69 = 0,205.
+#
+# Recale ainsi, le buisson de plaine retrouve la clarte de son ancien dessin
+# (0,23 a midi) sans qu'un pixel sur cent ne sature.
+CLARTE_BUISSON = 0.205
+
+# Et sa COULEUR, un peu reprise : la photo tire sur le bleu-gris a cote de
+# l'herbe de la plaine, franchement jaune. Moins de bleu la range dans la
+# meme famille de verts (voir TEINTE_HERBE_RVB, la meme idee en plus fort).
+TEINTE_BUISSON_RVB = (0.97, 1.00, 0.84)
+
 # Luminance moyenne de l'image d'herbe livree, MESUREE (voir
 # scratchpad/herbe_images.py). La scene teinte l'image pour retrouver la
 # couleur que ses triangles avaient : le facteur vaut la clarte voulue divisee
@@ -1649,7 +1700,10 @@ class ZoneScenery(Widget):
                            traverse le houppier ;
             "conifere"  -- la meme grille, mais la fleche fouette et les
                            pointes de branches rebondissent verticalement
-                           (voir _sprite_feuillage et _tick_feuillage).
+                           (voir _sprite_feuillage et _tick_feuillage) ;
+            "buisson"   -- la grille du feuillu, sans tronc : toute la masse
+                           ondoie, plus large que haute (voir
+                           RANGEES_BUISSON).
 
         Vrai vaut "herbe" : c'etait le seul cas quand le parametre est ne."""
         if not name:
@@ -1761,10 +1815,10 @@ class ZoneScenery(Widget):
                 "speed": 1.35 + 0.0007 * (abs(cx) % 400),
                 "phase": (cx * 0.11 + base * 0.07) % 6.28})
 
-    # Les deux especes d'arbre, et tout ce qui les separe au vent. Les ranger
-    # ici plutot que dans le corps du code evite deux boucles jumelles qui
-    # divergeraient a la premiere retouche -- et met les differences cote a
-    # cote, ou on peut les lire.
+    # Les deux especes d'arbre et le buisson, et tout ce qui les separe au
+    # vent. Les ranger ici plutot que dans le corps du code evite des boucles
+    # jumelles qui divergeraient a la premiere retouche -- et met les
+    # differences cote a cote, ou on peut les lire.
     _FEUILLAGE = {
         "feuillu": {"nc": COLONNES_ARBRE, "nr": RANGEES_ARBRE,
                     "tronc": TRONC_FIXE, "courbe": COURBE_ARBRE,
@@ -1779,6 +1833,12 @@ class ZoneScenery(Widget):
                      "hz": VENT_SAPIN_HZ, "melange": VENT_SAPIN_MELANGE,
                      "biais": VENT_SAPIN_BIAIS,
                      "traverse": VENT_SAPIN_TRAVERSE},
+        "buisson": {"nc": COLONNES_BUISSON, "nr": RANGEES_BUISSON,
+                    "tronc": TRONC_FIXE_BUISSON, "courbe": COURBE_BUISSON,
+                    "amp": VENT_BUISSON_AMPLITUDE, "bond": 0.0, "montee": 0.0,
+                    "hz": VENT_BUISSON_HZ, "melange": VENT_ARBRE_MELANGE,
+                    "biais": VENT_ARBRE_BIAIS,
+                    "traverse": VENT_BUISSON_TRAVERSE},
     }
 
     def _sprite_feuillage(self, tex, cx, base, w, h, espece):
@@ -2512,10 +2572,24 @@ class ZoneScenery(Widget):
                     "speed": 1.5 + 0.55 * hsc + 0.3 * off,
                     "phase": (cx * 0.11 + base * 0.07 + off * 1.9) % 6.28})
 
+    def _teinte_buisson(self, color):
+        """La teinte qui donne a l'image du buisson la CLARTE de `color`.
+
+        Meme principe que _teinte_herbe : une seule photo sert le buisson de
+        pre et celui de sous-bois, deux fois plus sombre. On ne lui impose que
+        sa clarte -- un gris -- et elle garde ses verts, ses reflets et ses
+        creux, que jamais les ovales d'avant n'auraient eus."""
+        lum = 0.3 * color[0] + 0.6 * color[1] + 0.1 * color[2]
+        k = max(0.35, min(1.60, lum / CLARTE_BUISSON))
+        return tuple(k * c for c in TEINTE_BUISSON_RVB)
+
     def _bush(self, cx, cy, r, color, sprite=None):
         cr, cg, cb, ca = color
         self._shadow(cx, cy - r * 0.1, r * 2.6)           # ombre au sol
-        if self._sprite(sprite, cx, cy - r * 0.35, r * 2.1):
+        # L'image : ses cartes de relief, sa variante (l'original ou son
+        # miroir, tiree de la position) et le vent dans son feuillage.
+        if self._sprite(sprite, cx, cy - r * 0.35, r * HAUTEUR_BUISSON,
+                        teinte=self._teinte_buisson(color), plie="buisson"):
             return
         self._bind_pbr("foliage")
         dtex = paint_color("foliage", (cr * 0.7, cg * 0.7, cb * 0.7, 1))  # masse sombre
