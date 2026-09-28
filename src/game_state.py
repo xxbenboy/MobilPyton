@@ -1272,10 +1272,10 @@ class GameState:
         """Arbres encore DEBOUT sur la case : [(gx, gy), ...].
 
         Ce sont les gros elements du decor de type "tree" que le joueur n'a
-        pas encore coupes : le bouton "Couper du bois" en depend."""
-        gone = self.chopped_here()
+        pas encore coupes (nature_cells_here ne compte deja plus les autres) :
+        le bouton "Couper du bois" en depend."""
         return [cell for cell, kind in sorted(self.nature_cells_here().items())
-                if kind == "tree" and cell not in gone]
+                if kind == "tree"]
 
     def chop_tree(self):
         """Abat l'arbre le plus PROCHE. Renvoie sa cellule, ou None.
@@ -1294,10 +1294,17 @@ class GameState:
     def nature_cells_here(self):
         """Cellules 5x5 de la case occupees par un element de PROXIMITE
         (arbre, buisson, gros rocher, pepite) : {(gx, gy): type}. On ne peut
-        pas y installer d'objet."""
-        return world.nature_blocked_cells(
+        pas y installer d'objet.
+
+        UN ARBRE ABATTU N'Y EST PLUS : il a quitte le decor, sa case est libre.
+        La grille de l'ecran Zone le montrait pourtant encore -- un arbre la
+        ou la scene n'en dessine plus -- et refusait qu'on pose quoi que ce
+        soit a sa place."""
+        gone = self.chopped_here()
+        return {cell: kind for cell, kind in world.nature_blocked_cells(
             self.current_zone(),
-            world.scene_seed(self.player_x, self.player_y))
+            world.scene_seed(self.player_x, self.player_y)).items()
+            if cell not in gone}
 
     # Case ou se tient le joueur dans la grille 5x5 : rien ne s'y pose.
     PLAYER_CELL = (2, 0)

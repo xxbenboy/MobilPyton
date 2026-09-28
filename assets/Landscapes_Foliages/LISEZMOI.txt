@@ -291,6 +291,10 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
                           coupe dentelee, sa clarte et sa nuance ; comme la
                           pepite, elle prend la teinte de sa zone, le voile
                           de sa distance et une ombre a son pied.
+                          L'ANNEAU DU FEU DE CAMP est fait des memes pierres :
+                          douze, qui se touchent, moins enterrees (on les a
+                          posees), les flammes entre la rangee du fond et
+                          celle de devant.
                           Une nouvelle variante (ore_nugget_6...) les sert
                           donc aussi. Garde-la dans 256 x 256 PIXELS, avec
                           une largeur PAIRE : la planche range des cases de

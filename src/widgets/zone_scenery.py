@@ -638,6 +638,8 @@ class ZoneScenery(Widget):
         self._zone = "Foret"
         self._seed = 0
         self._mode = "scene"        # "scene" = vue horizon ; "ground" = vue sol
+        # Ce que montre_la_case a dessine en dernier (None : rien de connu).
+        self._cle_case = None
         # Recolte : nombre deja recolte par objet (applique au dessin pour
         # MASQUER les objets recoltes) et totaux/budgets calcules a la
         # construction de la scene.
@@ -833,6 +835,9 @@ class ZoneScenery(Widget):
         cases voisines, qui apparaissent en silhouette a l'horizon (voir
         horizon.py). Depend de l'ORIENTATION du joueur, donc tourner change le
         fond de la scene."""
+        # Un appel direct ne dit pas de quelle case il s'agit : montre_la_case
+        # ne peut plus rien supposer de ce qui est dessine.
+        self._cle_case = None
         self._zone = zone_type
         self._seed = seed
         self._mode = "scene"
@@ -852,6 +857,47 @@ class ZoneScenery(Widget):
                                  for g in (removed_grid or []))
         self._neighbours = dict(neighbours or {})
         self._redraw()
+
+    def montre_la_case(self, state):
+        """La case ou se tient le joueur, TELLE QU'ELLE EST MAINTENANT.
+
+        Arbres abattus, objets recoltes, objets poses (et l'etat de leur feu),
+        cases voisines : tout vient de l'etat du jeu, ici et nulle part
+        ailleurs. Chaque ecran qui montre la scene de la case passe par la.
+
+        C'EST CE QUI MANQUAIT. L'ecran de jeu et la fenetre d'action du foyer
+        preparaient chacun leur decor de leur cote, et la fenetre avait oublie
+        les arbres abattus : ils y repoussaient. Elle ne redessinait pas non
+        plus apres une recolte, sa cle de cache ne regardant ni les recoltes
+        ni les abattages -- une pierre ramassee y restait par terre.
+
+        Ne redessine que si quelque chose a change depuis le dernier appel.
+        Les recoltes se comparent a ce qui est DESSINE (self._taken), et non a
+        une cle : set_taken peut les avoir deja appliquees, et la scene ne
+        doit pas se refaire une seconde fois pour rien."""
+        taken = state.harvested_here()
+        decor = {
+            "zone_type": state.current_zone(),
+            "seed": world.scene_seed(state.player_x, state.player_y),
+            # L'EMPRISE de chaque objet, pas seulement son ancrage : un plan
+            # de construction couvre quatre cases, et le decor doit s'ecarter
+            # des quatre.
+            "blocked_grid": tuple(sorted(state.installed_cells_here())),
+            # L'etat ALLUME en fait partie : la scene se redessine donc
+            # (flammes) des que le feu prend, et de nouveau quand il meurt.
+            "installed": tuple(state.scene_installed()),
+            "removed_grid": tuple(sorted(state.chopped_here())),
+            # Les cases VOISINES dependent de l'orientation : tourner sur
+            # place doit redessiner le fond.
+            "neighbours": horizon.neighbours_of(state),
+        }
+        cle = tuple((k, tuple(sorted(v.items())) if isinstance(v, dict)
+                     else v) for k, v in sorted(decor.items()))
+        if (self._mode == "scene" and cle == self._cle_case
+                and dict(taken) == self._taken):
+            return
+        self.set_scene(taken=taken, **decor)
+        self._cle_case = cle
 
     def set_taken(self, taken):
         """Met a jour les objets recoltes (masques) et redessine la scene."""
@@ -1034,8 +1080,9 @@ class ZoneScenery(Widget):
                 # l'herbe situee derriere se dessinerait par-dessus (meme piege
                 # que les buissons).
                 out.append((cy - s * _PLAT_PROFONDEUR / 2.0,
-                            lambda cx=cx, cy=cy, s=s, lit=lit,
-                            lv=level: self._fire_pit(cx, cy, s, lit, lv)))
+                            lambda cx=cx, cy=cy, s=s, lit=lit, lv=level,
+                            d=gy / 4.0: self._fire_pit(cx, cy, s, lit, lv,
+                                                       d)))
             elif name == items.BLUEPRINT_T1:
                 coins = self._emprise_coins(name, gx, gy)
                 base = min(c[1] for c in coins)
@@ -1419,13 +1466,81 @@ class ZoneScenery(Widget):
             Color(0.46, 0.33, 0.19, 1)                    # bois eclaire
             Line(points=[px - ep * 0.3, bas, px - ep * 0.3, py + ht], width=ep)
 
-    def _fire_pit(self, cx, cy, w, lit=False, level="grand"):
+    # L'ANNEAU DU FOYER EST FAIT DES PETITES PIERRES DU SOL (voir _caillou) :
+    # memes photos, meme relief, memes variantes. Ce sont les pierres qu'on
+    # a ramassees pour le monter -- il serait etrange qu'elles changent
+    # d'aspect une fois posees en cercle. Il etait fait de dix disques de deux
+    # couleurs, les seuls ronds parfaits du decor.
+    #
+    # DOUZE PIERRES, qui se touchent : un foyer est un muret, pas un pointille.
+    # A la taille des anciens disques (0,085), on voyait les cendres entre
+    # elles, et elles pointaient comme des dents.
+    #
+    # PEU ENTERREES : on les a POSEES pour monter le foyer, elles n'affleurent
+    # pas depuis toujours comme celles du sol. Enfoncees comme elles (du quart
+    # a la moitie), on leur coupait la base, leur partie la plus large -- d'ou
+    # ces dents espacees.
+    PIERRES_FOYER = 12
+    RAYON_PIERRE_FOYER = 0.098       # x la largeur du foyer (+/- 12 %)
+    ENFONCE_FOYER = (0.10, 0.24)
+
+    def _anneau_de_pierres(self, cx, cy, w, h, depth):
+        """Les pierres du foyer : [(y au sol, dessin)], du FOND vers l'avant.
+
+        Le y sert a les partager autour des flammes (voir _fire_pit) : celles
+        du fond sont DERRIERE le feu, celles de devant le cachent en partie.
+
+        Chaque foyer a son anneau, tire de sa POSITION comme le reste du
+        decor : il ne change pas d'un redessin a l'autre, et deux foyers ne
+        commencent pas leur cercle au meme angle.
+
+        Sans les images de pierre, l'ancien anneau de disques revient."""
+        out = []
+        if foliage.planche_pierres("ore_nugget") is None:
+            r = min(w, h) * 0.15
+            for i in range(10):
+                a = 2 * math.pi * i / 10
+                sx = cx + (w / 2 - r) * math.cos(a)
+                sy = cy + (h / 2 - r) * math.sin(a)
+                col = (0.52, 0.42, 0.34) if i % 2 == 0 else (0.66, 0.58, 0.50)
+
+                def disque(sx=sx, sy=sy, col=col):
+                    Color(col[0], col[1], col[2], 1)
+                    Ellipse(pos=(sx - r, sy - r), size=(r * 2, r * 2))
+                out.append((sy, disque))
+        else:
+            n = self.PIERRES_FOYER
+            rc = w * self.RAYON_PIERRE_FOYER
+            jit = random.Random("%s:%.1f:%.1f:foyer" % (self._seed, cx, cy))
+            depart = jit.uniform(0.0, 2.0 * math.pi / n)
+            for i in range(n):
+                a = depart + 2.0 * math.pi * i / n + jit.uniform(-0.10, 0.10)
+                r = rc * jit.uniform(0.88, 1.12)
+                # Le cercle passe par le MILIEU des pierres, en retrait du bord
+                # des cendres : les pierres les bordent, elles ne debordent pas
+                # sur l'herbe.
+                sx = cx + (w / 2.0 - rc * 0.95) * math.cos(a)
+                sy = cy + (h / 2.0 - rc * 0.50) * math.sin(a)
+                e = jit.uniform(*self.ENFONCE_FOYER)
+                # Posee par son PIED, un peu en avant de son milieu : vue de
+                # biais, une pierre touche le sol devant son centre.
+                out.append((sy, lambda sx=sx, base=sy - r * 0.30, r=r, e=e:
+                            self._caillou(sx, base, r, depth, enfonce=e)))
+        out.sort(key=lambda p: -p[0])
+        return out
+
+    def _fire_pit(self, cx, cy, w, lit=False, level="grand", depth=0.0):
         """Foyer de pierres vu en angle (cercle aplati + anneau de pierres).
 
         Allume, il montre ses braises et ses flammes, d'autant plus hautes
         qu'il lui reste du combustible (voir _FLAME_SCALE). C'est la MEME
         scene qui sert au jeu et au fond de l'ecran de proximite : le feu a
-        donc partout le meme aspect."""
+        donc partout le meme aspect.
+
+        LES FLAMMES PASSENT ENTRE LES DEUX MOITIES DE L'ANNEAU : devant les
+        pierres du fond, derriere celles de devant. Dessinees par-dessus tout
+        l'anneau, comme avant, elles cachaient la rangee de devant -- le feu
+        semblait bruler en avant du foyer, pas dedans."""
         h = w * _PLAT_PROFONDEUR
         scale = _FLAME_SCALE.get(level, 1.0) if lit else 0.0
         glow_c = ember_c = None
@@ -1439,22 +1554,18 @@ class ZoneScenery(Widget):
             ember_c = Color(0.85, 0.30, 0.07, 0.95)
             Ellipse(pos=(cx - w * 0.32, cy - h * 0.30),
                     size=(w * 0.64, h * 0.60))
-        n = 10                                         # anneau de pierres
-        r = min(w, h) * 0.15
-        for i in range(n):
-            a = 2 * math.pi * i / n
-            sx = cx + (w / 2 - r) * math.cos(a)
-            sy = cy + (h / 2 - r) * math.sin(a)
-            if i % 2 == 0:
-                Color(0.52, 0.42, 0.34, 1)
-            else:
-                Color(0.66, 0.58, 0.50, 1)
-            Ellipse(pos=(sx - r, sy - r), size=(r * 2, r * 2))
+        anneau = self._anneau_de_pierres(cx, cy, w, h, depth)
+        for sy, dessin in anneau:                      # la moitie du fond
+            if sy > cy:
+                dessin()
         tongues = []
         if scale > 0:                                  # langues de flamme
             for off, sc, col in _FLAME_TONGUES:
                 c = Color(*col)
                 tongues.append((c, Triangle(), off, sc))
+        for sy, dessin in anneau:                      # la moitie de devant
+            if sy <= cy:
+                dessin()
         if lit:
             self._flames.append({
                 "cx": cx, "cy": cy, "w": w, "h": h, "scale": scale,
@@ -1970,6 +2081,7 @@ class ZoneScenery(Widget):
 
     def set_ground(self, zone_type, seed=0):
         """Vue VERS LE BAS : on regarde le sol, qui remplit tout l'ecran."""
+        self._cle_case = None
         self._zone = zone_type
         self._seed = seed
         self._mode = "ground"
@@ -3303,8 +3415,11 @@ class ZoneScenery(Widget):
     # pepite, donc le meme debord a proportion de sa largeur.
     DEBORD_CAILLOU = DEBORD_PEPITE * LARGEUR_CAILLOU / LARGEUR_PEPITE
 
-    def _caillou(self, cx, base, r, depth=0.0):
+    def _caillou(self, cx, base, r, depth=0.0, enfonce=None):
         """Une petite pierre, tiree des photos de la pepite (voir plus haut).
+
+        `enfonce` impose la part enterree au lieu de la tirer (voir le foyer,
+        dont les pierres sont posees et non affleurantes).
 
         Faux si la planche n'a pas pu etre faite : l'appelant garde alors son
         dessin d'origine."""
@@ -3316,7 +3431,8 @@ class ZoneScenery(Widget):
         if not pw or not ph:
             return False
         jit = random.Random("%s:%.1f:%.1f:caillou" % (self._seed, cx, base))
-        enfonce = jit.uniform(*self.ENFONCE_PEPITE)
+        tire = jit.uniform(*self.ENFONCE_PEPITE)
+        enfonce = tire if enfonce is None else enfonce
         eclat = 1.0 + jit.uniform(-self.ECLAT_CAILLOU, self.ECLAT_CAILLOU)
         nuance = jit.uniform(-self.NUANCE_CAILLOU, self.NUANCE_CAILLOU)
         base_teinte = self.TEINTE_PEPITE.get(self._zone,

@@ -28,7 +28,7 @@ from kivy.metrics import dp
 
 from src.widgets.animated_background import (AnimatedBackground,
                                             night_darkness, night_factor)
-from src.widgets import daylight, horizon
+from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
 
 from src import items
@@ -286,7 +286,6 @@ class GameScreen(Screen):
         self._found_item = None        # objet decouvert a la fin d'une exploration
         self._did_explore = False      # vient-on d'explorer ? (pour le message)
         self._did_chop = False         # vient-on d'abattre un arbre ?
-        self._scene_key = None
         # Panneau lateral escamotable : None (masque), "stats" ou "effects".
         self._panel_mode = None
         # Effets deja vus (pour reperer les NOUVEAUX) et bulles affichees.
@@ -1755,36 +1754,11 @@ class GameScreen(Screen):
         # Le CIEL aussi : nuages, grisaille, disparition du soleil (le fond
         # gere lui-meme la transition progressive).
         self.background.set_weather(weather)
-        # Les cases occupees par un objet installe (feu de camp, ...) : le
-        # scenery masquera les elements du decor qui tomberaient dedans.
-        # Les objets installes restent visibles pendant l'exploration : ils
-        # font partie du decor, les mains passent simplement devant. L'etat
-        # ALLUME est transmis : la scene se redessine donc (flammes) des que
-        # le feu prend, et de nouveau quand il s'eteint.
-        installed = tuple(state.scene_installed())
-        # L'EMPRISE de chaque objet, pas seulement son ancrage : un plan de
-        # construction couvre quatre cases, et le decor doit s'ecarter des
-        # quatre.
-        blocked_grid = tuple(sorted(state.installed_cells_here()))
-        # Arbres abattus : leur cellule reste vide dans le decor.
-        removed_grid = tuple(sorted(state.chopped_here()))
-        # Les cases VOISINES apparaissent a l'horizon, et lesquelles depend
-        # de l'orientation : elles entrent donc dans la cle, sans quoi tourner
-        # sur place ne redessinerait pas le fond.
-        voisins = horizon.neighbours_of(state)
-        key = (zone, state.player_x, state.player_y, blocked_grid, installed,
-               removed_grid, tuple(sorted(voisins.items())))
-        if key != self._scene_key:
-            # On passe les objets deja recoltes pour masquer ceux pris ici, les
-            # cases bloquees pour ne pas dessiner d'objets dedans, et les
-            # objets installes pour qu'ils soient tries avec le decor.
-            self.scenery.set_scene(zone, state.player_x * 131 + state.player_y,
-                                   taken=state.harvested_here(),
-                                   blocked_grid=blocked_grid,
-                                   installed=installed,
-                                   removed_grid=removed_grid,
-                                   neighbours=voisins)
-            self._scene_key = key
+        # Le decor de la case, tel qu'il est : arbres abattus, recoltes,
+        # objets poses (et leur feu), voisins a l'horizon. La fenetre du foyer
+        # passe par la MEME methode -- elle en gardait sa propre copie, qui
+        # avait oublie les arbres abattus.
+        self.scenery.montre_la_case(state)
 
     def _periodic_autosave(self, _dt):
         if not self._ff_active:

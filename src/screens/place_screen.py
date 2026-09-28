@@ -38,7 +38,7 @@ import math
 
 from src import items
 from src.widgets.animated_background import AnimatedBackground, night_darkness
-from src.widgets import daylight, horizon
+from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font, dh
@@ -873,21 +873,18 @@ class PlaceScreen(Screen):
         # d'action s'ouvre sur la SCENE du jeu -> on voit le decor et, si le
         # foyer est allume, ses flammes derriere la fenetre.
         seed = state.player_x * 131 + state.player_y
-        on_action = self._action_cell is not None
-        # Meme decor que l'ecran de jeu, voisins compris : l'ecran de pose
-        # montre LA MEME case, elle ne doit pas perdre son horizon en chemin.
-        voisins = horizon.neighbours_of(state)
-        key = (zone, state.player_x, state.player_y, on_action, tuple(objs),
-               tuple(sorted(voisins.items())))
-        if key != self._scene_key:
-            if on_action:
-                self.scenery.set_scene(zone, seed,
-                                       taken=state.harvested_here(),
-                                       installed=objs,
-                                       neighbours=voisins)
-            else:
+        if self._action_cell is not None:
+            # LA MEME SCENE QUE L'ECRAN DE JEU, par la meme methode : arbres
+            # abattus, recoltes, voisins. Preparee ici a part, elle avait
+            # oublie les arbres abattus -- ils repoussaient derriere la
+            # fenetre du foyer -- et ne se refaisait pas apres une recolte.
+            self.scenery.montre_la_case(state)
+            self._scene_key = None
+        else:
+            key = (zone, seed)
+            if key != self._scene_key:
                 self.scenery.set_ground(zone, seed)
-            self._scene_key = key
+                self._scene_key = key
         # Marque les positions deja installees comme non cliquables, et les
         # cases occupees par un GROS element du decor (arbre, buisson, rocher).
         # L'EMPRISE de chaque objet : un plan de construction en couvre quatre.
