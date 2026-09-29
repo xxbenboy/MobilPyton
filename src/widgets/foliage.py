@@ -661,6 +661,99 @@ def planche_pierres(name):
     return planche
 
 
+# --------------------------------------------------------------------- #
+# OU COMMENCE LE FEUILLAGE D'UN ARBRE
+# --------------------------------------------------------------------- #
+# Le vent ne remue que les feuilles : sous cette ligne, le tronc ne bouge pas
+# (voir zone_scenery, _tick_feuillage). La ligne etait une CONSTANTE, mesuree
+# a la main sur le premier arbre livre -- 0,26 de la hauteur.
+#
+# Cela a tenu tant qu'il n'y avait qu'un arbre. Mesure sur les cinq :
+#
+#     forest_tree    0,256      forest_tree_4  0,409
+#     forest_tree_3  0,277      forest_tree_5  0,344
+#
+# L'arbre 4 est un grand elance dont le fut monte jusqu'a 41 % : avec 0,26,
+# quinze pour cent de tronc NU se seraient balances. Sur un arbre mince, cela
+# se voit tout de suite.
+#
+# ON LA MESURE DONC, une fois par image, au chargement. C'est ce qui garde la
+# promesse du dossier : deposer une image suffit, sans rien regler dans le
+# code. Un sapin livre plus tard aura la sienne sans qu'on y pense.
+_BASES = {}
+
+# Une colonne sur huit suffit : on cherche une LIGNE, pas un contour, et huit
+# fois moins d'octets a lire au chargement.
+_PAS_FEUILLAGE = 8
+# La part de pixels verts qui fait dire "ici, c'est du feuillage".
+_PART_FEUILLES = 0.15
+# De combien le vert doit depasser le rouge et le bleu. L'ecorce est brune
+# (rouge devant), les feuilles sont vertes : huit niveaux suffisent a les
+# separer sans prendre les mousses du tronc.
+_MARGE_VERTE = 8
+# Bornes de securite. En dessous, le tronc bougerait ; au-dessus, l'arbre
+# serait presque entierement fige. Une image qui sort de la (un arbre
+# d'automne, dont les feuilles ne sont pas vertes) retombe sur le defaut.
+BASE_FEUILLAGE_MIN, BASE_FEUILLAGE_MAX = 0.05, 0.55
+
+
+def _base_du_feuillage_de(path):
+    """A quelle hauteur commencent les feuilles, en fraction depuis le BAS.
+
+    On remonte depuis le pied, ligne par ligne, et on s'arrete a la premiere
+    ou le feuillage l'emporte. Rend None si l'image ne se laisse pas lire ou
+    si le resultat sort des bornes -- l'appelant garde alors son defaut.
+
+    Octets bruts plutot que read_pixel, pour la meme raison que les
+    silhouettes : lire un arbre de 640 px pixel par pixel couterait une demi-
+    seconde a son premier affichage. Mesure ici : 9 ms par image, decodage
+    compris, une seule fois -- et seuls les arbres passent par la."""
+    if path is None:
+        return None
+    try:
+        brut = CoreImage(path).image._data[0]
+        octets = brut.data
+        if (brut.fmt or "rgba") != "rgba":
+            return None
+        w, h = int(brut.width), int(brut.height)
+    except Exception:
+        return None
+    if w < 8 or h < 8 or len(octets) < w * h * 4:
+        return None
+    pas = _PAS_FEUILLAGE * 4
+    for y in range(h - 1, -1, -1):
+        ligne = octets[y * w * 4:(y + 1) * w * 4]
+        opaques = feuilles = 0
+        for i in range(0, len(ligne) - 3, pas):
+            if ligne[i + 3] < 128:
+                continue
+            opaques += 1
+            g = ligne[i + 1]
+            if g > ligne[i] + _MARGE_VERTE and g > ligne[i + 2] + _MARGE_VERTE:
+                feuilles += 1
+        if opaques > 2 and feuilles > _PART_FEUILLES * opaques:
+            # Les octets sont dans l'ordre du PNG, ligne 0 en HAUT.
+            part = (h - y) / float(h)
+            if BASE_FEUILLAGE_MIN <= part <= BASE_FEUILLAGE_MAX:
+                return part
+            return None
+    return None
+
+
+def base_du_feuillage(name, pick=None):
+    """La hauteur ou commencent les feuilles de cette variante, ou None.
+
+    Mesuree une fois par image et gardee : le decor se redessine a chaque
+    recolte, et relire les octets d'un arbre a chaque fois se verrait."""
+    if name not in _BASES:
+        _BASES[name] = [_base_du_feuillage_de(_chemin(stem))
+                        for stem in _stems_charges(name)]
+    faites = _BASES[name]
+    if not faites:
+        return None
+    return faites[0 if pick is None else int(pick) % len(faites)]
+
+
 def size_for(tex, height):
     """(largeur, hauteur) d'une image posee a cette HAUTEUR, sans deformation."""
     tw, th = tex.size

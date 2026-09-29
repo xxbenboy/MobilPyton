@@ -128,23 +128,43 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
                           l'empattement est immobile (0,11 de la hauteur,
                           contre 0,26 pour le feuillu).
     forest_tree.png       Arbre feuillu, vu en entier, AVEC SES DEUX CARTES
-                          (forest_tree_R.png et forest_tree_P.png). Deux
-                          modeles en place, le second etant le MIROIR du
-                          premier.
-                          Rapport 0,98, donc presque carre. Mesure en jeu :
-                          les arbres de la scene font 674 a 1122 px de large
-                          sur un ecran de 1080 -- celui du premier plan
-                          remplit le cadre.
+                          (forest_tree_R.png et forest_tree_P.png). CINQ
+                          MODELES en place :
+
+                            forest_tree     rapport 0,98   houppier rond
+                            forest_tree_2   rapport 0,98   son MIROIR
+                            forest_tree_3   rapport 1,11   large et dense
+                            forest_tree_4   rapport 0,70   grand et elance
+                            forest_tree_5   rapport 1,07   large, double fut
+
+                          Mesure en jeu : les arbres de la scene font 734 a
+                          1223 px de large sur un ecran de 1080 -- celui du
+                          premier plan remplit le cadre.
+
+                          Les trois derniers portent une occlusion plus
+                          sombre que les deux premiers (0,21 a 0,46 de
+                          moyenne contre 0,47), donc le jeu les assombrit de
+                          16 a 24 % contre 16 %. Cela se voit un peu en
+                          foret, et plutot en bien : tous les arbres n'y sont
+                          pas dans la meme lumiere.
 
                           IL BOUGE AU VENT. Il est pose en GRILLE et non en
                           rectangle, son tronc reste fixe et une rafale
                           traverse son houppier de gauche a droite (0,5 et
                           0,9 Hz, cime a 10 px par temps clair et 47 px par
-                          orage). La hauteur ou commencent les feuilles est
-                          une constante du code, mesuree sur CETTE image
-                          (0,26 de la hauteur) : un arbre de proportions tres
-                          differentes verra le haut de son tronc frissonner
-                          un peu, rien de plus.
+                          orage).
+
+                          LA HAUTEUR OU COMMENCENT LES FEUILLES EST MESUREE
+                          SUR TON IMAGE, au chargement : tu n'as rien a
+                          regler. Le jeu remonte depuis le pied jusqu'a la
+                          premiere ligne ou le vert l'emporte, et ne fait
+                          bouger que ce qui est au-dessus. Sur les cinq
+                          modeles cela donne 0,26 / 0,26 / 0,28 / 0,41 /
+                          0,34 -- une constante unique aurait fait balancer
+                          quinze pour cent de tronc NU sur le quatrieme.
+                          Si tes feuilles ne sont pas vertes (un arbre
+                          d'automne), la mesure echoue et le jeu retombe sur
+                          0,26 sans rien casser.
 
                           /!\ LE MIROIR D UNE CARTE DE NORMALES N EST PAS SON
                           MIROIR. Retourner la geometrie de gauche a droite

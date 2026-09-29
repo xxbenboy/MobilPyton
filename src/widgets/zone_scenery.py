@@ -2219,7 +2219,7 @@ class ZoneScenery(Widget):
         Color(*((tuple(teinte[:3]) if teinte else (1, 1, 1)) + (1,)))
         f = min(0.90, max(0.0, float(coupe_bas)))
         if plie in self._FEUILLAGE:
-            self._sprite_feuillage(tex, cx, base, w, h, plie)
+            self._sprite_feuillage(tex, cx, base, w, h, plie, name, pick)
         elif plie:
             self._sprite_plie(tex, cx, base, w, h)
         elif f <= 0.0:
@@ -2326,7 +2326,8 @@ class ZoneScenery(Widget):
                     "traverse": VENT_BUISSON_TRAVERSE},
     }
 
-    def _sprite_feuillage(self, tex, cx, base, w, h, espece):
+    def _sprite_feuillage(self, tex, cx, base, w, h, espece, nom=None,
+                          pick=None):
         """L'image d'un arbre posee en GRILLE, pour que son feuillage remue.
 
         Une rangee par bande horizontale suffisait a l'herbe : toute la touffe
@@ -2345,6 +2346,16 @@ class ZoneScenery(Widget):
         la rangee du bas lit le bas du PNG."""
         reg = self._FEUILLAGE[espece]
         nc, nr = reg["nc"], reg["nr"]
+        # LA LIGNE DU TRONC EST MESUREE SUR L'IMAGE, pas lue dans une
+        # constante : les cinq feuillus livres la placent de 0,256 a 0,409, et
+        # une valeur unique aurait fait balancer quinze pour cent de tronc nu
+        # sur le plus elance. Le defaut ne sert que si la mesure echoue -- une
+        # image dont les feuilles ne seraient pas vertes, par exemple.
+        tronc = reg["tronc"]
+        if nom:
+            mesure = foliage.base_du_feuillage(nom, pick)
+            if mesure is not None:
+                tronc = mesure
         gauche = cx - w / 2.0
         verts = []
         for j in range(nr + 1):
@@ -2371,6 +2382,7 @@ class ZoneScenery(Widget):
                                       "traverse")}
             bl.update({
                 "grille": m, "repos": tuple(verts), "h": h, "sorte": "arbre",
+                "tronc": tronc,
                 "w1": 6.2832 * reg["hz"][0] * ecart,
                 "w2": 6.2832 * reg["hz"][1] * ecart,
                 "phase": (cx * 0.017 + base * 0.011) % 6.2832})
