@@ -128,11 +128,14 @@ _ECLAT_BUCHE = 0.55
 _CREUX_BUCHE = 0.42
 
 
-# L'ATELIER, en fractions de la largeur de son emprise : hauteur de ses pieds,
-# puis epaisseur de son plateau. Un etabli arrive a la taille : plus bas on
-# travaille a genoux, plus haut on ne voit plus ce qu'on fait.
-_ETABLI_HAUTEUR = 0.30
-_ETABLI_PLATEAU = 0.09
+# L'ATELIER est un etabli DE FORTUNE : les cinq pierres et les deux longues
+# branches de sa recette (voir items.py), et rien d'autre. En fractions de la
+# largeur de son emprise :
+_ETABLI_PIERRE = 0.075          # rayon d'une pierre (voir _caillou)
+_ETABLI_TAS = (0.25, 0.75)      # ou sont les deux tas, de gauche a droite
+_ETABLI_PORTEE = 0.76           # longueur des branches
+_ETABLI_EPAIS = 1.6             # branches plus epaisses que celles du sol
+_ETABLI_PENTE = 1.8             # de guingois : degres, au plus
 
 # Taille des flammes selon l'etat du feu (voir game_state.FIRE_LEVELS).
 # "braise" = plus de flamme du tout, seules les braises rougeoient.
@@ -1305,7 +1308,8 @@ class ZoneScenery(Widget):
             return (base, lambda: self._blueprint(coins))
         if name == items.WORKBENCH_T1:
             coins = self._emprise_coins(name, gx, gy)
-            return (min(c[1] for c in coins), lambda: self._etabli(coins))
+            return (min(c[1] for c in coins),
+                    lambda: self._etabli(coins, gy / 4.0))
         return None
 
     def _emprise_coins(self, name, gx, gy):
@@ -1559,65 +1563,83 @@ class ZoneScenery(Widget):
                 tc += list(build_grid.uv_bout(s, dz, w0, w1, demi))
             _peau_bois(log_skin.bout(), ombre, pts, tc, eventail=True)
 
-    def _etabli(self, coins):
-        """L'atelier : un plateau de rondins sur quatre pieds.
+    def _etabli(self, coins, depth=0.0):
+        """L'atelier : un etabli DE FORTUNE, monte avec ce qu'on avait sous la
+        main -- les cinq pierres et les deux longues branches de sa recette.
 
-        C'est un MEUBLE, pas une marque au sol : il a de la hauteur, et son
-        plateau se voit de dessus alors que ses pieds se voient de face. On le
-        monte donc sur l'emprise plutot que de la remplir -- l'emprise est
-        l'encombrement au sol, ce qu'on ne pourra plus traverser.
+        Deux petits tas de deux pierres pour pieds, les deux branches posees
+        dessus, cote a cote -- c'est le plan de travail --, et la cinquieme
+        pierre au milieu : celle sur laquelle on frappe. Bas, un peu de
+        guingois, et l'on voit a quoi il est fait. C'etait une vraie table de menuisier -- quatre pieds d'aplomb et
+        un plateau de cinq rondins bien alignes, sur toute l'emprise --, trop
+        grande et trop soignee pour un campement ou l'on n'a qu'un marteau de
+        pierre.
 
-        Le plateau est fait des memes buches que le plancher, et pour la meme
-        raison : c'est le meme bois, et deux bois differents dans un meme
-        campement se verraient."""
+        LES PIERRES ET LES BRANCHES SONT CELLES DE LA SCENE (voir _caillou et
+        _baton) : l'etabli est fait de ce qu'on a ramasse autour, il serait
+        etrange qu'elles changent d'aspect une fois montees. Celles du dessus
+        sont POSEES sur les autres : ni enterrees, ni ombrees au sol.
+
+        L'emprise, elle, ne change pas : c'est l'encombrement, ce qu'on ne peut
+        plus traverser ni occuper."""
         (x_ag, y_ag), (x_ad, y_ad), (x_fd, y_fd), (x_fg, y_fg) = coins
-        large = x_ad - x_ag
-        haut = large * _ETABLI_HAUTEUR
-        ep = large * _ETABLI_PLATEAU
+        large = max(1.0, x_ad - x_ag)
 
-        def coin(u, v, dz):
-            """Un point de l'emprise, eleve de `dz`."""
+        def coin(u, v, dz=0.0):
+            """Un point de l'emprise (u : de gauche a droite, v : de l'avant
+            vers le fond), eleve de `dz`."""
             xg = x_ag + (x_fg - x_ag) * v
             yg = y_ag + (y_fg - y_ag) * v
             xd = x_ad + (x_fd - x_ad) * v
             yd = y_ad + (y_fd - y_ad) * v
             return xg + (xd - xg) * u, yg + (yd - yg) * u + dz
 
-        # L'OMBRE PORTEE, d'abord : sans elle le meuble flotte au-dessus du
-        # sol, puisque rien d'autre ne dit ou ses pieds le touchent.
-        Color(0.0, 0.0, 0.0, 0.22)
-        Quad(points=[c for u, v in ((0.02, 0.02), (0.98, 0.02),
-                                    (0.98, 0.98), (0.02, 0.98))
-                     for c in coin(u, v, 0.0)])
-        # LES QUATRE PIEDS. Ceux du fond d'abord : le plateau les recouvrira
-        # en partie, et c'est ce recouvrement qui donne sa profondeur au
-        # meuble.
-        pied = large * 0.055
-        for u, v in ((0.12, 0.88), (0.88, 0.88), (0.12, 0.12), (0.88, 0.12)):
-            bx, by = coin(u, v, 0.0)
-            tx, ty = coin(u, v, haut)
-            Color(0.34, 0.23, 0.13, 1)
-            Quad(points=[bx - pied, by, bx + pied, by,
-                         tx + pied, ty, tx - pied, ty])
-        # LE PLATEAU : sa tranche, puis son dessus en rondins.
-        bas, sommet = haut, haut + ep
-        Color(0.33, 0.22, 0.13, 1)
-        Quad(points=[*coin(0.0, 0.0, bas), *coin(1.0, 0.0, bas),
-                     *coin(1.0, 0.0, sommet), *coin(0.0, 0.0, sommet)])
-        rondins = 5
-        for i in range(rondins):
-            v0, v1 = i / rondins, (i + 1) / rondins
-            # Du fond vers l'avant : le rondin de devant recouvre celui du
-            # fond, comme partout ailleurs dans cette vue rasante.
-            v0, v1 = 1.0 - v1, 1.0 - v0
-            milieu = (v0 + v1) / 2.0
-            galbe = build_grid.profil_buche(milieu)
-            f = _OMBRE_DEVANT + (_OMBRE_DESSUS - _OMBRE_DEVANT) * galbe
-            pts = []
-            for u, v in ((0.0, v0), (1.0, v0), (1.0, v1), (0.0, v1)):
-                pts += list(coin(u, v, sommet))
-            _peau_bois(log_skin.ecorce(), f, pts,
-                       [0, 0, 2, 0, 2, 1, 0, 1])
+        def echelle(v):
+            """La perspective : ce qui est au fond de l'emprise est plus
+            petit."""
+            xg = x_ag + (x_fg - x_ag) * v
+            xd = x_ad + (x_fd - x_ad) * v
+            return (xd - xg) / large
+
+        r0 = large * _ETABLI_PIERRE
+        # Hauteur a l'ecran d'une pierre : la planche en a de toutes les
+        # formes, on prend celle d'une pierre moyenne, un peu aplatie.
+        h0 = r0 * self.LARGEUR_CAILLOU * 0.62
+        jit = random.Random("%s:%.1f:%.1f:etabli" % (self._seed, x_ag, y_ag))
+
+        def pierre(u, v, dz, pose):
+            k = echelle(v)
+            x, y = coin(u, v, dz * k)
+            r = r0 * k * jit.uniform(0.9, 1.1)
+            if self._caillou(x, y, r, depth, enfonce=0.12, pose=pose):
+                return
+            Color(0.42, 0.41, 0.40, 1)
+            Ellipse(pos=(x - r * 1.1, y), size=(r * 2.2, r * 1.3))
+
+        # L'OMBRE sous le plan de travail : sans elle, les branches flottent.
+        Color(0.0, 0.0, 0.0, 0.16)
+        Quad(points=[c for u, v in ((0.16, 0.30), (0.84, 0.30),
+                                    (0.84, 0.72), (0.16, 0.72))
+                     for c in coin(u, v)])
+        gauche, droite = _ETABLI_TAS
+        # LES TAS : une pierre au sol, une posee dessus.
+        dessus = h0 * 0.58
+        for u, v in ((gauche, 0.50), (droite + 0.01, 0.52)):
+            pierre(u, v, 0.0, False)
+            pierre(u + jit.uniform(-0.02, 0.02), v, dessus, True)
+        # LES DEUX BRANCHES, posees sur les tas : celle du fond d'abord.
+        plan = dessus + h0 * 0.62
+        branche = self._zs("branch")
+        for v in (0.56, 0.45):
+            k = echelle(v)
+            x, y = coin(0.5, v, plan * k)
+            longueur = large * k * _ETABLI_PORTEE
+            pente = jit.uniform(-_ETABLI_PENTE, _ETABLI_PENTE)
+            if not self._baton(branche, x, y, longueur, pente=pente,
+                               epais=_ETABLI_EPAIS):
+                self._branch(x, y, longueur)
+        # LA PIERRE DE TRAVAIL, sur les branches : l'enclume du campement.
+        pierre(0.56, 0.50, plan + h0 * 0.10, True)
 
     def _blueprint(self, coins):
         """Plan de construction : quatre piquets relies par une corde.
@@ -3652,11 +3674,15 @@ class ZoneScenery(Widget):
     # pepite, donc le meme debord a proportion de sa largeur.
     DEBORD_CAILLOU = DEBORD_PEPITE * LARGEUR_CAILLOU / LARGEUR_PEPITE
 
-    def _caillou(self, cx, base, r, depth=0.0, enfonce=None):
+    def _caillou(self, cx, base, r, depth=0.0, enfonce=None, pose=False):
         """Une petite pierre, tiree des photos de la pepite (voir plus haut).
 
         `enfonce` impose la part enterree au lieu de la tirer (voir le foyer,
         dont les pierres sont posees et non affleurantes).
+
+        `pose` : une pierre POSEE SUR UNE AUTRE (voir l'etabli). Elle ne
+        touche pas le sol : rien d'enterre, ni ombre portee, ni voile de terre
+        a son pied.
 
         Faux si la planche n'a pas pu etre faite : l'appelant garde alors son
         dessin d'origine."""
@@ -3670,6 +3696,8 @@ class ZoneScenery(Widget):
         jit = random.Random("%s:%.1f:%.1f:caillou" % (self._seed, cx, base))
         tire = jit.uniform(*self.ENFONCE_PEPITE)
         enfonce = tire if enfonce is None else enfonce
+        if pose:
+            enfonce = 0.0
         eclat = 1.0 + jit.uniform(-self.ECLAT_CAILLOU, self.ECLAT_CAILLOU)
         nuance = jit.uniform(-self.NUANCE_CAILLOU, self.NUANCE_CAILLOU)
         base_teinte = self.TEINTE_PEPITE.get(self._zone,
@@ -3681,9 +3709,13 @@ class ZoneScenery(Widget):
                   min(1.0, base_teinte[2] * eclat * (1.0 - nuance)))
         largeur = r * self.LARGEUR_CAILLOU
         h_pleine = largeur * float(ph) / float(pw)
-        crans = self._crans_de_pepite(largeur, pick)
+        # Posee, elle n'a pas de coupe : son bas est droit, et entier.
+        crans = ([0.0, 0.0] if pose
+                 else self._crans_de_pepite(largeur, pick))
 
-        self._shadow(cx, base - largeur * 0.02, largeur * 0.88, opacity=0.85)
+        if not pose:
+            self._shadow(cx, base - largeur * 0.02, largeur * 0.88,
+                         opacity=0.85)
         # Les cartes de relief restent liees pendant les voiles : leurs
         # silhouettes tombent, dans la planche des normales, sur des cases
         # PLATES -- le voile n'est donc pas eclaire, comme sur la pepite.
@@ -3692,13 +3724,15 @@ class ZoneScenery(Widget):
         Color(teinte[0], teinte[1], teinte[2], 1)
         self._sprite_enfoui(planche.tex, cx, base, largeur, h_pleine, enfonce,
                             crans, uv)
-        self._voiles(planche.tex, uv_sil, cx, base, largeur, h_pleine,
-                     enfonce, depth, crans,
-                     self.SOL_DE_ZONE.get(self._zone, "rock"),
-                     self.BANDES_CAILLOU)
+        if not pose:
+            self._voiles(planche.tex, uv_sil, cx, base, largeur, h_pleine,
+                         enfonce, depth, crans,
+                         self.SOL_DE_ZONE.get(self._zone, "rock"),
+                         self.BANDES_CAILLOU)
         if self._pbr:
             self._reset_pbr()
-        self._pied_de_pepite(cx, base, largeur, depth)
+        if not pose:
+            self._pied_de_pepite(cx, base, largeur, depth)
         return True
 
     def _stone(self, cx, cy, r, sprite=None, depth=0.0):
@@ -3753,9 +3787,14 @@ class ZoneScenery(Widget):
                      cx + length * 0.42, cy + wdt * 0.3 + length * 0.08],
              width=max(1.0, wdt * 0.35))
 
-    def _baton(self, name, cx, centre, length):
+    def _baton(self, name, cx, centre, length, pente=None, epais=1.0):
         """Un baton en IMAGE, couche au sol, centre sur (cx, centre). Faux si
         aucune image.
+
+        `pente` impose son inclinaison (degres) au lieu de la tirer : une
+        branche posee sur l'etabli repose a plat, elle ne tombe pas au hasard.
+        `epais` l'epaissit (les branches de l'etabli sont des pieces choisies,
+        plus fortes que le bois mort du sol).
 
         DIMENSIONNE PAR SA LONGUEUR, pas par sa hauteur : les images livrees
         sont des batons fins, dix a vingt fois plus longs que larges. Par la
@@ -3777,9 +3816,11 @@ class ZoneScenery(Widget):
             return False
         tw, th = tex.size
         w = float(length)
-        h = w * float(th) / float(tw) if tw else w * 0.1
+        h = (w * float(th) / float(tw) if tw else w * 0.1) * epais
         jit = random.Random(pick)
         angle = jit.uniform(-self.BATON_PENTE, self.BATON_PENTE)
+        if pente is not None:
+            angle = pente
         miroir = jit.random() < 0.5
         tc = tuple(tex.tex_coords)
         if miroir:

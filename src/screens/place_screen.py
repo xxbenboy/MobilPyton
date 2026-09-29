@@ -167,32 +167,39 @@ def draw_object_glyph(name, cx, cy, size, lit=False, level="grand"):
             Ellipse(pos=(px - pr, py - pr), size=(pr * 2, pr * 2))
         return
     if name == items.WORKBENCH_T1:
-        # Vu de dessus, un etabli est son PLATEAU : une planche posee en
-        # travers de ses deux cases, avec ses quatre pieds qui depassent aux
-        # angles. La boite qu'on lui donne est son emprise ; le plateau la
-        # remplit presque, parce que c'est bien toute cette surface qu'il
-        # occupe et qu'on ne pourra plus traverser.
-        lx, ly = size * 0.46, r * 0.46
-        # LES PIEDS AUX ANGLES MEMES, et non en retrait : d'en haut, le
-        # plateau les cache entierement des qu'ils sont dessous. Aux angles,
-        # il n'en depasse qu'une moitie -- assez pour qu'on lise une table et
-        # non une planche posee par terre.
-        Color(0.30, 0.20, 0.12, 1)
-        pr = max(1.4, r * 0.16)
-        for px in (cx - lx, cx + lx):
-            for py in (cy - ly, cy + ly):
-                Ellipse(pos=(px - pr, py - pr), size=(pr * 2, pr * 2))
-        Color(0.56, 0.38, 0.22, 1)                        # le plateau
-        Quad(points=[cx - lx, cy - ly, cx + lx, cy - ly,
-                     cx + lx, cy + ly, cx - lx, cy + ly])
-        Color(0.36, 0.24, 0.14, 1)                        # ses planches
-        for k in (-0.33, 0.33):
-            Line(points=[cx - lx, cy + ly * k, cx + lx, cy + ly * k],
-                 width=max(1.0, r * 0.06))
-        Color(0.30, 0.20, 0.12, 1)
-        Line(points=[cx - lx, cy - ly, cx + lx, cy - ly,
-                     cx + lx, cy + ly, cx - lx, cy + ly],
-             width=max(1.0, r * 0.08), close=True)
+        # Vu de dessus, l'etabli DE FORTUNE de la scene (voir
+        # ZoneScenery._etabli) : deux tas de pierres, les deux branches posees
+        # en travers, et la pierre de travail au milieu. Il ne remplit plus
+        # son emprise comme le plateau de l'ancienne table : on voit a quoi
+        # il est fait.
+        #
+        # `size` vaut UNE case (voir l'appel : le plus petit cote de
+        # l'emprise) ; l'etabli en couvre deux en largeur. Ses mesures sont
+        # donc prises sur `size`, mais s'etendent sur ses deux cases.
+        pierre_c = (0.50, 0.49, 0.47, 1)
+        bord_c = (0.22, 0.21, 0.20, 1)
+
+        def pierre(px, py, pr):
+            Color(*pierre_c)
+            Ellipse(pos=(px - pr, py - pr * 0.85), size=(pr * 2, pr * 1.7))
+            Color(*bord_c)
+            Line(ellipse=(px - pr, py - pr * 0.85, pr * 2, pr * 1.7),
+                 width=max(1.0, r * 0.04))
+
+        pr = max(1.6, size * 0.29)
+        for px in (cx - size * 0.62, cx + size * 0.62):   # les deux tas
+            pierre(px, cy, pr)
+        # Les deux branches, un peu de guingois : leur ecorce, puis un trait
+        # clair sur le dessus.
+        lx, ep = size * 1.05, max(1.2, size * 0.10)
+        for y0, y1 in ((0.17, 0.13), (-0.13, -0.17)):
+            pts = [cx - lx, cy + size * y0, cx + lx, cy + size * y1]
+            Color(0.34, 0.22, 0.13, 1)
+            Line(points=pts, width=ep)
+            Color(0.52, 0.37, 0.23, 1)
+            Line(points=[pts[0], pts[1] + ep * 0.3, pts[2], pts[3] + ep * 0.3],
+                 width=max(1.0, ep * 0.35))
+        pierre(cx + size * 0.12, cy, max(1.4, size * 0.16))   # l'enclume
         return
     if name != "Feu_de_camp":
         return
