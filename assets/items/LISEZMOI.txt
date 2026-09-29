@@ -49,6 +49,25 @@ DEJA EN PLACE
     Ecorce, Buche
 
 ----------------------------------------------------------------
+LES ICONES TIREES DE LA SCENE
+----------------------------------------------------------------
+Trois objets se ramassent dans la scene, ou ils ont une vraie image (voir
+assets/Landscapes_Foliages) : leur icone est CETTE image, et non plus un
+dessin. On ramasse ainsi ce qu'on a vu par terre.
+
+    Pierre.png       la pierre des pepites (ore_nugget.png), entiere --
+                     dans la scene elle est a demi enterree
+    Small_Stick.png  une branche de la scene (branch_plain_2.png), redressee
+                     en diagonale pour remplir une case carree
+    Herbe.png        la touffe de la scene (grass_tuft.png), avec sa teinte
+                     olive et son pied ombre, a pleine clarte pour rester
+                     lisible sur le fond sombre des menus
+
+Les autres objets ramasses dans la scene (baie, champignon, feuille,
+roseau) y sont encore DESSINES, sans image : ils gardent leur icone. Le
+jour ou leur image de scene arrive, la leur peut suivre le meme chemin.
+
+----------------------------------------------------------------
 LE DOSSIER futur/
 ----------------------------------------------------------------
 assets/items/futur/ garde les images qui n'ont PAS encore d'objet dans
