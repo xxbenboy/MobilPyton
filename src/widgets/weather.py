@@ -46,6 +46,14 @@ _SNOW_COLOR = (1.0, 1.0, 1.0, 0.90)
 # la meteo en cours, puis on allume la nouvelle -> aucun changement brutal.
 FADE_SECONDS = 2.5
 
+# LA BRUME A SON PROPRE FONDU. Son epaisseur vient du jeu : elle monte apres
+# le lever du soleil et se dissipe en fin de matinee (GameState.fog_level).
+# Ce delai-ci ne fait que lisser ses sauts (changement de zone, fin de
+# l'episode). Surtout, une brume qui se leve ne doit pas eteindre puis
+# rallumer le voile gris du temps nuageux, comme le ferait un changement de
+# meteo : le temps, lui, n'a pas change.
+BRUME_FADE_SECONDS = 3.0
+
 # Meteos ou l'on voit des eclairs.
 _STORMY = ("orage", "blizzard")
 
@@ -57,14 +65,18 @@ class WeatherLayer(Widget):
         super().__init__(**kwargs)
         self._t = 0.0
         self._kind = "clair"
-        self._fog = False
+        # La brume : epaisseur affichee (lissee) et visee, de 0 a 1.
+        self._fog = 0.0
+        self._fog_target = 0.0
+        self._fog_shown = True        # ses formes ont-elles une taille ?
         # Fondu : intensite affichee (0 a 1) et meteo en attente. On descend
         # a 0 avant de basculer sur la nouvelle meteo, puis on remonte.
         self._intensity = 1.0
         self._pending = None
-        self._alphas = []             # [(Color, opacite de base), ...]
-        self._built = None            # (meteo, brouillard, largeur, hauteur)
+        self._alphas = []             # [(Color, opacite, de la brume ?), ...]
+        self._built = None            # (meteo, largeur, hauteur)
         self._veil_rect = None
+        self._fog_rect = None
         self._fog_bands = []          # [(Ellipse, fx, fy, fw, fh, vitesse)]
         self._drops = []              # [(Line, fx, phase, vitesse, long, biais)]
         self._flakes = []             # [(Ellipse, fx, phase, vit, amp, w, taille)]
@@ -74,16 +86,19 @@ class WeatherLayer(Widget):
         self._event = Clock.schedule_interval(self._tick, 1 / 60.0)
 
     # ---- API ---------------------------------------------------------- #
-    def set_weather(self, kind, fog=False):
-        """Definit la meteo affichee et la presence de brouillard.
+    def set_weather(self, kind, fog=0.0):
+        """Definit la meteo affichee et l'epaisseur de la brume (0 a 1 ; un
+        booleen convient aussi).
 
-        Le changement est PROGRESSIF : la meteo en cours s'efface d'abord,
-        puis la nouvelle apparait (voir _tick). Appelable a chaque frame."""
-        target = (kind, bool(fog))
+        Un changement de METEO est PROGRESSIF : la meteo en cours s'efface
+        d'abord, puis la nouvelle apparait (voir _tick). La BRUME, elle,
+        s'epaissit ou se dissipe seule, sans toucher au reste. Appelable a
+        chaque frame."""
+        self._fog_target = max(0.0, min(1.0, float(fog)))
         if self._pending is not None:
-            self._pending = target        # la cible a encore change
-        elif target != (self._kind, self._fog):
-            self._pending = target
+            self._pending = kind          # la cible a encore change
+        elif kind != self._kind:
+            self._pending = kind
 
     def stop(self):
         if self._event is not None:
@@ -97,6 +112,7 @@ class WeatherLayer(Widget):
     def _build(self):
         self.canvas.clear()
         self._veil_rect = None
+        self._fog_rect = None
         self._fog_bands = []
         self._drops = []
         self._flakes = []
@@ -109,21 +125,23 @@ class WeatherLayer(Widget):
             # 1) Voile general de la meteo.
             veil = _VEIL.get(kind)
             if veil:
-                self._alphas.append((Color(*veil), veil[3]))
+                self._alphas.append((Color(*veil), veil[3], False))
                 self._veil_rect = Rectangle(pos=self.pos, size=self.size)
 
-            # 2) Brouillard : voile clair + larges bandes qui derivent.
-            if self._fog:
-                self._alphas.append((Color(0.82, 0.85, 0.88, 0.30), 0.30))
-                Rectangle(pos=self.pos, size=self.size)
-                self._alphas.append((Color(0.90, 0.92, 0.95, 0.16), 0.16))
-                for _ in range(4):
-                    fy = rng.uniform(0.10, 0.70)
-                    fw = rng.uniform(0.7, 1.3)
-                    fh = rng.uniform(0.10, 0.22)
-                    speed = rng.uniform(0.010, 0.030)
-                    self._fog_bands.append(
-                        [Ellipse(), rng.uniform(0.0, 1.0), fy, fw, fh, speed])
+            # 2) Brume : voile clair + larges bandes qui derivent. TOUJOURS
+            # construite, quelle que soit la meteo : c'est son epaisseur qui
+            # la montre ou la cache (voir _tick).
+            self._alphas.append((Color(0.82, 0.85, 0.88, 0.30), 0.30, True))
+            self._fog_rect = Rectangle(pos=self.pos, size=self.size)
+            self._alphas.append((Color(0.90, 0.92, 0.95, 0.16), 0.16, True))
+            for _ in range(4):
+                fy = rng.uniform(0.10, 0.70)
+                fw = rng.uniform(0.7, 1.3)
+                fh = rng.uniform(0.10, 0.22)
+                speed = rng.uniform(0.010, 0.030)
+                self._fog_bands.append(
+                    [Ellipse(), rng.uniform(0.0, 1.0), fy, fw, fh, speed])
+            self._fog_shown = True
 
             # 3) Precipitations.
             spec = _PRECIP.get(kind)
@@ -132,7 +150,8 @@ class WeatherLayer(Widget):
                 ptype, count, vfac, sfac, wind = spec
                 self._wind = wind
                 if ptype == "rain":
-                    self._alphas.append((Color(*_RAIN_COLOR), _RAIN_COLOR[3]))
+                    self._alphas.append((Color(*_RAIN_COLOR), _RAIN_COLOR[3],
+                                         False))
                     for _ in range(count):
                         self._drops.append([
                             Line(width=1.1),
@@ -143,7 +162,8 @@ class WeatherLayer(Widget):
                             rng.uniform(0.10, 0.22),           # biais lateral
                         ])
                 else:
-                    self._alphas.append((Color(*_SNOW_COLOR), _SNOW_COLOR[3]))
+                    self._alphas.append((Color(*_SNOW_COLOR), _SNOW_COLOR[3],
+                                         False))
                     for _ in range(count):
                         self._flakes.append([
                             Ellipse(),
@@ -155,7 +175,7 @@ class WeatherLayer(Widget):
                             rng.uniform(0.004, 0.009),         # taille
                         ])
 
-        self._built = (kind, self._fog, w, h)
+        self._built = (kind, w, h)
 
     # ---- Animation (chaque frame) ------------------------------------- #
     def _tick(self, dt):
@@ -169,30 +189,48 @@ class WeatherLayer(Widget):
             self._intensity -= step
             if self._intensity <= 0.0:
                 self._intensity = 0.0
-                self._kind, self._fog = self._pending
+                self._kind = self._pending
                 self._pending = None
         elif self._intensity < 1.0:
             self._intensity = min(1.0, self._intensity + step)
+        # La brume rejoint son epaisseur visee, a son propre rythme.
+        pas = min(dt, 0.1) / BRUME_FADE_SECONDS
+        if self._fog < self._fog_target:
+            self._fog = min(self._fog_target, self._fog + pas)
+        elif self._fog > self._fog_target:
+            self._fog = max(self._fog_target, self._fog - pas)
 
-        if self._built != (self._kind, self._fog, w, h):
+        if self._built != (self._kind, w, h):
             self._build()
         self._t += min(dt, 0.1)
         t, x0, y0 = self._t, self.x, self.y
 
-        # Opacites suivant le fondu en cours.
-        for col, base in self._alphas:
-            col.a = base * self._intensity
+        # Opacites suivant le fondu en cours (et l'epaisseur de la brume).
+        for col, base, brume in self._alphas:
+            col.a = base * self._intensity * (self._fog if brume else 1.0)
 
         if self._veil_rect is not None:
             self._veil_rect.pos = self.pos
             self._veil_rect.size = self.size
 
-        # Brouillard : bandes qui derivent lentement de gauche a droite.
-        for band in self._fog_bands:
-            ell, fx, fy, fw, fh, speed = band
-            px = (fx + t * speed) % 1.6 - 0.3
-            ell.size = (fw * w, fh * h)
-            ell.pos = (x0 + px * w - fw * w / 2, y0 + fy * h - fh * h / 2)
+        # Brume : bandes qui derivent lentement de gauche a droite. Absente,
+        # ses formes sont ramenees a une taille nulle : invisibles de toute
+        # facon, elles couvriraient encore l'ecran, pixel par pixel, pour
+        # rien.
+        if self._fog > 0.0:
+            self._fog_rect.pos = self.pos
+            self._fog_rect.size = self.size
+            for band in self._fog_bands:
+                ell, fx, fy, fw, fh, speed = band
+                px = (fx + t * speed) % 1.6 - 0.3
+                ell.size = (fw * w, fh * h)
+                ell.pos = (x0 + px * w - fw * w / 2, y0 + fy * h - fh * h / 2)
+            self._fog_shown = True
+        elif self._fog_shown:
+            self._fog_rect.size = (0, 0)
+            for band in self._fog_bands:
+                band[0].size = (0, 0)
+            self._fog_shown = False
 
         # Pluie : traits inclines qui tombent et se repetent en boucle.
         for d in self._drops:

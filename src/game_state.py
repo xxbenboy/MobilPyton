@@ -107,10 +107,26 @@ WEATHER_WEIGHTS = [45, 40, 10, 5]           # en % du temps
 WEATHER_MIN_HOURS = 2
 WEATHER_MAX_HOURS = 6
 
-# Par temps nuageux : une fois sur deux, du brouillard s'ajoute (sauf en
+# LA PREMIERE JOURNEE EST AU CLAIR : 24 h de jeu depuis le depart (6 h), sans
+# aucun changement de temps. Le joueur decouvre sa case, ses premieres
+# recoltes, son premier feu ; la pluie qui mouille et l'orage viendront
+# ensuite. Le premier tirage a lieu au bout de ces 24 h.
+CALME_HEURES = 24
+
+# Par temps nuageux : une fois sur deux, de la BRUME s'ajoute (sauf en
 # montagne, ou l'on est au-dessus).
 FOG_CHANCE = 0.5
 FOG_ZONES = ("Foret", "Plaine", "Lac")
+
+# LA BRUME EST UNE BRUME DU MATIN. Elle monte avec le jour, APRES le lever du
+# soleil, et se dissipe avant BRUME_FIN : jamais la nuit, jamais l'apres-midi.
+# Et elle ne vient qu'avec un temps nuageux DEJA LA au lever du soleil : une
+# brume qui tomberait en pleine matinee, pour une demi-heure, se lirait comme
+# un defaut d'affichage.
+BRUME_DEBUT = 5.0          # le lever du soleil (voir daylight.SUNRISE)
+BRUME_FIN = 10.0
+BRUME_MONTEE = 0.5         # heures pour s'epaissir, apres le lever
+BRUME_DISSIPATION = 1.5    # heures pour se lever, avant BRUME_FIN
 
 # Equivalents en montagne.
 MOUNTAIN_WEATHER = {"pluie": "neige", "orage": "blizzard"}
@@ -495,20 +511,39 @@ class GameState:
         """Renouvelle la meteo quand l'episode en cours est termine.
 
         Appelable a chaque frame : ne fait rien tant que l'episode dure, ni
-        tant que le panneau debug tient la meteo (weather_locked)."""
+        tant que le panneau debug tient la meteo (weather_locked).
+
+        La premiere journee reste au clair (voir CALME_HEURES) -- une partie
+        sauvegardee avant cette regle, et encore dans sa premiere journee, y
+        revient aussi."""
         if self.weather_locked:
             self._apply_wet()
+            return
+        fin_du_calme = (START_HOUR + CALME_HEURES) * 3600
+        if self.time_seconds < fin_du_calme:
+            self.weather = "clair"
+            self.fog = False
+            self.weather_until = fin_du_calme
             return
         if self.weather in WEATHERS and self.time_seconds < self.weather_until:
             self._apply_wet()
             return
         self.weather = random.choices(WEATHERS, weights=WEATHER_WEIGHTS, k=1)[0]
-        # Brouillard : seulement par temps nuageux, une fois sur deux.
-        self.fog = (self.weather == "nuageux"
-                    and random.random() < FOG_CHANCE)
         hours = random.uniform(WEATHER_MIN_HOURS, WEATHER_MAX_HOURS)
         self.weather_until = int(self.time_seconds + hours * 3600)
+        # Brume : seulement par temps nuageux, une fois sur deux -- et
+        # seulement si ce temps est la au lever du soleil (voir BRUME_FIN).
+        self.fog = (self.weather == "nuageux"
+                    and self._aube_suivante(self.time_seconds)
+                    < self.weather_until
+                    and random.random() < FOG_CHANCE)
         self._apply_wet()
+
+    @staticmethod
+    def _aube_suivante(t):
+        """Le premier lever du soleil a partir de `t` (secondes de jeu)."""
+        aube = t - t % SECONDS_PER_DAY + int(BRUME_DEBUT * 3600)
+        return aube if aube >= t else aube + SECONDS_PER_DAY
 
     def _apply_wet(self):
         """Le joueur est MOUILLE des que l'averse commence.
@@ -568,18 +603,36 @@ class GameState:
             return MOUNTAIN_WEATHER.get(w, w)
         return w
 
-    def fog_active(self):
-        """Y a-t-il du brouillard ici ? (temps nuageux + zone concernee)
+    def fog_level(self):
+        """Epaisseur de la brume ICI et MAINTENANT : de 0 (aucune) a 1.
 
-        EXCEPTION du panneau debug : un brouillard IMPOSE s'affiche partout,
-        montagne comprise. La regle normale veut qu'on soit au-dessus du
-        brouillard en altitude ; mais un bouton qui ne fait rien selon l'endroit
-        ou l'on se trouve passe pour casse. Attention donc : voir du brouillard
-        en montagne signifie qu'il a ete force a la main, jamais que le jeu le
-        produirait la."""
+        Temps nuageux avec brume, zone concernee, et LE MATIN : elle
+        s'epaissit apres le lever du soleil (BRUME_MONTEE) et se dissipe
+        avant BRUME_FIN (BRUME_DISSIPATION). Passe cette heure, le temps
+        reste simplement nuageux.
+
+        EXCEPTION du panneau debug : une brume IMPOSEE s'affiche partout,
+        montagne comprise, et a toute heure. La regle normale veut qu'on soit
+        au-dessus de la brume en altitude, et qu'elle ne tienne pas passe la
+        matinee ; mais un bouton qui ne fait rien selon l'endroit ou l'heure
+        passe pour casse. Attention donc : voir de la brume en montagne, ou
+        l'apres-midi, signifie qu'elle a ete forcee a la main, jamais que le
+        jeu la produirait la."""
         if not (self.fog and self.weather == "nuageux"):
-            return False
-        return self.weather_locked or self.current_zone() in FOG_ZONES
+            return 0.0
+        if self.weather_locked:
+            return 1.0
+        if self.current_zone() not in FOG_ZONES:
+            return 0.0
+        h = (self.time_seconds % SECONDS_PER_DAY) / 3600.0
+        if not BRUME_DEBUT <= h < BRUME_FIN:
+            return 0.0
+        return min(1.0, (h - BRUME_DEBUT) / BRUME_MONTEE,
+                   (BRUME_FIN - h) / BRUME_DISSIPATION)
+
+    def fog_active(self):
+        """Y a-t-il de la brume ici, en ce moment ? (voir fog_level)"""
+        return self.fog_level() > 0.0
 
     def advance_survival(self, seconds):
         """Fait deriver les stats selon le temps de jeu ecoule (en secondes)."""

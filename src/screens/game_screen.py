@@ -1747,7 +1747,9 @@ class GameScreen(Screen):
         # Les foyers allumes consomment leur bois et leur air avec le temps.
         state.update_fires()
         weather = state.effective_weather()
-        self.weather_layer.set_weather(weather, state.fog_active())
+        # La brume passe avec son EPAISSEUR : elle monte apres le lever du
+        # soleil et se dissipe en fin de matinee (voir fog_level).
+        self.weather_layer.set_weather(weather, state.fog_level())
         self.lightning.set_weather(weather)
         # Le vent de la meteo courbe la vegetation du decor.
         self.scenery.set_wind(weather)
