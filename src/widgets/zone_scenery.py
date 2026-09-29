@@ -621,21 +621,87 @@ def _rampe_brume():
 ECUME_COUCHES = ((1.00, 0.060, 0.85, False),
                  (1.45, 0.048, 0.50, True))
 ECUME_FPS = 30.0
-REFLET_EAU = 0.72          # opacite du reflet contre la rive d'en face
-REFLET_COURBE = 1.6        # > 1 : le fond reste bien visible pres du bord
+# L'OPACITE DE L'EAU SUIT LA DISTANCE, PAS LA HAUTEUR A L'ECRAN.
+#
+# Ce qui rend une eau opaque au loin, c'est l'EPAISSEUR D'EAU TRAVERSEE par le
+# regard : a nos pieds on la perce presque a la verticale et l'on voit les
+# cailloux ; au loin on la rase, le trajet dans l'eau s'allonge, et il ne
+# reste que le ciel qu'elle renvoie. Cette longueur croit comme la distance,
+# et ce qui traverse s'eteint exponentiellement avec elle -- c'est la loi de
+# Beer-Lambert, et elle vaut ici parce que c'est exactement le phenomene.
+#
+# La rampe recoit donc la DISTANCE NORMALISEE (0 au bord, 1 a la rive d'en
+# face) et non la hauteur a l'ecran. Les deux ne se ressemblent pas : a
+# mi-hauteur de la nappe, on n'est qu'a 22 % du chemin vers la rive d'en face
+# (voir GROUND_DEPTH), et l'ancienne rampe y voyait 50 %.
+#
+# CE QUE CELA CHANGE, mesure a trois hauteurs (mi-nappe, 80 %, rive d'en
+# face) : l'eau passait de 0,24 / 0,50 / 0,72 d'opacite a 0,48 / 0,79 / 0,95.
+# Elle reste claire sur les premiers metres et se ferme franchement ensuite.
+OPACITE_EAU_LOIN = 0.95    # opacite du reflet contre la rive d'en face
+ABSORPTION_EAU = 3.0       # plus grand = l'eau se ferme plus vite
+
+# --- LA BERGE D'EN FACE ---------------------------------------------------- #
+# De l'autre cote de l'eau il y a une VRAIE case, et le jeu sait laquelle
+# (voir horizon.zone_den_face). On lui donne donc sa plage et sa vegetation,
+# avec les images du jeu -- les memes arbres, les memes buissons qu'au premier
+# plan, simplement petits et noyes de brume.
+#
+# POURQUOI PAS LES SILHOUETTES DE horizon.py. Elles servent a reconnaitre un
+# paysage a UN KILOMETRE, d'un coup d'oeil, et pour cela une tache dentelee
+# suffit. La berge d'en face n'est pas a un kilometre : c'est l'autre bord
+# d'un lac, on la regarde longtemps, et une frange d'ellipses vertes s'y lit
+# pour ce qu'elle est.
+#
+# (nom de l'image, hauteur en part de la hauteur d'ecran, poids du tirage)
+# Les noms absents du dossier des feuillages sont ecartes a l'usage : une
+# berge ne reste jamais vide a cause d'une image qu'on n'a pas encore.
+PLANTES_DE_BERGE = {
+    "Foret": (("forest_tree", 0.085, 3), ("pine_tree", 0.105, 4),
+              ("bush_forest", 0.026, 2), ("fern", 0.020, 1)),
+    "Plaine": (("bush_plain", 0.034, 3), ("plant_leafy", 0.026, 2),
+               ("grass_tuft", 0.020, 3), ("berries_bush", 0.028, 1)),
+    "Montagne": (("pine_tree", 0.070, 3), ("boulder", 0.040, 2),
+                 ("stone_mountain", 0.022, 1)),
+    "Rive": (("reed", 0.032, 3), ("grass_tuft", 0.022, 2),
+             ("bush_plain", 0.030, 1)),
+}
+# Faute de savoir ce qu'il y a en face (bord de carte, ou lac trop large),
+# on met de l'herbe : neutre, et vrai a peu pres partout.
+PLANTES_DE_BERGE_DEFAUT = (("grass_tuft", 0.022, 3), ("bush_plain", 0.030, 1))
+
+# Combien de pieds sur toute la largeur de la berge, et epaisseur de sa plage
+# de sable en part de la hauteur d'ecran.
+#
+# LA PLAGE A ETE EPAISSIE APRES COUP. A 0,012 elle existait -- cinq pixels sur
+# un apercu de 400 -- mais on ne la voyait pas : l'eau touchait l'herbe, et
+# c'est precisement ce qu'on voulait corriger. A 0,026 elle fait cinquante
+# pixels sur un ecran de 1920, assez pour se lire comme une greve sans devenir
+# une dune.
+PIEDS_DE_BERGE = 54
+SABLE_DEN_FACE = 0.026
+
+# La vegetation de la berge est plus SOMBRE que celle du premier plan, avant
+# meme la brume : elle est vue de loin et de biais, on y voit surtout les
+# faces ombrees. La brume l'eclaircira ensuite par-dessus.
+TEINTE_BERGE = 0.72
 
 _RAMPE_EAU = []
 
 
 def _rampe_eau():
-    """La rampe d'opacite du reflet : 0 au bord (v = 0), 1 en face (v = 1).
+    """La rampe d'opacite du reflet : 0 au bord (v = 0), OPACITE_EAU_LOIN en
+    face (v = 1), avec v qui porte la DISTANCE et non la hauteur a l'ecran.
+
     Blanche : c'est la Color du reflet qui lui donne la couleur du ciel."""
     if _RAMPE_EAU:
         return _RAMPE_EAU[0]
     n, larg = 64, 4
+    plein = 1.0 - math.exp(-ABSORPTION_EAU)      # pour finir pile au but
     octets = bytearray()
     for j in range(n):
-        a = ((j + 0.5) / n) ** REFLET_COURBE
+        d = (j + 0.5) / n
+        a = OPACITE_EAU_LOIN * (1.0 - math.exp(-ABSORPTION_EAU * d)) / plein
         octets += bytes((255, 255, 255, int(a * 255 + 0.5))) * larg
     try:
         tex = texture_depuis_octets((larg, n), octets, wrap="clamp_to_edge",
@@ -743,6 +809,7 @@ class ZoneScenery(Widget):
         # construction de la scene.
         self._taken = {}
         self._neighbours = {}
+        self._berge = None
         self._ord = {}
         self._harvest_total = {}
         self._avail = {}            # {nom: nb recoltable} (aleatoire, par case)
@@ -917,7 +984,8 @@ class ZoneScenery(Widget):
             pbr.reset_maps()
 
     def set_scene(self, zone_type, seed=0, taken=None, blocked_grid=None,
-                  installed=None, removed_grid=None, neighbours=None):
+                  installed=None, removed_grid=None, neighbours=None,
+                  berge=None):
         """Vue a l'horizon (sol en bas + ciel).
 
         `taken` = {nom: nombre deja recolte} pour masquer les objets recoltes.
@@ -935,7 +1003,10 @@ class ZoneScenery(Widget):
         `neighbours` = {"face"/"gauche"/"droite": type de zone ou None} : les
         cases voisines, qui apparaissent en silhouette a l'horizon (voir
         horizon.py). Depend de l'ORIENTATION du joueur, donc tourner change le
-        fond de la scene."""
+        fond de la scene.
+        `berge` = le type de zone qu'il y a VRAIMENT de l'autre cote de l'eau
+        (voir horizon.zone_den_face). La berge d'en face du lac s'y peuple de
+        ses vrais arbres et de ses vraies plantes."""
         # Un appel direct ne dit pas de quelle case il s'agit : montre_la_case
         # ne peut plus rien supposer de ce qui est dessine.
         self._cle_case = None
@@ -958,6 +1029,12 @@ class ZoneScenery(Widget):
                                  for g in (removed_grid or []))
         self._neighbours = {cote: SCENE_DE_ZONE.get(z, z)
                             for cote, z in (neighbours or {}).items()}
+        # PAS DE SCENE_DE_ZONE ICI : une rive d'en face doit rester une rive.
+        # La table rabat "Rive" sur "Lac" pour choisir quelle scene dessiner,
+        # ce qui est juste quand on s'y tient -- on y voit le lac -- mais faux
+        # pour ce qu'on regarde au loin : une rive porte du sable et des
+        # roseaux, pas une seconde etendue d'eau.
+        self._berge = berge
         self._redraw()
 
     def montre_la_case(self, state, apercu=None):
@@ -996,6 +1073,10 @@ class ZoneScenery(Widget):
             # Les cases VOISINES dependent de l'orientation : tourner sur
             # place doit redessiner le fond.
             "neighbours": horizon.neighbours_of(state),
+            # Ce qu'il y a VRAIMENT de l'autre cote de l'eau, par-dela le lac
+            # (voir horizon.zone_den_face). Dans la cle, donc : tourner le dos
+            # a une foret pour faire face a une montagne redessine la berge.
+            "berge": horizon.zone_den_face(state),
         }
         cle = tuple((k, tuple(sorted(v.items())) if isinstance(v, dict)
                      else v) for k, v in sorted(decor.items())) + (apercu,)
@@ -4110,7 +4191,12 @@ class ZoneScenery(Widget):
                 yy = y0 + t * (top - y0)
                 verts += [x, yy, (x - cx) * k / tile_px,
                           -(yy - y0) * k / tile_v]
-                rampe += [x, yy, 0.5, t]
+                # LA RAMPE LIT LA DISTANCE, pas la hauteur a l'ecran : c'est
+                # l'epaisseur d'eau traversee qui l'opacifie (voir
+                # _rampe_eau). Sans perspective il n'y a pas de distance a
+                # lire, et t reste la seule mesure disponible.
+                rampe += [x, yy, 0.5,
+                          (k - 1.0) / (depth - 1.0) if depth > 1.0 else t]
 
         stride = rows + 1
         idx = []
@@ -4640,7 +4726,11 @@ class ZoneScenery(Widget):
         if rampe is not None:
             tex_r = _rampe_eau()
             if tex_r is not None:
-                couleur = Color(1, 1, 1, REFLET_EAU)
+                # L'opacite est TOUTE ENTIERE dans la rampe (voir
+                # _rampe_eau), qui monte jusqu'a OPACITE_EAU_LOIN : la Color
+                # reste a 1 et ne sert qu'a porter la couleur du ciel. Un
+                # second facteur ici multiplierait deux fois la meme chose.
+                couleur = Color(1, 1, 1, 1)
                 Mesh(vertices=rampe, indices=idx, mode="triangles",
                      texture=tex_r)
                 # Sa couleur est celle du ciel a l'horizon, tenue a jour avec
@@ -4730,8 +4820,6 @@ class ZoneScenery(Widget):
 
     def _lac(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
-        # Paysages voisins, derriere la berge d'en face.
-        self._horizon(lambda fx: y0 + 0.70 * h)
 
         # COLLINES / BERGE D'EN FACE : c'est de l'HERBE, et c'est la meme que
         # celle de la plaine -- elle prend donc sa texture. Ces deux bandes
@@ -4750,10 +4838,29 @@ class ZoneScenery(Widget):
                 return y0 + h * (bas + haut * math.sqrt(max(0.0, 1.0 - d * d)))
             return f
 
-        self._fill_curve(colline(0.55, 0.80, 0.58, 0.18), "grass_far",
-                         frange=False)
-        self._fill_curve(colline(0.52, 0.85, 0.54, 0.14), "grass",
-                         frange=False)
+        crete_loin = colline(0.55, 0.80, 0.58, 0.18)
+        crete = colline(0.52, 0.85, 0.54, 0.14)
+
+        # LA BERGE D'EN FACE, du plus loin au plus proche : le relief qui la
+        # domine, son second rang d'arbres, son premier rang au bord de
+        # l'eau, sa greve, et l'air entre tout cela et nous.
+        #
+        # LES DEUX RANGS SONT SEPARES PAR UNE BANDE D'HERBE, et c'est pour
+        # cela qu'ils ne tiennent pas dans un seul appel : le second rang se
+        # tient sur la crete lointaine, l'herbe du plan suivant lui couvre le
+        # pied, puis le premier rang se tient sur celle-ci. C'est ce qui donne
+        # a la berge son epaisseur -- un seul rang se lit comme une haie
+        # collee sur un mur vert.
+        self._relief_den_face(crete_loin)
+        self._fill_curve(crete_loin, "grass_far", frange=False)
+        self._rang_de_berge(crete_loin, 0.62)
+        self._fill_curve(crete, "grass", frange=False)
+        self._rang_de_berge(crete, 1.0)
+        eau_y = y0 + 0.60 * h
+        self._greve_den_face(eau_y, crete)
+        # LE VOILE D'AIR, de la ligne d'eau au sommet de la berge. Il ne prend
+        # que ce qui precede : l'eau, dessinee apres, reste nette.
+        self._brume(lambda fx: eau_y, crete_loin)
         # Grande etendue d'eau (on est au bord), jusqu'a 0.60h.
         #
         # SANS FRANGE : l'eau ne s'effiloche pas, elle a un NIVEAU. Une rive
@@ -4769,7 +4876,7 @@ class ZoneScenery(Widget):
         # l'autre -- et c'est autant de sommets en moins a deplacer trente fois
         # par seconde (ECUME_FPS).
         texturee = textures.base_texture("water") is not None
-        self._fill_curve(lambda fx: y0 + 0.60 * h, "water", segs=12,
+        self._fill_curve(lambda fx: eau_y, "water", segs=12,
                          depth=GROUND_DEPTH if texturee else 1.0,
                          frange=False, eau=True)
         # Reflets clairs : des traits, seulement pour l'eau SANS image -- sur
@@ -4821,6 +4928,133 @@ class ZoneScenery(Widget):
             if kind == "nugget":
                 items.extend(self._pepite_de_grille(rang, depth, px, pb, jit))
         self._dessine(items)
+
+    def _plantes_de_berge(self, zone):
+        """Ce qui pousse sur la berge d'en face, images manquantes ecartees.
+
+        La table nomme plus de plantes que le dossier n'en contient : c'est
+        voulu, le decor s'habille image par image. Mais un nom sans image ne
+        dessine RIEN -- une berge de foret aurait pu se retrouver a moitie
+        chauve sans que personne ne sache pourquoi. On filtre donc, et si
+        rien ne reste on prend l'herbe, qui est toujours la."""
+        lot = PLANTES_DE_BERGE.get(zone, PLANTES_DE_BERGE_DEFAUT)
+        lot = [p for p in lot if foliage.variants(p[0])]
+        return lot or [p for p in PLANTES_DE_BERGE_DEFAUT
+                       if foliage.variants(p[0])]
+
+    def _zone_de_berge(self, fx):
+        """Quel paysage la berge d'en face montre A CETTE ABSCISSE.
+
+        LA BERGE N'EST PAS D'UN SEUL TENANT, pas plus que l'horizon : ce qu'on
+        voit a gauche de l'ecran est la case de gauche, ce qu'on voit au
+        milieu est ce qu'il y a par-dela l'eau. Une berge uniforme perdrait
+        justement l'information de direction, qui est tout l'interet de
+        regarder au loin.
+
+        Les bornes sont celles de horizon.SPANS, et volontairement : les
+        silhouettes de relief et les arbres se posent aux memes endroits, donc
+        une montagne et ses sapins tombent bien l'un sur l'autre."""
+        gauche = horizon.SPANS["gauche"][1]
+        droite = horizon.SPANS["droite"][0]
+        milieu = self._berge or self._neighbours.get("face")
+        if fx < gauche:
+            return self._neighbours.get("gauche") or milieu
+        if fx > droite:
+            return self._neighbours.get("droite") or milieu
+        return milieu
+
+    def _relief_den_face(self, crete):
+        """Le relief qui domine la berge d'en face, pose sur sa crete.
+
+        SEULEMENT CE QU'AUCUNE IMAGE NE SAIT DONNER, c'est-a-dire la montagne.
+        Les silhouettes de horizon.py servent a reconnaitre un paysage a un
+        kilometre : une ligne d'ellipses pales dit "foret" tres bien de loin,
+        mais posee juste derriere la berge d'un lac elle se lisait pour ce
+        qu'elle est, des boules de coton. La foret d'en face est donc faite de
+        vrais arbres (voir _rang_de_berge) ; la montagne, elle, n'a pas
+        d'image et sa silhouette est de toute facon ce qui la definit -- une
+        crete.
+
+        SUR LA CRETE, ET NON AU RAS DE L'EAU. Ces silhouettes se posaient a
+        0,70 h alors que la berge monte a 0,76 : elles etaient entierement
+        recouvertes par l'herbe, et le lac n'a jamais rien montre de ses
+        voisins.
+
+        AU MILIEU, C'EST LA BERGE QUI COMMANDE : la case droit devant est
+        presque toujours le lac lui-meme, qui n'a pas de silhouette. On y met
+        ce qu'on a trouve de l'autre cote de l'eau, si bien que le relief du
+        fond et les arbres du bord racontent la meme case."""
+        voisins = dict(self._neighbours)
+        if self._berge:
+            voisins["face"] = self._berge
+        voisins = {c: z for c, z in voisins.items() if z == "Montagne"}
+        if voisins:
+            horizon.draw(voisins, self.x, self.width, crete, self.height,
+                         random.Random(self._graine_voisins()))
+
+    def _rang_de_berge(self, crete, echelle):
+        """Un rang de vegetation sur la berge d'en face, le long de `crete`.
+
+        CE QU'ON Y MET EST CE QUI S'Y TROUVE VRAIMENT. `self._berge` porte le
+        type de la premiere case solide droit devant, par-dela l'eau (voir
+        horizon.zone_den_face) : une foret en face met des arbres, une
+        montagne des sapins. Regarder l'autre rive renseigne donc sur ou l'on
+        va -- et avec les vraies images du jeu, parce qu'a cette distance-la
+        on les distingue encore.
+
+        `echelle` rapetisse le rang du fond : c'est elle qui creuse la
+        profondeur entre les deux rangs.
+
+        RIEN DE TOUT CELA N'EST RECOLTABLE et rien n'entre dans la grille :
+        c'est de l'autre cote de l'eau. Ces plantes ne passent donc ni par
+        _take_or_skip ni par _is_blocked."""
+        w, x0, h = self.width, self.x, self.height
+        # Le rang du fond est plus sombre ET plus petit : les deux disent la
+        # distance, et l'un sans l'autre ne suffit pas.
+        k = TEINTE_BERGE * (0.82 + 0.18 * echelle)
+        teinte = (k, k, k)
+        # Une graine a part, comme pour l'horizon : la berge depend de ce
+        # qu'il y a en face, et tourner sur place ne doit pas reorganiser le
+        # decor de la case ou l'on se tient. Un grain par rang, sinon les deux
+        # rangs poseraient les memes plantes aux memes endroits.
+        brg = random.Random(self._graine_voisins()
+                            ^ (0x8E36 + int(echelle * 1000)))
+        n = max(4, int(PIEDS_DE_BERGE * echelle))
+        lots = {}
+        pieds = []
+        for i in range(n):
+            fx = (i + brg.uniform(0.1, 0.9)) / n
+            cx = x0 + fx * w
+            zone = self._zone_de_berge(fx)
+            if zone not in lots:
+                lot = self._plantes_de_berge(zone)
+                lots[zone] = (lot, [p[2] for p in lot]) if lot else None
+            if lots[zone] is None:
+                continue
+            lot, poids = lots[zone]
+            # Un peu SOUS la crete, et de facon variable : plantes pile
+            # dessus, elles s'aligneraient au cordeau sur l'arc de la
+            # colline, ce qu'aucune lisiere ne fait.
+            base = crete(fx) - brg.uniform(0.0, 0.020) * h
+            nom, ech, _ = brg.choices(lot, weights=poids)[0]
+            pieds.append((base, cx, nom, ech * echelle * h))
+        # Du plus loin au plus proche : un arbre du fond ne doit pas se
+        # dessiner par-dessus celui qui est devant lui.
+        for base, cx, nom, hauteur in sorted(pieds, reverse=True):
+            self._sprite(nom, cx, base, hauteur, teinte=teinte)
+
+    def _greve_den_face(self, eau_y, crete):
+        """La plage de la berge d'en face : une bande de sable au ras de
+        l'eau.
+
+        C'EST ELLE QUI FAIT LA RIVE. Sans elle, l'eau touchait l'herbe
+        directement -- une berge de gazon plongeant dans un lac, ce qu'on ne
+        voit nulle part. La bande est coupee par la crete la ou la colline est
+        trop basse pour en porter une : la, c'est la greve qui occupe toute la
+        berge, et c'est juste."""
+        sable = eau_y + SABLE_DEN_FACE * self.height
+        self._fill_curve(lambda fx: min(crete(fx), sable), "sand",
+                         frange=False)
 
     def _pebble(self, rx, ry, rr, depth=0.0):
         # Un galet est une petite pierre comme les autres (voir _stone).

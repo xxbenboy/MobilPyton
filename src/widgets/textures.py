@@ -39,7 +39,13 @@ FALLBACKS = {
     "rock":             (0.42, 0.41, 0.46, 1),
     "rock_dark":        (0.33, 0.32, 0.37, 1),
     "water":            (0.15, 0.38, 0.58, 1),
-    "sand":             (0.32, 0.30, 0.22, 1),
+    # SABLE : la couleur MESUREE sur le sable sec de l'image de rive livree
+    # (rive_B, cinquieme inferieur : 181, 171, 149). L'ancienne valeur, 0,32 /
+    # 0,30 / 0,22, etait deux fois trop sombre -- une terre brune, pas du
+    # sable. Cela ne se voyait pas tant que le seul sable de l'ecran etait
+    # celui de la rive proche, qui prend son image ; la greve de la berge
+    # d'en face, elle, n'a pas d'image et sortait marron sous l'herbe verte.
+    "sand":             (0.71, 0.67, 0.58, 1),
     "bark":             (0.28, 0.19, 0.11, 1),
     "foliage":          (0.09, 0.18, 0.11, 1),
     "skin":             (0.84, 0.66, 0.50, 1),

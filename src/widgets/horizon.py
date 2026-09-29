@@ -173,6 +173,40 @@ def draw(neighbours, x0, width, base, height, rng):
         signature(x0 + a * width, x0 + b * width, au_sol, haut, dist, rng)
 
 
+# Jusqu'ou chercher la terre ferme de l'autre cote de l'eau. Au-dela, le
+# paysage serait de toute facon trop loin pour se lire, et la berge d'en face
+# garde alors sa vegetation par defaut.
+PORTEE_BERGE = 6
+
+# Ce qu'on traverse du regard sans y voir de rive : l'eau, et le sable de sa
+# rive, qui n'arrete pas la vue non plus.
+_TRAVERSABLE = ("Lac", "Rive")
+
+
+def zone_den_face(state, portee=PORTEE_BERGE):
+    """Le premier paysage SOLIDE droit devant, par-dela l'eau -- ou None.
+
+    C'est ce qu'il y a VRAIMENT sur l'autre berge. Depuis une rive, la case
+    d'en face est presque toujours le lac lui-meme : demander le voisin
+    immediat repondrait "de l'eau", ce qui ne dit rien de ce qu'on voit au
+    bout. On avance donc droit devant, case par case, tant qu'on ne traverse
+    que de l'eau et du sable.
+
+    Rend None au bord de la carte ou si l'eau va plus loin que `portee` :
+    la berge d'en face prend alors sa vegetation par defaut, faute de mieux
+    -- mentir sur ce qui s'y trouve serait pire que de rester neutre."""
+    from src import world
+    dx, dy = state.dir_vector(0)
+    for pas in range(1, portee + 1):
+        nx, ny = state.player_x + dx * pas, state.player_y + dy * pas
+        if not (0 <= nx < world.GRID_W and 0 <= ny < world.GRID_H):
+            return None
+        zone = state.grid[ny][nx]
+        if zone not in _TRAVERSABLE:
+            return zone
+    return None
+
+
 def neighbours_of(state):
     """{"face"/"gauche"/"droite": type de zone ou None} pour l'etat courant.
 

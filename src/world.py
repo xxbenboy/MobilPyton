@@ -117,8 +117,19 @@ def generate_map(seed):
 
 
 def _pose_les_rives(grid):
-    """Chaque case qui touche un lac -- par un cote OU PAR UN COIN -- devient
-    sa RIVE : un contour complet, sans trou aux angles.
+    """Chaque case qui touche un lac PAR UN COTE devient sa RIVE.
+
+    PAR UN COTE, ET PAS PAR UN COIN. Deux cases qui ne se touchent que par
+    l'angle n'ont aucune frontiere commune : on ne passe pas de l'une a
+    l'autre, et depuis l'une on ne voit pas l'eau de l'autre -- on voit la
+    case d'a cote, qui est de la terre. En faire une rive posait sur la carte
+    des bandes de sable en escalier autour des lacs, et dans le jeu une plage
+    d'ou l'on ne rejoignait l'eau par aucun deplacement.
+
+    (La version d'avant prenait les huit voisins, pour "un contour complet,
+    sans trou aux angles". Le trou aux angles n'en est pas un : la ou deux
+    rives se rencontrent en diagonale, chacune touche le lac par son propre
+    cote, et le contour se ferme de lui-meme le long des cotes.)
 
     LE LAC GARDE TOUTES SES CASES ; ce sont les terres autour qui cedent la
     bande de sable. L'inverse -- border le lac avec ses propres cases -- ne
@@ -129,9 +140,9 @@ def _pose_les_rives(grid):
     sans les rives, a la bande de sable pres."""
     rives = [(x, y) for y in range(GRID_H) for x in range(GRID_W)
              if grid[y][x] != "Lac"
-             and any(grid[ny][nx] == "Lac"
-                     for ny in range(max(0, y - 1), min(GRID_H, y + 2))
-                     for nx in range(max(0, x - 1), min(GRID_W, x + 2)))]
+             and any(0 <= x + dx < GRID_W and 0 <= y + dy < GRID_H
+                     and grid[y + dy][x + dx] == "Lac"
+                     for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)))]
     for x, y in rives:
         grid[y][x] = "Rive"
     return grid
