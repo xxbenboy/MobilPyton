@@ -85,12 +85,33 @@ LES NOMS (exacts : minuscules, underscores, sans accent)
 --- FORET --------------------------------------------------------
     pine_tree.png         Sapin, vu en entier (grand : jusqu'a ~100 % de
                           la hauteur d'ecran au premier plan), AVEC SES DEUX
-                          CARTES. QUATRE MODELES a partir d'une seule photo :
+                          CARTES. SEPT MODELES : les quatre premiers sont
+                          quatre mises en forme d'une SEULE photo, les trois
+                          derniers sont trois sapins differents.
 
-                            pine_tree     rapport 0,594   la photo livree
+                            pine_tree     rapport 0,594   la premiere photo
                             pine_tree_2   rapport 0,594   son miroir
                             pine_tree_3   rapport 0,748   trapu, large
                             pine_tree_4   rapport 0,464   elance, en miroir
+                            pine_tree_5   rapport 0,675   epars, avec cones
+                            pine_tree_6   rapport 0,818   PENCHE, couche par
+                                                          le vent
+                            pine_tree_7   rapport 0,684   dense, cime droite
+
+                          /!\ LES TROIS DERNIERS SONT ARRIVES SUR FOND BLANC,
+                          sans canal alpha : il a fallu leur en fabriquer un.
+                          Le contour est net contre le ciel, mais leurs
+                          BRINDILLES NUES, qui font moins d'un pixel de
+                          large, gardent un leger voile pale -- une structure
+                          sous-pixellaire n'est jamais pleinement opaque, son
+                          alpha est donc sous-estime et l'on retire trop peu
+                          de fond. Mesure : leur frange est plus claire que
+                          son voisinage de 0,40, contre 0,04 a 0,12 sur les
+                          images livrees deja detourees.
+
+                          LIVRE TES IMAGES EN PNG A FOND TRANSPARENT et le
+                          probleme n'existe pas. A defaut, un fond SOMBRE
+                          vaut mieux qu'un fond blanc pour un sujet sombre.
 
                           C'est le RAPPORT qui fait la difference et non la
                           taille : le jeu commande la hauteur et la largeur
