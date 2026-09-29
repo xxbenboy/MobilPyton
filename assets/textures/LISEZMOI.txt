@@ -91,23 +91,30 @@ transparent, de meme cadre que la BaseColor. C'est la seule part qui bouge.
                   plus fort vers la rive d'en face, de la couleur du ciel
                   affiche (bleu a midi, orange au couchant, noir la nuit).
 
-Les deux images viennent de la GRANDE texture du haut de la planche livree
-(1024 x 446), preparee hors jeu (scratchpad/prepare_eau.py) :
-  - le filigrane "Made with AI" recouvert par un morceau de la meme eau ;
+Les deux images viennent de la GRANDE texture du haut de la seconde
+planche livree (1024 x 478, eau sombre sur cailloux), preparee hors jeu
+(scratchpad/prepare_eau2.py) :
+  - le filigrane "Made with AI" recouvert par le morceau de la meme eau
+    dont le pourtour lui ressemble le plus ;
   - rendue VRAIMENT raccordable -- elle ne l'etait pas, la couture se
     voyait a chaque repetition -- par une couture au plus juste, et non
     par un fondu, qui aurait dedouble les cailloux ;
   - mise en 1024 x 512 (2:1, en puissances de 2) ;
-  - l'ecume detachee du fond, et sa place rebouchee avec des cailloux pris
-    a cote.
+  - l'ecume detachee du fond. Sur une eau aussi sombre, la clarte ne
+    suffit pas a la reconnaitre : c'est sa COULEUR, neutre ou bleutee, qui
+    la separe des cailloux clairs, qui restent olive ;
+  - sa place dans le fond rebouchee en deux niveaux : le TON vient de l'eau
+    qui entoure le trou, le GRAIN (les cailloux) d'un morceau pris a cote.
+    Recopier des morceaux entiers laissait un damier la ou l'ecume formait
+    un grand reseau.
 
-LES 32 VIGNETTES ANIMEES DE LA PLANCHE NE SERVENT PAS. Mesure faite, elles ne
-s'enchainent pas : le lit de cailloux y est fixe et l'ecume saute d'un
-endroit a l'autre, sans direction (de -24 a +24 px d'une vignette a la
-suivante). Jouees a la suite, elles clignoteraient au lieu de couler. Elles
-ne font en plus que 125 px (floues a l'ecran) et portent leur numero
-incruste. Une ecume qui glisse est toujours coherente, et ne pese qu'une
-image.
+LES VIGNETTES ANIMEES DES PLANCHES NE SERVENT PAS. Mesure faite sur les deux
+planches livrees, elles ne s'enchainent pas : d'une vignette a la suivante,
+l'ecume change de place sans direction -- et sur la seconde, les cailloux
+eux-memes ne sont plus les memes. Jouees a la suite, elles clignoteraient au
+lieu de couler. Elles ne font en plus que 126 px (floues a l'ecran) et
+portent leur numero incruste. Une ecume qui glisse est toujours coherente,
+et ne pese qu'une image.
 
 Une tuile d'eau n'est pas carree : le 2:1 est accepte, le jeu garde ses
 proportions (voir rapport() dans src/widgets/textures.py). Vitesse,

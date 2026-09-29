@@ -577,11 +577,12 @@ def _rampe_brume():
 #      roulant ; deux qui se croisent font des motifs qui se defont et se
 #      refont, comme sur une vraie eau qui coule.
 #
-# LES 32 VIGNETTES LIVREES AVEC L'EAU NE SERVENT PAS. Mesure faite, elles ne
-# s'enchainent pas : le lit de cailloux y est fixe et l'ecume saute d'un
-# endroit a l'autre sans direction (decalages de -24 a +24 px d'une image a
-# la suivante). Jouees a la suite, elles clignoteraient. L'ecume tiree de la
-# grande image, elle, derive dans UN sens.
+# LES VIGNETTES ANIMEES LIVREES AVEC L'EAU NE SERVENT PAS. Mesure faite sur
+# les deux planches, elles ne s'enchainent pas : d'une vignette a la
+# suivante, l'ecume change de place sans direction -- et sur la seconde, les
+# cailloux eux-memes ne sont plus les memes. Jouees a la suite, elles
+# clignoteraient. L'ecume tiree de la grande image, elle, derive dans UN
+# sens.
 #
 # Le decalage de l'ecume se fait dans l'espace de la TEXTURE : sur l'eau en
 # perspective, elle avance donc moins vite au loin a l'ecran, comme il se
