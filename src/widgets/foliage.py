@@ -106,22 +106,35 @@ def _stems_charges(name):
     compte quelles variantes existent, il suffirait d'un fichier present mais
     illisible pour que les listes se decalent -- et une pierre porterait alors
     la silhouette ou la carte de normales d'une AUTRE. Ici, une variante
-    compte si et seulement si son image se charge."""
+    compte si et seulement si son image se charge.
+
+    ET ON GARDE CE QU'ON VIENT DE CHARGER. C'etait la le gros gaspillage :
+    cette fonction chargeait chaque image POUR VOIR si elle se chargeait, la
+    jetait, et `variants` la rechargeait aussitot derriere. Deux decodages et
+    deux televersements vers la carte graphique par image, dont la moitie
+    partait a la poubelle sans avoir jamais servi.
+
+    Sur les douze arbres du jeu -- cinq feuillus et sept sapins, chacun
+    d'environ 1,8 Mo une fois decode -- cela faisait 44 Mo charges pour rien,
+    en pointe, au moment meme ou la scene se construit. Sur un telephone,
+    c'est le genre de pointe qui fait tuer l'application."""
     if name not in _STEMS:
-        gardes = []
+        gardes, images = [], []
         for stem in [name] + ["%s_%d" % (name, i)
                               for i in range(2, MAX_VARIANTS + 1)]:
-            if _find_one(stem) is not None:
+            tex = _find_one(stem)
+            if tex is not None:
                 gardes.append(stem)
+                images.append(tex)
         _STEMS[name] = gardes
+        _CACHE[name] = images
     return _STEMS[name]
 
 
 def variants(name):
     """Toutes les images disponibles pour cet element (liste, parfois vide)."""
-    if name not in _CACHE:
-        _CACHE[name] = [_find_one(s) for s in _stems_charges(name)]
-    return _CACHE[name]
+    _stems_charges(name)          # c'est lui qui les charge, une seule fois
+    return _CACHE.get(name, [])
 
 
 def sprite(name, pick=None):
@@ -163,15 +176,25 @@ def relief(name, pick=None):
     independantes ; l'une sans l'autre marche.
 
     Dessine tes cartes de base en lumiere NEUTRE, sans ombre peinte dedans :
-    c'est le jeu qui eclaire (meme regle que assets/textures/LISEZMOI.txt)."""
-    if name not in _RELIEF:
-        _RELIEF[name] = [(_find_one(stem + SUFFIXE_NORMAL),
-                          _find_one(stem + SUFFIXE_PACKED))
-                         for stem in _stems_charges(name)]
-    faites = _RELIEF[name]
-    if not faites:
+    c'est le jeu qui eclaire (meme regle que assets/textures/LISEZMOI.txt).
+
+    UNE VARIANTE A LA FOIS. Cette fonction chargeait les cartes de TOUTES les
+    variantes des qu'on lui en demandait une : le premier arbre dessine
+    faisait entrer les dix cartes des cinq feuillus, puis le premier sapin
+    les quatorze des sept siens. Une scene n'en montre pourtant que trois ou
+    quatre. On ne charge donc plus que celle qu'on demande, et la liste garde
+    sa place pour les autres -- l'alignement avec les variantes de l'image
+    reste donc exact, ce qui est tout ce qui comptait."""
+    stems = _stems_charges(name)
+    if not stems:
         return None, None
-    return faites[0 if pick is None else int(pick) % len(faites)]
+    if name not in _RELIEF:
+        _RELIEF[name] = [None] * len(stems)
+    i = 0 if pick is None else int(pick) % len(stems)
+    if _RELIEF[name][i] is None:
+        _RELIEF[name][i] = (_find_one(stems[i] + SUFFIXE_NORMAL),
+                            _find_one(stems[i] + SUFFIXE_PACKED))
+    return _RELIEF[name][i]
 
 
 def _silhouette_de(path):
@@ -222,19 +245,24 @@ def silhouette(name, pick=None):
     comme celle de sprite(), mais ses tex_coords par defaut ne sont pas
     retournees comme celles d'une image chargee. Il faut donc TOUJOURS lui
     fournir ses tex_coords -- ce que fait de toute facon l'appelant, qui s'en
-    sert pour couper la part enterree."""
-    if name not in _OMBRES:
-        # LA MEME LISTE DE VARIANTES QUE L'IMAGE (voir _stems_charges) : une
-        # silhouette qui ne serait pas celle du sprite pose par-dessus
-        # dessinerait un aplat a cote de la pierre.
-        _OMBRES[name] = [_silhouette_de(_chemin(stem))
-                         for stem in _stems_charges(name)]
-    faites = _OMBRES[name]
-    if not faites:
+    sert pour couper la part enterree.
+
+    UNE VARIANTE A LA FOIS, comme pour les cartes de relief : construire les
+    dix silhouettes d'un element pour n'en poser qu'une redecode dix images
+    au moment ou la scene se monte. La liste garde leur place, donc
+    l'alignement avec les variantes reste exact."""
+    # LA MEME LISTE DE VARIANTES QUE L'IMAGE (voir _stems_charges) : une
+    # silhouette qui ne serait pas celle du sprite pose par-dessus
+    # dessinerait un aplat a cote de la pierre.
+    stems = _stems_charges(name)
+    if not stems:
         return None
-    if pick is None:
-        return faites[0]
-    return faites[int(pick) % len(faites)]
+    if name not in _OMBRES:
+        _OMBRES[name] = [False] * len(stems)
+    i = 0 if pick is None else int(pick) % len(stems)
+    if _OMBRES[name][i] is False:
+        _OMBRES[name][i] = _silhouette_de(_chemin(stems[i]))
+    return _OMBRES[name][i]
 
 
 # --------------------------------------------------------------------- #
@@ -744,14 +772,20 @@ def base_du_feuillage(name, pick=None):
     """La hauteur ou commencent les feuilles de cette variante, ou None.
 
     Mesuree une fois par image et gardee : le decor se redessine a chaque
-    recolte, et relire les octets d'un arbre a chaque fois se verrait."""
-    if name not in _BASES:
-        _BASES[name] = [_base_du_feuillage_de(_chemin(stem))
-                        for stem in _stems_charges(name)]
-    faites = _BASES[name]
-    if not faites:
+    recolte, et relire les octets d'un arbre a chaque fois se verrait.
+
+    UNE VARIANTE A LA FOIS. Mesurer les douze arbres du jeu des qu'on en
+    dessine un rouvrait douze images -- 17 Mo decodes et une centaine de
+    millisecondes -- pour trois ou quatre reponses utiles."""
+    stems = _stems_charges(name)
+    if not stems:
         return None
-    return faites[0 if pick is None else int(pick) % len(faites)]
+    if name not in _BASES:
+        _BASES[name] = [False] * len(stems)
+    i = 0 if pick is None else int(pick) % len(stems)
+    if _BASES[name][i] is False:
+        _BASES[name][i] = _base_du_feuillage_de(_chemin(stems[i]))
+    return _BASES[name][i]
 
 
 def size_for(tex, height):
