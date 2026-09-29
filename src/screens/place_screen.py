@@ -167,11 +167,10 @@ def draw_object_glyph(name, cx, cy, size, lit=False, level="grand"):
             Ellipse(pos=(px - pr, py - pr), size=(pr * 2, pr * 2))
         return
     if name == items.WORKBENCH_T1:
-        # Vu de dessus, l'etabli DE FORTUNE de la scene (voir
-        # ZoneScenery._etabli) : deux tas de pierres, les deux branches posees
-        # en travers, et la pierre de travail au milieu. Il ne remplit plus
-        # son emprise comme le plateau de l'ancienne table : on voit a quoi
-        # il est fait.
+        # Vu de dessus, l'etabli de campement de la scene (voir
+        # ZoneScenery._etabli) : son plan de travail de quatre branches,
+        # ligature aux deux treteaux par trois tours de corde, les pierres
+        # qui calent leurs pieds, et la pierre d'enclume posee dessus.
         #
         # `size` vaut UNE case (voir l'appel : le plus petit cote de
         # l'emprise) ; l'etabli en couvre deux en largeur. Ses mesures sont
@@ -186,19 +185,36 @@ def draw_object_glyph(name, cx, cy, size, lit=False, level="grand"):
             Line(ellipse=(px - pr, py - pr * 0.85, pr * 2, pr * 1.7),
                  width=max(1.0, r * 0.04))
 
-        pr = max(1.6, size * 0.29)
-        for px in (cx - size * 0.62, cx + size * 0.62):   # les deux tas
-            pierre(px, cy, pr)
-        # Les deux branches, un peu de guingois : leur ecorce, puis un trait
-        # clair sur le dessus.
-        lx, ep = size * 1.05, max(1.2, size * 0.10)
-        for y0, y1 in ((0.17, 0.13), (-0.13, -0.17)):
+        treteaux = (cx - size * 0.62, cx + size * 0.62)
+        # Les pierres des pieds, une devant chacun : le plan cache les pieds,
+        # elles depassent en avant.
+        for tx in treteaux:
+            for dx in (-0.24, 0.24):
+                pierre(tx + size * dx, cy - size * 0.30,
+                       max(1.2, size * 0.075))
+        # Les quatre branches, un peu de guingois : leur ecorce, puis un
+        # trait clair sur le dessus.
+        lx, ep = size * 1.05, max(1.2, size * 0.09)
+        for y0, y1 in ((0.20, 0.17), (0.06, 0.08), (-0.07, -0.05),
+                       (-0.19, -0.21)):
             pts = [cx - lx, cy + size * y0, cx + lx, cy + size * y1]
             Color(0.34, 0.22, 0.13, 1)
             Line(points=pts, width=ep)
             Color(0.52, 0.37, 0.23, 1)
             Line(points=[pts[0], pts[1] + ep * 0.3, pts[2], pts[3] + ep * 0.3],
                  width=max(1.0, ep * 0.35))
+        # Les ligatures : trois tours de corde en travers de toutes les
+        # branches, au droit de chaque treteau.
+        fil = max(1.0, size * 0.035)
+        for tx in treteaux:
+            for dx in (-0.07, 0.0, 0.07):
+                x = tx + size * dx
+                Color(0.30, 0.25, 0.17, 1)
+                Line(points=[x, cy - size * 0.28, x + size * 0.03,
+                             cy + size * 0.28], width=fil * 1.3)
+                Color(0.72, 0.64, 0.46, 1)
+                Line(points=[x, cy - size * 0.28, x + size * 0.03,
+                             cy + size * 0.28], width=fil * 0.7)
         pierre(cx + size * 0.12, cy, max(1.4, size * 0.16))   # l'enclume
         return
     if name != "Feu_de_camp":

@@ -128,14 +128,20 @@ _ECLAT_BUCHE = 0.55
 _CREUX_BUCHE = 0.42
 
 
-# L'ATELIER est un etabli DE FORTUNE : les cinq pierres et les deux longues
-# branches de sa recette (voir items.py), et rien d'autre. En fractions de la
-# largeur de son emprise :
-_ETABLI_PIERRE = 0.075          # rayon d'une pierre (voir _caillou)
-_ETABLI_TAS = (0.25, 0.75)      # ou sont les deux tas, de gauche a droite
-_ETABLI_PORTEE = 0.76           # longueur des branches
-_ETABLI_EPAIS = 1.6             # branches plus epaisses que celles du sol
-_ETABLI_PENTE = 1.8             # de guingois : degres, au plus
+# L'ATELIER est un etabli DE CAMPEMENT, monte a la main (voir _etabli). En
+# fractions de la largeur de son emprise :
+_ETABLI_HAUT = 0.21             # hauteur du plan de travail
+_ETABLI_TRETEAUX = (0.22, 0.78)  # ou sont les deux treteaux en X
+_ETABLI_ECART = 0.085           # demi-ecart des pieds d'un treteau, au sol
+_ETABLI_BRANCHES = 4            # branches jointives du plan de travail
+_ETABLI_PORTEE = 0.82           # leur longueur
+_ETABLI_EPAIS = 1.15            # un peu plus epaisses que le bois mort
+_ETABLI_PIEDS = 1.5             # les pieds, plus forts encore
+_ETABLI_PENTE = 1.5             # de guingois : degres, au plus
+_ETABLI_PIERRE = 0.042          # rayon des pierres qui calent les pieds
+_ETABLI_ENCLUME = 0.055         # rayon de la pierre de travail
+_ETABLI_LIEN = (0.72, 0.64, 0.46)   # la corde vegetale des ligatures
+_ETABLI_LIEN_OMBRE = (0.30, 0.25, 0.17)
 
 # Taille des flammes selon l'etat du feu (voir game_state.FIRE_LEVELS).
 # "braise" = plus de flamme du tout, seules les braises rougeoient.
@@ -1564,24 +1570,25 @@ class ZoneScenery(Widget):
             _peau_bois(log_skin.bout(), ombre, pts, tc, eventail=True)
 
     def _etabli(self, coins, depth=0.0):
-        """L'atelier : un etabli DE FORTUNE, monte avec ce qu'on avait sous la
-        main -- les cinq pierres et les deux longues branches de sa recette.
+        """L'atelier : un etabli DE CAMPEMENT, monte a la main avec ce qu'on
+        trouve autour -- des branches, des pierres, une corde vegetale.
 
-        Deux petits tas de deux pierres pour pieds, les deux branches posees
-        dessus, cote a cote -- c'est le plan de travail --, et la cinquieme
-        pierre au milieu : celle sur laquelle on frappe. Bas, un peu de
-        guingois, et l'on voit a quoi il est fait. C'etait une vraie table de menuisier -- quatre pieds d'aplomb et
-        un plateau de cinq rondins bien alignes, sur toute l'emprise --, trop
-        grande et trop soignee pour un campement ou l'on n'a qu'un marteau de
-        pierre.
+        Deux TRETEAUX EN X, chacun de deux branches croisees et liees a leur
+        croisement ; dans la fourche du haut, un plan de travail de quatre
+        branches jointives, ligaturees aux treteaux ; des pierres calent les
+        pieds, et une derniere, posee sur le plan, sert d'enclume.
+
+        IL A ETE TROP, PUIS PAS ASSEZ : une vraie table de menuisier (quatre
+        pieds d'aplomb, un plateau de rondins sur toute l'emprise), puis deux
+        tas de pierres portant deux branches. Le voici entre les deux :
+        construit, mais a la main, et l'on voit de quoi.
 
         LES PIERRES ET LES BRANCHES SONT CELLES DE LA SCENE (voir _caillou et
-        _baton) : l'etabli est fait de ce qu'on a ramasse autour, il serait
-        etrange qu'elles changent d'aspect une fois montees. Celles du dessus
-        sont POSEES sur les autres : ni enterrees, ni ombrees au sol.
+        _baton), a la teinte de la zone : il est fait de ce qu'on a ramasse
+        autour, elles ne changent pas d'aspect une fois montees.
 
-        L'emprise, elle, ne change pas : c'est l'encombrement, ce qu'on ne peut
-        plus traverser ni occuper."""
+        L'emprise ne change pas : c'est l'encombrement, ce qu'on ne peut plus
+        traverser ni occuper."""
         (x_ag, y_ag), (x_ad, y_ad), (x_fd, y_fd), (x_fg, y_fg) = coins
         large = max(1.0, x_ad - x_ag)
 
@@ -1601,45 +1608,101 @@ class ZoneScenery(Widget):
             xd = x_ad + (x_fd - x_ad) * v
             return (xd - xg) / large
 
-        r0 = large * _ETABLI_PIERRE
-        # Hauteur a l'ecran d'une pierre : la planche en a de toutes les
-        # formes, on prend celle d'une pierre moyenne, un peu aplatie.
-        h0 = r0 * self.LARGEUR_CAILLOU * 0.62
         jit = random.Random("%s:%.1f:%.1f:etabli" % (self._seed, x_ag, y_ag))
+        branche = self._zs("branch")
+        haut = large * _ETABLI_HAUT
+        k = echelle(0.5)
 
-        def pierre(u, v, dz, pose):
-            k = echelle(v)
-            x, y = coin(u, v, dz * k)
-            r = r0 * k * jit.uniform(0.9, 1.1)
-            if self._caillou(x, y, r, depth, enfonce=0.12, pose=pose):
+        def baton(p0, p1, epais):
+            """Une branche d'un point de l'ecran a un autre."""
+            (x0, y0), (x1, y1) = p0, p1
+            longueur = math.hypot(x1 - x0, y1 - y0)
+            angle = math.degrees(math.atan2(y1 - y0, x1 - x0))
+            if not self._baton(branche, (x0 + x1) / 2.0, (y0 + y1) / 2.0,
+                               longueur, pente=angle, epais=epais):
+                Color(0.34, 0.23, 0.13, 1)
+                Line(points=[x0, y0, x1, y1],
+                     width=max(1.5, longueur * 0.035))
+
+        t = large * 0.022              # taille d'une ligature
+        fil = max(1.0, large * 0.007)  # epaisseur de la corde
+
+        def tours(x0, y0, x1, y1, n, pas_x, pas_y):
+            """`n` tours de corde serres, chacun de (x0, y0) a (x1, y1),
+            decales de (pas_x, pas_y). CHAQUE TOUR A SON OMBRE, plus large
+            que lui : c'est ce qui les separe. Poses d'un seul aplat, ils se
+            lisaient comme une bande de papier collee."""
+            for i in range(n):
+                d = i - (n - 1) / 2.0
+                pts = [x0 + d * pas_x, y0 + d * pas_y,
+                       x1 + d * pas_x, y1 + d * pas_y]
+                Color(*_ETABLI_LIEN_OMBRE, 1)
+                Line(points=pts, width=fil * 1.25)
+                Color(*_ETABLI_LIEN, 1)
+                Line(points=[pts[0] - fil * 0.25, pts[1] + fil * 0.2,
+                             pts[2] - fil * 0.25, pts[3] + fil * 0.2],
+                     width=fil * 0.6)
+
+        def pierre(u, v, dz, r, pose, enfonce=0.25):
+            kv = echelle(v)
+            x, y = coin(u, v, dz * kv)
+            r = r * kv * jit.uniform(0.88, 1.12)
+            if self._caillou(x, y, r, depth, enfonce=enfonce, pose=pose):
                 return
             Color(0.42, 0.41, 0.40, 1)
             Ellipse(pos=(x - r * 1.1, y), size=(r * 2.2, r * 1.3))
 
-        # L'OMBRE sous le plan de travail : sans elle, les branches flottent.
-        Color(0.0, 0.0, 0.0, 0.16)
-        Quad(points=[c for u, v in ((0.16, 0.30), (0.84, 0.30),
-                                    (0.84, 0.72), (0.16, 0.72))
+        # L'OMBRE sous le plan de travail : sans elle, il flotte.
+        Color(0.0, 0.0, 0.0, 0.18)
+        Quad(points=[c for u, v in ((0.12, 0.30), (0.88, 0.30),
+                                    (0.88, 0.72), (0.12, 0.72))
                      for c in coin(u, v)])
-        gauche, droite = _ETABLI_TAS
-        # LES TAS : une pierre au sol, une posee dessus.
-        dessus = h0 * 0.58
-        for u, v in ((gauche, 0.50), (droite + 0.01, 0.52)):
-            pierre(u, v, 0.0, False)
-            pierre(u + jit.uniform(-0.02, 0.02), v, dessus, True)
-        # LES DEUX BRANCHES, posees sur les tas : celle du fond d'abord.
-        plan = dessus + h0 * 0.62
-        branche = self._zs("branch")
-        for v in (0.56, 0.45):
-            k = echelle(v)
-            x, y = coin(0.5, v, plan * k)
-            longueur = large * k * _ETABLI_PORTEE
+
+        # LES TRETEAUX : deux branches croisees chacun. Leurs pointes
+        # depassent au-dessus du plan de travail, qui repose dans la fourche.
+        e = _ETABLI_ECART
+        pointe = haut * 1.18 * k
+        croix = []
+        for u0 in _ETABLI_TRETEAUX:
+            for sens in (-1.0, 1.0):
+                baton(coin(u0 + sens * e, 0.5),
+                      coin(u0 - sens * e * 0.55, 0.5, pointe),
+                      _ETABLI_PIEDS)
+            # Les deux pieds se croisent au milieu, aux deux tiers de leur
+            # hauteur (par symetrie : 1 / (1 + 0,55)).
+            croix.append(coin(u0, 0.5, pointe / 1.55))
+        # Lies au croisement : trois tours dans un sens, deux dans l'autre.
+        for x, y in croix:
+            tours(x - t, y - t * 0.6, x + t, y + t * 0.6, 3, 0.0, t * 0.45)
+            tours(x - t, y + t * 0.6, x + t, y - t * 0.6, 2, 0.0, t * 0.45)
+        # Les pierres qui calent les pieds, un peu en avant d'eux.
+        for u0 in _ETABLI_TRETEAUX:
+            for sens in (-1.0, 1.0):
+                pierre(u0 + sens * e * 1.1, 0.44, 0.0,
+                       large * _ETABLI_PIERRE, False)
+
+        # LE PLAN DE TRAVAIL : des branches jointives, du fond vers l'avant.
+        n = _ETABLI_BRANCHES
+        rangs = [0.66 - 0.30 * i / max(1, n - 1) for i in range(n)]
+        for v in rangs:
+            kv = echelle(v)
+            x, y = coin(0.5, v, haut * kv)
+            longueur = large * kv * _ETABLI_PORTEE
             pente = jit.uniform(-_ETABLI_PENTE, _ETABLI_PENTE)
             if not self._baton(branche, x, y, longueur, pente=pente,
                                epais=_ETABLI_EPAIS):
                 self._branch(x, y, longueur)
-        # LA PIERRE DE TRAVAIL, sur les branches : l'enclume du campement.
-        pierre(0.56, 0.50, plan + h0 * 0.10, True)
+        # Ligaturees aux treteaux : trois tours de corde qui les enserrent
+        # toutes, du devant au fond, un peu de biais.
+        for u0 in _ETABLI_TRETEAUX:
+            xa, ya = coin(u0, rangs[-1], haut * echelle(rangs[-1]))
+            xb, yb = coin(u0, rangs[0], haut * echelle(rangs[0]))
+            tours(xa - t * 0.25, ya - t * 0.8, xb + t * 0.25, yb + t * 0.6,
+                  3, fil * 2.2, 0.0)
+
+        # LA PIERRE DE TRAVAIL, sur le plan : l'enclume du campement.
+        pierre(0.58, 0.50, haut + large * 0.012, large * _ETABLI_ENCLUME,
+               True)
 
     def _blueprint(self, coins):
         """Plan de construction : quatre piquets relies par une corde.
