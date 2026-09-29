@@ -56,7 +56,15 @@ TILE_PX = {
     # fourmi. On garde la meme echelle que l'herbe -- les deux sols sont vus
     # du meme oeil, et une feuille doit faire a peu pres une feuille.
     "forest_floor": 448,
+    # L'eau du lac est une tuile 2:1 (1024 x 512) : cette valeur est sa
+    # LARGEUR a l'ecran, sa hauteur en suit la proportion (voir rapport).
+    # Un caillou du fond y fait une vingtaine de pixels au bord de l'eau.
+    "water": 900,
 }
+
+# L'ECUME : la part de l'eau qui DERIVE (voir ZoneScenery._eau). Blanche sur
+# transparent, de meme cadre que la BaseColor, dont elle a ete tiree.
+SUFFIX_ECUME = "_E"
 
 
 # ------------------------------------------------------------------ #
@@ -245,6 +253,22 @@ def packed_texture(name):
                                           if src != name else None)
 
 
+def ecume_texture(name):
+    """Carte d'ecume <nom>_E (voir SUFFIX_ECUME), ou None."""
+    return _find(name, SUFFIX_ECUME)
+
+
+def rapport(tex):
+    """Hauteur / largeur d'une texture : 1 pour une tuile carree.
+
+    Toutes les tuiles etaient carrees, et les coordonnees de repetition le
+    supposaient -- u et v avancaient au meme pas. L'eau est en 2:1 : sans ce
+    rapport, ses cailloux auraient ete etires deux fois en hauteur."""
+    if tex is None or not tex.width:
+        return 1.0
+    return float(tex.height) / float(tex.width)
+
+
 def has_any_normal():
     """Vrai si AU MOINS une carte de normales existe (active l'eclairage)."""
     for name in FALLBACKS:
@@ -310,10 +334,11 @@ def paint_color(name, color):
 # l'ecran MONTE (v negatif vers le haut). La repetition (wrap="repeat") rend
 # les valeurs negatives parfaitement legitimes.
 
-def tiled_coords(w, h, tile_px):
-    """tex_coords pour repeter une texture tous les ~`tile_px` pixels."""
+def tiled_coords(w, h, tile_px, ratio=1.0):
+    """tex_coords pour repeter une texture tous les ~`tile_px` pixels de
+    large (et `tile_px * ratio` de haut, voir rapport)."""
     u = max(1.0, float(w) / tile_px)
-    v = max(1.0, float(h) / tile_px)
+    v = max(1.0, float(h) / (tile_px * ratio))
     # Coins dans l'ordre de Kivy : bas-gauche, bas-droit, haut-droit,
     # haut-gauche. Le haut recoit -v (voir la note ci-dessus).
     return (0, 0, u, 0, u, -v, 0, -v)

@@ -62,7 +62,8 @@ Sols / terrain :
                        grass_far, juste au-dessus.
     rock               roche (pente de montagne)
     rock_dark          roche en bas de pente (plus sombre)
-    water              eau (lac)
+    water              eau du lac (FOURNIE : water_B le fond, water_E
+                       l'ecume qui derive -- voir L'EAU DU LAC plus bas)
     sand               rive / terre au premier plan
 
 Vegetation :
@@ -71,6 +72,47 @@ Vegetation :
 
 Personnage :
     skin               peau (mains du joueur)
+
+----------------------------------------------------------------
+L'EAU DU LAC (water_B + water_E)
+----------------------------------------------------------------
+L'eau a un suffixe a elle :  <nom>_E.png  = l'ECUME seule, blanche sur fond
+transparent, de meme cadre que la BaseColor. C'est la seule part qui bouge.
+
+    water_B.png   le fond : des cailloux sous une eau claire, SANS ecume.
+                  Immobile -- un lit ne bouge pas, c'est l'eau qui passe.
+    water_E.png   l'ecume. Le jeu la pose deux fois sur le fond, en deux
+                  couches qui DERIVENT DE GAUCHE A DROITE, pas a la meme
+                  vitesse ni a la meme echelle (la seconde est retournee) :
+                  leurs motifs se croisent, se defont et se refont, comme
+                  sur une eau qui coule. En perspective, l'ecume avance
+                  moins vite au loin, comme il se doit.
+    le reflet     calcule par le jeu, sans image : nul au bord, de plus en
+                  plus fort vers la rive d'en face, de la couleur du ciel
+                  affiche (bleu a midi, orange au couchant, noir la nuit).
+
+Les deux images viennent de la GRANDE texture du haut de la planche livree
+(1024 x 446), preparee hors jeu (scratchpad/prepare_eau.py) :
+  - le filigrane "Made with AI" recouvert par un morceau de la meme eau ;
+  - rendue VRAIMENT raccordable -- elle ne l'etait pas, la couture se
+    voyait a chaque repetition -- par une couture au plus juste, et non
+    par un fondu, qui aurait dedouble les cailloux ;
+  - mise en 1024 x 512 (2:1, en puissances de 2) ;
+  - l'ecume detachee du fond, et sa place rebouchee avec des cailloux pris
+    a cote.
+
+LES 32 VIGNETTES ANIMEES DE LA PLANCHE NE SERVENT PAS. Mesure faite, elles ne
+s'enchainent pas : le lit de cailloux y est fixe et l'ecume saute d'un
+endroit a l'autre, sans direction (de -24 a +24 px d'une vignette a la
+suivante). Jouees a la suite, elles clignoteraient au lieu de couler. Elles
+ne font en plus que 125 px (floues a l'ecran) et portent leur numero
+incruste. Une ecume qui glisse est toujours coherente, et ne pese qu'une
+image.
+
+Une tuile d'eau n'est pas carree : le 2:1 est accepte, le jeu garde ses
+proportions (voir rapport() dans src/widgets/textures.py). Vitesse,
+opacite et echelle des deux couches : ECUME_COUCHES dans
+src/widgets/zone_scenery.py.
 
 ----------------------------------------------------------------
 CONSEILS IMPORTANTS

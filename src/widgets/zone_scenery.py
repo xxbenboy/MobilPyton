@@ -561,6 +561,70 @@ def _rampe_brume():
     _RAMPE_BRUME.append(tex)
     return tex
 
+# --- L'EAU DU LAC ------------------------------------------------------ #
+# Trois couches, sur la meme surface :
+#
+#   1. LE FOND (water_B) : des cailloux sous une eau claire. IMMOBILE -- un
+#      lit de riviere ne bouge pas, c'est l'eau qui passe dessus.
+#   2. LE REFLET DU CIEL, nul au bord et de plus en plus fort vers la rive
+#      d'en face. Vue de pres, une eau claire laisse voir son fond ; vue de
+#      loin et de biais, elle renvoie le ciel. C'est la couleur du ciel
+#      AFFICHE (voir _applique_brume) : bleue a midi, orange au couchant,
+#      noire la nuit.
+#   3. L'ECUME (water_E), en DEUX COUCHES qui derivent de gauche a droite,
+#      pas a la meme vitesse ni a la meme echelle -- la seconde est aussi
+#      retournee. Une seule couche glisserait d'un bloc, comme un tapis
+#      roulant ; deux qui se croisent font des motifs qui se defont et se
+#      refont, comme sur une vraie eau qui coule.
+#
+# LES 32 VIGNETTES LIVREES AVEC L'EAU NE SERVENT PAS. Mesure faite, elles ne
+# s'enchainent pas : le lit de cailloux y est fixe et l'ecume saute d'un
+# endroit a l'autre sans direction (decalages de -24 a +24 px d'une image a
+# la suivante). Jouees a la suite, elles clignoteraient. L'ecume tiree de la
+# grande image, elle, derive dans UN sens.
+#
+# Le decalage de l'ecume se fait dans l'espace de la TEXTURE : sur l'eau en
+# perspective, elle avance donc moins vite au loin a l'ecran, comme il se
+# doit.
+#
+# LA VITESSE SE JUGE SUR LE TELEPHONE. La tuile fait 900 px quel que soit
+# l'ecran : a 0,030 tuile par seconde, l'ecume avancait de 27 px/s, soit
+# moins de 2 mm par seconde sur un ecran de 2340 px -- une eau qu'on croyait
+# figee. Au double, elle derive encore calmement (il faut une quarantaine de
+# secondes pour traverser l'ecran), mais on la VOIT couler.
+#
+# 30 images par seconde, comme les flammes : le ciel redessine deja l'ecran
+# soixante fois par seconde, et deplacer l'ecume coute 0,02 ms.
+#
+# (echelle de la tuile, vitesse en tuiles par seconde, opacite, retournee)
+ECUME_COUCHES = ((1.00, 0.060, 0.85, False),
+                 (1.45, 0.048, 0.50, True))
+ECUME_FPS = 30.0
+REFLET_EAU = 0.72          # opacite du reflet contre la rive d'en face
+REFLET_COURBE = 1.6        # > 1 : le fond reste bien visible pres du bord
+
+_RAMPE_EAU = []
+
+
+def _rampe_eau():
+    """La rampe d'opacite du reflet : 0 au bord (v = 0), 1 en face (v = 1).
+    Blanche : c'est la Color du reflet qui lui donne la couleur du ciel."""
+    if _RAMPE_EAU:
+        return _RAMPE_EAU[0]
+    n, larg = 64, 4
+    octets = bytearray()
+    for j in range(n):
+        a = ((j + 0.5) / n) ** REFLET_COURBE
+        octets += bytes((255, 255, 255, int(a * 255 + 0.5))) * larg
+    try:
+        tex = texture_depuis_octets((larg, n), octets, wrap="clamp_to_edge",
+                                    mag_filter="linear", min_filter="linear")
+    except Exception:
+        tex = None
+    _RAMPE_EAU.append(tex)
+    return tex
+
+
 # Force du vent par meteo : le decor se courbe quand il souffle.
 _WIND = {"clair": 0.55, "nuageux": 0.9, "pluie": 1.5, "neige": 1.0,
          "orage": 2.6, "blizzard": 3.0}
@@ -647,6 +711,10 @@ class ZoneScenery(Widget):
         self._apercu_nom = None
         self._apercu_places = {}
         self._apercu_vu = None
+        # L'ecume qui derive sur l'eau (voir _surface_eau) et son horloge.
+        self._eau = []
+        self._eau_t = 0.0
+        self._eau_ev = None
         # Recolte : nombre deja recolte par objet (applique au dessin pour
         # MASQUER les objets recoltes) et totaux/budgets calcules a la
         # construction de la scene.
@@ -2230,6 +2298,7 @@ class ZoneScenery(Widget):
         # Et les places de l'apercu, effacees avec lui (voir _dessine).
         self._apercu_places = {}
         self._apercu_vu = None
+        self._eau = []
         # Idem pour la brume : seule une scene qui en pose une la recree.
         self._brume_couleur = None
         self._lot = None
@@ -2260,6 +2329,7 @@ class ZoneScenery(Widget):
         self._apply_light()
         self._sync_flame_clock()
         self._sync_sway_clock()
+        self._sync_eau_clock()
 
     # ------------------------------------------------------------------ #
     # BORDURES : la case voisine deborde dans la scene
@@ -2455,10 +2525,12 @@ class ZoneScenery(Widget):
         self._bind_pbr(name)
         if tex is not None:
             Rectangle(pos=(x, y), size=(w, h), texture=tex,
-                      tex_coords=tiled_coords(w, h, tile_px))
+                      tex_coords=tiled_coords(w, h, tile_px,
+                                              textures.rapport(tex)))
         else:
             Rectangle(pos=(x, y), size=(w, h))
         self._reset_pbr()
+        return tex
 
     def _tquad(self, name, points, tile_px=None):
         """Quad texture (repetition basee sur la position monde), sinon aplat."""
@@ -2468,12 +2540,13 @@ class ZoneScenery(Widget):
         self._bind_pbr(name)
         if tex is not None:
             x0, y0 = self.x, self.y
+            tile_v = tile_px * textures.rapport(tex)
             tc = []
             for i in range(0, 8, 2):
                 # v NEGATIF vers le haut : voir la note de sens dans
                 # textures.py (sans quoi la roche s'affiche a l'envers).
                 tc += [(points[i] - x0) / tile_px,
-                       -(points[i + 1] - y0) / tile_px]
+                       -(points[i + 1] - y0) / tile_v]
             Quad(points=points, texture=tex, tex_coords=tc)
         else:
             Quad(points=points)
@@ -2485,13 +2558,26 @@ class ZoneScenery(Widget):
         zone = self._zone
 
         if zone == "Lac":                              # surface de l'eau vue d'en haut
-            self._trect("water", x0, y0, w, h)
+            tex = self._trect("water", x0, y0, w, h)
+            if tex is not None:
+                # Vue d'en haut, l'eau montre son fond : pas de reflet du
+                # ciel, seulement l'ecume qui derive (voir _surface_eau).
+                tile = textures.tile_for("water")
+                tile_v = tile * textures.rapport(tex)
+                coins = [(x0, y0), (x0 + w, y0), (x0 + w, y0 + h),
+                         (x0, y0 + h)]
+                verts = [v for x, y in coins
+                         for v in (x, y, (x - x0) / tile, -(y - y0) / tile_v)]
+                self._surface_eau("water", verts, [0, 1, 2, 0, 2, 3])
             for _ in range(70):                        # ondulations / reflets
                 ly = y0 + rng.uniform(0, 1) * h
                 lx = x0 + rng.uniform(0, 0.7) * w
-                Color(0.34, 0.58, 0.76, rng.uniform(0.2, 0.5))
-                Line(points=[lx, ly, lx + rng.uniform(0.1, 0.35) * w, ly],
-                     width=1.4)
+                a = rng.uniform(0.2, 0.5)
+                fin = lx + rng.uniform(0.1, 0.35) * w
+                # Traits seulement sans image (voir _lac), tirages gardes.
+                if tex is None:
+                    Color(0.34, 0.58, 0.76, a)
+                    Line(points=[lx, ly, fin, ly], width=1.4)
             for _ in range(rng.randint(4, 8)):         # nenuphars
                 gx = x0 + rng.uniform(0, 1) * w
                 gy = y0 + rng.uniform(0, 1) * h
@@ -3809,7 +3895,7 @@ class ZoneScenery(Widget):
 
     def _fill_curve(self, top_fn, tex_name, segs=None, tile_px=None,
                     depth=GROUND_DEPTH, rows=GROUND_ROWS, estompe=False,
-                    frange=True):
+                    frange=True, eau=False):
         """Remplit du bas du widget jusqu'a la courbe top_fn(fx) (terrain).
 
         Habille avec la texture `tex_name` si elle existe (sinon couleur de
@@ -3834,7 +3920,10 @@ class ZoneScenery(Widget):
         s'est vu tout de suite : la crete de la montagne trainait une bavure
         grise en diagonale dans le ciel, et la rive du lac un halo bleu
         par-dessus la berge d'en face. Contre le ciel, la dentelure seule fait
-        le travail -- c'est une silhouette qu'on veut, pas un degrade."""
+        le travail -- c'est une silhouette qu'on veut, pas un degrade.
+
+        `eau=True` pose en plus, sur la meme surface, le reflet du ciel et
+        l'ecume qui derive (voir _surface_eau)."""
         if tile_px is None:
             tile_px = textures.tile_for(tex_name)
         if segs is None:
@@ -3875,7 +3964,11 @@ class ZoneScenery(Widget):
 
         frange = (self._frange(tex_name, tile_px, depth, segs) if frange
                   else [0.0] * (segs + 1))
+        # Une tuile qui n'est pas carree (l'eau, en 2:1) a un pas vertical a
+        # elle : sinon ses cailloux seraient etires en hauteur.
+        tile_v = tile_px * textures.rapport(tex)
         verts = []
+        rampe = []           # la meme surface, lue dans la rampe du reflet
         bord = []
         for i in range(segs + 1):
             fx = i / segs
@@ -3893,7 +3986,8 @@ class ZoneScenery(Widget):
                 # garde un sens quand il n'y en a pas.
                 yy = y0 + t * (top - y0)
                 verts += [x, yy, (x - cx) * k / tile_px,
-                          -(yy - y0) * k / tile_px]
+                          -(yy - y0) * k / tile_v]
+                rampe += [x, yy, 0.5, t]
 
         stride = rows + 1
         idx = []
@@ -3903,6 +3997,9 @@ class ZoneScenery(Widget):
                 q = p + stride
                 idx += [p, q, q + 1, p, q + 1, p + 1]
         Mesh(vertices=verts, indices=idx, mode="triangles", texture=tex)
+        if eau and tex is not None:
+            self._reset_pbr()
+            self._surface_eau(tex_name, verts, idx, rampe)
         if estompe:
             self._estompe(top_fn, frange, tex, tex_name, tile_px, depth, segs)
         self._reset_pbr()
@@ -4412,6 +4509,73 @@ class ZoneScenery(Widget):
         Color(0.38, 0.37, 0.43, 1)
         Ellipse(pos=(rx - rr, ry), size=(rr * 2.4, rr * 1.8))
 
+    # -- l'eau du lac (voir ECUME_COUCHES) -------------------------------- #
+    def _surface_eau(self, tex_name, verts, idx, rampe=None):
+        """Le reflet du ciel (si `rampe` est donnee) puis l'ecume qui derive,
+        poses sur la surface d'eau que decrivent `verts` (x, y, u, v) -- celle
+        qu'on vient de dessiner, dont ils reprennent la geometrie."""
+        if rampe is not None:
+            tex_r = _rampe_eau()
+            if tex_r is not None:
+                couleur = Color(1, 1, 1, REFLET_EAU)
+                Mesh(vertices=rampe, indices=idx, mode="triangles",
+                     texture=tex_r)
+                # Sa couleur est celle du ciel a l'horizon, tenue a jour avec
+                # la brume de la plaine (voir _applique_brume) : elle suit
+                # l'heure et la meteo sans rien redessiner.
+                if self._brume_couleur is None:
+                    self._brume_couleur = []
+                self._brume_couleur.append((couleur, 0.0))
+                self._applique_brume()
+        ecume = textures.ecume_texture(tex_name)
+        if ecume is None:
+            return
+        for echelle, vitesse, opacite, retourne in ECUME_COUCHES:
+            sens = -1.0 if retourne else 1.0
+            vs = list(verts)
+            for i in range(0, len(vs), 4):
+                vs[i + 2] *= echelle
+                vs[i + 3] *= echelle * sens
+            Color(1, 1, 1, opacite)
+            m = Mesh(vertices=vs, indices=idx, mode="triangles",
+                     texture=ecume)
+            self._eau.append({"mesh": m, "repos": tuple(vs),
+                              "vitesse": vitesse})
+        # Tout de suite a sa place du moment : une scene redessinee (une
+        # recolte, un objet pose) ne doit pas faire sauter l'ecume en arriere.
+        self._place_ecume()
+
+    def _place_ecume(self):
+        """Decale l'ecume de ce qu'elle a derive depuis le debut.
+
+        On repart des sommets AU REPOS, comme pour l'herbe au vent : des
+        decalages ajoutes les uns aux autres finiraient par deriver. Et le
+        decalage revient a zero a chaque tuile entiere -- la texture se
+        repete, le saut ne se voit pas. u DIMINUE : l'image lue vient de la
+        gauche, l'ecume va donc vers la droite."""
+        for couche in self._eau:
+            dec = (self._eau_t * couche["vitesse"]) % 1.0
+            v = list(couche["repos"])
+            for i in range(2, len(v), 4):
+                v[i] -= dec
+            couche["mesh"].vertices = v
+
+    def _tick_eau(self, dt):
+        # Seul l'ecran affiche fait couler son eau.
+        if self.get_root_window() is None:
+            return
+        self._eau_t += dt
+        self._place_ecume()
+
+    def _sync_eau_clock(self):
+        """L'horloge de l'eau ne tourne que s'il y a de l'ecume a deplacer."""
+        if self._eau and self._eau_ev is None:
+            self._eau_ev = Clock.schedule_interval(self._tick_eau,
+                                                   1.0 / ECUME_FPS)
+        elif not self._eau and self._eau_ev is not None:
+            self._eau_ev.cancel()
+            self._eau_ev = None
+
     def _lac(self, rng):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
         # Paysages voisins, derriere la berge d'en face.
@@ -4445,15 +4609,29 @@ class ZoneScenery(Widget):
         # regarde une surface plane par la tranche.
         # (Le bas est recouvert par la rive proche, juste apres : remplir
         # depuis y0 ne change rien a ce qu'on voit.)
-        self._fill_curve(lambda fx: y0 + 0.60 * h, "water", depth=1.0,
-                         frange=False)
-        # Reflets clairs.
+        #
+        # EN PERSPECTIVE, depuis que l'eau a une image : ses cailloux
+        # rapetissent vers la rive d'en face. Et elle recoit son reflet et
+        # son ecume qui derive (voir ECUME_COUCHES). Peu de colonnes
+        # suffisent -- sans frange, u varie en ligne droite d'un bord a
+        # l'autre -- et c'est autant de sommets en moins a deplacer trente fois
+        # par seconde (ECUME_FPS).
+        texturee = textures.base_texture("water") is not None
+        self._fill_curve(lambda fx: y0 + 0.60 * h, "water", segs=12,
+                         depth=GROUND_DEPTH if texturee else 1.0,
+                         frange=False, eau=True)
+        # Reflets clairs : des traits, seulement pour l'eau SANS image -- sur
+        # la photo ils faisaient des rayures de dessin anime. Les tirages
+        # restent faits dans les deux cas : les galets et les roseaux tirent
+        # leur place ensuite, et la rive ne doit pas se reorganiser selon
+        # qu'une image est presente ou non.
         Color(0.32, 0.56, 0.74, 1)
         for _ in range(11):
             ly = y0 + rng.uniform(0.13, 0.58) * h
             lx = x0 + rng.uniform(0, 0.6) * w
-            Line(points=[lx, ly, lx + rng.uniform(0.2, 0.45) * w, ly],
-                 width=1.4)
+            fin = lx + rng.uniform(0.2, 0.45) * w
+            if not texturee:
+                Line(points=[lx, ly, fin, ly], width=1.4)
         # Rive proche (premier plan). Les galets recoltables sont remontes a
         # partir des jointures (rien en bas). [recoltable: Pierre]
         self._trect("sand", x0, y0, w, 0.12 * h)
