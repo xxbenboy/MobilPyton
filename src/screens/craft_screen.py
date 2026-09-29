@@ -91,10 +91,10 @@ class CraftScreen(DragDrop, Screen):
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         root.add_widget(self.background)
-        # Fond = vue VERS LE BAS du sol de la zone courante (comme la carte).
+        # La scene de la case en fond, comme la carte et la zone (voir
+        # on_pre_enter).
         self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.scenery)
-        self._scene_key = None
 
         # Voile de NUIT : assombrit ciel + sol selon l'heure, comme dans
         # l'ecran de jeu et la carte. Ajoute AVANT le HUD (col) qui reste
@@ -230,12 +230,12 @@ class CraftScreen(DragDrop, Screen):
             self._night_color.rgb = daylight.veil_color(state.time_seconds)
             self._night_color.a = night_darkness(state.time_seconds)
             self.scenery.set_daylight(state.time_seconds)
-            zone = state.current_zone()
-            key = (zone, state.player_x, state.player_y)
-            if key != self._scene_key:
-                self.scenery.set_ground(zone, state.player_x * 131
-                                        + state.player_y)
-                self._scene_key = key
+            # FOND : la scene de la case, comme l'inventaire, la carte et la
+            # zone (voir InventoryScreen.on_pre_enter).
+            self.scenery.montre_la_case(state)
+            self.background.set_horizon(self.scenery.hauteur_horizon())
+            self.scenery.set_brume(self.background.couleur_ciel(
+                self.scenery.hauteur_horizon()))
         self.refresh()
 
     def on_leave(self):

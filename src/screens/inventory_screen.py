@@ -187,9 +187,10 @@ class InventoryScreen(DragDrop, Screen):
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         root.add_widget(self.background)
+        # La scene de la case en fond, comme la carte et la zone (voir
+        # on_pre_enter).
         self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.scenery)
-        self._scene_key = None
 
         # Voile de nuit, comme les autres ecrans.
         self.night = Widget(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
@@ -340,12 +341,15 @@ class InventoryScreen(DragDrop, Screen):
             self._night_color.rgb = daylight.veil_color(state.time_seconds)
             self._night_color.a = night_darkness(state.time_seconds)
             self.scenery.set_daylight(state.time_seconds)
-            zone = state.current_zone()
-            key = (zone, state.player_x, state.player_y)
-            if key != self._scene_key:
-                self.scenery.set_ground(zone,
-                                        state.player_x * 131 + state.player_y)
-                self._scene_key = key
+            # FOND : LA SCENE DE LA CASE, telle qu'elle est -- la meme que le
+            # jeu, la carte et la zone, par la meme methode. C'etait la vue du
+            # sol en plongee : ouvrir son sac faisait changer de decor. Rien
+            # n'est redessine tant que la case ne change pas (voir
+            # montre_la_case).
+            self.scenery.montre_la_case(state)
+            self.background.set_horizon(self.scenery.hauteur_horizon())
+            self.scenery.set_brume(self.background.couleur_ciel(
+                self.scenery.hauteur_horizon()))
         self.refresh()
 
     def on_leave(self):

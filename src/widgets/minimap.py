@@ -9,6 +9,10 @@ Une FLECHE ROUGE dans la case du joueur indique son ORIENTATION. Elle n'est
 affichee que si le joueur peut se reperer :
 - en mode debug (partie de test), toujours ;
 - en jeu normal, seulement avec une BOUSSOLE (objet a crafter plus tard).
+
+En mode debug, TOUTE la carte est visible : pas de brouillard sur les cases
+encore inexplorees. C'est un affichage seulement -- les cases revelees de la
+partie ne changent pas.
 """
 from kivy.app import App
 from kivy.uix.widget import Widget
@@ -46,12 +50,13 @@ class MiniMap(Widget):
             Rectangle(pos=(ox, oy), size=(cell * n_w, cell * n_h))
             
             # Ensuite, dessiner les zones revelees avec leur vraie couleur
+            # (toutes, en mode debug).
             for ry in range(n_h):
                 draw_y = oy + (n_h - 1 - ry) * cell
                 row = state.grid[ry]
                 for rx in range(n_w):
                     key = f"{rx},{ry}"
-                    if key in state.revealed:
+                    if state.debug or key in state.revealed:
                         Color(*world.zone_color(row[rx]))
                         Rectangle(pos=(ox + rx * cell, draw_y),
                                   size=(cell - 1, cell - 1))

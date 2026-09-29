@@ -425,6 +425,7 @@ class GameScreen(Screen):
                                spacing=[dp(2), dp(12)], size_hint=(None, 0.75),
                                pos_hint={"x": 0.004, "top": 0.96})
         self.grid.bind(minimum_width=self.grid.setter("width"))
+        self.grid.bind(pos=self._aligne_lieux)
         root.add_widget(self.grid)
         self._action_buttons = []   # (bouton, action)
         # Bouton Inv./Craft : il vit dans la grille d'actions, donc il est
@@ -448,9 +449,13 @@ class GameScreen(Screen):
         # Il ouvre la ZONE, jamais la carte : la zone est toujours accessible,
         # alors que la carte demande d'en posseder une. Un bouton qui refuse
         # de s'ouvrir une fois sur deux ne vaut rien.
+        #
+        # Sa position HORIZONTALE n'est pas dans pos_hint : il se range sous
+        # la premiere colonne de la grille d'actions (voir _aligne_lieux).
         prox_cell = BoxLayout(orientation="vertical", spacing=2,
                               size_hint=(0.06, 0.16),
-                              pos_hint={"x": 0.006, "y": 0.012})
+                              pos_hint={"y": 0.012})
+        self.prox_cell = prox_cell
         prox_area = AnchorLayout(size_hint=(1, 0.66))
         self.prox_btn = IconButton(icon="map", size_hint=(None, None))
         def _prox_square(a, *_):
@@ -469,9 +474,10 @@ class GameScreen(Screen):
         # mais "il y a un etabli ici". Le montrer eteint partout ailleurs
         # aurait encombre un coin d'ecran deja charge, pour une action qui
         # n'existe que la ou l'on s'est installe.
+        # Sous la DEUXIEME colonne de la grille d'actions (voir _aligne_lieux).
         atelier_cell = BoxLayout(orientation="vertical", spacing=2,
                                  size_hint=(0.06, 0.16),
-                                 pos_hint={"x": 0.072, "y": 0.012})
+                                 pos_hint={"y": 0.012})
         self.atelier_cell = atelier_cell
         atelier_area = AnchorLayout(size_hint=(1, 0.66))
         self.atelier_btn = IconButton(icon="anvil", size_hint=(None, None))
@@ -485,6 +491,11 @@ class GameScreen(Screen):
         atelier_cell.add_widget(atelier_area)
         self.atelier_label = _button_label("Atelier")
         atelier_cell.add_widget(self.atelier_label)
+        # On les place par leur CENTRE : leur largeur ne se fixe qu'une fois
+        # dans l'ecran (hors de l'arbre, l'atelier a la largeur par defaut
+        # d'un widget), il faut donc les replacer quand elle change.
+        prox_cell.bind(width=self._aligne_lieux)
+        atelier_cell.bind(width=self._aligne_lieux)
         # PAS DANS L'ARBRE tant qu'il n'y a pas d'atelier. Le masquer par
         # l'opacite n'aurait pas suffi : un bouton invisible reste sous le
         # doigt et avale le toucher de ce qui se trouve derriere lui.
@@ -690,6 +701,24 @@ class GameScreen(Screen):
         return (x <= touch.x <= x + widget.width
                 and y <= touch.y <= y + widget.height)
 
+    def _aligne_lieux(self, *_):
+        """Carte/Zone SOUS la premiere colonne de la grille d'actions, et
+        Atelier sous la deuxieme.
+
+        Les deux boutons avaient leur place a eux, en part de l'ecran
+        (x = 0,006 et 0,072) ; la grille, elle, regle la largeur de ses
+        colonnes sur son nom le plus long. Le logo de Carte/Zone tombait ainsi
+        une trentaine de pixels a gauche de ceux du dessus, et son nom sortait
+        de l'ecran ("arte/Zone"). Rangee sous la deuxieme colonne, l'etiquette
+        d'Atelier ne chevauche plus celle de Carte/Zone."""
+        cells = self.grid.children
+        if not cells:
+            return
+        w = cells[0].width
+        x0 = self.grid.x
+        self.prox_cell.center_x = x0 + w / 2.0
+        self.atelier_cell.center_x = x0 + w + self.grid.spacing[0] + w / 2.0
+
     def _build_action_grid(self, state):
         self.grid.clear_widgets()
         self._action_buttons = []
@@ -706,6 +735,7 @@ class GameScreen(Screen):
                     for _c, btn, lbl in cells) + dp(6)
             for cell, _b, _l in cells:
                 cell.width = w
+            self._aligne_lieux()
 
         def add_cell(icon, name, on_release):
             cell = BoxLayout(orientation="vertical", spacing=2, size_hint_x=None)
