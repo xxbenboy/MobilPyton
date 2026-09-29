@@ -1333,7 +1333,13 @@ class GameScreen(Screen):
 
         def mk(slot):
             label, (dx, dy) = slot
-            b = scale_font(StyledButton(text=label), 0.024)
+            # Vers un LAC, le bouton dit pourquoi il est eteint : on longe
+            # l'eau par sa rive, on n'y entre pas. (Au bord de la carte, il
+            # n'y a rien a nommer.)
+            vers = state.zone_vers(dx, dy)
+            if vers is not None and not state.can_move(dx, dy):
+                label += "\n(%s)" % vers.lower()
+            b = scale_font(StyledButton(text=label, halign="center"), 0.024)
             b.disabled = not state.can_move(dx, dy)
             b.bind(on_release=lambda _w, ddx=dx, ddy=dy: self._do_move(ddx, ddy))
             return b

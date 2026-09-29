@@ -2,9 +2,13 @@
 Le MONDE : carte generative en zones.
 
 La carte est une grille de GRID_W x GRID_H zones (625 = 25x25 pour commencer).
-Chaque zone fait 1 km x 1 km et a un TYPE (foret, plaine, montagne, lac).
+Chaque zone fait 1 km x 1 km et a un TYPE (foret, plaine, montagne, lac, rive).
 Le type determine sa couleur sur la mini-carte et, plus tard, ce qu'on peut y
 faire.
+
+LE LAC NE SE VISITE PAS : on le longe par sa RIVE, une bande de cases de sable
+posee tout autour de chaque lac (voir _pose_les_rives). La rive est la seule
+case d'un lac ou l'on puisse aller.
 
 La carte est GENERATIVE : entierement deduite de la graine (seed) de la
 partie. Memes graine => meme monde. On n'a donc pas besoin de la sauvegarder :
@@ -40,11 +44,27 @@ ZONE_TYPES = {
     },
     "Lac": {
         "weight": 2, "color": (0.18, 0.42, 0.62),
-        "desc": "Lac : eau et peche.",
+        "desc": "Lac : eau profonde. On le longe par sa rive.",
+    },
+    # LA RIVE n'est jamais tiree au hasard (poids nul) : elle se pose apres
+    # coup, autour de chaque lac (voir _pose_les_rives). Couleur de sable sur
+    # la carte : le contour qui dit ou l'eau commence.
+    "Rive": {
+        "weight": 0, "color": (0.83, 0.74, 0.50),
+        "desc": "Rive : le bord d'un lac. Eau, roseaux et peche.",
     },
 }
 
 DEFAULT_TYPE = "Foret"
+
+# LE LAC NE SE PARCOURT PAS : on n'y marche pas, on ne s'y tient pas. On le
+# longe par sa RIVE, qui en est la seule case jouable.
+NON_PRATICABLES = {"Lac"}
+
+
+def praticable(zone_type):
+    """Peut-on aller sur une case de ce type ?"""
+    return zone_type not in NON_PRATICABLES
 
 # Seules certaines forets et montagnes ont un RUISSEAU (eau potable).
 # Les lacs ne sont PAS potables. ~35% des cases foret/montagne ont un ruisseau.
@@ -93,6 +113,27 @@ def generate_map(seed):
     grid = [[rng.choice(pool) for _ in range(GRID_W)] for _ in range(GRID_H)]
     for _ in range(3):                 # 3 passes => regions bien dessinees
         grid = _smooth(grid, rng)
+    return _pose_les_rives(grid)
+
+
+def _pose_les_rives(grid):
+    """Chaque case qui touche un lac -- par un cote OU PAR UN COIN -- devient
+    sa RIVE : un contour complet, sans trou aux angles.
+
+    LE LAC GARDE TOUTES SES CASES ; ce sont les terres autour qui cedent la
+    bande de sable. L'inverse -- border le lac avec ses propres cases -- ne
+    laisserait plus une goutte d'eau aux petits lacs, qui ne font souvent
+    qu'une ou deux cases.
+
+    Aucun tirage ici : le reste du monde est exactement celui qu'on aurait eu
+    sans les rives, a la bande de sable pres."""
+    rives = [(x, y) for y in range(GRID_H) for x in range(GRID_W)
+             if grid[y][x] != "Lac"
+             and any(grid[ny][nx] == "Lac"
+                     for ny in range(max(0, y - 1), min(GRID_H, y + 2))
+                     for nx in range(max(0, x - 1), min(GRID_W, x + 2)))]
+    for x, y in rives:
+        grid[y][x] = "Rive"
     return grid
 
 
@@ -102,6 +143,33 @@ def random_center_cell(seed):
     cx, cy = GRID_W // 2, GRID_H // 2
     x = cx + rng.randint(-CENTER_RADIUS, CENTER_RADIUS)
     y = cy + rng.randint(-CENTER_RADIUS, CENTER_RADIUS)
+    return x, y
+
+
+def case_de_depart(seed, grid):
+    """La case de depart : au hasard dans le carre central, ou -- si elle
+    tombe dans un lac -- la case praticable la plus proche."""
+    x, y = random_center_cell(seed)
+    return plus_proche_praticable(grid, x, y)
+
+
+def plus_proche_praticable(grid, x, y):
+    """(x, y) si l'on peut s'y tenir, sinon la case praticable la plus proche
+    -- une rive, puisque tout lac en est entoure.
+
+    Sert aussi aux parties d'AVANT LES RIVES : un joueur sauvegarde au milieu
+    d'un lac reprend sur sa rive. Stable : a distance egale, c'est l'ordre de
+    parcours qui decide, toujours le meme."""
+    if praticable(grid[y][x]):
+        return x, y
+    for r in range(1, max(GRID_W, GRID_H)):
+        for dy in range(-r, r + 1):
+            for dx in range(-r, r + 1):
+                nx, ny = x + dx, y + dy
+                if (max(abs(dx), abs(dy)) == r
+                        and 0 <= nx < GRID_W and 0 <= ny < GRID_H
+                        and praticable(grid[ny][nx])):
+                    return nx, ny
     return x, y
 
 
@@ -122,8 +190,8 @@ PROXIMITE_MAX_ZONE = {"Foret": 10}
 
 # Ce qui pousse dans chaque zone A COTE des pepites, et en quel nombre. Les
 # types sont tires au hasard AVEC REPETITION : "tree" trois fois = 75 %
-# d'arbres en foret. Le Lac n'a rien de gros a lui -- il n'y porte que des
-# pepites.
+# d'arbres en foret. Le lac et sa rive n'ont rien de gros a eux -- ni meme de
+# pepites (voir SANS_PEPITES).
 NATURE_BIG = {
     "Foret": ((6, 9), ("tree", "tree", "tree", "bush")),
     "Plaine": ((3, 5), ("bush",)),
@@ -152,8 +220,9 @@ assert sum(PEPITES_PAR_CASE.values()) == 100, PEPITES_PAR_CASE
 
 # LES ZONES SANS PEPITES. Le lac n'en porte aucune : ses cases de proximite
 # tombent dans l'eau, et une pierre a demi enfoncee dans un fond de lac ne
-# raconte rien -- ni un filon a extraire, ni un decor de berge.
-SANS_PEPITES = {"Lac"}
+# raconte rien -- ni un filon a extraire, ni un decor de berge. Sa RIVE non
+# plus : c'est la meme scene, le lac vu de son bord.
+SANS_PEPITES = {"Lac", "Rive"}
 
 
 def nugget_count(cell_seed, zone_type=None):

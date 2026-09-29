@@ -114,9 +114,10 @@ WEATHER_MAX_HOURS = 6
 CALME_HEURES = 24
 
 # Par temps nuageux : une fois sur deux, de la BRUME s'ajoute (sauf en
-# montagne, ou l'on est au-dessus).
+# montagne, ou l'on est au-dessus). Au bord de l'eau, c'est sur la RIVE qu'on
+# la voit : le lac lui-meme ne se visite pas.
 FOG_CHANCE = 0.5
-FOG_ZONES = ("Foret", "Plaine", "Lac")
+FOG_ZONES = ("Foret", "Plaine", "Rive")
 
 # LA BRUME EST UNE BRUME DU MATIN. Elle monte avec le jour, APRES le lever du
 # soleil, et se dissipe avant BRUME_FIN : jamais la nuit, jamais l'apres-midi.
@@ -328,11 +329,15 @@ class GameState:
         self.grid = world.generate_map(seed)
 
         # Position du joueur : fournie (sauvegarde) ou case centrale au hasard.
+        # JAMAIS DANS UN LAC : il ne se visite plus (world.NON_PRATICABLES).
+        # Une partie d'avant les rives a pu y etre sauvegardee ; elle reprend
+        # sur la rive la plus proche.
         if player_x is None or player_y is None:
-            self.player_x, self.player_y = world.random_center_cell(seed)
+            self.player_x, self.player_y = world.case_de_depart(seed,
+                                                                self.grid)
         else:
-            self.player_x = player_x
-            self.player_y = player_y
+            self.player_x, self.player_y = world.plus_proche_praticable(
+                self.grid, int(player_x), int(player_y))
 
         # Orientation du joueur (indice dans CARDINALS) : Nord par defaut.
         self.facing = facing % 4
@@ -407,8 +412,18 @@ class GameState:
         return self.grid[self.player_y][self.player_x]
 
     def can_move(self, dx, dy):
+        """Peut-on aller sur la case d'a cote ? Elle doit exister, et ne pas
+        etre un lac : on le longe par sa rive, on n'y entre pas."""
+        zone = self.zone_vers(dx, dy)
+        return zone is not None and world.praticable(zone)
+
+    def zone_vers(self, dx, dy):
+        """Type de la case voisine dans cette direction (absolue), ou None
+        au-dela du bord de la carte."""
         nx, ny = self.player_x + dx, self.player_y + dy
-        return 0 <= nx < world.GRID_W and 0 <= ny < world.GRID_H
+        if 0 <= nx < world.GRID_W and 0 <= ny < world.GRID_H:
+            return self.grid[ny][nx]
+        return None
 
     def move(self, dx, dy):
         """Deplace le joueur d'une case si possible. Renvoie True si bouge."""

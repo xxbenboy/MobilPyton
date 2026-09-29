@@ -381,8 +381,9 @@ ZONE_FINDS = {
                ("Baie", 3), ("Plume", 2), ("Carcasse", 1)],
     "Montagne": [("Pierre", 12), ("Small_Stick", 4), ("Long_Stick", 2), ("Pierre_Coupante", 3),
                  ("Silex", 3), ("Os", 2), ("Carcasse", 1)],
-    "Lac": [("Roseau", 9), ("Poisson", 7), ("Pierre", 4), ("Small_Stick", 3), ("Long_Stick", 1),
-            ("Silex", 2), ("Coquillage", 2), ("Carcasse", 1)],
+    # Au bord de l'eau : c'est la RIVE qu'on explore, le lac ne se visite pas.
+    "Rive": [("Roseau", 9), ("Poisson", 7), ("Pierre", 4), ("Small_Stick", 3), ("Long_Stick", 1),
+             ("Silex", 2), ("Coquillage", 2), ("Carcasse", 1)],
 }
 
 

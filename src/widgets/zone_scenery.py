@@ -6,7 +6,9 @@ seulement une bande en bas. On voit donc :
 - Foret    : on est entoure d'arbres (du sol a la canopee),
 - Plaine   : on est dans les hautes herbes jusqu'a l'horizon,
 - Montagne : on est sur la pente (la roche occupe le cadre),
-- Lac      : on est au bord de l'eau (grande etendue d'eau + roseaux).
+- Lac      : on est au bord de l'eau (grande etendue d'eau + roseaux),
+- Rive     : la meme scene que le lac -- c'est elle qui la montre, depuis que
+             le lac ne se visite plus (voir SCENE_DE_ZONE).
 
 `set_scene(zone_type, seed)` change la scene. Redessine seulement quand la zone
 change (pas a chaque frame).
@@ -37,6 +39,14 @@ from src.widgets import build_grid
 from src.widgets import log_skin
 
 _ZONE_SEED = {"Foret": 1, "Plaine": 2, "Montagne": 3, "Lac": 4}
+
+# LA RIVE SE DESSINE COMME LE LAC. La scene du lac a toujours ete vue DE SON
+# BORD -- l'eau devant, la berge au premier plan : c'est exactement la rive.
+# Depuis que le lac ne se visite plus (world.NON_PRATICABLES), c'est sa rive
+# qui la montre. Les tables du decor par zone n'ont donc rien a apprendre :
+# la scene recoit "Lac". Une rive VOISINE, elle, borde la scene comme le
+# faisait le lac : du sable, puis l'eau (voir _edge_shore).
+SCENE_DE_ZONE = {"Rive": "Lac"}
 
 # Nombre d'objets RECOLTABLES (disponibles) par type et par case : petit nombre
 # aleatoire (comme avant). Chaque recolte retire du DECOR une part egale du
@@ -914,7 +924,7 @@ class ZoneScenery(Widget):
         # Un appel direct ne dit pas de quelle case il s'agit : montre_la_case
         # ne peut plus rien supposer de ce qui est dessine.
         self._cle_case = None
-        self._zone = zone_type
+        self._zone = SCENE_DE_ZONE.get(zone_type, zone_type)
         self._seed = seed
         self._mode = "scene"
         self._taken = dict(taken or {})
@@ -931,7 +941,8 @@ class ZoneScenery(Widget):
                                  for g in (blocked_grid or []))
         self._removed_grid = set((int(g[0]), int(g[1]))
                                  for g in (removed_grid or []))
-        self._neighbours = dict(neighbours or {})
+        self._neighbours = {cote: SCENE_DE_ZONE.get(z, z)
+                            for cote, z in (neighbours or {}).items()}
         self._redraw()
 
     def montre_la_case(self, state, apercu=None):
@@ -2273,7 +2284,7 @@ class ZoneScenery(Widget):
     def set_ground(self, zone_type, seed=0):
         """Vue VERS LE BAS : on regarde le sol, qui remplit tout l'ecran."""
         self._cle_case = None
-        self._zone = zone_type
+        self._zone = SCENE_DE_ZONE.get(zone_type, zone_type)
         self._seed = seed
         self._mode = "ground"
         self._redraw()
