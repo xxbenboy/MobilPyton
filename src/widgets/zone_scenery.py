@@ -32,6 +32,7 @@ from src import world, items
 from src.widgets import textures, pbr, foliage, daylight
 from src.widgets import horizon
 from src.widgets import animated_background
+from src.widgets import rive
 from src.widgets.gl_textures import texture_depuis_octets
 from src.widgets.textures import paint, paint_color, tiled_coords
 from src.widgets.installed_layer import grid_to_screen
@@ -726,6 +727,8 @@ class ZoneScenery(Widget):
         self._eau = []
         self._eau_t = 0.0
         self._eau_ev = None
+        # La rive animee du lac (voir rive.py), sur la meme horloge.
+        self._rive = None
         # Recolte : nombre deja recolte par objet (applique au dessin pour
         # MASQUER les objets recoltes) et totaux/budgets calcules a la
         # construction de la scene.
@@ -867,6 +870,9 @@ class ZoneScenery(Widget):
         if self._pbr:
             pbr.set_light(self.canvas, daylight.light_dir(self._seconds),
                           daylight.light_tint(self._seconds))
+        # La rive a son propre shader : elle recoit la meme lumiere.
+        if self._rive is not None:
+            rive.teinte(self._rive, daylight.light_tint(self._seconds))
 
     def _place_shadow(self, sh, off, length, alpha):
         """Etire et decale une ombre selon la position de l'astre."""
@@ -2311,6 +2317,7 @@ class ZoneScenery(Widget):
         self._apercu_places = {}
         self._apercu_vu = None
         self._eau = []
+        self._rive = None
         # Idem pour la brume : seule une scene qui en pose une la recree.
         self._brume_couleur = None
         self._lot = None
@@ -4557,6 +4564,31 @@ class ZoneScenery(Widget):
         # recolte, un objet pose) ne doit pas faire sauter l'ecume en arriere.
         self._place_ecume()
 
+    def _rive_animee(self, x0, y0, w, h):
+        """La rive proche du lac, ou l'eau vient laper le sable (voir
+        rive.py). Rend False si elle ne peut pas etre posee -- pas de shader,
+        ou pas d'images : la scene garde alors son aplat de sable."""
+        if not self._pbr:
+            return False
+        fond = textures.base_texture(rive.NOM)
+        reflets = textures.ecume_texture(rive.NOM)
+        if fond is None or reflets is None:
+            return False
+        self._reset_pbr()
+        ctx = rive.bande(x0, y0, w, rive.HAUTEUR * h, fond, reflets)
+        # La bande a lie ses reflets sur l'unite 1, que le shader du decor lit
+        # comme carte de RELIEF : on lui rend ses cartes neutres, sans quoi les
+        # galets et les roseaux dessines ensuite s'eclaireraient de travers.
+        self._reset_pbr()
+        if ctx is None:
+            return False
+        self._rive = ctx
+        # Tout de suite a l'heure de l'eau et a la lumiere du moment : une
+        # scene redessinee ne doit pas faire repartir la vague a zero.
+        rive.place(ctx, self._eau_t)
+        rive.teinte(ctx, daylight.light_tint(self._seconds))
+        return True
+
     def _place_ecume(self):
         """Decale l'ecume de ce qu'elle a derive depuis le debut.
 
@@ -4578,13 +4610,17 @@ class ZoneScenery(Widget):
             return
         self._eau_t += dt
         self._place_ecume()
+        if self._rive is not None:
+            rive.place(self._rive, self._eau_t)
 
     def _sync_eau_clock(self):
-        """L'horloge de l'eau ne tourne que s'il y a de l'ecume a deplacer."""
-        if self._eau and self._eau_ev is None:
+        """L'horloge de l'eau ne tourne que s'il y a de l'eau a animer :
+        de l'ecume a deplacer, ou la rive."""
+        anime = bool(self._eau) or self._rive is not None
+        if anime and self._eau_ev is None:
             self._eau_ev = Clock.schedule_interval(self._tick_eau,
                                                    1.0 / ECUME_FPS)
-        elif not self._eau and self._eau_ev is not None:
+        elif not anime and self._eau_ev is not None:
             self._eau_ev.cancel()
             self._eau_ev = None
 
@@ -4644,9 +4680,12 @@ class ZoneScenery(Widget):
             fin = lx + rng.uniform(0.2, 0.45) * w
             if not texturee:
                 Line(points=[lx, ly, fin, ly], width=1.4)
-        # Rive proche (premier plan). Les galets recoltables sont remontes a
-        # partir des jointures (rien en bas). [recoltable: Pierre]
-        self._trect("sand", x0, y0, w, 0.12 * h)
+        # Rive proche (premier plan) : l'eau vient y laper le sable (voir
+        # rive.py). Sans shader ou sans ses images, un aplat de sable comme
+        # avant. Les galets recoltables sont remontes a partir des jointures
+        # (rien en bas). [recoltable: Pierre]
+        if not self._rive_animee(x0, y0, w, h):
+            self._trect("sand", x0, y0, w, 0.12 * h)
 
         # Galets, roseaux et objets installes sont tries ENSEMBLE par
         # profondeur : un feu de camp pose au fond passe derriere les roseaux

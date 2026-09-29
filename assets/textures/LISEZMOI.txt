@@ -64,7 +64,10 @@ Sols / terrain :
     rock_dark          roche en bas de pente (plus sombre)
     water              eau du lac (FOURNIE : water_B le fond, water_E
                        l'ecume qui derive -- voir L'EAU DU LAC plus bas)
-    sand               rive / terre au premier plan
+    sand               terre au bord de l'eau, vue depuis une case voisine
+    rive               LA RIVE ANIMEE au premier plan du lac (FOURNIE :
+                       rive_B la bande, rive_E ses reflets -- voir LA RIVE
+                       ANIMEE plus bas)
 
 Vegetation :
     bark               ecorce (troncs d'arbres)
@@ -120,6 +123,46 @@ Une tuile d'eau n'est pas carree : le 2:1 est accepte, le jeu garde ses
 proportions (voir rapport() dans src/widgets/textures.py). Vitesse,
 opacite et echelle des deux couches : ECUME_COUCHES dans
 src/widgets/zone_scenery.py.
+
+----------------------------------------------------------------
+LA RIVE ANIMEE (rive_B + rive_E)
+----------------------------------------------------------------
+Le premier plan du lac -- et donc de la RIVE, seule case d'un lac ou l'on
+va : l'eau vient y laper le sable. Un petit shader (src/widgets/rive.py)
+l'anime ; les images ne font que la dessiner.
+
+    rive_B.png    LA BANDE, du haut vers le bas : l'eau claire sur des
+                  galets, puis le sable sec. Elle ne se repete qu'EN
+                  LARGEUR (c'est un degrade de l'eau au sable) ; son haut
+                  est transparent : elle se fond dans le lac.
+    rive_E.png    ses REFLETS seuls (le reseau de lumiere que la surface de
+                  l'eau projette sur le fond), blancs sur transparent, de
+                  meme cadre que la bande.
+
+Ce que fait le shader, image par image :
+  - une mince NAPPE d'eau monte sur le sable, vite, puis se retire,
+    lentement. Deux houles de periodes differentes se relaient : de temps
+    en temps, une vague va plus loin que les autres ;
+  - son BORD arrive en festons, souligne d'un lisere d'ecume tant qu'il
+    monte ;
+  - derriere la nappe qui se retire, le SABLE reste mouille, puis seche ;
+  - les REFLETS avancent et reculent avec l'eau, et le fond ondule sous
+    elle. Le sable et les galets, eux, ne bougent pas : c'est l'eau qui
+    passe dessus.
+
+Les deux images viennent de la grande image du haut de la planche livree
+(1024 x 480), preparee hors jeu (scratchpad/prepare_rive.py) : filigrane
+recouvert par un morceau de la meme eau pris A LA MEME HAUTEUR (l'image est
+un degrade), raccordee de gauche a droite, mise en 1024 x 512. Un reflet se
+distingue d'un grain de sable par sa FORME : les grains sont des points,
+les reflets de longs reseaux relies.
+
+Les 32 vignettes de la planche ne servent pas : mesure faite, chacune est
+un morceau de rive different, et leur ligne d'eau saute d'une vignette a
+l'autre sans va-et-vient.
+
+Reglages (hauteur de la bande, periodes des houles, jusqu'ou monte la
+vague) : en tete de src/widgets/rive.py.
 
 ----------------------------------------------------------------
 CONSEILS IMPORTANTS
