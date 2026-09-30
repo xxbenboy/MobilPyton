@@ -201,6 +201,13 @@ NOM_HERBE = "grass_tuft"
 HERBE_DECOR_PLAINE = 600   # x5 : l'herbe doit couvrir presque tout le sol
 HERBE_FORET = 950          # x5 (etait 190)
 
+# TOUFFES A RAMASSER de la foret, en plus des precedentes (voir _foret). Un
+# lot separe, parce qu'une recolte masque une part egale des objets de son
+# type : melangees aux 950 touffes decoratives, chaque poignee aurait emporte
+# un cinquieme du tapis de sous-bois. Le chiffre se compare aux 525 de la
+# plaine -- moins, parce que la foret est un sous-bois, pas un pre.
+HERBE_RECOLTABLE_FORET = 240
+
 # Touffes de la BANDE LOINTAINE de la plaine, entre le haut du champ proche et
 # la crete. Elle etait a peu pres vide : `place` ne depasse jamais le champ, et
 # la seule passe qui allait plus loin se serrait sur la crete meme. Elles sont
@@ -3370,9 +3377,9 @@ class ZoneScenery(Widget):
                               lambda bx=bx, by=by, ln=ln:
                               self._branch(bx, by, ln,
                                            sprite=self._zs("branch"))))
-        # Herbe de sous-bois (sombre), en touffes (dense). Toutes DECORATIVES :
-        # la foret n'a jamais donne d'herbe a ramasser, c'est la plaine qui en
-        # donne.
+        # Herbe de sous-bois (sombre), en touffes (dense). DECORATIVE : elle
+        # couvre tout le sol, jusqu'au fond, et la faire disparaitre a chaque
+        # recolte deshabillerait la foret.
         for _ in range(HERBE_FORET):
             fx = grass_pick() if rng.random() < 0.72 else None
             gx, gb, sc, t = place(fx=fx)
@@ -3380,6 +3387,28 @@ class ZoneScenery(Widget):
             if self._is_blocked(gx, gb, gb + gh):
                 continue
             items.append((gb, f_grass(gx, gb, gh, rng.choice(GREENS) + (1,), sc)))
+        # ET DE L'HERBE A RAMASSER, A PORTEE DE MAIN. [recoltable: Herbe]
+        #
+        # La foret n'en donnait pas : il fallait retourner en plaine pour la
+        # moindre fibre, alors qu'il pousse de l'herbe sous les arbres et
+        # qu'on en voit partout dans la scene. C'est un TYPE DE PLUS sur la
+        # case, pas un partage de ce qui s'y trouvait : la foret gagne donc
+        # les deux a cinq ramassages d'herbe en plus de tout le reste (voir
+        # _avail_for).
+        #
+        # UN LOT A PART, et non les touffes ci-dessus : une recolte masque
+        # une part egale des objets de son type (voir _take_or_skip), et
+        # rendre les 950 touffes recoltables aurait fait fondre le tapis de
+        # sous-bois d'un cinquieme a chaque poignee. Celles-ci sont posees
+        # sous la hauteur des mains, la ou l'on peut vraiment les atteindre.
+        for _ in range(HERBE_RECOLTABLE_FORET):
+            fx = grass_pick() if rng.random() < 0.72 else None
+            gx, gb, sc, t = place(fx=fx, floor=_HARVEST_FLOOR)
+            gh = rng.uniform(0.06, 0.15) * h * sc
+            if (not self._take_or_skip("Herbe")
+                    and not self._is_blocked(gx, gb, gb + gh)):
+                items.append((gb, f_grass(gx, gb, gh,
+                                          rng.choice(GREENS) + (1,), sc)))
         # Fougeres / plantes (bosquets).
         for _ in range(rng.randint(8, 12)):
             px, py, sc, t = place(fx=fern_pick())

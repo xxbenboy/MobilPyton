@@ -20,6 +20,7 @@ Aucune bascule de pose, donc aucune rupture au debut ni a la fin de l'action.
 Les objets tenus (set_items) sont dessines AU-DESSUS du HUD, aux
 positions correspondant aux mains dans l'image (HAND_FX / ITEM_FY).
 """
+import math
 import os
 
 from kivy.clock import Clock
@@ -68,7 +69,6 @@ GLOVE_SUFFIX = {
 }
 
 _TEX_CACHE = {}
-_ITEM_TEX = {}
 
 
 def _load(fname):
@@ -107,19 +107,107 @@ def _hud_texture(state, glove=None):
     return _load(fname)
 
 
-def _item_texture(name):
-    """Texture de l'image d'un objet (assets/items/<nom>.png), ou None."""
+# CE QU'ON MESURE SUR L'IMAGE D'UN OBJET, et pourquoi.
+#
+# Une image d'objet, ce n'est pas que sa taille de fichier : c'est une
+# MATIERE posee dans un cadre, et deux images du meme cadre ne remplissent
+# pas la main pareil. La touffe d'herbe le montrait des deux facons a la
+# fois -- elle paraissait trop petite ET trop basse :
+#
+#   - TROP PETITE parce qu'elle est AJOUREE. Mesure : 37 % de ses pixels
+#     sont opaques, contre 75 % pour la pierre et 59 % pour les baies. A
+#     cadre egal, il y a deux fois moins de matiere a voir ;
+#   - TROP BASSE parce qu'elle est LOURDE DU BAS. Son centre de masse est a
+#     0,655 de la hauteur depuis le haut du PNG, quand la pierre, la
+#     branche, la baie, la feuille et la corde sont toutes entre 0,49 et
+#     0,55. Centrer le CADRE dans la paume descendait donc sa masse d'un
+#     sixieme de sa hauteur, et la touffe s'enfoncait vers le poignet.
+#
+# On mesure donc les deux, une fois par image, et on s'en sert pour poser
+# l'objet. Aucune table de noms d'objets : une image livree demain est
+# traitee comme les autres.
+_ITEM_INFOS = {}
+
+# Couverture (part de pixels opaques) au-dela de laquelle une image n'a
+# besoin d'aucune correction de taille. Mesuree sur les images denses du
+# jeu : pierre 75 %, baie 59 %, feuille 53 %.
+COUVERTURE_PLEINE = 0.55
+# Plafond du grossissement. Une branche ne couvre que 12 % de son cadre et
+# un roseau 11 % : sans plafond, la regle les doublerait, et un objet long
+# et fin deborderait la main. Le plafond est atteint par eux deux ; l'herbe
+# (37 %) reste en dessous et prend son compte exact.
+GROSSISSEMENT_MAX = 1.30
+# Combien de pixels on regarde, quelle que soit la taille de l'image. Une
+# image d'objet fait couramment 1024 x 1024, soit un million de pixels a
+# parcourir en Python ; quelques milliers suffisent a une part et a un
+# centre de masse.
+#
+# ON VISE UN NOMBRE D'ECHANTILLONS, PAS UN PAS FIXE. Avec un pas de seize,
+# les grandes images etaient bien mesurees mais la pierre (256 x 200) ne
+# donnait que deux cents points : sa couverture ressortait a 71 % contre
+# 75 % en pleine resolution. Le pas se deduit donc de la taille, et une
+# petite image est lue plus finement qu'une grande -- ce qui ne coute rien,
+# puisqu'elle est petite.
+_ECHANTILLONS = 4000
+
+
+def _mesure_objet(brut):
+    """(couverture, centre de masse y) d'une image, ou (1.0, 0.5) si illisible.
+
+    `y` est compte DEPUIS LE HAUT du PNG, comme les lignes de l'image.
+
+    La valeur de repli dit "image pleine et centree" : un objet qu'on ne
+    sait pas mesurer est pose comme avant, sans correction."""
+    try:
+        octets = brut.data
+        w, h = int(brut.width), int(brut.height)
+        if (brut.fmt or "rgba") != "rgba" or not octets:
+            return 1.0, 0.5
+        if w < 4 or h < 4 or len(octets) < w * h * 4:
+            return 1.0, 0.5
+        # La couverture compte les pixels VUS (alpha > 8) ; le centre de
+        # masse les pondere par leur opacite, parce qu'un bord a moitie
+        # transparent pese moitie moins dans ce qu'on voit.
+        poids = somme = 0.0
+        vus = n = 0
+        pas = max(1, int(math.sqrt(w * h / float(_ECHANTILLONS))))
+        for y in range(0, h, pas):
+            ligne = y * w * 4
+            for x in range(0, w, pas):
+                a = octets[ligne + x * 4 + 3]
+                n += 1
+                if a > 8:
+                    vus += 1
+                    poids += a
+                    somme += a * y
+        if not n or poids <= 0.0:
+            return 1.0, 0.5
+        return vus / float(n), (somme / poids) / float(h)
+    except Exception:
+        return 1.0, 0.5
+
+
+def _item_infos(name):
+    """(texture, couverture, centre de masse y) de l'image d'un objet.
+
+    UNE SEULE LECTURE DU FICHIER pour les trois : `keep_data=True` garde les
+    pixels que Kivy relache d'ordinaire des qu'il les a televerses vers la
+    carte graphique (voir foliage, ou l'oubli de ce drapeau avait tue trois
+    versions du jeu). On paie donc le decodage une fois, et seulement pour
+    les objets qu'on prend VRAIMENT en main."""
     if not name:
-        return None
+        return None, 1.0, 0.5
     path = items.image_path(name)
     if not path:
-        return None
-    if path not in _ITEM_TEX:
+        return None, 1.0, 0.5
+    if path not in _ITEM_INFOS:
         try:
-            _ITEM_TEX[path] = CoreImage(path).texture
+            img = CoreImage(path, keep_data=True)
+            _ITEM_INFOS[path] = (img.texture,) + _mesure_objet(
+                img.image._data[0])
         except Exception:
-            _ITEM_TEX[path] = None
-    return _ITEM_TEX[path]
+            _ITEM_INFOS[path] = (None, 1.0, 0.5)
+    return _ITEM_INFOS[path]
 
 
 # --------------------------------------------------------------------- #
@@ -157,6 +245,10 @@ class PlayerHands(Widget):
     # widget depuis le bas. Mesures depuis HandHUD.png : palm center a
     # 21 % du bas de l'image, image affichee sur 21 % de la hauteur ecran.
     ITEM_FY = 0.225
+    # Cote de la boite ou tient un objet, en fraction du PETIT cote de
+    # l'ecran. C'est la taille de reference : une image pleine la remplit,
+    # une image ajouree recoit un peu plus (voir COUVERTURE_PLEINE).
+    BOITE_OBJET = 0.15
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -311,22 +403,35 @@ class PlayerHands(Widget):
         with self.canvas.after:
             PushMatrix()
             self._shift_items = Translate(0, 0, 0)
-        box = 0.15 * min(self.width, self.height)
+        box = self.BOITE_OBJET * min(self.width, self.height)
         for i, name in enumerate(self._items):
-            tex = _item_texture(name)
+            tex, couverture, masse_y = _item_infos(name)
             if tex is None:
                 continue
             tw, th = tex.size
-            if tw >= th:
-                iw, ih = box, box * th / max(1, tw)
+            # UNE IMAGE AJOUREE EST GROSSIE, jusqu'au plafond. On egalise la
+            # MATIERE VISIBLE, pas le cadre : la racine carree parce que la
+            # couverture est une surface et l'echelle une longueur.
+            if couverture > 0.0 and couverture < COUVERTURE_PLEINE:
+                box_i = box * min(GROSSISSEMENT_MAX,
+                                  math.sqrt(COUVERTURE_PLEINE / couverture))
             else:
-                iw, ih = box * tw / max(1, th), box
+                box_i = box
+            if tw >= th:
+                iw, ih = box_i, box_i * th / max(1, tw)
+            else:
+                iw, ih = box_i * tw / max(1, th), box_i
             cx = self.x + self.HAND_FX[i] * self.width
             cy = self.y + self.height * self.ITEM_FY
+            # ON POSE LE CENTRE DE MASSE DANS LA PAUME, pas le centre du
+            # cadre. `masse_y` est compte depuis le HAUT du PNG et l'ecran
+            # monte, d'ou le retournement : une image lourde du bas
+            # (masse_y > 0,5) doit MONTER pour que sa masse tombe au creux
+            # de la main. Pour les objets deja equilibres cela ne deplace
+            # rien -- deux pixels sur la pierre, un sur la baie.
+            bas = cy - ih * (1.0 - masse_y)
             with self.canvas.after:
                 Color(1, 1, 1, 1)
-                Rectangle(texture=tex,
-                          pos=(cx - iw / 2, cy - ih / 2),
-                          size=(iw, ih))
+                Rectangle(texture=tex, pos=(cx - iw / 2, bas), size=(iw, ih))
         with self.canvas.after:
             PopMatrix()

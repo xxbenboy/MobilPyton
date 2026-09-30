@@ -375,8 +375,13 @@ def is_hand_collectable(name):
 # Ex : une Small_Stick ou une Pierre (poids eleve) sont communes ; une Carcasse
 # (poids 1) est rare.
 ZONE_FINDS = {
-    "Foret": [("Small_Stick", 12), ("Long_Stick", 4), ("Loafy_Long_Stick", 4), ("Feuille", 10), ("Pierre", 7),
-              ("Ecorce", 6), ("Brown_Mushroom", 4), ("Baie", 4), ("Plume", 2), ("Carcasse", 1)],
+    # L'HERBE POUSSE AUSSI SOUS LES ARBRES. La foret n'en donnait pas : il
+    # fallait retourner en plaine pour la moindre fibre, alors que le sol
+    # forestier en est couvert a l'ecran. Son poids (8) la met entre la
+    # feuille (10) et la pierre (7) : commune, mais la plaine (12) reste
+    # l'endroit ou l'on en ramasse le plus.
+    "Foret": [("Small_Stick", 12), ("Long_Stick", 4), ("Loafy_Long_Stick", 4), ("Feuille", 10), ("Herbe", 8),
+              ("Pierre", 7), ("Ecorce", 6), ("Brown_Mushroom", 4), ("Baie", 4), ("Plume", 2), ("Carcasse", 1)],
     "Plaine": [("Herbe", 12), ("Fleur", 7), ("Small_Stick", 6), ("Long_Stick", 2), ("Pierre", 5),
                ("Baie", 3), ("Plume", 2), ("Carcasse", 1)],
     "Montagne": [("Pierre", 12), ("Small_Stick", 4), ("Long_Stick", 2), ("Pierre_Coupante", 3),
