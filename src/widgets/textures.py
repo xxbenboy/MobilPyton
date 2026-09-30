@@ -159,7 +159,13 @@ def _load(path):
             # deja moyennees, et choisit la bonne selon la taille a l'ecran.
             # (Il exige des images en puissance de 2 -- ce que le LISEZMOI
             # demande deja.)
-            img = CoreImage(path, mipmap=True)
+            # KEEP_DATA : sans lui, Kivy libere les pixels des qu'il les a
+            # televerses vers la carte graphique, et _moyenne_de ne trouve
+            # plus rien a moyenner. Elle rendait donc None -- SANS BRUIT --
+            # sur telephone, alors que tout marchait sur PC, ou les pixels
+            # restaient la. La CoreImage etant locale, les octets sont rendus
+            # des la fin de ce bloc.
+            img = CoreImage(path, mipmap=True, keep_data=True)
             # LA MOYENNE SE PREND MAINTENANT, tant que l'image est decodee
             # sous la main. La relire plus tard couterait un second decodage
             # du PNG -- 74 ms sur une image de 1024, mesure -- et garder la

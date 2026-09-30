@@ -214,9 +214,16 @@ def _silhouette_de(path):
     On relit les octets bruts (image._data[0]) plutot que pixel par pixel :
     une pepite fait 256 px de large, et read_pixel aurait coute une demi-
     seconde par variante au premier affichage (mesure faite sur les buches).
+
+    /!\ KEEP_DATA. Kivy libere les pixels apres les avoir televerses vers la
+    carte graphique : sans ce mot-cle, `brut.data` vaut None, bytearray(None)
+    leve, et cette fonction rend None -- SANS BRUIT. Les silhouettes
+    n'existaient donc pas du tout sur telephone, et rien ne le disait : les
+    pepites y perdaient leurs voiles d'etalonnage depuis toujours. Sur PC les
+    pixels restaient la, et tous les apercus etaient justes.
     """
     try:
-        img = CoreImage(path)
+        img = CoreImage(path, keep_data=True)
         brut = img.image._data[0]
         donnees = bytearray(brut.data)
         if (brut.fmt or "rgba") != "rgba" or len(donnees) < 4:
@@ -735,36 +742,52 @@ def _base_du_feuillage_de(path):
     Octets bruts plutot que read_pixel, pour la meme raison que les
     silhouettes : lire un arbre de 640 px pixel par pixel couterait une demi-
     seconde a son premier affichage. Mesure ici : 9 ms par image, decodage
-    compris, une seule fois -- et seuls les arbres passent par la."""
+    compris, une seule fois -- et seuls les arbres passent par la.
+
+    /!\ KEEP_DATA, ET TOUT DANS LE MEME GARDE-FOU. Kivy LIBERE les pixels
+    apres les avoir televerses vers la carte graphique, sauf si on lui
+    demande de les garder : `brut.data` vaut alors None. Ce n'est pas une
+    erreur, c'est le fonctionnement normal -- mais aucune exception n'est
+    levee, et le None ressort tel quel.
+
+    La premiere version demandait la taille dans un try et appelait len() sur
+    les octets JUSTE APRES, hors du try. Sur un PC les pixels restaient la et
+    tout marchait ; sur telephone ils etaient liberes, len(None) levait une
+    TypeError que plus personne n'attrapait, et le jeu mourait au premier
+    arbre dessine -- c'est-a-dire au demarrage. Les autres lecteurs de ce
+    fichier (voir _silhouette_de) n'ont jamais eu le probleme parce qu'ils
+    touchent les octets DANS leur try.
+    """
     if path is None:
         return None
     try:
-        brut = CoreImage(path).image._data[0]
+        brut = CoreImage(path, keep_data=True).image._data[0]
         octets = brut.data
-        if (brut.fmt or "rgba") != "rgba":
-            return None
         w, h = int(brut.width), int(brut.height)
+        if (brut.fmt or "rgba") != "rgba" or not octets:
+            return None
+        if w < 8 or h < 8 or len(octets) < w * h * 4:
+            return None
+        pas = _PAS_FEUILLAGE * 4
+        for y in range(h - 1, -1, -1):
+            ligne = octets[y * w * 4:(y + 1) * w * 4]
+            opaques = feuilles = 0
+            for i in range(0, len(ligne) - 3, pas):
+                if ligne[i + 3] < 128:
+                    continue
+                opaques += 1
+                g = ligne[i + 1]
+                if (g > ligne[i] + _MARGE_VERTE
+                        and g > ligne[i + 2] + _MARGE_VERTE):
+                    feuilles += 1
+            if opaques > 2 and feuilles > _PART_FEUILLES * opaques:
+                # Les octets sont dans l'ordre du PNG, ligne 0 en HAUT.
+                part = (h - y) / float(h)
+                if BASE_FEUILLAGE_MIN <= part <= BASE_FEUILLAGE_MAX:
+                    return part
+                return None
     except Exception:
         return None
-    if w < 8 or h < 8 or len(octets) < w * h * 4:
-        return None
-    pas = _PAS_FEUILLAGE * 4
-    for y in range(h - 1, -1, -1):
-        ligne = octets[y * w * 4:(y + 1) * w * 4]
-        opaques = feuilles = 0
-        for i in range(0, len(ligne) - 3, pas):
-            if ligne[i + 3] < 128:
-                continue
-            opaques += 1
-            g = ligne[i + 1]
-            if g > ligne[i] + _MARGE_VERTE and g > ligne[i + 2] + _MARGE_VERTE:
-                feuilles += 1
-        if opaques > 2 and feuilles > _PART_FEUILLES * opaques:
-            # Les octets sont dans l'ordre du PNG, ligne 0 en HAUT.
-            part = (h - y) / float(h)
-            if BASE_FEUILLAGE_MIN <= part <= BASE_FEUILLAGE_MAX:
-                return part
-            return None
     return None
 
 
