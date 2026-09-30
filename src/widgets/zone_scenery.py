@@ -295,6 +295,29 @@ VENT_ARBRE_BIAIS = 0.25
 # 1,9 le bord droit a un peu moins d'un tiers de cycle de retard.
 VENT_ARBRE_TRAVERSE = 1.9
 
+# --- CHAQUE ARBRE PENCHE A SA FACON ------------------------------------- #
+# Deux images livrees penchent franchement -- mesure par le jeu lui-meme
+# (foliage.inclinaison) : +6,0 et +7,0 degres, quand les dix autres tiennent
+# entre -1 et +1. Le probleme n'etait pas l'angle mais qu'il soit TOUJOURS LE
+# MEME, et toujours du meme cote : deux de ces arbres cote a cote se
+# reconnaissaient au premier coup d'oeil.
+#
+# On fait donc deux choses a la fois, et une seule rotation suffit :
+#
+#   1. ON REDRESSE l'image de sa propre inclinaison, mesuree. L'arbre qui
+#      penchait a +7 degres repart de zero, comme les autres ;
+#   2. ON EN REDONNE, tiree de la POSITION. Chaque pied a donc son angle, et
+#      les deux sens sortent aussi souvent l'un que l'autre.
+#
+# Le tirage est CUBIQUE : la plupart des arbres restent presque droits, et
+# seule une minorite penche pour de bon. Un tirage uniforme aurait donne une
+# foret entiere de travers, ce qui n'est pas plus credible qu'une foret au
+# garde-a-vous. Avec 9 degres d amplitude : la moitie des arbres reste sous
+# 1,6 degre, un sur trois passe 3, et un sur huit passe 6.
+PENCHE_ARBRE = 9.0
+# De combien on efface l'inclinaison propre de l'image. A 1, entierement.
+REDRESSE_ARBRE = 1.0
+
 # Combien d'arbres on anime. Ils ont leur QUOTA PROPRE, et c'est necessaire :
 # le tri se fait sur la hauteur, et un arbre est dix fois plus haut qu'une
 # touffe. Dans une seule liste, les arbres videraient le quota de l'herbe.
@@ -670,15 +693,54 @@ PLANTES_DE_BERGE = {
 # on met de l'herbe : neutre, et vrai a peu pres partout.
 PLANTES_DE_BERGE_DEFAUT = (("grass_tuft", 0.022, 3), ("bush_plain", 0.030, 1))
 
-# Combien de pieds sur toute la largeur de la berge, et epaisseur de sa plage
-# de sable en part de la hauteur d'ecran.
+# COMMENT LA VEGETATION SE REPARTIT SUR LA BERGE.
+#
+# Elle etait posee en DEUX RANGS, chacun a pas regulier le long de sa crete
+# (un pied par tranche de largeur, plus un petit jeu). Trois defauts qui se
+# voyaient tous les trois :
+#
+#   - un pas regulier donne une LIGNE D'ARBRES, et l'oeil la lit
+#     immediatement comme une haie plantee par un jardinier ;
+#   - deux rangs donnent deux lignes, donc un decor en couches ;
+#   - tous les pieds d'une meme espece avaient EXACTEMENT la meme taille.
+#
+# On les repartit maintenant en PROFONDEUR, d'un seul tenant : chaque pied
+# tire sa distance entre le bord de l'eau et la crete du fond, et tout en
+# decoule -- sa hauteur a l'ecran, sa teinte, l'ordre ou on le dessine. C'est
+# la meme idee que la perspective du sol, appliquee a des sprites.
+PIEDS_DE_BERGE = 60
+
+# LE GROUPEMENT. Une position tiree uniformement donne une repartition
+# reguliere a l'oeil (c'est le paradoxe du hasard : l'uniforme ne fait pas de
+# paquets). On tire donc d'abord des BOSQUETS, puis les arbres autour d'eux.
+BOSQUETS_DE_BERGE = 9
+# Etalement d'un bosquet, en fraction de la largeur d'ecran.
+ETALEMENT_BOSQUET = 0.085
+# Part des pieds poses hors bosquet, pour ne pas laisser de trou net.
+ISOLES_DE_BERGE = 0.30
+
+# De combien un pied rapetisse entre le bord de l'eau et la crete du fond.
+RETRAIT_BERGE = 0.55
+# Et de combien sa taille varie d'un pied a l'autre, a distance egale. Sans
+# cela une lisiere a le sommet plat d'une haie taillee.
+TAILLE_BERGE = (0.60, 1.55)
+
+# LES EMERGENTS : la part des pieds qui DEPASSENT franchement, et de combien.
+# C'est ce qui manquait le plus. Avec une simple variation de taille autour
+# d'une moyenne, la lisiere reste un mur vert d'epaisseur reguliere ; ce qui
+# fait lire une foret de loin, c'est quelques houppiers qui percent la ligne
+# et decoupent le ciel. Dans un vrai peuplement ce sont les arbres murs, et
+# ils sont toujours une minorite.
+EMERGENTS_DE_BERGE = 0.14
+EMERGENT_FACTEUR = (1.5, 2.2)
+
+# Epaisseur de la plage de sable de la berge, en part de la hauteur d'ecran.
 #
 # LA PLAGE A ETE EPAISSIE APRES COUP. A 0,012 elle existait -- cinq pixels sur
 # un apercu de 400 -- mais on ne la voyait pas : l'eau touchait l'herbe, et
 # c'est precisement ce qu'on voulait corriger. A 0,026 elle fait cinquante
 # pixels sur un ecran de 1920, assez pour se lire comme une greve sans devenir
 # une dune.
-PIEDS_DE_BERGE = 54
 SABLE_DEN_FACE = 0.026
 
 # La vegetation de la berge est plus SOMBRE que celle du premier plan, avant
@@ -2195,6 +2257,14 @@ class ZoneScenery(Widget):
             return False
         if pick is None:
             pick = self._pick(cx, base)
+        # LES IMAGES FRANCHEMENT PENCHEES SE FONT RARES, et seulement pour
+        # le feuillage : c'est le seul decor dont on mesure la pente, et
+        # demander la mesure d'une pierre rouvrirait son image pour rien
+        # (voir foliage.variante_droite). Le tirage corrige sert ENSUITE a
+        # tout -- image, cartes de relief, mesures -- sinon l'arbre porterait
+        # le relief d'un autre.
+        if plie in self._FEUILLAGE:
+            pick = foliage.variante_droite(name, pick)
         tex = foliage.sprite(name, pick)
         if tex is None:
             return False
@@ -2346,6 +2416,36 @@ class ZoneScenery(Widget):
         la rangee du bas lit le bas du PNG."""
         reg = self._FEUILLAGE[espece]
         nc, nr = reg["nc"], reg["nr"]
+        # SON INCLINAISON A LUI : on efface celle de l'image, puis on en
+        # retire une de la position. Voir PENCHE_ARBRE.
+        penche = 0.0
+        if nom:
+            # UN VRAI TIRAGE, GRAINE PAR LA POSITION. Deux hachages ont ete
+            # essayes avant -- une combinaison lineaire de cx et base, puis
+            # le sinus des shaders -- et les deux repartissaient mal : le
+            # premier envoyait 49 % des arbres au-dela de 3 degres la ou le
+            # cubique en prevoit 37, le second les serrait entre -2 et +5 et
+            # sortait deux fois plus de droite que de gauche.
+            #
+            # La raison n'est pas le hachage mais ses ENTREES : les arbres se
+            # posent sur une grille de cinq cases, donc cx et base ne
+            # prennent qu'une poignee de valeurs, et aucune fonction lisse
+            # n'en tire un bon melange. Un generateur graine, lui, s'en
+            # moque. Il coute une microseconde par arbre et reste stable :
+            # meme position, meme inclinaison.
+            #
+            # LA GRAINE EST UNE CHAINE, pas un entier. Deux raisons, toutes
+            # deux mesurees : un pied peut se poser SOUS le bas de l'ecran
+            # (base descend jusqu'a -12), et Python graine sur la VALEUR
+            # ABSOLUE d'un entier -- deux arbres symetriques auraient penche
+            # pareil ; et le melange d'une chaine passe par SHA-512, la ou un
+            # ou-exclusif ne touche que les bits de poids faible de cx. Sur
+            # la grille reelle du jeu, la moyenne des tirages tombe de 1,5 a
+            # 0,4 ecart-type de zero.
+            u = random.Random("%d:%d" % (int(cx * 8.0),
+                                         int(base * 4.0))).uniform(-1.0, 1.0)
+            penche = (u ** 3) * PENCHE_ARBRE
+            penche -= REDRESSE_ARBRE * foliage.inclinaison(nom, pick)
         # LA LIGNE DU TRONC EST MESUREE SUR L'IMAGE, pas lue dans une
         # constante : les cinq feuillus livres la placent de 0,256 a 0,409, et
         # une valeur unique aurait fait balancer quinze pour cent de tronc nu
@@ -2357,13 +2457,24 @@ class ZoneScenery(Widget):
             if mesure is not None:
                 tronc = mesure
         gauche = cx - w / 2.0
+        # L'INCLINAISON EST CUITE DANS LES SOMMETS, autour du PIED. Pas de
+        # PushMatrix : la rotation ne doit pas s'appliquer a ce qui vient
+        # apres, le vent relit ces memes sommets, et un pivot au pied est ce
+        # qui garde l'arbre plante -- il penche, il ne glisse pas.
+        #
+        # Les coordonnees d'IMAGE ne tournent pas : seule la geometrie
+        # bouge, donc les cartes de relief suivent (voir pbr.py).
+        ca = math.cos(math.radians(penche))
+        sa = math.sin(math.radians(penche))
         verts = []
         for j in range(nr + 1):
             t = j / nr
-            y = base + h * t
+            dy = h * t
             for i in range(nc + 1):
                 u = i / nc
-                verts += [gauche + u * w, y, u, 1.0 - t]
+                dx = gauche + u * w - cx
+                verts += [cx + dx * ca + dy * sa,
+                          base + dy * ca - dx * sa, u, 1.0 - t]
         idx = []
         for j in range(nr):
             for i in range(nc):
@@ -2903,7 +3014,12 @@ class ZoneScenery(Widget):
         especes ; ce facteur-ci est ce qui empeche une sapiniere d'aligner des
         arbres de meme stature. Il ne s'applique QUE quand l'image existe :
         les triangles, eux, avaient deja leur propre variete de forme."""
-        pick = self._pick(cx, base)
+        # Le tirage est CORRIGE ICI, avant tout le reste : c'est lui qui
+        # donne la largeur de l'ombre et le facteur de hauteur, et _sprite le
+        # corrigerait a son tour plus bas. Sans cela, un sapin porterait
+        # l'ombre d'un autre. La correction ne change rien quand on la
+        # rejoue sur un tirage deja corrige (voir foliage.variante_droite).
+        pick = foliage.variante_droite("pine_tree", self._pick(cx, base))
         tex = foliage.sprite("pine_tree", pick)
         if tex is not None:
             lo, hi = HAUTEUR_SAPIN
@@ -4850,25 +4966,38 @@ class ZoneScenery(Widget):
                 return y0 + h * (bas + haut * math.sqrt(max(0.0, 1.0 - d * d)))
             return f
 
-        crete_loin = colline(0.55, 0.80, 0.58, 0.18)
-        crete = colline(0.52, 0.85, 0.54, 0.14)
+        # LES DEUX CRETES SONT BOSSELEES, elles ne sont plus des arcs
+        # d'ellipse. Un arc parfait se lit comme un trait de compas : c'est
+        # la premiere chose qui rendait cette berge invraisemblable. On y
+        # ajoute deux ondulations lentes, tirees de la graine des voisins --
+        # donc stables, et differentes d'une case a l'autre.
+        bos = random.Random(self._graine_voisins() ^ 0x51D1)
+        p1, p2 = bos.uniform(0, 6.28), bos.uniform(0, 6.28)
+
+        def bosselee(f, ampleur):
+            def g(fx):
+                return f(fx) + h * ampleur * (
+                    math.sin(fx * 6.28 * 1.7 + p1)
+                    + 0.55 * math.sin(fx * 6.28 * 3.3 + p2))
+            return g
+
+        crete_loin = bosselee(colline(0.55, 0.80, 0.58, 0.18), 0.011)
+        crete = bosselee(colline(0.52, 0.85, 0.54, 0.14), 0.008)
 
         # LA BERGE D'EN FACE, du plus loin au plus proche : le relief qui la
-        # domine, son second rang d'arbres, son premier rang au bord de
-        # l'eau, sa greve, et l'air entre tout cela et nous.
+        # domine, son herbe, sa vegetation, sa greve, et l'air entre tout
+        # cela et nous.
         #
-        # LES DEUX RANGS SONT SEPARES PAR UNE BANDE D'HERBE, et c'est pour
-        # cela qu'ils ne tiennent pas dans un seul appel : le second rang se
-        # tient sur la crete lointaine, l'herbe du plan suivant lui couvre le
-        # pied, puis le premier rang se tient sur celle-ci. C'est ce qui donne
-        # a la berge son epaisseur -- un seul rang se lit comme une haie
-        # collee sur un mur vert.
+        # L'HERBE GARDE SA FRANGE, contrairement a l'eau. Le bord du haut
+        # d'une berge, c'est de l'herbe contre le ciel : elle s'effiloche.
+        # Elle etait coupee au rasoir par habitude -- le lac passe frange=False
+        # pour sa ligne d'eau, ou c'est juste, et les deux collines avaient
+        # herite du reglage sans raison.
         self._relief_den_face(crete_loin)
-        self._fill_curve(crete_loin, "grass_far", frange=False)
-        self._rang_de_berge(crete_loin, 0.62)
-        self._fill_curve(crete, "grass", frange=False)
-        self._rang_de_berge(crete, 1.0)
+        self._fill_curve(crete_loin, "grass_far")
+        self._fill_curve(crete, "grass")
         eau_y = y0 + 0.60 * h
+        self._foret_den_face(eau_y, crete, crete_loin)
         self._greve_den_face(eau_y, crete)
         # LE VOILE D'AIR, de la ligne d'eau au sommet de la berge. Il ne prend
         # que ce qui precede : l'eau, dessinee apres, reste nette.
@@ -4983,7 +5112,7 @@ class ZoneScenery(Widget):
         kilometre : une ligne d'ellipses pales dit "foret" tres bien de loin,
         mais posee juste derriere la berge d'un lac elle se lisait pour ce
         qu'elle est, des boules de coton. La foret d'en face est donc faite de
-        vrais arbres (voir _rang_de_berge) ; la montagne, elle, n'a pas
+        vrais arbres (voir _foret_den_face) ; la montagne, elle, n a pas
         d'image et sa silhouette est de toute facon ce qui la definit -- une
         crete.
 
@@ -5004,39 +5133,50 @@ class ZoneScenery(Widget):
             horizon.draw(voisins, self.x, self.width, crete, self.height,
                          random.Random(self._graine_voisins()))
 
-    def _rang_de_berge(self, crete, echelle):
-        """Un rang de vegetation sur la berge d'en face, le long de `crete`.
+    def _abscisses_de_berge(self, brg, n):
+        """Les positions horizontales des pieds, EN BOSQUETS.
+
+        Un tirage uniforme ne fait pas de paquets -- c'est le paradoxe du
+        hasard, et a l'oeil cela se lit comme une plantation reguliere. On
+        tire donc d'abord des centres de bosquet, puis on repartit les
+        arbres autour d'eux, en laissant une part d'isoles pour ne pas
+        creuser de trou net entre deux groupes."""
+        centres = [brg.random() for _ in range(BOSQUETS_DE_BERGE)]
+        out = []
+        for _ in range(n):
+            if brg.random() < ISOLES_DE_BERGE or not centres:
+                out.append(brg.random())
+            else:
+                c = centres[brg.randrange(len(centres))]
+                out.append(min(0.999, max(0.001,
+                                          brg.gauss(c, ETALEMENT_BOSQUET))))
+        return out
+
+    def _foret_den_face(self, eau_y, crete, crete_loin):
+        """La vegetation de la berge d'en face, repartie EN PROFONDEUR.
+
+        Chaque pied tire sa DISTANCE entre le bord de l'eau (0) et la crete
+        du fond (1), et tout en decoule : ou il se pose, de combien il
+        rapetisse, de quelle teinte il s'assombrit, et dans quel ordre on le
+        dessine. C'est la perspective du sol appliquee a des sprites.
 
         CE QU'ON Y MET EST CE QUI S'Y TROUVE VRAIMENT. `self._berge` porte le
         type de la premiere case solide droit devant, par-dela l'eau (voir
-        horizon.zone_den_face) : une foret en face met des arbres, une
-        montagne des sapins. Regarder l'autre rive renseigne donc sur ou l'on
-        va -- et avec les vraies images du jeu, parce qu'a cette distance-la
-        on les distingue encore.
-
-        `echelle` rapetisse le rang du fond : c'est elle qui creuse la
-        profondeur entre les deux rangs.
+        horizon.zone_den_face), et les bords de l'ecran montrent les cases de
+        gauche et de droite (voir _zone_de_berge). Regarder l'autre rive
+        renseigne donc sur ou l'on va, avec les vraies images du jeu.
 
         RIEN DE TOUT CELA N'EST RECOLTABLE et rien n'entre dans la grille :
         c'est de l'autre cote de l'eau. Ces plantes ne passent donc ni par
         _take_or_skip ni par _is_blocked."""
         w, x0, h = self.width, self.x, self.height
-        # Le rang du fond est plus sombre ET plus petit : les deux disent la
-        # distance, et l'un sans l'autre ne suffit pas.
-        k = TEINTE_BERGE * (0.82 + 0.18 * echelle)
-        teinte = (k, k, k)
         # Une graine a part, comme pour l'horizon : la berge depend de ce
         # qu'il y a en face, et tourner sur place ne doit pas reorganiser le
-        # decor de la case ou l'on se tient. Un grain par rang, sinon les deux
-        # rangs poseraient les memes plantes aux memes endroits.
-        brg = random.Random(self._graine_voisins()
-                            ^ (0x8E36 + int(echelle * 1000)))
-        n = max(4, int(PIEDS_DE_BERGE * echelle))
+        # decor de la case ou l'on se tient.
+        brg = random.Random(self._graine_voisins() ^ 0x8E36)
         lots = {}
         pieds = []
-        for i in range(n):
-            fx = (i + brg.uniform(0.1, 0.9)) / n
-            cx = x0 + fx * w
+        for fx in self._abscisses_de_berge(brg, PIEDS_DE_BERGE):
             zone = self._zone_de_berge(fx)
             if zone not in lots:
                 lot = self._plantes_de_berge(zone)
@@ -5044,16 +5184,35 @@ class ZoneScenery(Widget):
             if lots[zone] is None:
                 continue
             lot, poids = lots[zone]
-            # Un peu SOUS la crete, et de facon variable : plantes pile
-            # dessus, elles s'aligneraient au cordeau sur l'arc de la
-            # colline, ce qu'aucune lisiere ne fait.
-            base = crete(fx) - brg.uniform(0.0, 0.020) * h
+            cx = x0 + fx * w
+            # LA DISTANCE, tiree au carre : il y a plus de place au fond
+            # qu'au bord, et une lisiere est plus dense en s'eloignant.
+            t = brg.random() ** 0.65
+            sol = eau_y + (max(crete(fx), crete_loin(fx)) - eau_y) * t
+            if sol <= eau_y + 2.0:
+                continue
             nom, ech, _ = brg.choices(lot, weights=poids)[0]
-            pieds.append((base, cx, nom, ech * echelle * h))
+            # Sa taille : le retrait de la distance, un jeu d'un pied a
+            # l'autre, et pour quelques-uns le coup de pouce qui les fait
+            # PERCER la ligne (voir EMERGENTS_DE_BERGE).
+            taille = (ech * h * (1.0 - RETRAIT_BERGE * t)
+                      * brg.uniform(*TAILLE_BERGE))
+            if brg.random() < EMERGENTS_DE_BERGE:
+                taille *= brg.uniform(*EMERGENT_FACTEUR)
+            pieds.append((sol, cx, nom, taille, t))
         # Du plus loin au plus proche : un arbre du fond ne doit pas se
         # dessiner par-dessus celui qui est devant lui.
-        for base, cx, nom, hauteur in sorted(pieds, reverse=True):
-            self._sprite(nom, cx, base, hauteur, teinte=teinte)
+        for sol, cx, nom, taille, t in sorted(pieds, reverse=True):
+            k = TEINTE_BERGE * (1.0 - 0.22 * t)
+            # LES IMAGES PENCHEES SE FONT RARES ICI AUSSI. Ces arbres-la ne
+            # peuvent pas etre redresses -- ils sont poses en rectangle, sans
+            # grille a faire tourner -- donc la seule chose a faire est de
+            # les voir moins souvent. Une lisiere ou un sapin sur quatre
+            # penche du meme cote se lit comme un motif repete, ce qui est
+            # exactement le reproche fait a cette berge.
+            self._sprite(nom, cx, sol, taille, teinte=(k, k, k),
+                         pick=foliage.variante_droite(nom,
+                                                      self._pick(cx, sol)))
 
     def _greve_den_face(self, eau_y, crete):
         """La plage de la berge d'en face : une bande de sable au ras de

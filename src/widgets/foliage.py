@@ -19,7 +19,9 @@ Les images gardent leurs PROPORTIONS : c'est la HAUTEUR demandee par la scene
 qui commande, la largeur suit. Une image portrait donne donc un arbre elance,
 une image carree un buisson trapu, sans deformation.
 """
+import math
 import os
+import random
 
 from kivy.core.image import Image as CoreImage
 
@@ -732,8 +734,44 @@ _MARGE_VERTE = 8
 BASE_FEUILLAGE_MIN, BASE_FEUILLAGE_MAX = 0.05, 0.55
 
 
-def _base_du_feuillage_de(path):
-    """A quelle hauteur commencent les feuilles, en fraction depuis le BAS.
+def _inclinaison_de(octets, w, h):
+    """De combien l'arbre PENCHE, en degres (positif = vers la droite).
+
+    On compare l'abscisse de son PIED a celle de son HOUPPIER. Mesure sur les
+    douze arbres livres : onze sont entre -1 et +1 degre, deux penchent
+    franchement (+5,5 et +7,2). Ces deux-la penchaient donc toujours du meme
+    cote et du meme angle, et deux d'entre eux cote a cote se voyaient tout
+    de suite. Le jeu s'en sert pour les REDRESSER avant d'appliquer son
+    propre tirage (voir zone_scenery, _sprite_feuillage)."""
+    pas = _PAS_FEUILLAGE * 4
+
+    def centre(y0, y1):
+        somme = n = 0
+        for y in range(y0, y1):
+            ligne = octets[y * w * 4:(y + 1) * w * 4]
+            for i in range(0, len(ligne) - 3, pas):
+                if ligne[i + 3] >= 128:
+                    somme += i // 4
+                    n += 1
+        return (somme / float(n) if n else None), n
+
+    pied, n1 = centre(int(h * 0.94), h)
+    houppier, n2 = centre(0, int(h * 0.55))
+    if pied is None or houppier is None or n1 < 20 or n2 < 20:
+        return 0.0
+    # Le bras de levier : du pied au milieu du houppier, soit 0,7 h.
+    return math.degrees(math.atan2(houppier - pied, 0.7 * h))
+
+
+def _mesures_de(path):
+    """(hauteur ou commencent les feuilles, inclinaison en degres).
+
+    LES DEUX DANS LE MEME DECODAGE. Ouvrir l'image une fois par mesure
+    doublerait le cout au demarrage, et c'est exactement ce qu'on vient de
+    retirer ailleurs dans ce fichier.
+
+    La hauteur est une fraction depuis le BAS, ou None si l'on n'a pas su la
+    lire -- l'appelant garde alors son defaut.
 
     On remonte depuis le pied, ligne par ligne, et on s'arrete a la premiere
     ou le feuillage l'emporte. Rend None si l'image ne se laisse pas lire ou
@@ -783,12 +821,12 @@ def _base_du_feuillage_de(path):
             if opaques > 2 and feuilles > _PART_FEUILLES * opaques:
                 # Les octets sont dans l'ordre du PNG, ligne 0 en HAUT.
                 part = (h - y) / float(h)
-                if BASE_FEUILLAGE_MIN <= part <= BASE_FEUILLAGE_MAX:
-                    return part
-                return None
+                if not BASE_FEUILLAGE_MIN <= part <= BASE_FEUILLAGE_MAX:
+                    part = None
+                return part, _inclinaison_de(octets, w, h)
+        return None, _inclinaison_de(octets, w, h)
     except Exception:
-        return None
-    return None
+        return None, 0.0
 
 
 def base_du_feuillage(name, pick=None):
@@ -803,12 +841,83 @@ def base_du_feuillage(name, pick=None):
     stems = _stems_charges(name)
     if not stems:
         return None
+    return _mesures(name, pick)[0]
+
+
+def inclinaison(name, pick=None):
+    """De combien cette variante PENCHE, en degres (positif = a droite).
+
+    Zero si on n'a pas su la lire : un arbre qu'on ne sait pas mesurer est
+    traite comme droit, ce qui est le cas de la grande majorite."""
+    return _mesures(name, pick)[1]
+
+
+def _mesures(name, pick=None):
+    """(base du feuillage, inclinaison) de cette variante. Une seule lecture
+    par image, gardee : le decor se redessine a chaque recolte."""
+    stems = _stems_charges(name)
+    if not stems:
+        return None, 0.0
     if name not in _BASES:
-        _BASES[name] = [False] * len(stems)
+        _BASES[name] = [None] * len(stems)
     i = 0 if pick is None else int(pick) % len(stems)
-    if _BASES[name][i] is False:
-        _BASES[name][i] = _base_du_feuillage_de(_chemin(stems[i]))
+    if _BASES[name][i] is None:
+        _BASES[name][i] = _mesures_de(_chemin(stems[i]))
     return _BASES[name][i]
+
+
+# --- LES IMAGES PENCHEES SONT PLUS RARES QUE LES AUTRES ----------------- #
+# Deux sapins sur sept penchent franchement (+6,0 et +7,0 degres mesures) ;
+# a tirage egal, plus d'un sapin sur quatre aurait cette silhouette-la. Le
+# jeu les REDRESSE ensuite, mais un tronc courbe reste reconnaissable : le
+# voir un arbre sur quatre fait doublon.
+#
+# On n'ecrit AUCUNE LISTE de fichiers : le seuil s'applique a ce qui est
+# mesure, donc une image livree demain est traitee toute seule.
+PENCHE_FRANCHE = 3.0
+# Quelle part des tirages tombes sur une image penchee on garde. A 0,4 les
+# deux sapins penches passent de 28 % des sapins a 11 %.
+PART_PENCHEE = 0.4
+
+
+def variante_droite(name, pick):
+    """`pick`, ou un voisin, pour que les images penchees se fassent rares.
+
+    On rend un NUMERO DE TIRAGE, pas un indice : l'appelant le repasse a
+    sprite(), relief() et inclinaison(), qui doivent tous trois designer la
+    MEME image. Rendre un indice obligerait chacun d'eux a savoir s'il a
+    affaire a l'un ou a l'autre.
+
+    Le tirage est graine par le numero d'origine : la meme position garde
+    donc la meme reponse d'un redessin a l'autre.
+
+    ON NE MESURE QUE CE QU'IL FAUT : l'image tiree d'abord, puis les
+    suivantes seulement si celle-la penche -- ce qui est rare. Une image
+    droite ne coute donc rien de plus qu'avant."""
+    stems = _stems_charges(name)
+    n = len(stems)
+    if n < 2 or pick is None:
+        return pick
+    p = int(pick)
+    if abs(_mesures(name, p)[1]) < PENCHE_FRANCHE:
+        return pick
+    r = random.Random("penche:%s:%d" % (name, p))
+    if r.random() < PART_PENCHEE:
+        return pick
+    # ON DECALE D'UN NOMBRE DE CRANS TIRE, pas toujours d'un seul. Mesure :
+    # avec un cran fixe, les deux sapins penches tombaient tous deux sur le
+    # meme voisin, qui passait a lui seul de 14 a 32 % des sapins -- on
+    # avait remplace une image trop vue par une autre.
+    #
+    # S'il n'y a aucune image droite ou se rabattre -- les deux buissons de
+    # plaine sont un miroir l'un de l'autre, tous deux a 5,7 degres -- on
+    # garde le tirage d'origine plutot que d'en imposer un aussi penche.
+    crans = list(range(1, n))
+    r.shuffle(crans)
+    for k in crans:
+        if abs(_mesures(name, p + k)[1]) < PENCHE_FRANCHE:
+            return p + k
+    return pick
 
 
 def size_for(tex, height):
