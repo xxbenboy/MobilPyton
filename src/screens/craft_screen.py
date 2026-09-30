@@ -1,104 +1,71 @@
 """
-Ecran CRAFT : ce qu'on peut FABRIQUER avec ce qu'on a sous la main.
+Ecran CRAFT : pour l'instant, le SOL DEVANT SOI, et rien d'autre.
 
-- A portee : les 2 objets tenus (bouton "Deposer" pour les poser au sol) et
-  les objets presents sur la case (avec leur nombre ; bouton "Prendre" pour
-  les ramasser, si les mains ne sont pas pleines).
-- Recettes : ce qu'on peut fabriquer avec les objets en mains + au sol.
+L'ancien systeme de fabrication est retire, en attendant sa nouvelle forme :
+plus de recettes, plus de colonnes, plus de bande de mains ni de sac. Les
+recettes sont gardees de cote dans src/recettes_archive.py.
 
-Le titre est un TITRE A DEUX VOLETS partage avec l'inventaire : les deux
-ecrans montrent les memes objets sous deux angles, on passe de l'un a l'autre
-en tapant le volet sombre (voir src/widgets/menu_toggle.py).
+CE QUI RESTE :
+- le TITRE A DEUX VOLETS en haut, pour revenir a l'inventaire (voir
+  src/widgets/menu_toggle.py). Il garde sa place exacte : basculer d'un
+  ecran a l'autre ne doit rien deplacer sous le doigt ;
+- le bouton RETOUR, pour sortir du menu, a la hauteur ou il est dans
+  l'inventaire.
 
-Les objets sont affiches via leur image (assets/items/<nom>.png) ou un "?".
+CE QUI EST NOUVEAU : LE FOND. Au lieu de la scene de la case vue de cote, on
+voit ce que voit le joueur quand il baisse les yeux -- le sol de la case qui
+fuit en perspective, le paysage de la meme case a l'horizon, et ses propres
+mains au premier plan, avec ce qu'elles tiennent. C'est la scene sur
+laquelle le prochain systeme de fabrication viendra se poser.
 """
 from kivy.app import App
 from kivy.uix.screenmanager import Screen
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.boxlayout import BoxLayout
-from kivy.uix.gridlayout import GridLayout
-from kivy.uix.scrollview import ScrollView
-from kivy.uix.label import Label
 from kivy.uix.widget import Widget
-from kivy.graphics import Color, RoundedRectangle, Rectangle
+from kivy.graphics import Color, Rectangle
 from kivy.metrics import dp
 
-from src import items
+from src import world
+from src.widgets import daylight, horizon
 from src.widgets.animated_background import AnimatedBackground, night_darkness
-from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
-from src.widgets.item_info import TappableIcon
-from src.widgets.styled_button import StyledButton, TabButton
-from src.widgets.panels import panel
-from src.widgets.hand_slot import hands_row, item_text
-from src.widgets.item_grid import fill_ground, fill_bag
-from src.widgets.drag_drop import DragDrop, make_highlightable
-from src.widgets.responsive import (scale_font, dh, fit_text, TEXT_NORMAL,
-                                    TEXT_TITLE, TEXT_SMALL, SIDE_SHARE,
-                                    center_share, ROW_TITLE, ROW_BODY,
-                                    ROW_HANDS, ROW_HINT, ROW_BACK,
-                                    COL_TITLE, COL_LIST)
+from src.widgets.player_hands import PlayerHands
+from src.widgets.styled_button import StyledButton
+from src.widgets.responsive import (scale_font, ROW_TITLE, ROW_BODY,
+                                    ROW_HANDS, ROW_HINT, ROW_BACK)
 from src.widgets.menu_toggle import MenuToggle
 
-# Gris des textes secondaires, comme dans l'inventaire.
-_DIM = (0.62, 0.64, 0.70, 1)
-_BAG_CELL_H = 170
+# Largeur du bouton Retour, en part de l'ecran. Il n'occupe plus toute la
+# largeur comme dans l'inventaire : il se glisse ENTRE LES DEUX AVANT-BRAS,
+# qui descendent jusqu'au bas de l'ecran de part et d'autre (voir
+# PlayerHands.HAND_FX). Sa hauteur, elle, est celle de l'inventaire.
+LARGEUR_RETOUR = 0.20
 
 
-def _panel(widget, alpha=0.45):
-    return panel(widget, alpha=alpha)
-
-
-def _btn_font(w, *_):
-    """Taille de police d'un bouton, divisee par le nombre de lignes du texte."""
-    lines = (w.text or "").count("\n") + 1
-    w.font_size = max(9, w.height * 0.34 / lines)
-
-
-def _recipe_text_font(w, *_):
-    """Texte d'une recette : la taille courante du jeu (voir fit_text).
-
-    AVEC RENVOI A LA LIGNE. Sans lui, fit_text reduit la police jusqu'a ce que
-    la ligne la PLUS LONGUE tienne d'un seul tenant : une recette a quatre
-    conditions -- matieres, outil, atelier, duree -- devenait donc illisible,
-    et c'est la recette la plus compliquee, celle qu'on a le plus besoin de
-    lire, qui ecrivait le plus petit. Renvoyee a la ligne, elle occupe la
-    hauteur de sa rangee et garde la taille de tout le monde."""
-    fit_text(w, TEXT_NORMAL, wrap=True)
-
-
-def _fit_button_font(btn, *_):
-    """Police d'un bouton aussi grande que possible SANS deborder sa boite,
-    limitee a la fois par la hauteur ET par la largeur du texte.
-
-    Necessaire car la rangee des recettes est plus haute : un calcul base
-    seulement sur la hauteur ferait deborder le texte en largeur."""
-    if btn.width <= 1 or btn.height <= 1:
-        return
-    f = btn.height * 0.42
-    btn.text_size = (None, None)
-    btn.font_size = f
-    btn.texture_update()
-    if btn.texture_size[0] > btn.width * 0.90:
-        f = f * (btn.width * 0.90) / btn.texture_size[0]
-    btn.font_size = max(10, f)
-
-
-class CraftScreen(DragDrop, Screen):
+class CraftScreen(Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         root = FloatLayout()
+
+        # LE CIEL, derriere tout : il suit l'heure et la meteo, et ses nuages
+        # convergent vers l'horizon de la vue (voir on_pre_enter).
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         root.add_widget(self.background)
-        # La scene de la case en fond, comme la carte et la zone (voir
-        # on_pre_enter).
+
+        # LE SOL DEVANT SOI et le paysage de la case (voir
+        # ZoneScenery.set_plongee).
         self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.scenery)
 
-        # Voile de NUIT : assombrit ciel + sol selon l'heure, comme dans
-        # l'ecran de jeu et la carte. Ajoute AVANT le HUD (col) qui reste
-        # lisible.
+        # LES MAINS DU JOUEUR, avec ce qu'elles tiennent -- le meme widget que
+        # dans l'ecran de jeu, donc les memes poses, les memes gants.
+        self.hands = PlayerHands(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.hands)
+
+        # Voile de NUIT : assombrit tout selon l'heure, mains comprises, comme
+        # dans l'ecran de jeu.
         self.night = Widget(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         with self.night.canvas:
             self._night_color = Color(0.03, 0.05, 0.12, 0.0)
@@ -111,292 +78,65 @@ class CraftScreen(DragDrop, Screen):
         self.night.bind(pos=_sync_night, size=_sync_night)
         root.add_widget(self.night)
 
+        # LES DEUX BOUTONS, AUX PLACES QU'ILS ONT DANS L'INVENTAIRE. On garde
+        # la meme colonne, aux memes mesures (gabarit de responsive.py), en
+        # remplacant simplement ce qui n'existe plus par du vide : le titre
+        # et le Retour tombent ainsi exactement la ou le doigt les attend.
+        # Aucun panneau derriere : la colonne est transparente.
         col = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(8),
                         size_hint=(0.96, 0.96),
                         pos_hint={"center_x": 0.5, "center_y": 0.5})
-
-        # Titre a deux volets : "inventaire / CRAFT". Les deux mots gardent
-        # toujours la meme place, seule la surbrillance change d'ecran.
         col.add_widget(MenuToggle(self, "craft", size_hint=(1, ROW_TITLE)))
+        col.add_widget(Widget(size_hint=(1, ROW_BODY + ROW_HANDS + ROW_HINT)))
 
-        # TROIS COLONNES, aux memes mesures que l'inventaire (gabarit commun
-        # dans responsive.py) : a proximite / recettes / sac a dos. Basculer
-        # d'un ecran a l'autre ne deplace donc aucune colonne -- on retrouve
-        # chaque chose exactement ou on l'avait laissee.
-        body = BoxLayout(orientation="horizontal", spacing=dp(10),
-                         size_hint=(1, ROW_BODY))
-
-        # ---- Gauche : ce qui traine A PROXIMITE ----
-        near = BoxLayout(orientation="vertical", spacing=dp(6),
-                         size_hint_x=SIDE_SHARE)
-        self.near_title = scale_font(Label(text="A proximite", bold=True,
-                                     size_hint=(1, COL_TITLE)), 0.022)
-        near.add_widget(self.near_title)
-        sc0 = self.ground_scroll = make_highlightable(
-            ScrollView(size_hint=(1, COL_LIST)))
-        self.ground_box = BoxLayout(orientation="vertical", spacing=dp(4),
-                                    size_hint_y=None)
-        self.ground_box.bind(minimum_height=self.ground_box.setter("height"))
-        sc0.add_widget(self.ground_box)
-        near.add_widget(sc0)
-        body.add_widget(near)
-
-        rest = center_share()
-
-        # ---- Milieu : les RECETTES ----
-        center = BoxLayout(orientation="vertical", spacing=dp(6),
-                           size_hint_x=rest)
-        center.add_widget(scale_font(Label(text="Recettes", bold=True,
-                                     size_hint=(1, COL_TITLE)), 0.022))
-        sc1 = ScrollView(size_hint=(1, COL_LIST))
-        self.recipe_box = BoxLayout(orientation="vertical", spacing=dp(6),
-                                    size_hint_y=None)
-        self.recipe_box.bind(minimum_height=self.recipe_box.setter("height"))
-        sc1.add_widget(self.recipe_box)
-        center.add_widget(sc1)
-        body.add_widget(center)
-
-        # ---- Droite : le SAC A DOS ----
-        # Il compte comme matiere premiere (voir GameState.craft_pool) : ce
-        # qu'on transporte se fabrique sans avoir a le poser par terre. Ses
-        # cases n'ont donc pas de bouton -- il n'y a rien a en sortir.
-        right = BoxLayout(orientation="vertical", spacing=dp(6),
-                          size_hint_x=rest)
-        self.bag_title = scale_font(Label(text="Sac a dos", bold=True,
-                                    size_hint=(1, COL_TITLE)), 0.022)
-        right.add_widget(self.bag_title)
-        sc2 = self.bag_scroll = make_highlightable(
-            ScrollView(size_hint=(1, COL_LIST)))
-        self.bag_box = BoxLayout(orientation="vertical", spacing=dp(4),
-                                 size_hint_y=None)
-        self.bag_box.bind(minimum_height=self.bag_box.setter("height"))
-        sc2.add_widget(self.bag_box)
-        right.add_widget(sc2)
-        body.add_widget(right)
-
-        col.add_widget(body)
-
-        # ---- En bas : les MAINS ----
-        # Exactement la meme bande que dans l'inventaire (widget partage) :
-        # basculer d'un ecran a l'autre ne doit rien deplacer en bas non plus.
-        row, self.hand_slots = hands_row(size_hint=(1, ROW_HANDS))
-        for slot in self.hand_slots:
-            make_highlightable(slot)
-        col.add_widget(row)
-
-        self.hint = fit_text(Label(
-            text="Le sac compte comme matiere : pas besoin d'en sortir les "
-                 "objets pour fabriquer.", color=_DIM, halign="center",
-            valign="middle", size_hint=(1, ROW_HINT)), TEXT_SMALL, wrap=True)
-        col.add_widget(self.hint)
-
+        bas = BoxLayout(orientation="horizontal", size_hint=(1, ROW_BACK))
+        marge = (1.0 - LARGEUR_RETOUR) / 2.0
+        bas.add_widget(Widget(size_hint_x=marge))
         back = scale_font(StyledButton(text="Retour",
-                                       size_hint=(1, ROW_BACK)), 0.022)
+                                       size_hint_x=LARGEUR_RETOUR), 0.022)
         back.bind(on_release=lambda *_: setattr(self.manager, "current", "game"))
-        col.add_widget(back)
-
-        # Categories de recettes actuellement DEPLIEES.
-        self._open_cats = set()
-
-        _panel(col)
+        bas.add_widget(back)
+        bas.add_widget(Widget(size_hint_x=marge))
+        col.add_widget(bas)
         root.add_widget(col)
 
-        # Couche du glisser-deposer : l'objet suivi par le doigt passe
-        # AU-DESSUS de tout le reste.
-        self.drag_layer = FloatLayout(size_hint=(1, 1),
-                                      pos_hint={"x": 0, "y": 0})
-        root.add_widget(self.drag_layer)
-        self._root = root
-        # Cibles du glisser, refaites a chaque rafraichissement. Le craft n'a
-        # pas de silhouette : sa liste d'equipement reste vide, et le
-        # melangeur saute simplement cette partie.
-        self._equip_slots = []
-        self._bag_cells = []
-        self._ground_cells = []
-        self.init_drag()
         self.add_widget(root)
 
     # ------------------------------------------------------------------ #
     def on_pre_enter(self):
-        # A chaque ouverture de l'ecran, toutes les categories sont repliees.
-        self._open_cats = set()
-        state = App.get_running_app().game_state
-        if state is not None:
-            self.background.set_seconds(state.time_seconds)
-            self.background.set_weather(state.effective_weather())
-            self.scenery.set_wind(state.effective_weather())
-            # Le voile de nuit prend AUSSI la teinte de l'heure, et le decor
-            # suit le soleil (couleur de la lumiere, ombres portees).
-            self._night_color.rgb = daylight.veil_color(state.time_seconds)
-            self._night_color.a = night_darkness(state.time_seconds)
-            self.scenery.set_daylight(state.time_seconds)
-            # FOND : la scene de la case, comme l'inventaire, la carte et la
-            # zone (voir InventoryScreen.on_pre_enter).
-            self.scenery.montre_la_case(state)
-            self.background.set_horizon(self.scenery.hauteur_horizon())
-            self.scenery.set_brume(self.background.couleur_ciel(
-                self.scenery.hauteur_horizon()))
-        self.refresh()
-
-    def on_leave(self):
-        """Ne laisse ni clignotement ni fiche ouverte sur un ecran qu'on quitte."""
-        self._cancel_drag()
-        if self._info is not None:
-            self._info.close()
-
-    def refresh(self):
         state = App.get_running_app().game_state
         if state is None:
             return
-        self._fill_hands(state)
-        self._fill_ground(state)
-        self._fill_bag(state)
-        self._fill_recipes(state)
-
-    # ------------------------------------------------------------------ #
-    def _fill_hands(self, state):
-        """Ce que tiennent les mains. Rien de plus.
-
-        Il y avait ici deux boutons, "Equiper" et "Deposer". Ils faisaient de
-        cette bande autre chose que celle de l'inventaire, alors que les deux
-        ecrans sont censes se repondre sans que rien ne bouge entre eux. Ces
-        actions appartiennent a l'inventaire, ou l'on fait glisser les objets
-        d'une case a l'autre ; le craft, lui, sert a fabriquer."""
-        for slot in self.hand_slots:
-            name = state.hands[slot.hand]
-            slot.set_item(name, item_text(state, name))
-
-    def _fill_ground(self, state):
-        """Ce qui traine sur la case, exactement comme dans l'inventaire.
-
-        Il y avait ici une liste haute, avec deux boutons "Main G" / "Main D"
-        par objet pour le ramasser. On prend desormais un objet en le
-        GLISSANT, dans l'inventaire : ces boutons faisaient double emploi, et
-        donnaient a la colonne une forme differente de celle d'a cote."""
-        self._ground_cells = fill_ground(self.ground_box,
-                                         self.near_title, state)
-
-    def _fill_bag(self, state):
-        """Le sac. Meme colonne que dans l'inventaire (widget partage), et
-        ses cases sont desormais attrapables."""
-        self._bag_cells = fill_bag(self.bag_box, self.bag_title, state)
-
-    def _fill_recipes(self, state):
-        """Recettes, rangees par CATEGORIE repliable. Tout est replie a
-        l'ouverture de l'ecran : la liste tient alors en quelques lignes, et
-        le joueur deplie seulement ce qui l'interesse."""
-        self.recipe_box.clear_widgets()
-        pool = state.craft_pool()
-        for category in items.RECIPE_CATEGORIES:
-            # LES RECETTES D'ATELIER NE SONT PAS ICI. Elles ne se font pas a
-            # mains nues et leur matiere doit etre posee sur l'etabli : les
-            # montrer dans cette liste, c'etait promettre au joueur qu'il
-            # pourrait les faire la ou il se tient. Elles ont leur ecran, ou
-            # l'on n'arrive qu'en ayant monte l'atelier.
-            group = [r for r in items.RECIPES
-                     if r.get("category") == category
-                     and not r.get("station")]
-            if not group:
-                continue
-            ready = sum(1 for r in group if state.can_craft(r))
-            opened = category in self._open_cats
-            head = TabButton(
-                text=f"{'-' if opened else '+'}  {category}   "
-                     f"({ready}/{len(group)})",
-                halign="left", bold=True, size_hint_y=None, height=dh(84))
-            head.bind(size=_btn_font)
-            head.bind(on_release=lambda _w, c=category: self._toggle_cat(c))
-            head.selected = opened          # categorie depliee = allumee
-            self.recipe_box.add_widget(head)
-            if not opened:
-                continue
-            self._add_recipes(state, pool, group)
-
-    def _toggle_cat(self, category):
-        """Deplie la categorie, ou la replie si elle l'etait deja."""
-        if category in self._open_cats:
-            self._open_cats.discard(category)
-        else:
-            self._open_cats.add(category)
+        self.background.set_seconds(state.time_seconds)
+        self.background.set_weather(state.effective_weather())
+        self.scenery.set_wind(state.effective_weather())
+        # Le voile de nuit prend AUSSI la teinte de l'heure, et le sol suit le
+        # soleil (couleur de la lumiere).
+        self._night_color.rgb = daylight.veil_color(state.time_seconds)
+        self._night_color.a = night_darkness(state.time_seconds)
+        self.scenery.set_daylight(state.time_seconds)
+        # LE SOL DE LA CASE, vu en plongee. La graine est celle de la scene
+        # de la case : le meme endroit montre toujours le meme sol.
+        self.scenery.set_plongee(
+            state.current_zone(),
+            world.scene_seed(state.player_x, state.player_y),
+            berge=horizon.zone_den_face(state))
+        self.background.set_horizon(self.scenery.hauteur_horizon())
+        self.scenery.set_brume(self.background.couleur_ciel(
+            self.scenery.hauteur_horizon()))
         self.refresh()
 
-    def _add_recipes(self, state, pool, group):
-        for recipe in group:
-            # Ingredients : ecriture plus FONCEE si l'ingredient manque.
-            parts = []
-            for k, v in recipe["ingredients"].items():
-                label = f"{items.display_name(k)} x{v}"
-                if pool.get(k, 0) >= v:
-                    parts.append(label)
-                else:
-                    parts.append(f"[color=777777]{label}[/color]")
-            # Matiere au CHOIX : "Feuille ou Herbe", une seule est consommee.
-            alts = recipe.get("any_of")
-            if alts:
-                label = " ou ".join(items.display_name(a) for a in alts)
-                if state.recipe_choice(recipe) is not None:
-                    parts.append(label)
-                else:
-                    parts.append(f"[color=777777]{label}[/color]")
-            # OUTIL requis : pas consomme, mais il s'use.
-            tool = recipe.get("tool")
-            if tool:
-                cost = int(round(recipe.get("tool_wear", 0.0) * 100))
-                label = f"{items.display_name(tool)} (-{cost} %)"
-                if state.recipe_tool_ok(recipe):
-                    parts.append(label)
-                else:
-                    parts.append(f"[color=777777]{label}[/color]")
-            # LE TEMPS que l'ouvrage prend, s'il en prend. Il se paie en faim
-            # et en soif : il a sa place dans le prix.
-            minutes = int(recipe.get("minutes", 0))
-            if minutes:
-                parts.append("[color=c8b48c]%s[/color]"
-                             % items.duree_texte(minutes))
-            ing = ", ".join(parts)
+    def on_enter(self):
+        # Les mains respirent, comme dans l'ecran de jeu.
+        self.hands.start_breathing()
 
-            # Rangee bien plus HAUTE qu'avant : l'image (qui garde son ratio)
-            # etait limitee par la hauteur de la rangee -> on la fait grandir.
-            row = BoxLayout(orientation="horizontal", spacing=dp(6),
-                            size_hint_y=None, height=dh(200))
-            # Image du resultat a gauche, AGRANDIE au maximum : rangee plus
-            # haute + boite plus large (ou "?" si aucune image n'existe).
-            row.add_widget(TappableIcon(recipe["result"], self._tap_info,
-                                        show_name=False, size_hint_x=0.30))
-            txt = Label(
-                text=f"[b]{items.display_name(recipe['result'])}[/b]\n{ing}",
-                markup=True, halign="left", valign="middle", size_hint_x=0.44)
-            _recipe_text_font(txt)
-            row.add_widget(txt)
-            btn = StyledButton(text="Fabriquer", size_hint_x=0.26)
-            btn.bind(size=_fit_button_font, text=_fit_button_font)
-            btn.disabled = not state.can_craft(recipe)
-            btn.bind(on_release=lambda _w, r=recipe: self._craft(r))
-            row.add_widget(btn)
-            self.recipe_box.add_widget(row)
+    def on_leave(self):
+        self.hands.stop_breathing()
 
-    # ------------------------------------------------------------------ #
-    def _tap_info(self, name):
-        """Ouvre la fiche de l'objet sur lequel on vient de taper.
-
-        Ne s'appelle PAS `_info` : le glisser-deposer se sert de ce nom pour
-        retenir la fiche actuellement ouverte, et l'attribut aurait masque la
-        methode -- les images de recettes n'auraient plus rien ouvert."""
-        self._show_info(name)
-
-    def _craft(self, recipe):
+    def refresh(self):
+        """Les mains montrent ce qu'elles tiennent, gants compris."""
         state = App.get_running_app().game_state
-        state.do_craft(recipe)
-        App.get_running_app().autosave()
-        # UN DEPOSABLE SORT DE L'ATELIER SANS ETRE UN OBJET : il n'est ni dans
-        # une main ni dans le sac, il attend sa place. On enchaine donc
-        # directement sur la pose, et le joueur tranche tout de suite --
-        # poser, ou renoncer et recuperer sa matiere.
-        if state.pending_item() is not None:
-            pose = self.manager.get_screen("place")
-            pose._slot = None
-            pose.mode = "place"
-            pose._action_cell = None
-            self.manager.current = "place"
+        if state is None:
             return
-        self.refresh()
+        self.hands.set_items(state.hands[0], state.hands[1])
+        self.hands.set_glove(state.equipment.get("gant"))

@@ -401,60 +401,29 @@ def random_find(zone, rng=None):
     return rng.choices(names, weights=weights, k=1)[0]
 
 
-# Categories des recettes, dans l'ordre d'affichage de l'ecran Craft. Chaque
-# categorie s'y replie et se deplie.
-RECIPE_CATEGORIES = ("Outils", "Materiaux", "Equipement", "Installations")
+# LE CRAFT EST RETIRE, EN ATTENDANT SA NOUVELLE FORME.
+#
+# Les recettes ne sont pas perdues : elles sont gardees telles quelles dans
+# src/recettes_archive.py (que le jeu ne lit pas), avec le nom de l'image de
+# chaque objet. Les OBJETS, eux, restent : leurs noms, leurs fiches, leurs
+# images et leurs regles d'usage n'ont pas bouge. Seule la fabrication a
+# disparu.
+#
+# Une liste VIDE, et non une suppression : tout ce qui la parcourt -- la
+# fiche d'objet ("Se fabrique avec", "Sert a"), l'ecran d'atelier,
+# GameState.can_craft -- sait deja faire avec zero recette, et le jour ou
+# le nouveau systeme arrive il n'y a qu'a la remplir.
+RECIPE_CATEGORIES = ()
 
-# Recettes : resultat <- ingredients (objet: quantite).
-# Une recette peut demander, en plus de ses `ingredients` (tous consommes) :
+# Format d'une recette, garde pour le prochain systeme :
+# resultat <- ingredients (objet: quantite), plus au besoin :
 # - "any_of"  : une SEULE des matieres listees est consommee (au choix) ;
 # - "tool"    : un OUTIL qui doit etre a proximite. Il n'est pas consomme, mais
 #               "tool_wear" lui coute une part de sa solidite (0.10 = 10 %) ;
 # - "station" : un DEPOSABLE qui doit etre POSE sur la case. Il ne s'use pas et
-#               ne se transporte pas -- c'est un lieu, pas un objet. C'est ce
-#               qui fait qu'un atelier vaut la peine d'etre monte quelque part
-#               plutot que trimballe ;
-# - "minutes" : le TEMPS de jeu que l'ouvrage prend. La plupart des recettes
-#               sont des gestes et n'en demandent pas ; un atelier est un
-#               chantier d'une heure, et cette heure se paie en faim, en soif
-#               et en lumiere du jour.
-RECIPES = [
-    {"result": "Couteau", "category": "Outils",
-     "ingredients": {"Pierre": 1, "Small_Stick": 1}},
-    {"result": "Hache", "category": "Outils",
-     "ingredients": {"Pierre": 1, "Small_Stick": 4, "Corde": 1}},
-    {"result": "Lance", "category": "Outils",
-     "ingredients": {"Long_Stick": 1, "Couteau": 1, "Corde": 1}},
-    {"result": "Allume_feu", "category": "Outils",
-     "ingredients": {"Silex": 1, "Pierre": 1}},
-    {"result": "Fibre_Vegetale", "category": "Materiaux", "ingredients": {},
-     "any_of": ["Feuille", "Herbe"], "tool": "Couteau", "tool_wear": 0.10},
-    {"result": "Corde", "category": "Materiaux",
-     "ingredients": {"Fibre_Vegetale": 3}},
-    # Premiere tenue : des feuilles maintenues par des batons et de la corde.
-    {"result": "Casque_De_Feuille", "category": "Equipement",
-     "ingredients": {"Small_Stick": 5, "Feuille": 10, "Corde": 1}},
-    {"result": "Veste_De_Feuille", "category": "Equipement",
-     "ingredients": {"Small_Stick": 5, "Feuille": 10, "Corde": 1}},
-    {"result": "Gant_De_Feuille", "category": "Equipement",
-     "ingredients": {"Feuille": 5, "Corde": 1}},
-    {"result": "Pantalon_De_Feuille", "category": "Equipement",
-     "ingredients": {"Small_Stick": 5, "Feuille": 10, "Corde": 1}},
-    {"result": "Soulier_De_Feuille", "category": "Equipement",
-     "ingredients": {"Feuille": 5, "Corde": 1}},
-    {"result": "Sac_De_Feuille", "category": "Equipement",
-     "ingredients": {"Small_Stick": 10, "Feuille": 20, "Corde": 2}},
-    {"result": "Feu_de_camp", "category": "Installations",
-     "ingredients": {"Small_Stick": 3, "Pierre": 2}},
-    {"result": "Marteau", "category": "Outils",
-     "ingredients": {"Pierre": 1, "Small_Stick": 4, "Corde": 1}},
-    {"result": WORKBENCH_T1, "category": "Installations",
-     "ingredients": {"Pierre": 5, "Long_Stick": 2},
-     "tool": "Marteau", "tool_wear": 0.20, "minutes": 60},
-    {"result": BLUEPRINT_T1, "category": "Installations",
-     "ingredients": {"Small_Stick": 4, "Corde": 1},
-     "station": WORKBENCH_T1},
-]
+#               ne se transporte pas -- c'est un lieu, pas un objet ;
+# - "minutes" : le TEMPS de jeu que l'ouvrage prend.
+RECIPES = []
 
 
 # --------------------------------------------------------------------- #

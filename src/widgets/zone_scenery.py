@@ -825,6 +825,101 @@ GROUND_DEPTH = 3.6
 # change vite.
 GROUND_ROWS = 14
 
+# --------------------------------------------------------------------- #
+# LA VUE PLONGEANTE (voir set_plongee)
+# --------------------------------------------------------------------- #
+# Le regard du joueur, BAISSE VERS LE SOL devant lui, a la premiere personne.
+# Ce n'est plus la vue de dessus d'avant (set_ground), ou la texture du sol
+# remplissait l'ecran a plat, sans profondeur ni horizon : ici une vraie
+# camera regarde le sol en biais, le sol fuit vers le haut de l'ecran, et le
+# paysage de la case reparait au-dessus, a l'horizon.
+#
+# UNE VRAIE PROJECTION, et non une rampe reglee a l'oeil. Un oeil a
+# PLONGEE_OEIL metres du sol regarde PLONGEE_ANGLE degres sous l'horizontale ;
+# un point du sol a X metres sur le cote et Z devant se projette par
+#
+#     zc = OEIL sin(a) + Z cos(a)          (profondeur dans l'axe du regard)
+#     yc = Z sin(a) - OEIL cos(a)          (hauteur dans l'image)
+#     x = cx + f X / zc     y = cy + f yc / zc
+#
+# et la focale f se deduit de l'horizon voulu : a Z infini, y tend vers
+# cy + f tan(a), qu'on fait tomber sur PLONGEE_HORIZON. Tout le reste en
+# decoule -- la taille d'une tuile, celle d'une brindille, ou finit le sol.
+#
+# Avec ces valeurs, sur l'ecran du jeu (2340 x 1080) : le bas de l'ecran
+# montre le sol a 1,2 m des pieds, une tuile de texture y fait ~470 px (la
+# scene en montre 448 au premier plan : le sol a la meme echelle d'un ecran
+# a l'autre), et le champ horizontal couvre ~104 degres.
+PLONGEE_HORIZON = 0.84
+PLONGEE_ANGLE = 22.0
+PLONGEE_OEIL = 1.6
+# Jusqu'ou le sol est dessine, en metres. Au-dela, la bande du paysage prend
+# le relais : a 90 m une tuile ne fait plus qu'une dizaine de pixels, et le
+# sol se confond deja avec la brume.
+PLONGEE_LOIN = 90.0
+# Les decoupes du maillage. La carte graphique interpole les coordonnees de
+# texture EN LIGNE DROITE dans chaque triangle, or la perspective est une
+# courbe : il faut des bandes fines pour qu'elle ne se voie pas en segments.
+# Des colonnes aussi, sans quoi la diagonale de chaque quadrilatere
+# tordrait le motif.
+PLONGEE_RANGEES = 56
+PLONGEE_COLONNES = 12
+# Metres de sol couverts par une repetition de texture. Une feuille du sol de
+# foret y fait six centimetres.
+PLONGEE_TUILE = 0.9
+# Ou le voile d'air commence a se poser sur le sol, en metres. Il s'epaissit
+# ensuite jusqu'a la crete du paysage (voir _brume) : le sol se fond dans le
+# lointain au lieu de s'arreter net contre lui.
+PLONGEE_BRUME_DEPUIS = 10.0
+# Les objets du sol (brindilles, cailloux, touffes) ne sont semes que jusqu'a
+# cette distance : plus loin ils feraient moins d'un pixel.
+PLONGEE_OBJETS_LOIN = 14.0
+# La rive : largeur au sol d'une repetition de la bande de sable mouille
+# (rive_B), et profondeur qu'elle couvre avant que l'eau du lac ne prenne le
+# relais, en metres.
+#
+# LES DEUX SONT EGALES, et ce n'est pas une commodite. L'image fait deux
+# fois plus large que haute, mais c'est un sol DEJA VU DE BIAIS : ses galets
+# y sont tasses de moitie en hauteur (voir rive.py). Une tuile de 3 m sur
+# 3 m lui rend donc des galets ronds. Le premier essai, 3,2 m sur 5 m,
+# les etirait deux fois et demie dans la profondeur : pres des pieds, la
+# greve se lisait en rayures.
+PLONGEE_RIVE_TUILE = 3.0
+PLONGEE_RIVE = 3.0
+# Les sols, par scene : (sol proche, crete proche du paysage, crete
+# lointaine). La crete lointaine est un peu plus sombre, pour que les deux
+# plans se detachent l'un de l'autre. Le lac n'a pas de sol proche a lui :
+# c'est la rive, puis l'eau (voir _rive_en_perspective), et sa berge d'en
+# face est de l'herbe, comme dans la scene.
+PLONGEE_SOLS = {
+    "Foret": ("forest_floor", "forest_floor_far", "forest_floor_far"),
+    "Plaine": ("grass", "grass_loin", "grass_far"),
+    "Montagne": ("rock", "rock", "rock_dark"),
+    "Lac": (None, "grass", "grass_far"),
+}
+# Hauteur des cretes du paysage AU-DESSUS du bout du sol, en part de la
+# hauteur d'ecran : (crete proche, crete lointaine). La foret est plate --
+# ce sont ses arbres qui font la silhouette ; la montagne monte.
+PLONGEE_CRETES = {
+    "Foret": (0.012, 0.022),
+    "Plaine": (0.022, 0.045),
+    "Montagne": (0.045, 0.080),
+    "Lac": (0.028, 0.050),
+}
+# Le paysage du fond, par scene : (nombre de pieds, taille relative a celle
+# de la berge d'en face du lac). Voir _foret_den_face.
+#
+# LA FORET N'EST PAS UNE LISIERE. Avec les soixante pieds de la berge du
+# lac, le premier apercu montrait une rangee d'arbres clairsemes sur une
+# ligne plate -- exactement le defaut qu'on avait retire de cette berge. On
+# est DANS la foret : elle doit fermer l'horizon, dense et haute.
+PLONGEE_PAYSAGE = {
+    "Foret": (170, 1.30),
+    "Plaine": (60, 0.85),
+    "Montagne": (80, 0.90),
+    "Lac": (60, 0.85),
+}
+
 # Fleurs de plaine : couleur de repli ET image correspondante. On tire la
 # PAIRE d'un coup : sans cela, une fleur tiree "jaune" pouvait se voir poser
 # l'image d'une fleur rouge.
@@ -1336,6 +1431,10 @@ class ZoneScenery(Widget):
 
     def hauteur_horizon(self):
         """Part de la hauteur d'ecran ou le sol rencontre le ciel."""
+        if self._mode == "plongee":
+            # Le regard baisse : l'horizon monte tout en haut de l'image, et
+            # le ciel qui s'y accorde doit y faire converger ses nuages.
+            return PLONGEE_HORIZON
         return self.CRETE.get(self._zone, self.CRETE_DEFAUT)
 
     def grille(self, gx, gy):
@@ -2591,6 +2690,362 @@ class ZoneScenery(Widget):
         self._mode = "ground"
         self._redraw()
 
+    def set_plongee(self, zone_type, seed=0, berge=None):
+        """Vue A LA PREMIERE PERSONNE, le regard baisse vers le sol.
+
+        Le sol de la case fuit en perspective depuis le bas de l'ecran, et le
+        paysage de la meme case reparait au-dessus, a l'horizon (voir
+        PLONGEE_HORIZON). C'est le fond de l'ecran de craft.
+
+        `berge` : ce qu'il y a de l'autre cote de l'eau, pour une rive (voir
+        horizon.zone_den_face). Ailleurs, le paysage du fond est celui de la
+        case elle-meme : dans une foret, on voit de la foret tout autour.
+
+        RIEN N'Y EST RECOLTABLE, rien n'y est pose : c'est un decor. Les
+        objets semes sur le sol ne passent pas par _take_or_skip."""
+        self._cle_case = None
+        self._zone = SCENE_DE_ZONE.get(zone_type, zone_type)
+        self._seed = seed
+        self._mode = "plongee"
+        self._taken = {}
+        self._installed = []
+        self._blocked_grid = set()
+        self._removed_grid = set()
+        self._apercu_nom = None
+        # LE PAYSAGE DU FOND EST CELUI DE LA CASE, partout. On ne garde aucun
+        # voisin : _zone_de_berge rend alors `_berge` sur toute la largeur.
+        self._neighbours = {}
+        if self._zone == "Lac":
+            self._berge = berge
+        else:
+            self._berge = zone_type
+        self._redraw()
+
+    # -- la projection de la vue plongeante ----------------------------- #
+    def _camera_plongee(self):
+        """(cx, cy, f, sin a, cos a) : le centre de l'image, la focale en
+        pixels, et l'inclinaison du regard (voir PLONGEE_ANGLE)."""
+        a = math.radians(PLONGEE_ANGLE)
+        sa, ca = math.sin(a), math.cos(a)
+        f = (PLONGEE_HORIZON - 0.5) * self.height * ca / sa
+        return (self.x + 0.5 * self.width, self.y + 0.5 * self.height,
+                f, sa, ca)
+
+    def _sol_vers_ecran(self, X, Z):
+        """(x, y, pixels par metre) du point du sol a X m sur le cote et Z m
+        devant. Le troisieme nombre est l'echelle A CETTE DISTANCE : c'est
+        elle qui dit quelle taille donner a ce qu'on y pose."""
+        cx, cy, f, sa, ca = self._camera_plongee()
+        zc = PLONGEE_OEIL * sa + Z * ca
+        yc = Z * sa - PLONGEE_OEIL * ca
+        return cx + f * X / zc, cy + f * yc / zc, f / zc
+
+    def _distance_a_la_rangee(self, y):
+        """La distance Z (m) du sol vu a la hauteur d'ecran `y`, ou None si
+        cette hauteur est au-dessus de l'horizon."""
+        cx, cy, f, sa, ca = self._camera_plongee()
+        r = (y - cy) / f
+        den = sa - r * ca
+        if den <= 1e-6:
+            return None
+        return PLONGEE_OEIL * (ca + r * sa) / den
+
+    def _maillage_de_sol(self, z0, z1, uv, rangees=PLONGEE_RANGEES,
+                         colonnes=PLONGEE_COLONNES):
+        """(sommets, indices, distances) d'une bande de sol entre z0 et z1 m.
+
+        LES RANGEES SONT REPARTIES A L'ECRAN, pas en distance : c'est a
+        l'ecran que l'interpolation en ligne droite de la carte graphique se
+        voit, donc c'est la qu'il faut des pas reguliers.
+
+        `uv(X, Z)` rend les coordonnees de texture du point (X, Z) du sol.
+        `distances` donne, rangee par rangee, la distance de chaque sommet --
+        la rampe de l'eau en a besoin (voir _surface_eau)."""
+        x0, w = self.x, self.width
+        cx, cy, f, sa, ca = self._camera_plongee()
+        y_bas = self._sol_vers_ecran(0.0, z0)[1]
+        y_haut = self._sol_vers_ecran(0.0, z1)[1]
+        verts, dist = [], []
+        for j in range(rangees + 1):
+            y = y_bas + (y_haut - y_bas) * j / float(rangees)
+            Z = self._distance_a_la_rangee(y)
+            if Z is None:
+                Z = z1
+            zc = PLONGEE_OEIL * sa + Z * ca
+            for i in range(colonnes + 1):
+                x = x0 + w * i / float(colonnes)
+                X = (x - cx) * zc / f
+                u, v = uv(X, Z)
+                verts += [x, y, u, v]
+                dist.append(Z)
+        idx = []
+        n = colonnes + 1
+        for j in range(rangees):
+            for i in range(colonnes):
+                p = j * n + i
+                q = p + n
+                idx += [p, p + 1, q + 1, p, q + 1, q]
+        return verts, idx, dist
+
+    def _sol_en_perspective(self, tex_name, z0, z1):
+        """Le sol de la case, texture et en perspective, de z0 a z1 m."""
+        tile = PLONGEE_TUILE
+        tex = paint(tex_name)
+        self._bind_pbr(tex_name)
+        ratio = textures.rapport(tex) if tex is not None else 1.0
+        # v DESCEND quand l'ecran MONTE (voir la note de sens de
+        # textures.py) : le sol qui s'eloigne monte a l'ecran, d'ou -Z.
+        verts, idx, _d = self._maillage_de_sol(
+            z0, z1, lambda X, Z: (X / tile, -Z / (tile * ratio)))
+        Mesh(vertices=verts, indices=idx, mode="triangles", texture=tex)
+        self._reset_pbr()
+
+    def _rive_en_perspective(self, z0):
+        """La rive vue d'en haut : l'eau du lac jusqu'au fond, puis, par-
+        dessus, la bande de sable mouille qui s'y fond (rive_B, dont le haut
+        est transparent -- c'est la qu'elle rejoint l'eau).
+
+        Sans image de rive, la bande est un sable uni ; sans image d'eau,
+        l'eau est sa couleur de repli."""
+        z_rive = z0 + PLONGEE_RIVE
+        # L'EAU, d'abord, avec son reflet du ciel qui s'epaissit au loin et
+        # son ecume qui derive (voir _surface_eau). Elle commence SOUS la
+        # rive : le haut transparent de la bande doit avoir de l'eau dessous.
+        tex = paint("water")
+        tile = PLONGEE_TUILE * 3.0
+        ratio = textures.rapport(tex) if tex is not None else 1.0
+        verts, idx, dist = self._maillage_de_sol(
+            z0, PLONGEE_LOIN, lambda X, Z: (X / tile, -Z / (tile * ratio)))
+        Mesh(vertices=verts, indices=idx, mode="triangles", texture=tex)
+        if tex is not None:
+            etendue = max(1e-6, PLONGEE_LOIN - z0)
+            rampe = []
+            for k in range(0, len(verts), 4):
+                d = (dist[k // 4] - z0) / etendue
+                rampe += [verts[k], verts[k + 1], 0.5, max(0.0, min(1.0, d))]
+            self._surface_eau("water", verts, idx, rampe)
+        # LA BANDE DE RIVE : le bas de l'image (le sable sec) sous les pieds,
+        # le haut (l'eau qui lape) a PLONGEE_RIVE metres. Elle ne se repete
+        # qu'en largeur : c'est un bord, pas un motif.
+        fond = textures.base_texture(rive.NOM)
+        if fond is None:
+            paint("sand")
+            verts, idx, _d = self._maillage_de_sol(
+                z0, z0 + 0.45 * PLONGEE_RIVE, lambda X, Z: (0.0, 0.0),
+                rangees=4)
+            Mesh(vertices=verts, indices=idx, mode="triangles")
+            return
+        Color(1, 1, 1, 1)
+        verts, idx, _d = self._maillage_de_sol(
+            z0, z_rive,
+            lambda X, Z: (X / PLONGEE_RIVE_TUILE,
+                          1.0 - (Z - z0) / PLONGEE_RIVE),
+            rangees=24)
+        Mesh(vertices=verts, indices=idx, mode="triangles", texture=fond)
+
+    def _vue_plongee(self, rng):
+        """Le sol devant soi, vu en biais, et le paysage de la case au fond.
+
+        De l'arriere vers l'avant : le paysage (relief, sol lointain,
+        vegetation), le sol proche en perspective qui en recouvre le pied,
+        ce qui traine sur le sol, puis le voile d'air qui fond le tout dans
+        le ciel a l'horizon."""
+        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        zone = self._zone
+        sol, sol_crete, sol_loin = PLONGEE_SOLS.get(zone,
+                                                    PLONGEE_SOLS["Plaine"])
+        haut_proche, haut_loin = PLONGEE_CRETES.get(zone,
+                                                    PLONGEE_CRETES["Plaine"])
+
+        # Le sol le plus proche qu'on voie : celui du bas de l'ecran.
+        z0 = self._distance_a_la_rangee(y0) or 0.5
+        y_loin = self._sol_vers_ecran(0.0, PLONGEE_LOIN)[1]
+
+        # -- LE PAYSAGE, au-dessus du bout du sol ------------------------ #
+        # Des cretes bosselees, comme la berge d'en face du lac (voir
+        # _lac) : un arc parfait se lit comme un trait de compas.
+        bos = random.Random(self._graine_voisins() ^ 0x9A1E)
+        p1, p2, p3 = (bos.uniform(0, 6.28) for _ in range(3))
+
+        def crete_a(haut, phase):
+            def f(fx):
+                ondule = (0.55 + 0.30 * math.sin(fx * 6.28 * 0.9 + phase)
+                          + 0.15 * math.sin(fx * 6.28 * 2.3 + p3))
+                return y_loin + h * haut * ondule
+            return f
+
+        crete = crete_a(haut_proche, p1)
+        crete_loin = crete_a(haut_loin, p2)
+        # La montagne derriere tout (seule a avoir une silhouette plutot que
+        # des images, voir _relief_den_face), puis le sol du paysage.
+        self._relief_den_face(crete_loin)
+        self._fill_curve(crete_loin, sol_loin)
+        self._fill_curve(crete, sol_crete)
+        pieds, echelle = PLONGEE_PAYSAGE.get(zone, PLONGEE_PAYSAGE["Plaine"])
+        self._foret_den_face(y_loin, crete, crete_loin, echelle=echelle,
+                             nombre=pieds)
+        if zone == "Lac":
+            # La berge d'en face a sa greve, comme vue depuis la scene.
+            self._greve_den_face(y_loin, crete)
+
+        # -- LE SOL PROCHE, qui recouvre le pied du paysage -------------- #
+        if sol is None:
+            self._rive_en_perspective(z0)
+        else:
+            self._sol_en_perspective(sol, z0, PLONGEE_LOIN)
+
+        # -- CE QUI TRAINE PAR TERRE ------------------------------------- #
+        self._dessine(self._objets_plongee(rng, zone, z0))
+
+        # -- LE VOILE D'AIR, du sol moyen jusqu'au-dessus de la crete ---- #
+        # Un seul voile pour le sol ET le paysage : la brume depend de la
+        # distance, et le paysage est derriere le bout du sol. Deux voiles
+        # separes se seraient rencontres sur une ligne.
+        y_brume = self._sol_vers_ecran(0.0, PLONGEE_BRUME_DEPUIS)[1]
+        self._brume(lambda fx: y_brume, crete_loin)
+
+    def _objets_plongee(self, rng, zone, z0):
+        """Ce qui traine sur le sol devant soi : [(base, dessin)].
+
+        Rien n'y est recoltable (voir set_plongee) : ce sont les memes
+        brindilles, cailloux et touffes que dans la scene, poses pour que le
+        sol se lise comme celui de la case -- une litiere de foret, un pre,
+        une rocaille, une greve.
+
+        CHAQUE OBJET A SA TAILLE EN METRES, et la projection la convertit a
+        sa distance : une brindille au bord de l'ecran fait trois fois celle
+        du fond de la litiere. Le semis est uniforme SUR LE SOL, pas a
+        l'ecran -- il y a donc naturellement plus d'objets au loin, serres,
+        comme on les voit."""
+        cx, cy, f, sa, ca = self._camera_plongee()
+        z1 = PLONGEE_OBJETS_LOIN
+        demi = 0.5 * self.width
+
+        def au_sol(z1=z1):
+            """(x, base, pixels par metre, t) d'un point tire sur le sol
+            visible, jusqu'a z1 m. t va de 0 (tout pres) a 1 (au bout du
+            semis)."""
+            # Uniforme en surface : la largeur visible croit avec la
+            # distance, donc on tire Z en proportion.
+            Z = math.sqrt(z0 * z0 + rng.random() * (z1 * z1 - z0 * z0))
+            zc = PLONGEE_OEIL * sa + Z * ca
+            X = rng.uniform(-1.0, 1.0) * demi * zc / f
+            x, y, ppm = self._sol_vers_ecran(X, Z)
+            return x, y, ppm, (Z - z0) / (z1 - z0)
+
+        def tache(couleur, larg, prof):
+            """Une nuance du sol, A PLAT : une ellipse posee au sol, donc
+            ecrasee par la perspective d'autant plus qu'elle est loin. Elle
+            passe sous tout le reste (cle de tri decalee d'une hauteur
+            d'ecran)."""
+            x, y, ppm, t = au_sol()
+            Z = self._distance_a_la_rangee(y) or z0
+            y2 = self._sol_vers_ecran(0.0, Z + 0.05)[1]
+            ecrase = max(0.05, (y2 - y) / (0.05 * ppm))
+            rw, rh = larg * ppm, prof * ppm * ecrase
+
+            def dessin(x=x, y=y, rw=rw, rh=rh):
+                Color(*couleur)
+                Ellipse(pos=(x - rw / 2.0, y - rh / 2.0), size=(rw, rh))
+            items.append((y + self.height, dessin))
+
+        items = []
+        if zone == "Foret":
+            for _ in range(22):                        # brindilles
+                x, y, ppm, t = au_sol()
+                ln = rng.uniform(0.20, 0.42) * ppm
+                items.append((y - self.DEBORD_BRANCHE * ln,
+                              lambda x=x, y=y, ln=ln:
+                              self._branch(x, y, ln,
+                                           sprite=self._zs("branch"))))
+            for _ in range(40):                        # touffes sombres
+                x, y, ppm, t = au_sol()
+                gh = rng.uniform(0.10, 0.22) * ppm
+                items.append((y, self._touffe(x, y, gh,
+                                              (0.12, 0.22, 0.13, 1), 0.7)))
+            for _ in range(10):                        # pierres mousseuses
+                x, y, ppm, t = au_sol()
+                r = rng.uniform(0.05, 0.12) * ppm
+                items.append((y - self.DEBORD_CAILLOU * r,
+                              lambda x=x, y=y, r=r, t=t:
+                              self._stone(x, y, r, sprite=self._zs("stone"),
+                                          depth=t)))
+        elif zone == "Plaine":
+            greens = [(0.22, 0.42, 0.16, 1), (0.28, 0.48, 0.18, 1),
+                      (0.18, 0.38, 0.14, 1)]
+            for _ in range(140):                       # herbe
+                x, y, ppm, t = au_sol()
+                gh = rng.uniform(0.14, 0.30) * ppm
+                items.append((y, self._touffe(x, y, gh, rng.choice(greens),
+                                              0.8)))
+            for _ in range(8):                         # petites pierres
+                x, y, ppm, t = au_sol()
+                r = rng.uniform(0.04, 0.09) * ppm
+                items.append((y - self.DEBORD_CAILLOU * r,
+                              lambda x=x, y=y, r=r, t=t:
+                              self._stone(x, y, r, sprite=self._zs("stone"),
+                                          depth=t)))
+            for _ in range(6):                         # fleurs
+                x, y, ppm, t = au_sol()
+                col, fsprite = rng.choice(_FLOWERS)
+                r = rng.uniform(0.04, 0.07) * ppm
+                pet = rng.choice((5, 6))
+                items.append((y - self.DEBORD_FLEUR * r,
+                              lambda x=x, y=y, r=r, col=col, pet=pet,
+                              fsprite=fsprite:
+                              self._flower(x, y, r, col, petals=pet,
+                                           sprite=fsprite)))
+        elif zone == "Montagne":
+            # LE SOL DE MONTAGNE N'A PAS D'IMAGE : c'est un aplat de couleur,
+            # et vu en plongee il occupe les quatre cinquiemes de l'ecran. Le
+            # premier apercu montrait un linoleum gris avec quelques galets
+            # poses dessus. On lui donne donc sa matiere autrement : des
+            # nuances larges au sol (eboulis plus clairs, creux plus
+            # sombres), et un eboulis DENSE, surtout fait de petites pierres.
+            #
+            # Des nuances DISCRETES et allongees : une ellipse a un bord net,
+            # et au premier essai (opacite 0,35 a 0,60, presque rondes) elles
+            # se lisaient comme des disques poses au sol. Faibles et etirees
+            # en travers, elles ne se voient plus une a une.
+            #
+            # (Le vrai remede est une image : deposer rock_B.png dans
+            # assets/textures et ce sol la prend tout seul, voir paint.)
+            fond = textures.fallback("rock")
+            for _ in range(34):
+                k = rng.choice((0.86, 0.92, 1.08, 1.14))
+                tache((min(1.0, fond[0] * k), min(1.0, fond[1] * k),
+                       min(1.0, fond[2] * k), rng.uniform(0.16, 0.28)),
+                      rng.uniform(0.9, 2.4), rng.uniform(0.25, 0.7))
+            # QUATRE-VINGT-QUINZE, ET NON CENT QUATRE-VINGT-DIX. Chaque
+            # pierre coute dix-huit instructions (image, silhouette, voiles
+            # d'etalonnage, ombre) : a 190 la vue en faisait 4 026, deux fois
+            # la scene de foret, la plus lourde du jeu. Les pierres retirees
+            # etaient surtout les minuscules du fond, qu'on ne distinguait
+            # plus une a une.
+            for _ in range(95):                        # eboulis
+                x, y, ppm, t = au_sol(0.75 * z1)
+                # Surtout des petites : la taille est tiree au carre.
+                r = (0.025 + 0.13 * rng.random() ** 2) * ppm
+                items.append((y - self.DEBORD_CAILLOU * r,
+                              lambda x=x, y=y, r=r, t=t:
+                              self._stone(x, y, r, sprite=self._zs("stone"),
+                                          depth=t)))
+            for _ in range(14):                        # touffes rares
+                x, y, ppm, t = au_sol()
+                gh = rng.uniform(0.10, 0.20) * ppm
+                items.append((y, self._touffe(x, y, gh,
+                                              (0.22, 0.34, 0.16, 1), 0.7)))
+        else:                                          # Lac : la greve
+            for _ in range(10):
+                # Sur le sable sec seulement : le haut de la bande de rive
+                # est deja de l'eau.
+                x, y, ppm, t = au_sol(z0 + 0.6 * PLONGEE_RIVE)
+                r = rng.uniform(0.03, 0.07) * ppm
+                items.append((y - self.DEBORD_CAILLOU * r,
+                              lambda x=x, y=y, r=r, t=t:
+                              self._pebble(x, y, r, t)))
+        return items
+
     # ------------------------------------------------------------------ #
     def _redraw(self, *_):
         # ON TESTE LA TAILLE AVANT D'EFFACER. L'inverse -- effacer puis
@@ -2629,6 +3084,8 @@ class ZoneScenery(Widget):
             self._reset_pbr()        # cartes neutres par defaut (unites 1 et 2)
             if self._mode == "ground":
                 self._ground_view(rng)
+            elif self._mode == "plongee":
+                self._vue_plongee(rng)
             else:
                 {
                     "Foret": self._foret,
@@ -5181,7 +5638,8 @@ class ZoneScenery(Widget):
                                           brg.gauss(c, ETALEMENT_BOSQUET))))
         return out
 
-    def _foret_den_face(self, eau_y, crete, crete_loin):
+    def _foret_den_face(self, eau_y, crete, crete_loin, echelle=1.0,
+                        nombre=PIEDS_DE_BERGE):
         """La vegetation de la berge d'en face, repartie EN PROFONDEUR.
 
         Chaque pied tire sa DISTANCE entre le bord de l'eau (0) et la crete
@@ -5197,7 +5655,11 @@ class ZoneScenery(Widget):
 
         RIEN DE TOUT CELA N'EST RECOLTABLE et rien n'entre dans la grille :
         c'est de l'autre cote de l'eau. Ces plantes ne passent donc ni par
-        _take_or_skip ni par _is_blocked."""
+        _take_or_skip ni par _is_blocked.
+
+        `echelle` multiplie la taille de chaque pied et `nombre` en donne le
+        nombre : la vue plongeante (voir _vue_plongee) s'en sert pour fermer
+        l'horizon d'une foret, la ou une berge de lac reste clairsemee."""
         w, x0, h = self.width, self.x, self.height
         # Une graine a part, comme pour l'horizon : la berge depend de ce
         # qu'il y a en face, et tourner sur place ne doit pas reorganiser le
@@ -5205,7 +5667,7 @@ class ZoneScenery(Widget):
         brg = random.Random(self._graine_voisins() ^ 0x8E36)
         lots = {}
         pieds = []
-        for fx in self._abscisses_de_berge(brg, PIEDS_DE_BERGE):
+        for fx in self._abscisses_de_berge(brg, nombre):
             zone = self._zone_de_berge(fx)
             if zone not in lots:
                 lot = self._plantes_de_berge(zone)
@@ -5224,7 +5686,7 @@ class ZoneScenery(Widget):
             # Sa taille : le retrait de la distance, un jeu d'un pied a
             # l'autre, et pour quelques-uns le coup de pouce qui les fait
             # PERCER la ligne (voir EMERGENTS_DE_BERGE).
-            taille = (ech * h * (1.0 - RETRAIT_BERGE * t)
+            taille = (ech * h * echelle * (1.0 - RETRAIT_BERGE * t)
                       * brg.uniform(*TAILLE_BERGE))
             if brg.random() < EMERGENTS_DE_BERGE:
                 taille *= brg.uniform(*EMERGENT_FACTEUR)
