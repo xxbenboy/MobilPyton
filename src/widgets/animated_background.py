@@ -121,23 +121,40 @@ def sky_luminance(seconds):
 # --------------------------------------------------------------------- #
 # ASPECT DU CIEL SELON LA METEO
 # --------------------------------------------------------------------- #
-# Par meteo : presence des NUAGES (0 = aucun), GRISAILLE du ciel (fondu vers
-# un gris) et ASSOMBRISSEMENT. Les astres (soleil, lune, etoiles) sont
-# masques par les nuages : avec "cloud" a 1, plus de soleil visible.
+# Par meteo, quatre reglages :
+#
+#   "nuages"  COMBIEN de nuages on voit, en part de la flotte (0 = ciel
+#             vide, 1 = tous). Ce n'est PAS une opacite d'ensemble : les
+#             nuages s'allument un par un (voir plus bas), sans quoi un
+#             ciel a demi couvert serait quatorze nuages a moitie effaces,
+#             c'est-a-dire une brume, et non quelques cumulus ;
+#   "astres"  si le soleil, la lune et les etoiles se voient (1 = oui). Une
+#             couverture pleine les cache, quelques nuages non ;
+#   "grey"    la grisaille du ciel (fondu vers un gris) ;
+#   "dark"    l'assombrissement general.
+#
+# LE CIEL CLAIR N'ETAIT PAS CLAIR, IL ETAIT VIDE : aucun nuage du tout, ce
+# qu'on ne voit jamais dehors. Il en porte maintenant quelques-uns -- 0,30
+# de la flotte, soit quatre sur quatorze -- sans que le soleil en souffre :
+# c'est bien pour cela que "nuages" et "astres" sont devenus deux reglages
+# separes et non l'un l'inverse de l'autre.
+#
+# Les cinq autres lignes gardent EXACTEMENT ce qu'elles valaient : "astres"
+# y reprend l'ancien 1 - "cloud".
 _SKY_WEATHER = {
-    "clair":    {"cloud": 0.00, "grey": 0.00, "dark": 0.00},
-    "nuageux":  {"cloud": 1.00, "grey": 0.75, "dark": 0.16},
-    "pluie":    {"cloud": 1.00, "grey": 0.85, "dark": 0.32},
-    "orage":    {"cloud": 1.00, "grey": 0.95, "dark": 0.58},
-    "neige":    {"cloud": 1.00, "grey": 0.80, "dark": 0.26},
-    "blizzard": {"cloud": 1.00, "grey": 0.95, "dark": 0.52},
+    "clair":    {"nuages": 0.30, "astres": 1.00, "grey": 0.00, "dark": 0.00},
+    "nuageux":  {"nuages": 1.00, "astres": 0.00, "grey": 0.75, "dark": 0.16},
+    "pluie":    {"nuages": 1.00, "astres": 0.00, "grey": 0.85, "dark": 0.32},
+    "orage":    {"nuages": 1.00, "astres": 0.00, "grey": 0.95, "dark": 0.58},
+    "neige":    {"nuages": 1.00, "astres": 0.00, "grey": 0.80, "dark": 0.26},
+    "blizzard": {"nuages": 1.00, "astres": 0.00, "grey": 0.95, "dark": 0.52},
 }
-_WX_KEYS = ("cloud", "grey", "dark")
+_WX_KEYS = ("nuages", "astres", "grey", "dark")
 
 # Etat par defaut, utilise par les ecrans SANS systeme meteo (menu, craft) :
 # nuages presents et ciel normal, exactement comme avant l'ajout de la meteo.
 # La meteo ne prend la main que si `set_weather()` est appele.
-_SKY_DEFAULT = {"cloud": 1.00, "grey": 0.00, "dark": 0.00}
+_SKY_DEFAULT = {"nuages": 1.00, "astres": 0.00, "grey": 0.00, "dark": 0.00}
 
 # Duree caracteristique du fondu d'une meteo a l'autre (secondes reelles) :
 # le ciel se couvre ou se degage progressivement, jamais d'un coup.
@@ -171,6 +188,23 @@ WEATHER_FADE = 4.0
 NUAGES = 14
 NUAGE_PROCHE = 1.00     # k du nuage le plus proche
 NUAGE_LOIN = 0.13       # k du plus lointain (donc ~7,7 fois plus loin)
+
+# DANS QUEL ORDRE LE CIEL SE COUVRE
+# ---------------------------------
+# Chaque nuage recoit un RANG. Avec "nuages" a n, les rangs 0 a n*NUAGES
+# sont allumes, le suivant a moitie, les autres eteints : le ciel se
+# remplit nuage par nuage, et un ciel a demi couvert montre SEPT NUAGES
+# ENTIERS et non quatorze fantomes.
+#
+# LES RANGS NE SUIVENT PAS LA DISTANCE. Les nuages sont ranges du plus
+# loin au plus pres (il le faut, pour l'ordre du canvas) : prendre les
+# premiers aurait donne, par beau temps, quatre petits nuages lointains
+# serres sur l'horizon. On classe donc par la suite de KRONECKER du nombre
+# d'or -- frac(i x 1,618) -- dont TOUT DEBUT est bien etale sur la plage
+# (theoreme des trois distances). Mesure sur les quatre premiers rangs :
+# ils couvrent 93 % de la profondeur, contre 21 % pour l'ordre naturel --
+# et c'est encore 93 % a sept nuages comme a dix.
+NOMBRE_DOR = 0.6180339887
 
 # Hauteur du nuage le plus PROCHE, en part du CIEL LIBRE -- c'est-a-dire de ce
 # qui reste entre la crete et le haut du cadre, et non de l'ecran entier.
@@ -651,10 +685,17 @@ class AnimatedBackground(Widget):
             # garde ses amas d'ellipses. La PROJECTION est la meme dans les
             # deux cas -- c'est la peinture qui change, pas la profondeur.
             images = images_de_nuage()
-            for k in profondeurs:
+            # L'ordre dans lequel le ciel se couvre (voir NOMBRE_DOR).
+            rangs = [0] * NUAGES
+            for place, i in enumerate(sorted(
+                    range(NUAGES), key=lambda i: (i * NOMBRE_DOR) % 1.0)):
+                rangs[i] = place
+            for indice, k in enumerate(profondeurs):
                 nuage = {
                     # k = 1/distance : la SEULE valeur de position du nuage.
                     "k": k,
+                    # Son rang d'apparition quand le ciel se couvre.
+                    "rang": rangs[indice],
                     # Sa place de depart en travers du ciel.
                     "ang": crng.uniform(0.0, 1.0 + 2 * MARGE_NUAGE),
                     # Sa part de brume : 0 au plus proche, 1 au plus lointain.
@@ -932,9 +973,11 @@ class AnimatedBackground(Widget):
         lum = self._lum()
         sun_a = _clamp01((lum - 0.10) / 0.25)     # 1 en plein jour
         night = _clamp01((0.20 - lum) / 0.18)     # 1 la nuit
-        # Les nuages cachent les astres : couvert => plus de soleil, ni de
-        # lune, ni d'etoiles.
-        astro = 1.0 - self._wx["cloud"]
+        # Les astres se voient-ils ? Une couverture pleine les cache ; par
+        # beau temps ils restent entiers, meme avec quelques nuages qui
+        # passent (voir _SKY_WEATHER, ou "astres" est un reglage a part et
+        # non l'inverse de "nuages").
+        astro = self._wx["astres"]
 
         # Etoiles.
         # Le clair de lune efface une partie des etoiles (comme en vrai) :
@@ -1012,11 +1055,18 @@ class AnimatedBackground(Widget):
 
         # Nuages (cumulus) : halo doux, dessous ombre, bouffees blanches,
         # reflets clairs du cote eclaire.
-        cloud_a = 0.55 * (0.30 + 0.70 * sun_a) * self._wx["cloud"]
+        #
+        # L'OPACITE NE PORTE PLUS LA COUVERTURE : chaque nuage s'allume
+        # pour son propre compte, selon son rang (voir NOMBRE_DOR). Un ciel
+        # a demi couvert montre donc sept nuages entiers, et non quatorze
+        # nuages a moitie transparents -- qui faisaient une brume.
+        cloud_a = 0.55 * (0.30 + 0.70 * sun_a)
         # Une IMAGE porte sa propre transparence : elle n'a pas besoin du 0,55
         # qui attenue l'empilement d'ellipses. Sans cela, un nuage photographie
         # apparaitrait a moitie efface.
-        img_a = (0.30 + 0.70 * sun_a) * self._wx["cloud"]
+        img_a = (0.30 + 0.70 * sun_a)
+        # Combien de nuages sont allumes, en nombre de rangs.
+        allumes = self._wx["nuages"] * NUAGES
         # Par gros temps, les nuages sont nettement plus sombres.
         shade = 1.0 - 0.55 * self._wx["dark"]
 
@@ -1040,6 +1090,16 @@ class AnimatedBackground(Widget):
             # BRUME : le nuage se fond dans le ciel DE SA PROPRE HAUTEUR.
             brume = BRUME_NUAGE * cl["brume"]
             ciel = self._ciel_a(part)
+            # EST-IL DE CEUX QU'ON VOIT ? Son rang decide. Le nuage juste
+            # au-dela du compte apparait a moitie : c'est ce qui rend le
+            # fondu d'une meteo a l'autre continu, sans quoi les nuages
+            # surgiraient un a un d'un coup sec.
+            #
+            # On calcule sa geometrie MEME S'IL EST ETEINT. C'est ce que
+            # faisait deja le ciel clair (quatorze nuages a opacite nulle),
+            # cela ne coute donc rien de plus -- et un nuage qui se rallume
+            # est deja a sa place, la ou le vent l'a porte.
+            vu = _clamp01(allumes - cl["rang"])
 
             if "img" in cl:
                 # UNE IMAGE. Sa largeur est celle qu'aurait eu l'amas
@@ -1053,7 +1113,7 @@ class AnimatedBackground(Widget):
                 # voiler de brume et l'assombrir par gros temps.
                 cl["c_img"].rgba = tuple(
                     (1.0 + (ciel[i] - 1.0) * brume) * shade
-                    for i in range(3)) + (img_a,)
+                    for i in range(3)) + (img_a * vu,)
                 continue
 
             for key, ells, shapes, mult in (
@@ -1064,5 +1124,5 @@ class AnimatedBackground(Widget):
                 base = _CLOUD_RGB[key]
                 cl[key].rgba = tuple(
                     (base[i] + (ciel[i] - base[i]) * brume) * shade
-                    for i in range(3)) + (cloud_a * mult,)
+                    for i in range(3)) + (cloud_a * mult * vu,)
                 place(cl[ells], cl[shapes], cx, cy, s)

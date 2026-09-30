@@ -46,8 +46,15 @@ MOMENTS = (("Matin", 7.0), ("Midi", 12.0), ("Soir", 19.0), ("Nuit", 23.0))
 # A savoir : en MONTAGNE le jeu traduit de lui-meme la pluie en neige et
 # l'orage en blizzard (effective_weather). Ces deux rendus-la se regardent
 # donc en montant, avec les memes boutons.
-METEOS = (("Clair", "clair", False), ("Pluie", "pluie", False),
-          ("Brume", "nuageux", True), ("Orage", "orage", False))
+#
+# NUAGEUX A SON BOUTON A LUI. Le temps nuageux existait dans le jeu et
+# tombait meme quatre fois sur dix, mais le panneau ne l'offrait que sous
+# le nom de "Brume", c'est-a-dire avec le brouillard par-dessus : le ciel
+# couvert SEUL ne se regardait pas. Les deux sont maintenant separes --
+# meme meteo, brouillard ou non.
+METEOS = (("Clair", "clair", False), ("Nuageux", "nuageux", False),
+          ("Pluie", "pluie", False), ("Orage", "orage", False),
+          ("Brume", "nuageux", True))
 
 
 def _titre(texte):
@@ -58,8 +65,13 @@ def _titre(texte):
 
 
 def _grille(entrees, actif, choisir):
-    """Un groupe de choix ou UN SEUL est allume (TabButton : vert / gris)."""
-    grid = GridLayout(cols=2, spacing=dp(6), size_hint_y=0.30)
+    """Un groupe de choix ou UN SEUL est allume (TabButton : vert / gris).
+
+    LA HAUTEUR SUIT LE NOMBRE DE RANGEES, elle n'est pas fixe : a hauteur
+    constante, passer de quatre a cinq choix aurait ajoute une rangee dans
+    la meme place et ecrase les boutons d'un tiers."""
+    rangees = -(-len(entrees) // 2)          # arrondi vers le haut
+    grid = GridLayout(cols=2, spacing=dp(6), size_hint_y=0.15 * rangees)
     boutons = []
     for entree in entrees:
         b = TabButton(text=entree[0])
