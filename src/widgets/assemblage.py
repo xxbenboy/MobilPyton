@@ -49,12 +49,15 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
 
 from src.widgets.sol_de_craft import (dessine_objet, TAILLE_OBJET,
-                                      CENTRE_PRES, CENTRE_LOIN, CENTRE_DEMI)
+                                      CENTRE_PRES, CENTRE_LOIN)
 
 # La part de la largeur que prend le plan de travail une fois rapproche.
 PART_PLAN = 2.0 / 3.0
-# Le grossissement qui l'y amene : il fait 2 x CENTRE_DEMI de large.
-ZOOM = PART_PLAN / (2.0 * CENTRE_DEMI)
+# LE GROSSISSEMENT. Il a ete regle pour que l'ancien plan de 4 x 4 (0,196 de
+# la largeur) prenne PART_PLAN de l'ecran. Le plan est maintenant plus petit
+# (2 x 2), mais le grossissement reste le meme : c'est lui qui donne leur
+# taille aux objets rapproches, et la place pour les assembler.
+ZOOM = PART_PLAN / 0.196
 # Le milieu du plan de travail dans la vue normale, et ou il arrive une fois
 # rapproche : au milieu de l'ecran.
 CENTRE_PLAN = (0.5, (CENTRE_PRES + CENTRE_LOIN) / 2.0)

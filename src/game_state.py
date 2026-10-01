@@ -112,8 +112,12 @@ HANDS_MAX = 2
 # case libre.
 SOL_COLONNES = 5
 SOL_RANGEES = 5
-CENTRE_COLONNES = 4
-CENTRE_RANGEES = 4
+# LE PLAN DE TRAVAIL A MAINS NUES FAIT 2 SUR 2 : quatre objets au plus, ce
+# qui borne ce qu'on fabrique sans etabli. Un meilleur etabli donnera plus
+# de surface. Une partie sauvee avec l'ancien plan de 4 x 4 se reaccorde
+# seule : ce qui etait sur les cases disparues retourne a la proximite.
+CENTRE_COLONNES = 2
+CENTRE_RANGEES = 2
 CASES_SOL = ["G:%d" % i for i in range(SOL_COLONNES * SOL_RANGEES)]
 CASES_CENTRE = ["C:%d" % i for i in range(CENTRE_COLONNES * CENTRE_RANGEES)]
 

@@ -75,13 +75,15 @@ PROX_LOIN = 0.52
 # --- LE PLAN DE TRAVAIL (au centre) ----------------------------------- #
 # MESURE, toutes poses et gants confondus : entre les deux mains, le couloir
 # libre ne descend jamais sous 0,393 - 0,607 AU-DESSUS de 0,28 de la
-# hauteur. Plus bas, les mains au repos se referment vers le centre et ne
-# laissent que 0,448 - 0,550 : un plan de travail pose la aurait ete a moitie
-# cache par les doigts. Il commence donc juste au-dessus d'eux, droit, dans
-# le couloir (0,402 - 0,598).
+# hauteur. Plus bas, les mains au repos se referment vers le centre. Il
+# commence donc juste au-dessus d'elles, droit, dans le couloir.
+#
+# A MAINS NUES, IL FAIT 2 SUR 2 (voir game_state) : ses cases ont la taille
+# de celles de la proximite (0,0536 de la largeur, 0,098 de la hauteur),
+# pour qu'un objet passe de l'une a l'autre sans changer d'echelle.
 CENTRE_PRES = 0.29
-CENTRE_LOIN = 0.55
-CENTRE_DEMI = 0.098          # demi-largeur
+CENTRE_LOIN = 0.29 + 2 * 0.098
+CENTRE_DEMI = 0.0536         # demi-largeur
 
 # Couleurs. LES CASES SONT PLEINES, pas transparentes : sur un sol
 # transparent, une touffe d'herbe posee dans une prairie se fondait dans
@@ -121,6 +123,21 @@ TUILE_SOL = 0.40
 SILLON = (0.18, 0.12, 0.08, 0.48)
 LEVRE = (1.0, 0.95, 0.85, 0.22)
 TREMBLE = 0.0035
+# LE REBORD : comme au pied d'une pierre, le TERRAIN de la zone deborde sur
+# le bord du sol defriche et s'y fond, en bandes de moins en moins opaques,
+# le long d'un contour irregulier. Profondeur vers l'interieur et debord
+# vers l'exterieur, en part de la hauteur ; nombre de bandes du fondu.
+TERRAIN_DE_ZONE = {"Foret": "forest_floor", "Plaine": "grass",
+                   "Montagne": "rock", "Lac": "rive"}
+REBORD_DEDANS = 0.042
+REBORD_DEHORS = 0.010
+BANDES_REBORD = 7
+# Irregularite du contour (part de la hauteur) et pas entre deux points.
+REBORD_TREMBLE = 0.012
+REBORD_PAS = 0.018
+# Sous le terrain, une levre de terre plus sombre souligne le bord.
+LEVRE_REBORD = (0.10, 0.07, 0.04, 0.30)
+
 # Teintes d'une case du sol texture (multipliees a la texture) : visee,
 # refus, et cible qui clignote.
 VISEE_SOL = (0.70, 1.00, 0.70, 1.0)
@@ -423,6 +440,11 @@ class SolDeCraft(Widget):
             self._redessine()
 
     def texture_sol(self):
+        """Le sol defriche : UNE image fournie pour toutes les zones
+        (sol_defriche.png) si elle existe, sinon celle de la zone."""
+        commun = texture_craft("sol_defriche", repete=True)
+        if commun is not None:
+            return commun
         if not self.zone:
             return None
         return texture_craft("sol_%s" % self.zone, repete=True)
@@ -461,9 +483,11 @@ class SolDeCraft(Widget):
             g.cale(self.x, self.y, self.width, self.height)
         self._couleurs = {}
         with self.canvas:
+            # LES DEUX ZONES SONT DU SOL DEFRICHE, bordees par le terrain.
             for g in self.grilles():
-                if g is self.proximite and self.texture_sol() is not None:
+                if self.texture_sol() is not None:
                     self._dessine_sol(g, self.texture_sol())
+                    self._dessine_rebord(g)
                     continue
                 fond, trait = ((GRIS_PROX, TRAIT_PROX) if g is self.proximite
                                else (GRIS_CENTRE, TRAIT_CENTRE))
@@ -604,6 +628,94 @@ class SolDeCraft(Widget):
         for rang in range(g.rangees + 1):
             v = g.vr(rang)
             trace(g.point(0.0, v), g.point(1.0, v))
+
+    def _contour(self, g, hasard):
+        """Le tour de la grille, point par point dans le sens trigonometrique,
+        avec pour chacun sa normale vers l'exterieur et son tremblement."""
+        (x0, y0), (x1, _), (_, y1), _ = [g.point(u, v) for u, v in
+                                         ((0, 0), (1, 0), (1, 1), (0, 1))]
+        pas = max(4.0, REBORD_PAS * self.height)
+        pts = []
+        for (ax, ay), (bx, by), n in (((x0, y0), (x1, y0), (0, -1)),
+                                      ((x1, y0), (x1, y1), (1, 0)),
+                                      ((x1, y1), (x0, y1), (0, 1)),
+                                      ((x0, y1), (x0, y0), (-1, 0))):
+            long = abs(bx - ax) + abs(by - ay)
+            k = max(2, int(long / pas))
+            for j in range(k):
+                t = j / float(k)
+                pts.append((ax + (bx - ax) * t, ay + (by - ay) * t, n,
+                            hasard.uniform(-1.0, 1.0)))
+        # Les coins : la normale en diagonale, pour que les bandes tournent.
+        propre = []
+        for i, (x, y, n, j) in enumerate(pts):
+            pn = pts[i - 1][2]
+            if pn != n:
+                n = ((n[0] + pn[0]) * 0.7071, (n[1] + pn[1]) * 0.7071)
+            propre.append((x, y, n, j))
+        # Un tremblement lisse : chaque point fait la moyenne avec ses voisins.
+        lisse = []
+        for i, (x, y, n, j) in enumerate(propre):
+            jm = (propre[i - 1][3] + j + propre[(i + 1) % len(propre)][3]) / 3.0
+            lisse.append((x, y, n, jm))
+        return lisse
+
+    def _dessine_rebord(self, g):
+        """Le terrain de la zone deborde sur le bord du sol defriche."""
+        nom = TERRAIN_DE_ZONE.get(self.zone)
+        tex, tuile = None, 1.0
+        if nom:
+            try:
+                from src.widgets import textures
+                tex = textures.base_texture(nom)
+                tuile = textures.tile_for(nom) / 1080.0 * self.height
+            except Exception:
+                tex = None
+        if tex is not None:
+            try:
+                tex.wrap = "repeat"
+            except Exception:
+                pass
+        hasard = random.Random(11 if g is self.proximite else 23)
+        contour = self._contour(g, hasard)
+        n = len(contour)
+        dedans = REBORD_DEDANS * self.height
+        dehors = REBORD_DEHORS * self.height
+        tremble = REBORD_TREMBLE * self.height
+
+        def anneau(d):
+            """Le contour decale de `d` vers l'interieur (negatif : dehors),
+            tremblement compris."""
+            out = []
+            for x, y, (nx, ny), j in contour:
+                e = d - j * tremble
+                out.append((x - nx * e, y - ny * e))
+            return out
+
+        # La levre sombre, juste sous le terrain.
+        bord = anneau(dedans * 0.55)
+        Color(*LEVRE_REBORD)
+        Line(points=[v for p in bord + bord[:1] for v in p],
+             width=max(1.0, self.height * 0.003))
+        # Les bandes, de l'exterieur (opaque) vers l'interieur (transparent).
+        for b in range(BANDES_REBORD):
+            d0 = -dehors + (dedans + dehors) * b / BANDES_REBORD
+            d1 = -dehors + (dedans + dehors) * (b + 1) / BANDES_REBORD
+            alpha = 0.95 * (1.0 - b / float(BANDES_REBORD)) ** 1.4
+            a0, a1 = anneau(d0), anneau(d1)
+            verts, idx = [], []
+            for i in range(n):
+                for (x, y) in (a0[i], a1[i]):
+                    verts += [x, y, x / tuile, y / tuile]
+                k = 2 * i
+                k2 = 2 * ((i + 1) % n)
+                idx += [k, k + 1, k2, k + 1, k2 + 1, k2]
+            # Sans image du terrain, un aplat de couleur dessinerait un cadre
+            # plutot qu'un rebord : on s'en tient alors a la levre.
+            if tex is not None:
+                Color(1, 1, 1, alpha)
+                Mesh(vertices=verts, indices=idx, mode="triangles",
+                     texture=tex)
 
     def _dessine_objet(self, g, col, rang, pile):
         """Un objet pose dans sa case, avec son ombre et son nombre.
