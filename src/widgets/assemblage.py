@@ -26,12 +26,15 @@ DANS CETTE VUE :
 
 LES OBJETS SE COLLENT PAR LEURS CASES. Chaque image porte une grille
 INVISIBLE de 3 x 3 cases. Un objet porte pres d'un autre s'aligne sur la
-grille de celui-ci : il saute a la case la plus proche, cases contre cases,
-bord a bord ou en se chevauchant d'une ou deux rangees. Tant que le doigt
-bouge, l'aimant suit ; s'il reste immobile une seconde, l'aimant lache et
-l'objet revient sous la paume -- il reprend des que le doigt rebouge. Lache
-pendant qu'il est aimante, l'objet RESTE COLLE a l'autre (voir `liens`) ;
-reprendre l'un des deux les decolle.
+grille de celui-ci : il saute a la place libre la plus proche, BORD A BORD,
+contre les cases EXTERIEURES de l'autre -- deux grilles ne se chevauchent
+jamais. Tant que les grilles se touchent et que l'objet est tenu, elles
+se dessinent toutes les deux. Un objet lache PAR-DESSUS un autre est
+pousse a cote, a la place libre la plus proche, et y reste colle. Tant
+que le doigt bouge, l'aimant suit ; s'il reste immobile une seconde,
+l'aimant lache et l'objet revient sous la paume -- il reprend des que le
+doigt rebouge. Lache pendant qu'il est aimante, l'objet RESTE COLLE a
+l'autre (voir `liens`) ; reprendre l'un des deux les decolle.
 
 RIEN DE TOUT CELA NE TOUCHE A LA PARTIE : les objets ne bougent qu'a
 l'ecran. Annuler les remet dans leurs cases, la ou ils etaient avant
@@ -40,7 +43,7 @@ d'assembler (voir CraftScreen).
 import math
 
 from kivy.clock import Clock
-from kivy.graphics import PushMatrix, PopMatrix, Translate, Scale
+from kivy.graphics import Color, Line, PushMatrix, PopMatrix, Translate, Scale
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
 
@@ -72,8 +75,12 @@ FPS = 60.0
 # LA GRILLE INVISIBLE DE CHAQUE IMAGE : 3 x 3 cases, d'un tiers de l'objet.
 CASES_OBJET = 3
 # L'aimant prend un objet dont la grille passe a moins d'une demi-case du
-# contact bord a bord : decalage d'au plus 3 cases dans chaque sens.
+# contact bord a bord.
 PORTEE_AIMANT = CASES_OBJET + 0.5
+# Les grilles, quand elles se touchent : un trait clair, et son epaisseur
+# en part de la hauteur.
+TRAIT_GRILLE = (1.0, 1.0, 1.0, 0.75)
+EPAISSEUR_GRILLE = 0.0018
 # Doigt pose sans bouger pendant ce temps (s) : l'aimant lache.
 DELAI_AIMANT = 1.0
 # En deca de ce deplacement du doigt (px), il n'a pas bouge.
@@ -231,6 +238,25 @@ class Assemblage(Widget):
                     px, py = self.ou_est_porte(i)
                     dessine_objet(self._porte[i]["nom"], px, py, cote,
                                   ombre=False)
+            # LES GRILLES QUI SE TOUCHENT, tant que l'objet est tenu.
+            for i in (0, 1):
+                if self._porte[i] is not None and \
+                        self._aimante[i] is not None:
+                    self._dessine_grille(*self.ou_est_porte(i))
+                    self._dessine_grille(
+                        *self.a_l_ecran(self._aimante[i][0]))
+
+    def _dessine_grille(self, cx, cy):
+        c = self.case_objet()
+        n = CASES_OBJET
+        x0, y0 = cx - n * c / 2.0, cy - n * c / 2.0
+        Color(*TRAIT_GRILLE)
+        largeur = max(1.0, EPAISSEUR_GRILLE * self.height)
+        for k in range(n + 1):
+            Line(points=[x0 + k * c, y0, x0 + k * c, y0 + n * c],
+                 width=largeur)
+            Line(points=[x0, y0 + k * c, x0 + n * c, y0 + k * c],
+                 width=largeur)
 
     # -- les mains --------------------------------------------------------- #
     def paume(self, i):
@@ -271,6 +297,12 @@ class Assemblage(Widget):
         o = self._porte[i]
         px, py = self.ou_est_porte(i)
         colle = self._aimante[i]
+        if colle is None and self._chevauche(px, py, o):
+            # LACHE PAR-DESSUS UN AUTRE : pousse a la place libre la plus
+            # proche, a cote, et colle.
+            colle = self._place_libre(px, py, o)
+            if colle is not None:
+                px, py = colle[1], colle[2]
         self._porte[i] = None
         self._aimante[i] = None
         if colle is not None:
@@ -286,30 +318,62 @@ class Assemblage(Widget):
         """Le cote d'une case de la grille invisible d'un objet, a l'ecran."""
         return TAILLE_OBJET * self.height * ZOOM / CASES_OBJET
 
+    def _libres(self, o):
+        """Les objets poses, hors `o` et ceux que portent les mains."""
+        portes = [p for p in self._porte if p is not None]
+        return [b for b in self.objets if b is not o
+                and not any(b is p for p in portes)]
+
+    def _chevauche(self, x, y, o):
+        """Une grille centree en (x, y) chevaucherait-elle celle d'un objet
+        pose ?"""
+        bord = CASES_OBJET * self.case_objet() - 1e-6
+        for b in self._libres(o):
+            bx, by = self.a_l_ecran(b)
+            if abs(x - bx) < bord and abs(y - by) < bord:
+                return True
+        return False
+
+    def _places(self, b):
+        """Les places BORD A BORD contre la grille de `b` : sur chaque cote,
+        alignees sur ses cases, et partageant au moins une case de bord
+        (un simple coin ne colle pas)."""
+        bx, by = self.a_l_ecran(b)
+        c, n = self.case_objet(), CASES_OBJET
+        for k in range(-(n - 1), n):
+            for kx, ky in ((n, k), (-n, k), (k, n), (k, -n)):
+                yield bx + kx * c, by + ky * c
+
+    def _place_libre(self, x, y, o, pres=None):
+        """(objet, x, y) : la place bord a bord la plus proche de (x, y), qui
+        ne chevauche aucune grille ; parmi les objets `pres` (tous par
+        defaut). None s'il n'y en a pas."""
+        meilleur, dist = None, None
+        for b in (pres if pres is not None else self._libres(o)):
+            for sx, sy in self._places(b):
+                if self._chevauche(sx, sy, o):
+                    continue
+                d = math.hypot(sx - x, sy - y)
+                if dist is None or d < dist:
+                    meilleur, dist = (b, sx, sy), d
+        return meilleur
+
     def _cherche_aimant(self, i):
-        """(objet, x, y) : l'objet libre le plus proche de celui que porte la
-        main `i`, et ou ce dernier se pose grille contre grille ; ou None."""
+        """(objet, x, y) : la place libre bord a bord la plus proche contre un
+        objet que l'objet porte par la main `i` approche ; ou None."""
         o = self._porte[i]
         if o is None or not self._aimant[i] or self._doigts[i] is None:
             return None
         px, py = self.paume(i)
-        c = self.case_objet()
-        portes = [p for p in self._porte if p is not None]
-        meilleur, dist = None, None
-        for b in self.objets:
-            if any(b is p for p in portes):
-                continue
+        portee = PORTEE_AIMANT * self.case_objet()
+        pres = []
+        for b in self._libres(o):
             bx, by = self.a_l_ecran(b)
-            kx, ky = (px - bx) / c, (py - by) / c
-            if abs(kx) > PORTEE_AIMANT or abs(ky) > PORTEE_AIMANT:
-                continue
-            kx = max(-CASES_OBJET, min(CASES_OBJET, round(kx)))
-            ky = max(-CASES_OBJET, min(CASES_OBJET, round(ky)))
-            sx, sy = bx + kx * c, by + ky * c
-            d = math.hypot(sx - px, sy - py)
-            if dist is None or d < dist:
-                meilleur, dist = (b, sx, sy), d
-        return meilleur
+            if abs(px - bx) <= portee and abs(py - by) <= portee:
+                pres.append(b)
+        if not pres:
+            return None
+        return self._place_libre(px, py, o, pres)
 
     def ou_est_porte(self, i):
         """Ou se dessine l'objet de la main `i` : aimante, ou dans la
