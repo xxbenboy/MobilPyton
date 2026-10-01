@@ -114,3 +114,14 @@ Si les nouvelles images placent les mains a un endroit different,
 ajuste ces 2 constantes dans src/widgets/player_hands.py.
 
 Logique : src/widgets/player_hands.py
+
+----------------------------------------------------------------
+LE CORPS, DANS L'INVENTAIRE
+----------------------------------------------------------------
+    Corps.png      -> le rescape en sous-vetement, de face, DETOURE
+                      (fond transparent)
+
+Affiche dans la Tenue et l'Apparence de l'inventaire. Les vetements portes
+sont poses directement dessus, chacun dans la boite de la partie du corps
+qu'il habille (PARTIES, dans src/widgets/corps.py) : changer cette image
+demande de remesurer ces boites.

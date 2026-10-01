@@ -59,6 +59,7 @@ from src.widgets.player_hands import PlayerHands
 from src.widgets.sol_de_craft import (SolDeCraft, MAIN_DEMI_LARGEUR,
                                       MAIN_HAUT)
 from src.widgets.penche import Penche
+from src.widgets.corps import Corps, ANCRES
 from src.widgets.drag_drop import (DragDrop, hit,
                                    make_highlightable)
 from src.widgets.responsive import (scale_font, dh, fit_text,
@@ -91,16 +92,23 @@ _CELL_W = 182           # largeur d'une case (celle d'une case du sac)
 _STAT_ROW = 120         # hauteur d'une ligne de statistique
 
 # LA MISE EN PAGE PENCHEE. La colonne garde le gabarit du craft -- titre en
-# haut, Retour en bas, aux memes places -- mais les sections du milieu et de
-# droite (equipement, sac) ne descendent plus jusqu'en bas : la moitie basse
-# de l'ecran est au sol et aux mains. MESURE sur les images des mains, toutes
-# poses : les doigts montent jusqu'a 0,47 de la hauteur. Les sections
-# s'arretent donc au-dessus, a 0,49. Ce sont des poids de BoxLayout (voir
-# responsive.py), calcules pour cette limite.
+# haut, Retour en bas, aux memes places -- et les sections du milieu et de
+# droite (equipement, sac) descendent du haut de l'ecran JUSQU'AU-DESSUS DES
+# MAINS. MESURE sur l'image des mains au repos (HandIdle) : les doigts
+# montent a 0,28 de la hauteur. Les sections s'arretent donc a 0,30. Une main
+# qui tient un objet leve la paume plus haut (0,47) : ses doigts passent
+# alors derriere le bas des panneaux, qui sont translucides.
+# Ce sont des poids de BoxLayout (voir responsive.py), calcules pour cette
+# limite : la colonne occupe 0,96 de l'ecran, a partir de 0,02.
+BAS_SECTIONS = 0.30
+# La place laissee a gauche pour le sol, en part de la rangee : les panneaux
+# descendent maintenant a cote de la grille, ils doivent commencer apres son
+# bord droit (0,28 de l'ecran, voir sol_de_craft.PROX_DROITE).
+_PART_SOL = 0.28
 _POIDS_TITRE = ROW_TITLE
-_POIDS_SECTIONS = 0.446
-_POIDS_VIDE = 0.394
 _POIDS_BAS = ROW_BACK
+_POIDS_VIDE = (BAS_SECTIONS - 0.02) / 0.96 - _POIDS_BAS
+_POIDS_SECTIONS = 1.0 - _POIDS_TITRE - _POIDS_VIDE - _POIDS_BAS
 # Le bas : le Retour ENTRE LES DEUX AVANT-BRAS, comme dans le craft, et la
 # ligne d'aide a droite de la main droite (qui s'arrete a 0,71 de la
 # largeur). Parts de la largeur de la rangee.
@@ -117,18 +125,19 @@ _SUBTABS = {
 _CELL_H = _ICON_SIDE + _CELL_LABEL + _NAME_LABEL
 _BAG_CELL_H = _ICON_SIDE + _NAME_LABEL
 
-# Silhouette : chaque emplacement est place VIS-A-VIS de la partie du corps
-# qu'il habille, et relie a elle par un trait.
-#   emplacement -> (x, y du cadre, x, y de la partie du corps)
+# La Tenue : chaque emplacement est place VIS-A-VIS de la partie du corps
+# qu'il habille, et relie a elle par un trait (le bout du trait est sur
+# l'image du corps, voir corps.ANCRES).
+#   emplacement -> (x, y du cadre)
 # Coordonnees en fractions du panneau (y = 0 en bas). Les six cases forment
 # deux colonnes de trois, de part et d'autre du corps.
 _SLOT_LAYOUT = {
-    "casque":    (0.22, 0.84, 0.50, 0.85),
-    "chandail":  (0.22, 0.50, 0.50, 0.60),
-    "gant":      (0.22, 0.16, 0.375, 0.45),
-    "sac":       (0.78, 0.84, 0.58, 0.68),
-    "pantalon":  (0.78, 0.50, 0.50, 0.28),
-    "chaussure": (0.78, 0.16, 0.545, 0.08),
+    "casque":    (0.22, 0.84),
+    "chandail":  (0.22, 0.50),
+    "gant":      (0.22, 0.16),
+    "sac":       (0.78, 0.84),
+    "pantalon":  (0.78, 0.50),
+    "chaussure": (0.78, 0.16),
 }
 
 
@@ -258,7 +267,7 @@ class InventoryScreen(Penche, DragDrop, Screen):
                          size_hint=(1, _POIDS_SECTIONS))
 
         # ---- Gauche : la place du sol, qui se voit plus bas ----
-        body.add_widget(Widget(size_hint_x=SIDE_SHARE))
+        body.add_widget(Widget(size_hint_x=_PART_SOL))
         # Le sol accepte tout ce qu'on y lache, case ou pas : cette zone
         # invisible, posee sur la grille, est la cible "sol" du glisser, et
         # fait clignoter les cases quand on peut y poser.
@@ -267,7 +276,7 @@ class InventoryScreen(Penche, DragDrop, Screen):
         self._ground_cells = []
 
         # ---- Milieu : deux menus, deux sous-menus chacun ----
-        rest = center_share()
+        rest = (1.0 - _PART_SOL) / 2.0
         center = BoxLayout(orientation="vertical", spacing=dp(4),
                            size_hint_x=rest)
         self._main = "equip"
@@ -298,10 +307,13 @@ class InventoryScreen(Penche, DragDrop, Screen):
         center.add_widget(self.content)
         _panel(center)
         body.add_widget(center)
+        # Les panneaux, pour que les mains qu'ils recouvrent en partie ne
+        # volent pas les depots qui leur sont destines.
+        self._panneaux = [center]
 
         # Les quatre panneaux, crees une fois et permutes dans `content`.
         self.equip_box = _BodyPanel(size_hint=(1, 1))
-        self.avatar_box = _BodyPanel(size_hint=(1, 1))
+        self.avatar_box = _BodyPanel(traits=False, size_hint=(1, 1))
         self.hero_panel, self.hero_box = _scroll_box()
         self.gear_panel, self.gear_box = _scroll_box()
 
@@ -320,6 +332,7 @@ class InventoryScreen(Penche, DragDrop, Screen):
         right.add_widget(sc2)
         _panel(right)
         body.add_widget(right)
+        self._panneaux.append(right)
 
         col.add_widget(body)
         col.add_widget(Widget(size_hint=(1, _POIDS_VIDE)))
@@ -370,6 +383,8 @@ class InventoryScreen(Penche, DragDrop, Screen):
 
     def on_enter(self):
         self.hands.start_breathing()
+        self.equip_box.corps.respire(True)
+        self.avatar_box.corps.respire(True)
         self.lance_penche()
 
     def on_leave(self):
@@ -378,6 +393,8 @@ class InventoryScreen(Penche, DragDrop, Screen):
         if self._info is not None:
             self._info.close()
         self.hands.stop_breathing()
+        self.equip_box.corps.respire(False)
+        self.avatar_box.corps.respire(False)
         self.quitte_penche()
 
     def refresh(self):
@@ -408,8 +425,13 @@ class InventoryScreen(Penche, DragDrop, Screen):
         for slot in self.hand_slots:
             fx = PlayerHands.HAND_FX[slot.hand]
             slot.size_hint = (None, None)
-            slot.size = (2 * MAIN_DEMI_LARGEUR * w, MAIN_HAUT * h)
+            # Jusqu'au bas des panneaux seulement : au-dessus, ce sont eux
+            # qu'on vise.
+            slot.size = (2 * MAIN_DEMI_LARGEUR * w,
+                         min(MAIN_HAUT, BAS_SECTIONS) * h)
             slot.pos = (self.x + (fx - MAIN_DEMI_LARGEUR) * w, self.y)
+            slot.paume_y = self.y + PlayerHands.ITEM_FY * h
+            slot._sync()
         xs, ys = zip(*[(fx * w, fy * h) for fx, fy in
                        self.sol.proximite.coins])
         self.ground_scroll.size_hint = (None, None)
@@ -449,6 +471,9 @@ class InventoryScreen(Penche, DragDrop, Screen):
         ordinaires (le sac, le corps) s'appliquer."""
         label = items.display_name(name)
         cible = self.sol.sous_le_doigt(touch.x, touch.y)
+        if cible and cible[0] == "main" and any(
+                hit(p, touch) for p in self._panneaux):
+            cible = None
         case = cible[1] if cible and cible[0] == "case" else None
         main = cible[1] if cible and cible[0] == "main" else None
         # ---- DEPUIS une case du sol ----
@@ -680,7 +705,7 @@ class InventoryScreen(Penche, DragDrop, Screen):
         self.equip_box.clear_widgets()
         self._equip_slots = []
         for slot in items.EQUIP_SLOTS:
-            sx, sy, _bx, _by = _SLOT_LAYOUT[slot]
+            sx, sy = _SLOT_LAYOUT[slot]
             worn = state.equipment.get(slot)
             widget = _EquipSlot(slot, worn,
                                 item_text(state, worn, worn=True),
@@ -712,25 +737,17 @@ class InventoryScreen(Penche, DragDrop, Screen):
             cell.height = icon + label
 
     def _fill_avatar(self, state):
-        """Le personnage tel qu'il est habille, juste pour le regarder.
-
-        En attendant un vrai dessin de personnage, on reprend la silhouette
-        de l'equipement et on pose l'image de chaque piece portee sur la
-        partie du corps qu'elle habille. Rien n'y est cliquable : cet ecran
-        ne sert qu'a se voir."""
+        """Le personnage tel qu'il est habille, juste pour le regarder : les
+        vetements portes sont poses SUR LE CORPS (voir corps.py), dans la
+        Tenue comme ici. Rien n'y est cliquable."""
         self.avatar_box.clear_widgets()
-        porte = 0
-        for slot in items.EQUIP_SLOTS:
-            worn = state.equipment.get(slot)
-            if not worn:
-                continue
-            porte += 1
-            _sx, _sy, bx, by = _SLOT_LAYOUT[slot]
-            self.avatar_box.add_widget(ItemIcon(
-                worn, show_name=False, size_hint=(0.22, 0.16),
-                pos_hint={"center_x": bx, "center_y": by}))
+        porte = {slot: state.equipment.get(slot) for slot in items.EQUIP_SLOTS}
+        self.avatar_box.habille(porte)
+        self.equip_box.habille(porte)
+        nombre = sum(1 for v in porte.values() if v)
         self.avatar_box.add_widget(_label(
-            f"{porte} piece(s) portee(s)" if porte else "Aucun vetement porte",
+            f"{nombre} piece(s) portee(s)" if nombre
+            else "Aucun vetement porte",
             _DIM, halign="center", size_hint=(1, 0.08),
             pos_hint={"center_x": 0.5, "y": 0.0}))
 
@@ -748,6 +765,7 @@ class _MainReelle(Widget):
         super().__init__(**kwargs)
         self.hand = hand
         self.item = None
+        self.paume_y = None
         with self.canvas:
             self._lueur = Color(0.45, 1.0, 0.62, 0.0)
             self._disque = Ellipse()
@@ -755,7 +773,7 @@ class _MainReelle(Widget):
 
     def _sync(self, *_):
         r = self.width * 0.62
-        cy = self.y + self.height * (PlayerHands.ITEM_FY / MAIN_HAUT) * 0.98
+        cy = self.paume_y if self.paume_y is not None else self.center_y
         self._disque.pos = (self.center_x - r, cy - r * 0.55)
         self._disque.size = (2 * r, 1.1 * r)
 
@@ -765,73 +783,62 @@ class _MainReelle(Widget):
 
 class _ZoneSol(Widget):
     """La cible "sol" du glisser : invisible, posee sur la grille de la
-    proximite. Quand on peut y lacher l'objet, ce sont les CASES elles-memes
-    qui clignotent (voir SolDeCraft.pulse), pas un cadre autour."""
+    proximite. Elle NE CLIGNOTE PAS quand on porte un objet : toute la grille
+    qui flashe a chaque prise genait. Seule la case sous le doigt s'allume
+    (voir InventoryScreen._survol_virtuel)."""
 
     def __init__(self, sol, **kwargs):
         super().__init__(**kwargs)
         self._sol = sol
 
     def set_highlight(self, on, pulse=1.0):
-        self._sol.pulse(on, pulse)
+        pass
 
 
 class _BodyPanel(FloatLayout):
-    """Silhouette humaine, avec un trait vers chaque emplacement d'equipement.
+    """Le CORPS DU PERSONNAGE (voir src/widgets/corps.py), habille de ce
+    qu'il porte et qui respire, avec -- dans la Tenue -- un trait de chaque
+    emplacement d'equipement vers la partie du corps qu'il habille.
 
-    Le corps est dessine dans `canvas.before` : les cadres d'equipement,
-    ajoutes comme enfants, passent donc par-dessus."""
+    Tout est dessine dans `canvas.before` : les cases d'equipement, ajoutees
+    comme enfants, passent donc par-dessus."""
 
-    def __init__(self, **kwargs):
+    def __init__(self, traits=True, **kwargs):
         super().__init__(**kwargs)
+        self.traits = traits
+        self.corps = Corps()
+        self.porte = {}
         self.bind(pos=self._redraw, size=self._redraw)
+
+    def habille(self, porte):
+        """Ce que porte le personnage (emplacement -> objet)."""
+        porte = {k: v for k, v in (porte or {}).items() if v}
+        if porte != self.porte:
+            self.porte = porte
+            self._redraw()
 
     def _redraw(self, *_):
         self.canvas.before.clear()
         w, h, x0, y0 = self.width, self.height, self.x, self.y
         if w <= 0 or h <= 0:
             return
-
-        def px(fx, fy):
-            return (x0 + fx * w, y0 + fy * h)
-
-        # Demi-largeur d'une case, en fraction du panneau : les traits doivent
-        # partir du bord de la case, pas de son centre.
-        half = _cell_size(self)[0] / (2.0 * w)
-
-        with self.canvas.before:
-            # Traits de correspondance, sous le corps : discrets.
-            Color(1, 1, 1, 0.16)
-            for slot, (sx, sy, bx, by) in _SLOT_LAYOUT.items():
-                # On part du bord INTERIEUR de la case, vers la partie du corps.
-                edge = sx + (half if sx < 0.5 else -half)
-                Line(points=[*px(edge, sy), *px(bx, by)], width=1.2)
-
-            Color(0.72, 0.76, 0.84, 0.55)
-            head_r = h * 0.062
-            hx, hy = px(0.50, 0.85)
-            Ellipse(pos=(hx - head_r, hy - head_r),
-                    size=(head_r * 2, head_r * 2))            # tete
-            Rectangle(pos=px(0.475, 0.755), size=(w * 0.05, h * 0.04))  # cou
-            # Torse : epaules larges, taille plus etroite.
-            RoundedRectangle(pos=px(0.415, 0.44),
-                             size=(w * 0.17, h * 0.32),
-                             radius=[w * 0.03])
-            # Bras, le long du torse, mains a hauteur des hanches.
-            for dx in (0.365, 0.585):
-                RoundedRectangle(pos=px(dx, 0.46), size=(w * 0.05, h * 0.28),
-                                 radius=[w * 0.025])
-            # Mains.
-            for dx in (0.355, 0.595):
-                Ellipse(pos=px(dx, 0.425), size=(w * 0.06, h * 0.05))
-            # Jambes.
-            for dx in (0.437, 0.505):
-                RoundedRectangle(pos=px(dx, 0.10), size=(w * 0.058, h * 0.35),
-                                 radius=[w * 0.025])
-            # Pieds.
-            for dx in (0.425, 0.493):
-                RoundedRectangle(pos=px(dx, 0.055), size=(w * 0.082, h * 0.05),
-                                 radius=[w * 0.02])
+        # Dans la Tenue, le corps tient entre les deux colonnes de cases ;
+        # dans l'Apparence, rien ne le gene.
+        rect = Corps.rect_dans(x0, y0, w, h,
+                               part_l=0.32 if self.traits else 0.80)
+        self.corps.rect = rect
+        if self.traits:
+            # Demi-largeur d'une case, en fraction du panneau : les traits
+            # partent du bord de la case, pas de son centre.
+            half = _cell_size(self)[0] / (2.0 * w)
+            with self.canvas.before:
+                Color(1, 1, 1, 0.22)
+                for slot, (sx, sy) in _SLOT_LAYOUT.items():
+                    edge = sx + (half if sx < 0.5 else -half)
+                    Line(points=[x0 + edge * w, y0 + sy * h,
+                                 *self.corps.point(*ANCRES[slot])],
+                         width=1.2)
+        self.corps.dessine(self.canvas.before, rect, self.porte)
 
 
 class _EquipSlot(BoxLayout):
