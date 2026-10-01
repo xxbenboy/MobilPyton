@@ -256,6 +256,11 @@ class PlayerHands(Widget):
     # widget depuis le bas. Mesures depuis HandHUD.png : palm center a
     # 21 % du bas de l'image, image affichee sur 21 % de la hauteur ecran.
     ITEM_FY = 0.225
+    # x du creux de la main au REPOS (HandIdle.png), entre le pouce et les
+    # doigts. Plus pres du centre que HAND_FX, mesure sur la pose 'haut' :
+    # la main au repos se referme vers l'interieur. Un objet pose a HAND_FX
+    # tombait sur le dos de la main, du cote exterieur.
+    PAUME_REPOS_FX = (0.411, 0.589)
     # Cote de la boite ou tient un objet, en fraction du PETIT cote de
     # l'ecran. C'est la taille de reference : une image pleine la remplit,
     # une image ajouree recoit un peu plus (voir COUVERTURE_PLEINE).
@@ -358,8 +363,9 @@ class PlayerHands(Widget):
         return tuple(self._decale[index])
 
     def paume(self, index):
-        """Le creux de la paume `index` a sa place de base, en pixels."""
-        return (self.x + self.HAND_FX[index] * self.width,
+        """Le creux de la main VIDE `index` (pose de repos) a sa place de
+        base, en pixels : la ou elle refermerait les doigts sur un objet."""
+        return (self.x + self.PAUME_REPOS_FX[index] * self.width,
                 self.y + self.ITEM_FY * self.height)
 
     def _tick_geste(self, dt):
