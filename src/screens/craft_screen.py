@@ -34,9 +34,14 @@ brindille).
 Annuler recule la vue et remet chaque objet dans sa case, et ce que
 tenaient les mains reapparait : on revient exactement a l'etat d'avant.
 
-ASSEMBLER N'APPARAIT QU'A PARTIR DE DEUX OBJETS sur le plan. Si ces objets
-forment EXACTEMENT une recette, le carre de droite montre un "?" (recette
-inconnue) ou l'objet qu'il sait deja fabriquer ; sinon il reste vide.
+Si les objets du plan (deux au moins) forment EXACTEMENT une recette, le
+carre de droite montre un "?" (recette inconnue) ou l'objet qu'il sait deja
+fabriquer ; sinon il reste vide. ASSEMBLER N'APPARAIT QU'AVEC LUI.
+
+LE CARNET DE SAVOIRS (voir carnet.py) est garde de cote : son galet ne
+paraitra que lorsque le joueur saura fabriquer le carnet (CARNET). Les
+crafts connus et leurs dispositions sont retenus des maintenant : le carnet
+les aura tous des sa fabrication.
 
 DANS LA VUE, ASSEMBLER AVERTIT d'abord : des objets mal places seront
 DETRUITS. Si le joueur continue :
@@ -97,6 +102,8 @@ DUREE_MESSAGE = 2.5
 # LE RETOUR EN FONDU vers l'ecran de craft : l'ecran s'assombrit, la vue
 # normale revient dessous, puis il s'eclaircit. Duree de chaque moitie.
 DUREE_FONDU = 0.35
+# L'objet qui donne le carnet de savoirs (pas encore de recette).
+CARNET = "Carnet_De_Savoirs"
 
 
 def _police(label, remplit=0.62):
@@ -292,7 +299,6 @@ class CraftScreen(Penche, Screen):
                                       pos_hint={"right": 0.985, "y": 0.025})
         self._bouton_carnet = BoutonGalet(text="Carnet")
         self._bouton_carnet.bind(on_release=lambda *_: self.ouvre_carnet())
-        self._coin_carnet.add_widget(self._bouton_carnet)
         root.add_widget(self._coin_carnet)
         self._carnet = None
         self._disposition = None
@@ -354,10 +360,19 @@ class CraftScreen(Penche, Screen):
             self.hands.set_items(None, None)
         self.hands.set_glove(state.equipment.get("gant"))
         plan = state.objets_du_plan()
-        self.sol.montre(cases, state.hands, self.resultat_de(state, plan))
+        resultat = self.resultat_de(state, plan)
+        self.sol.montre(cases, state.hands, resultat)
         if self._mode == "sol":
+            # Assembler va avec le carre de droite : un ? ou un objet connu.
             self._garnit(self._rang_bas,
-                         self._assembler if len(plan) >= 2 else None)
+                         self._assembler if resultat is not None else None)
+            self._garnit(self._coin_carnet, self._bouton_carnet
+                         if self.carnet_disponible(state) else None, 1.0)
+
+    @staticmethod
+    def carnet_disponible(state):
+        """Le carnet n'est la qu'une fois fabrique."""
+        return state is not None and state.connait(CARNET)
 
     @staticmethod
     def resultat_de(state, plan):
@@ -487,7 +502,8 @@ class CraftScreen(Penche, Screen):
     # -- le carnet ------------------------------------------------------ #
     def ouvre_carnet(self):
         state = App.get_running_app().game_state
-        if state is None or self._mode != "sol" or self._carnet is not None:
+        if state is None or self._mode != "sol" or self._carnet is not None \
+                or not self.carnet_disponible(state):
             return False
         self.sol.annule()
         self.sol.actif = False
@@ -644,6 +660,7 @@ class CraftScreen(Penche, Screen):
         self.assemblage.charge(objets)
         self.hands.set_items(None, None)
         # Seuls Assembler, a sa place, et Retour devenu Annuler.
+        self._garnit(self._rang_bas, self._assembler)
         self._garnit(self._rang_titre, None)
         self._garnit(self._coin_carnet, None, 1.0)
         self._garnit(self._rang_retour, self._annuler)
@@ -780,7 +797,6 @@ class CraftScreen(Penche, Screen):
         self.assemblage.vide()
         self.assemblage.opacity = 0.0
         self._garnit(self._rang_titre, self._titre, 1.0)
-        self._garnit(self._coin_carnet, self._bouton_carnet, 1.0)
         self._garnit(self._rang_retour, self._retour)
         self._garnit(self._rang_bas, None)
         self._arrete_voile()
