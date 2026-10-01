@@ -68,6 +68,7 @@ from src.widgets.flou import floute
 from src.widgets.minijeux import MINIJEUX
 from src.widgets.panels import panel
 from src.widgets.bois import plaque, BoutonGalet, TEXTE_BOIS, TITRE_BOIS
+from src.widgets.carnet import Carnet
 from src import assemblages, items
 # LA CAMERA QUI SE PENCHE vit dans penche.py, partagee avec l'inventaire.
 # Ses reglages sont repris ici sous leurs noms : ce qui les lisait sur cet
@@ -285,6 +286,16 @@ class CraftScreen(Penche, Screen):
                                        valign="middle", color=(1, 1, 1, 1),
                                        size_hint=(1, 1)))
         panel(self._consigne, alpha=0.55)
+        # LE CARNET DE SAVOIRS : un galet dans le coin bas droit, hors de la
+        # vue d'assemblage (voir carnet.py).
+        self._coin_carnet = BoxLayout(size_hint=(0.11, 0.085),
+                                      pos_hint={"right": 0.985, "y": 0.025})
+        self._bouton_carnet = BoutonGalet(text="Carnet")
+        self._bouton_carnet.bind(on_release=lambda *_: self.ouvre_carnet())
+        self._coin_carnet.add_widget(self._bouton_carnet)
+        root.add_widget(self._coin_carnet)
+        self._carnet = None
+        self._disposition = None
         # LE FONDU, tout en haut : il prend les touchers tant qu'il est la.
         self.fondu = _Fondu(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.fondu)
@@ -314,6 +325,7 @@ class CraftScreen(Penche, Screen):
         self.hands.stop_breathing()
         self.quitte_penche()
         self._arrete_fondu()
+        self.ferme_carnet()
         if self._mode != "sol":
             self._fin_assemblage()
         self.sol.annule()
@@ -431,6 +443,9 @@ class CraftScreen(Penche, Screen):
         if state is None or self._mode != "zoom":
             return
         r = assemblages.valide(self.assemblage.objets, self.assemblage.liens)
+        # La disposition validee, pour le carnet (les objets bougeront
+        # pendant le mini-jeu).
+        self._disposition = self.disposition() if r is not None else None
         if r is None:
             state.detruit_le_plan()
             App.get_running_app().autosave()
@@ -454,6 +469,42 @@ class CraftScreen(Penche, Screen):
         self._minijeu.demarre()
         self.assemblage.actif = True
 
+    def disposition(self):
+        """Ou sont les objets de la vue d'assemblage, en cases de leur grille
+        invisible : [(nom, colonne, rangee)]."""
+        asm = self.assemblage
+        if not asm.objets:
+            return []
+        c = asm.case_objet()
+        rx, ry = asm.a_l_ecran(asm.objets[0])
+        out = []
+        for o in asm.objets:
+            x, y = asm.a_l_ecran(o)
+            out.append((o["nom"], int(round((x - rx) / c)),
+                        int(round((y - ry) / c))))
+        return out
+
+    # -- le carnet ------------------------------------------------------ #
+    def ouvre_carnet(self):
+        state = App.get_running_app().game_state
+        if state is None or self._mode != "sol" or self._carnet is not None:
+            return False
+        self.sol.annule()
+        self.sol.actif = False
+        self._carnet = Carnet(fermer=self.ferme_carnet, size_hint=(1, 1),
+                              pos_hint={"x": 0, "y": 0})
+        self._racine.add_widget(self._carnet)
+        self._carnet.montre([(o, state.dispositions.get(o))
+                             for o in state.crafts_connus])
+        return True
+
+    def ferme_carnet(self):
+        if self._carnet is not None:
+            if self._carnet.parent is not None:
+                self._carnet.parent.remove_widget(self._carnet)
+            self._carnet = None
+        self._place_camera()
+
     def _dit_consigne(self, texte):
         self._consigne.text = texte
 
@@ -463,6 +514,8 @@ class CraftScreen(Penche, Screen):
         state = App.get_running_app().game_state
         connu = state is not None and state.connait(recette["result"])
         objet = state.assemble(recette) if state is not None else None
+        if objet is not None and not connu:
+            state.retient_disposition(objet, self._disposition)
         if objet is not None:
             App.get_running_app().autosave()
         self._arrete_minijeu()
@@ -592,6 +645,7 @@ class CraftScreen(Penche, Screen):
         self.hands.set_items(None, None)
         # Seuls Assembler, a sa place, et Retour devenu Annuler.
         self._garnit(self._rang_titre, None)
+        self._garnit(self._coin_carnet, None, 1.0)
         self._garnit(self._rang_retour, self._annuler)
         self._mode = "entre"
         self._anime_zoom(1.0)
@@ -726,6 +780,7 @@ class CraftScreen(Penche, Screen):
         self.assemblage.vide()
         self.assemblage.opacity = 0.0
         self._garnit(self._rang_titre, self._titre, 1.0)
+        self._garnit(self._coin_carnet, self._bouton_carnet, 1.0)
         self._garnit(self._rang_retour, self._retour)
         self._garnit(self._rang_bas, None)
         self._arrete_voile()
@@ -735,6 +790,9 @@ class CraftScreen(Penche, Screen):
         self.refresh()
 
     def _sur_camera(self):
+        # Carnet ouvert : le sol attend qu'on le referme.
+        if getattr(self, "_carnet", None) is not None:
+            self.sol.actif = False
         # Pendant l'assemblage, la camera ne rend pas les grilles.
         if getattr(self, "_mode", "sol") != "sol":
             self.sol.opacity = 1.0 - adoucir(self._zoom)

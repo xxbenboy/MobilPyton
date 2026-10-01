@@ -249,11 +249,18 @@ class GameState:
                  chopped=None, equipment=None, bag=None,
                  penalty_steps=None, bag_wear=None, bag_stash=None,
                  stats=None, stat_xp=None, food_bonus_points=0,
-                 food_until=0, ground_layout=None, crafts_connus=None):
+                 food_until=0, ground_layout=None, crafts_connus=None,
+                 dispositions=None):
         self.seed = seed
         # LES ASSEMBLAGES CONNUS : ceux deja fabriques au moins une fois
         # (voir src/assemblages.py).
         self.crafts_connus = sorted(set(crafts_connus or []))
+        # Et COMMENT on les a assembles la premiere fois, pour le carnet :
+        # {objet: [[nom, colonne, rangee], ...]}, en cases de la grille
+        # invisible des objets, la plus basse a gauche en (0, 0).
+        self.dispositions = {k: [[str(o[0]), int(o[1]), int(o[2])]
+                                 for o in v if len(o) == 3]
+                             for k, v in (dispositions or {}).items()}
         self.name = name
         self.difficulty = difficulty
         self.time_seconds = time_seconds
@@ -1286,6 +1293,15 @@ class GameState:
     def connait(self, objet):
         """L'assemblage de cet objet a-t-il deja ete reussi ?"""
         return objet in self.crafts_connus
+
+    def retient_disposition(self, objet, disposition):
+        """Retient comment `objet` a ete assemble ([(nom, col, rang)])."""
+        if not disposition:
+            return
+        mx = min(o[1] for o in disposition)
+        my = min(o[2] for o in disposition)
+        self.dispositions[objet] = [[str(n), int(c - mx), int(r - my)]
+                                    for n, c, r in disposition]
 
     def objets_du_plan(self):
         """Les noms des objets poses sur le plan de travail, un par case."""
@@ -2657,6 +2673,7 @@ class GameState:
             "ground": self.ground,
             "ground_layout": self.ground_layout,
             "crafts_connus": self.crafts_connus,
+            "dispositions": self.dispositions,
             "installed": self.installed,
             "built": self.built,
             "build_stages": self.build_stages,
@@ -2719,6 +2736,7 @@ class GameState:
             ground=data.get("ground"),
             ground_layout=data.get("ground_layout"),
             crafts_connus=data.get("crafts_connus"),
+            dispositions=data.get("dispositions"),
             installed=data.get("installed"),
             built=data.get("built"),
             build_stages=data.get("build_stages"),
