@@ -67,9 +67,11 @@ APPARITION_GRILLES = 0.25
 # Les ecrans qui regardent le sol penche : on passe de l'un a l'autre sans
 # se relever.
 ECRANS_PENCHES = ("inventory", "craft")
-# Pose par un ecran penche qui en ouvre un autre : celui-ci s'ouvre deja
-# penche, sans refaire le mouvement.
-_DEJA_PENCHE = [False]
+# Pose par un ecran penche qui en ouvre un autre : OU EN EST LA CAMERA (0 a
+# 1), et la descente en cours s'il y en a une. L'ecran d'arrivee la reprend
+# telle quelle : basculer pendant la descente ne fait ni remonter le regard,
+# ni marquer de pause.
+_DEJA_PENCHE = [None]
 
 
 def adoucir(p):
@@ -140,8 +142,13 @@ class Penche(object):
         l'on etait deja penche."""
         self._arrete_camera()
         self._apres = None
-        self._pente = 1.0 if _DEJA_PENCHE[0] else 0.0
-        _DEJA_PENCHE[0] = False
+        repris = _DEJA_PENCHE[0]
+        _DEJA_PENCHE[0] = None
+        self._suite = None
+        self._pente = repris["pente"] if repris else 0.0
+        if repris and repris["suite"] is not None:
+            # La descente en cours continue sur sa lancee, meme courbe.
+            self._suite = repris["suite"]
         if state is not None:
             self.background.set_seconds(state.time_seconds)
             self.background.set_weather(state.effective_weather())
@@ -166,7 +173,15 @@ class Penche(object):
     def lance_penche(self):
         """A l'entree effective : le joueur baisse les yeux, s'il ne l'a
         pas deja fait."""
-        if self._pente < 1.0:
+        suite = getattr(self, "_suite", None)
+        self._suite = None
+        if suite is not None:
+            self._depart, self._ecoule, self._duree = suite
+            self._cible = 1.0
+            if self._horloge is None:
+                self._horloge = Clock.schedule_interval(self._tick_camera,
+                                                        1.0 / FPS_CAMERA)
+        elif self._pente < 1.0:
             self._anime_vers(1.0, DUREE_PENCHE)
 
     def quitte_penche(self):
@@ -183,9 +198,17 @@ class Penche(object):
         if sol is not None:
             sol.annule()
             sol.actif = False
-        if ecran in ECRANS_PENCHES and self._pente >= 0.999:
+        # Vers l'AUTRE ecran penche : tout de suite, meme en pleine descente
+        # (il reprend la camera ou elle en est) -- sauf si l'on etait deja en
+        # train de se relever pour partir.
+        relever = self._horloge is not None and self._cible == 0.0
+        if ecran in ECRANS_PENCHES and not relever:
+            descend = self._horloge is not None and self._cible == 1.0
+            _DEJA_PENCHE[0] = {
+                "pente": self._pente,
+                "suite": ((self._depart, self._ecoule, self._duree)
+                          if descend else None)}
             self._arrete_camera()
-            _DEJA_PENCHE[0] = True
             if self.manager is not None:
                 self.manager.current = ecran
             return

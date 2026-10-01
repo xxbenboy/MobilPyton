@@ -32,9 +32,9 @@ d'un sol qui montre parfois les memes images (une pierre, une brindille).
 Annuler recule la vue et remet chaque objet dans sa case, et ce que
 tenaient les mains reapparait : on revient exactement a l'etat d'avant.
 
-ASSEMBLER N'APPARAIT QU'A PARTIR DE DEUX OBJETS sur le plan. Le carre de
-droite montre alors un "?" -- aucun assemblage ne correspond, ou le joueur
-ne le connait pas -- ou l'objet qu'il sait deja fabriquer.
+ASSEMBLER N'APPARAIT QU'A PARTIR DE DEUX OBJETS sur le plan. Si ces objets
+forment EXACTEMENT une recette, le carre de droite montre un "?" (recette
+inconnue) ou l'objet qu'il sait deja fabriquer ; sinon il reste vide.
 
 DANS LA VUE, ASSEMBLER AVERTIT d'abord : des objets mal places seront
 DETRUITS. Si le joueur continue :
@@ -335,11 +335,15 @@ class CraftScreen(Penche, Screen):
     @staticmethod
     def resultat_de(state, plan):
         """Ce que montre le carre de droite pour ces objets du plan : rien
-        sous deux objets, l'objet s'il est connu, sinon "?"."""
+        sous deux objets, ni s'ils ne forment pas EXACTEMENT une recette
+        (une partie seulement, ou avec d'autres objets en plus) ; l'objet
+        s'il est connu ; sinon "?"."""
         if len(plan) < 2:
             return None
         r = assemblages.selon_objets(plan)
-        if r is not None and state.connait(r["result"]):
+        if r is None:
+            return None
+        if state.connait(r["result"]):
             return r["result"]
         return "?"
 
