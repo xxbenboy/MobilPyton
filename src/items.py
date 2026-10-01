@@ -1,7 +1,7 @@
 """
 Objets, trouvailles par zone, et recettes de craft.
 
-Chaque objet a un NOM court (ex. "Small_Stick", "Pierre", "Couteau"). Son image
+Chaque objet a un NOM court (ex. "Small_Stick", "Pierre", "Hache"). Son image
 est cherchee dans assets/items/<nom>.png (voir assets/items/LISEZMOI.txt).
 Si l'image n'existe pas encore, l'interface affiche un "?" avec le nom dessous.
 """
@@ -19,6 +19,13 @@ def image_path(name):
         if os.path.isfile(p):
             return p
     return None
+
+
+# OBJETS RENOMMES : ancien nom -> nouveau. Une sauvegarde qui porte l'ancien
+# nom le retrouve sous le nouveau (voir GameState.from_dict).
+RENOMMES = {
+    "Couteau": "Couteau_En_Pierre",
+}
 
 
 def display_name(name):
@@ -55,7 +62,7 @@ GOURDE_ITEMS = {"Gourde"}
 TOOL_USES = {
     "Hache": 5,
     "Lance": 12,
-    "Couteau": 15,
+    "Couteau_En_Pierre": 15,
     # Le MARTEAU sert par gros ouvrages, pas par gestes : cinq utilisations,
     # soit exactement les cinq ateliers que coute un marteau a vingt pour cent
     # la piece. Le compte est voulu -- un outil dont l'usure ne tombe pas
@@ -467,7 +474,8 @@ ITEM_NOTES = {
     "Fibre_Vegetale": "Un tas de fibres tirees d'une feuille ou d'une herbe.",
     "Corde": "Un metre de corde tressee. Tout ce qui doit tenir en depend.",
     # Outils
-    "Couteau": "Un eclat de pierre emmanche. Il taille plus qu'il ne tranche.",
+    "Couteau_En_Pierre": "Une pierre taillee en lame contre une autre. Elle "
+                         "taille plus qu'elle ne tranche.",
     "Hache": "Une tete de pierre liee a un manche. De quoi abattre un arbre.",
     "Lance": "Une pointe de pierre au bout d'une longue branche.",
     "Allume_feu": "Un silex prepare. Le meilleur moyen de partir un feu.",

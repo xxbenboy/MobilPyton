@@ -164,13 +164,18 @@ class Assemblage(Widget):
         self._ancre = [None, None]
         # Les objets colles l'un a l'autre : des paires (a, b).
         self.liens = []
+        # Un mini-jeu coupe l'aimant (les pierres qu'on frotte ne doivent pas
+        # se coller), et se fait prevenir a chaque pas (sur_pas(dt)).
+        self.aimant_permis = True
+        self.sur_pas = None
         self.bind(pos=self._redessine, size=self._redessine)
 
     # -- ce qu'il y a sur le plan ---------------------------------------- #
     def charge(self, objets):
         """[(nom, fx, fy)] : les objets du plan, au milieu de leur case."""
         self.objets = [{"nom": n, "x": fx, "y": fy, "x0": fx, "y0": fy,
-                        "xa": fx, "ya": fy} for n, fx, fy in objets]
+                        "xa": fx, "ya": fy, "coupe": [0.0, 0.0]}
+                       for n, fx, fy in objets]
         self._porte = [None, None]
         self._aimante = [None, None]
         self.liens = []
@@ -179,6 +184,8 @@ class Assemblage(Widget):
     def vide(self):
         self.lache_tout()
         self.objets = []
+        self.aimant_permis = True
+        self.sur_pas = None
         self._arrete()
         self._decale = [[0.0, 0.0], [0.0, 0.0]]
         if self.mains is not None:
@@ -224,7 +231,8 @@ class Assemblage(Widget):
                 if any(o is p for p in portes):
                     continue
                 dessine_objet(o["nom"], self.x + o["x"] * self.width,
-                              self.y + o["y"] * self.height, cote)
+                              self.y + o["y"] * self.height, cote,
+                              coupe=tuple(o.get("coupe", (0.0, 0.0))))
         self._dessine_portes()
 
     def _dessine_portes(self):
@@ -236,8 +244,9 @@ class Assemblage(Widget):
             for i in (0, 1):
                 if self._porte[i] is not None:
                     px, py = self.ou_est_porte(i)
-                    dessine_objet(self._porte[i]["nom"], px, py, cote,
-                                  ombre=False)
+                    o = self._porte[i]
+                    dessine_objet(o["nom"], px, py, cote, ombre=False,
+                                  coupe=tuple(o.get("coupe", (0.0, 0.0))))
             # LES GRILLES QUI SE TOUCHENT, tant que l'objet est tenu.
             for i in (0, 1):
                 if self._porte[i] is not None and \
@@ -297,7 +306,8 @@ class Assemblage(Widget):
         o = self._porte[i]
         px, py = self.ou_est_porte(i)
         colle = self._aimante[i]
-        if colle is None and self._chevauche(px, py, o):
+        if colle is None and self.aimant_permis and \
+                self._chevauche(px, py, o):
             # LACHE PAR-DESSUS UN AUTRE : pousse a la place libre la plus
             # proche, a cote, et colle.
             colle = self._place_libre(px, py, o)
@@ -362,7 +372,8 @@ class Assemblage(Widget):
         """(objet, x, y) : la place libre bord a bord la plus proche contre un
         objet que l'objet porte par la main `i` approche ; ou None."""
         o = self._porte[i]
-        if o is None or not self._aimant[i] or self._doigts[i] is None:
+        if o is None or not self._aimant[i] or self._doigts[i] is None \
+                or not self.aimant_permis:
             return None
         px, py = self.paume(i)
         portee = PORTEE_AIMANT * self.case_objet()
@@ -374,6 +385,10 @@ class Assemblage(Widget):
         if not pres:
             return None
         return self._place_libre(px, py, o, pres)
+
+    def porte(self, i):
+        """L'objet que porte la main `i`, ou None."""
+        return self._porte[i]
 
     def ou_est_porte(self, i):
         """Ou se dessine l'objet de la main `i` : aimante, ou dans la
@@ -432,6 +447,8 @@ class Assemblage(Widget):
                     self._prend(i)
             self._aimante[i] = self._cherche_aimant(i)
         self._dessine_portes()
+        if self.sur_pas is not None:
+            self.sur_pas(dt)
         if not encore:
             self._arrete()
 

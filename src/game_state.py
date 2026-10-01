@@ -221,6 +221,20 @@ def _clamp100(v):
     return max(0, min(100, v))
 
 
+def _renomme(v):
+    """`v` avec chaque ancien nom d'objet remplace par le nouveau (voir
+    items.RENOMMES), dans les chaines, les listes et les cles."""
+    if isinstance(v, str):
+        return items.RENOMMES.get(v, v)
+    if isinstance(v, list):
+        return [_renomme(x) for x in v]
+    if isinstance(v, tuple):
+        return tuple(_renomme(x) for x in v)
+    if isinstance(v, dict):
+        return {_renomme(k): _renomme(x) for k, x in v.items()}
+    return v
+
+
 class GameState:
     def __init__(self, seed, name="Partie", difficulty="Moyen", time_seconds=0,
                  health=100, energy=100, sleep=100, hunger=0, thirst=0,
@@ -235,8 +249,11 @@ class GameState:
                  chopped=None, equipment=None, bag=None,
                  penalty_steps=None, bag_wear=None, bag_stash=None,
                  stats=None, stat_xp=None, food_bonus_points=0,
-                 food_until=0, ground_layout=None):
+                 food_until=0, ground_layout=None, crafts_connus=None):
         self.seed = seed
+        # LES ASSEMBLAGES CONNUS : ceux deja fabriques au moins une fois
+        # (voir src/assemblages.py).
+        self.crafts_connus = sorted(set(crafts_connus or []))
         self.name = name
         self.difficulty = difficulty
         self.time_seconds = time_seconds
@@ -1262,6 +1279,52 @@ class GameState:
             self.ground_layout.pop(self._cell_key(), None)
         self.sol_en_cases()
         return rendues
+
+    # ------------------------------------------------------------------ #
+    # Les assemblages (voir src/assemblages.py)
+    # ------------------------------------------------------------------ #
+    def connait(self, objet):
+        """L'assemblage de cet objet a-t-il deja ete reussi ?"""
+        return objet in self.crafts_connus
+
+    def objets_du_plan(self):
+        """Les noms des objets poses sur le plan de travail, un par case."""
+        return [pile[0] for cle, pile in sorted(self.sol_en_cases().items())
+                if cle in CASES_CENTRE for _ in range(pile[1])]
+
+    def detruit_le_plan(self):
+        """Les objets du plan de travail DISPARAISSENT (assemblage rate).
+        Rend leur nombre."""
+        cases = self.sol_en_cases()
+        detruits = 0
+        for cle in CASES_CENTRE:
+            pile = cases.pop(cle, None)
+            if pile is None:
+                continue
+            for _ in range(pile[1]):
+                if self._pull_ground(pile[0]) is not None:
+                    detruits += 1
+        if cases:
+            self.ground_layout[self._cell_key()] = cases
+        else:
+            self.ground_layout.pop(self._cell_key(), None)
+        self.sol_en_cases()
+        return detruits
+
+    def assemble(self, recette):
+        """Fabrique `recette` avec les objets du plan de travail : ils sont
+        consommes, l'objet fabrique est pose dans la proximite, et il devient
+        connu. Rend son nom, ou None si le plan ne correspond pas."""
+        from src import assemblages
+        if assemblages.selon_objets(self.objets_du_plan()) is not recette:
+            return None
+        self.detruit_le_plan()
+        objet = recette["result"]
+        self.add_ground(objet)
+        if objet not in self.crafts_connus:
+            self.crafts_connus = sorted(self.crafts_connus + [objet])
+        self.sol_en_cases()
+        return objet
 
     # ------------------------------------------------------------------ #
     # Solidite des outils (hache, lance, couteau)
@@ -2588,6 +2651,7 @@ class GameState:
             "hands": self.hands,
             "ground": self.ground,
             "ground_layout": self.ground_layout,
+            "crafts_connus": self.crafts_connus,
             "installed": self.installed,
             "built": self.built,
             "build_stages": self.build_stages,
@@ -2621,6 +2685,11 @@ class GameState:
 
     @classmethod
     def from_dict(cls, data):
+        # LES OBJETS RENOMMES prennent leur nouveau nom partout (mains, sol,
+        # sac, usure, disposition...). Le nom de la partie et le journal
+        # sont du texte libre : on n'y touche pas.
+        data = {k: (v if k in ("name", "log", "seed", "difficulty")
+                    else _renomme(v)) for k, v in data.items()}
         # Compat : anciennes sauvegardes stockaient `time_minutes`.
         if "time_seconds" in data:
             time_seconds = data["time_seconds"]
@@ -2644,6 +2713,7 @@ class GameState:
             hands=data.get("hands"),
             ground=data.get("ground"),
             ground_layout=data.get("ground_layout"),
+            crafts_connus=data.get("crafts_connus"),
             installed=data.get("installed"),
             built=data.get("built"),
             build_stages=data.get("build_stages"),

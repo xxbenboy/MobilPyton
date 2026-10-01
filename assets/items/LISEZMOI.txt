@@ -41,7 +41,7 @@ DEJA EN PLACE
 ----------------------------------------------------------------
     Small_Stick, Long_Stick, Loafy_Long_Stick, Pierre, Pierre_Coupante,
     Silex, Feuille, Herbe, Fleur, Baie, Brown_Mushroom, Red_Mushroom,
-    Roseau, Plume, Os, Coquillage, Corde, Carcasse, Couteau, Hache,
+    Roseau, Plume, Os, Coquillage, Corde, Carcasse, Couteau_En_Pierre, Hache,
     Lance, Feu_de_camp, Chandail_Rescape, Pantalon_Rescape,
     Chaussures_Rescape, Casque_De_Feuille, Veste_De_Feuille,
     Gant_De_Feuille, Pantalon_De_Feuille, Soulier_De_Feuille,

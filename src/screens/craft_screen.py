@@ -31,6 +31,18 @@ rapproche, un VOILE GRIS couvre le decor : les objets du plan se detachent
 d'un sol qui montre parfois les memes images (une pierre, une brindille).
 Annuler recule la vue et remet chaque objet dans sa case, et ce que
 tenaient les mains reapparait : on revient exactement a l'etat d'avant.
+
+ASSEMBLER N'APPARAIT QU'A PARTIR DE DEUX OBJETS sur le plan. Le carre de
+droite montre alors un "?" -- aucun assemblage ne correspond, ou le joueur
+ne le connait pas -- ou l'objet qu'il sait deja fabriquer.
+
+DANS LA VUE, ASSEMBLER AVERTIT d'abord : des objets mal places seront
+DETRUITS. Si le joueur continue :
+  - mal places (voir assemblages.valide) : ils disparaissent ;
+  - bien places, objet deja connu : il est fabrique ;
+  - bien places, objet inconnu : son MINI-JEU se lance (voir minijeux.py).
+    Reussi, l'objet est fabrique, devient connu, et la vue se referme sur
+    l'ecran de craft, l'objet pose dans la proximite.
 """
 from kivy.app import App
 from kivy.clock import Clock
@@ -38,6 +50,7 @@ from kivy.uix.screenmanager import Screen
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.widget import Widget
+from kivy.uix.label import Label
 from kivy.graphics import Color, Rectangle
 from kivy.metrics import dp
 
@@ -48,6 +61,9 @@ from src.widgets.responsive import (scale_font, ROW_TITLE, ROW_BODY,
 from src.widgets.menu_toggle import MenuToggle
 from src.widgets.sol_de_craft import SolDeCraft
 from src.widgets.assemblage import Assemblage, Loupe, DUREE_ZOOM
+from src.widgets.minijeux import MINIJEUX
+from src.widgets.panels import panel
+from src import assemblages, items
 # LA CAMERA QUI SE PENCHE vit dans penche.py, partagee avec l'inventaire.
 # Ses reglages sont repris ici sous leurs noms : ce qui les lisait sur cet
 # ecran les y trouve toujours.
@@ -67,6 +83,21 @@ LARGEUR_RETOUR = 0.20
 # apparait en DUREE_VOILE secondes, une fois le zoom termine.
 VOILE = (0.50, 0.51, 0.53, 0.78)
 DUREE_VOILE = 0.25
+# Duree d'un message bref (assemblage rate, objet fabrique), en secondes.
+DUREE_MESSAGE = 2.5
+
+
+def _police(label, remplit=0.62):
+    """Le texte du label tient dans sa boite, en hauteur ET en largeur
+    (environ 0,55 em par caractere)."""
+    def _maj(*_):
+        lignes = (label.text or "").split("\n")
+        long = max(1, max(len(l) for l in lignes))
+        label.font_size = max(10.0, min(label.height * remplit / len(lignes),
+                                        label.width * 0.92 / (long * 0.55)))
+    label.bind(size=_maj, text=_maj)
+    _maj()
+    return label
 
 
 class CraftScreen(Penche, Screen):
@@ -131,6 +162,12 @@ class CraftScreen(Penche, Screen):
         self._zoom_horloge = None
         self._voile_horloge = None
         self._voile_depart = 0.0
+        # Le mini-jeu en cours, l'avertissement ouvert, le message bref.
+        self._minijeu = None
+        self._alerte = None
+        self._message = None
+        self._message_horloge = None
+        self._message_reste = 0.0
 
         # Voile de NUIT : assombrit tout selon l'heure, mains comprises, comme
         # dans l'ecran de jeu.
@@ -194,6 +231,12 @@ class CraftScreen(Penche, Screen):
         root.add_widget(col)
         root.add_widget(self.couche_glisse)
 
+        # LA CONSIGNE DU MINI-JEU, a la place du titre.
+        self._consigne = _police(Label(text="", bold=True, halign="center",
+                                       valign="middle", color=(1, 1, 1, 1),
+                                       size_hint=(1, 1)))
+        panel(self._consigne, alpha=0.55)
+        self._racine = root
         self.add_widget(root)
 
     # ------------------------------------------------------------------ #
@@ -245,10 +288,22 @@ class CraftScreen(Penche, Screen):
         else:
             self.hands.set_items(None, None)
         self.hands.set_glove(state.equipment.get("gant"))
-        self.sol.montre(cases, state.hands)
+        plan = state.objets_du_plan()
+        self.sol.montre(cases, state.hands, self.resultat_de(state, plan))
         if self._mode == "sol":
-            plan = any(k.startswith("C:") for k in cases)
-            self._garnit(self._rang_bas, self._assembler if plan else None)
+            self._garnit(self._rang_bas,
+                         self._assembler if len(plan) >= 2 else None)
+
+    @staticmethod
+    def resultat_de(state, plan):
+        """Ce que montre le carre de droite pour ces objets du plan : rien
+        sous deux objets, l'objet s'il est connu, sinon "?"."""
+        if len(plan) < 2:
+            return None
+        r = assemblages.selon_objets(plan)
+        if r is not None and state.connait(r["result"]):
+            return r["result"]
+        return "?"
 
     # -- les boutons ---------------------------------------------------- #
     @staticmethod
@@ -270,9 +325,119 @@ class CraftScreen(Penche, Screen):
         rang.add_widget(Widget(size_hint_x=marge))
 
     def _sur_assembler(self, *_):
-        # Dans la vue d'assemblage, il ne fait rien pour l'instant.
         if self._mode == "sol":
             self.assemble()
+        elif self._mode == "zoom" and self._alerte is None:
+            self.avertit()
+
+    # -- l'avertissement ------------------------------------------------ #
+    def avertit(self):
+        """Avant d'assembler : des objets mal places seront detruits."""
+        self.assemblage.actif = False
+        self.assemblage.lache_tout()
+        boite = BoxLayout(orientation="vertical", padding=dp(14),
+                          spacing=dp(10), size_hint=(0.46, 0.40),
+                          pos_hint={"center_x": 0.5, "center_y": 0.56})
+        panel(boite, alpha=0.82, border=(0.95, 0.70, 0.30, 0.9))
+        boite.add_widget(_police(Label(
+            text="! ATTENTION !", bold=True, color=(1.0, 0.78, 0.35, 1),
+            size_hint=(1, 0.30))))
+        boite.add_widget(_police(Label(
+            text="Si ces objets ne forment pas un assemblage valide,\n"
+                 "ils seront detruits.", halign="center", valign="middle",
+            color=(1, 1, 1, 1), size_hint=(1, 0.40))))
+        rang = BoxLayout(orientation="horizontal", spacing=dp(12),
+                         size_hint=(1, 0.30))
+        oui = scale_font(StyledButton(text="Continuer"), 0.022)
+        oui.bind(on_release=lambda *_: self.confirme())
+        non = scale_font(StyledButton(text="Annuler"), 0.022)
+        non.bind(on_release=lambda *_: self.ferme_alerte())
+        rang.add_widget(non)
+        rang.add_widget(oui)
+        boite.add_widget(rang)
+        self._alerte = boite
+        self._alerte_oui, self._alerte_non = oui, non
+        self._racine.add_widget(boite)
+
+    def ferme_alerte(self, rend_la_main=True):
+        if self._alerte is not None:
+            if self._alerte.parent is not None:
+                self._alerte.parent.remove_widget(self._alerte)
+            self._alerte = None
+        if rend_la_main and self._mode == "zoom":
+            self.assemblage.actif = True
+
+    def confirme(self):
+        """Le joueur assemble pour de bon."""
+        self.ferme_alerte(rend_la_main=False)
+        state = App.get_running_app().game_state
+        if state is None or self._mode != "zoom":
+            return
+        r = assemblages.valide(self.assemblage.objets, self.assemblage.liens)
+        if r is None:
+            state.detruit_le_plan()
+            App.get_running_app().autosave()
+            self._fin_assemblage()
+            self.montre_message("Assemblage rate : les objets sont perdus")
+            return
+        if state.connait(r["result"]):
+            self._reussit(r)
+            return
+        jeu = MINIJEUX.get(r.get("minijeu"))
+        if jeu is None:
+            self._reussit(r)
+            return
+        self._mode = "minijeu"
+        self._recette = r
+        self._garnit(self._rang_bas, None)
+        self._garnit(self._rang_titre, self._consigne, 1.0)
+        self._minijeu = jeu(self.assemblage, lambda: self._reussit(r),
+                            self._dit_consigne)
+        self._minijeu.demarre()
+        self.assemblage.actif = True
+
+    def _dit_consigne(self, texte):
+        self._consigne.text = texte
+
+    def _reussit(self, recette):
+        """L'objet est fabrique : la vue se referme, il est dans la
+        proximite."""
+        state = App.get_running_app().game_state
+        objet = state.assemble(recette) if state is not None else None
+        if objet is not None:
+            App.get_running_app().autosave()
+        self._fin_assemblage()
+        if objet is not None:
+            self.montre_message("%s fabrique !" % items.display_name(objet))
+
+    # -- le message bref ------------------------------------------------ #
+    def montre_message(self, texte):
+        self._efface_message()
+        boite = BoxLayout(orientation="vertical", padding=dp(6),
+                          size_hint=(0.36, 0.10),
+                          pos_hint={"center_x": 0.5, "top": 0.86})
+        panel(boite, alpha=0.65)
+        boite.add_widget(_police(Label(text=texte, halign="center",
+                                       valign="middle", color=(1, 1, 1, 1),
+                                       size_hint=(1, 1))))
+        self._message = boite
+        self._racine.add_widget(boite)
+        self._message_reste = DUREE_MESSAGE
+        self._message_horloge = Clock.schedule_interval(
+            self._tick_message, 1.0 / 10.0)
+
+    def _tick_message(self, dt):
+        self._message_reste -= dt
+        if self._message_reste <= 0.0:
+            self._efface_message()
+
+    def _efface_message(self):
+        if self._message_horloge is not None:
+            self._message_horloge.cancel()
+            self._message_horloge = None
+        if self._message is not None and self._message.parent is not None:
+            self._message.parent.remove_widget(self._message)
+        self._message = None
 
     # -- la vue d'assemblage -------------------------------------------- #
     def assemble(self):
@@ -302,8 +467,10 @@ class CraftScreen(Penche, Screen):
     def annule_assemblage(self):
         """Recule la vue : chaque objet regagne sa case, et les mains ce
         qu'elles tenaient. Rien n'a change dans la partie."""
-        if self._mode not in ("entre", "zoom"):
+        if self._mode not in ("entre", "zoom", "minijeu"):
             return False
+        self.ferme_alerte(rend_la_main=False)
+        self._arrete_minijeu()
         self.assemblage.actif = False
         self.assemblage.lache_tout()
         self.assemblage.fige_depart()
@@ -372,11 +539,17 @@ class CraftScreen(Penche, Screen):
         if self._zoom_horloge is not None:
             self._zoom_horloge.cancel()
             self._zoom_horloge = None
-        self._voile_horloge = None
+
+    def _arrete_minijeu(self):
+        if self._minijeu is not None:
+            self._minijeu.arrete()
+            self._minijeu = None
 
     def _fin_assemblage(self):
         """Retour a la vue normale, tout de suite."""
         self._arrete_zoom()
+        self.ferme_alerte(rend_la_main=False)
+        self._arrete_minijeu()
         self._mode = "sol"
         self._zoom = 0.0
         self.loupe.regle(0.0)

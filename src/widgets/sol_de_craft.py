@@ -14,7 +14,10 @@ Deux grilles POSEES AU SOL, DROITES (sans perspective) :
               ne s'y passe : on y pose des objets, UN SEUL PAR CASE
               (pas de pile), et le bouton Assembler ouvre la vue
               rapprochee (voir assemblage.py).
-    a droite  rien pour l'instant -- la place du resultat, plus tard.
+    a droite  LE RESULTAT : rien tant que le plan de travail porte moins de
+              deux objets ; sinon un "?" -- aucun assemblage ne correspond,
+              ou le joueur ne le connait pas encore -- ou l'image de
+              l'objet qu'il sait deja fabriquer (voir assemblages.py).
 
 Les objets se GLISSENT d'une case a l'autre, du sol vers une main et d'une
 main vers le sol (ou vers l'autre main). Ce widget ne sait que dessiner et
@@ -91,6 +94,14 @@ VISEE_REFUS = (0.92, 0.55, 0.50, 1.0)
 # Le fond des cases quand un objet peut y etre lache (voir pulse) : le
 # vert de l'inventaire, qui clignote.
 CIBLE = (0.70, 0.86, 0.68, 1.0)
+
+# LE RESULTAT, a droite : un carre de la hauteur du plan de travail, dans
+# le tiers libre a droite de la main droite (qui ne depasse jamais 0,713 de
+# la largeur). Son centre, en part de la largeur.
+RESULTAT_X = 0.85
+GRIS_RESULTAT = (0.80, 0.81, 0.82, 1.0)
+TRAIT_RESULTAT = (0.42, 0.43, 0.45, 1.0)
+TEXTE_RESULTAT = (0.30, 0.31, 0.33, 1.0)
 
 # LA TAILLE D'UN OBJET POSE, en part de la hauteur de l'ecran : LA MEME
 # PARTOUT, quelle que soit la case. C'est le cote du carre ou l'image tient
@@ -177,15 +188,21 @@ def coins_centre():
             (d, CENTRE_LOIN), (g, CENTRE_LOIN))
 
 
-def dessine_objet(nom, cx, cy, cote, ombre=True):
+def dessine_objet(nom, cx, cy, cote, ombre=True, coupe=(0.0, 0.0)):
     """Un objet centre en (cx, cy), son image entiere dans un carre de
-    `cote`, avec son ombre a plat dessous. Dessine dans le canvas ouvert."""
+    `cote`, avec son ombre a plat dessous. Dessine dans le canvas ouvert.
+
+    `coupe` = (gauche, droite) : la part de la largeur de l'image retiree de
+    chaque cote (une pierre qu'on taille). Ce qui reste ne bouge pas."""
     tex, couverture, _masse = _item_infos(nom)
+    g, d = coupe
+    reste = max(0.0, 1.0 - g - d)
     if ombre:
         Color(*OMBRE)
-        ow, oh = cote * 0.80, cote * 0.30
-        Ellipse(pos=(cx - ow / 2.0, cy - cote * 0.42), size=(ow, oh))
-    if tex is None:
+        ow, oh = cote * 0.80 * reste, cote * 0.30
+        ox = cx - cote * 0.40 + cote * 0.80 * g
+        Ellipse(pos=(ox, cy - cote * 0.42), size=(ow, oh))
+    if tex is None or reste <= 0.0:
         return
     tw, th = tex.size
     # UNE IMAGE AJOUREE EST GROSSIE, comme dans la main (voir player_hands) :
@@ -199,8 +216,13 @@ def dessine_objet(nom, cx, cy, cote, ombre=True):
     rapport = float(tw) / max(1, th)
     iw, ih = (boite, boite / rapport) if rapport >= 1.0 \
         else (boite * rapport, boite)
+    x0 = cx - iw / 2.0
+    if g > 0.0 or d > 0.0:
+        tex = tex.get_region(g * tw, 0, reste * tw, th)
+        x0 += g * iw
+        iw *= reste
     Color(1, 1, 1, 1)
-    Rectangle(texture=tex, pos=(cx - iw / 2.0, cy - ih / 2.0), size=(iw, ih))
+    Rectangle(texture=tex, pos=(x0, cy - ih / 2.0), size=(iw, ih))
 
 
 class _Grille(object):
@@ -318,6 +340,8 @@ class SolDeCraft(Widget):
         self.avec_centre = avec_centre
         self._cases = {}
         self._mains = [None, None]
+        # Ce que montre le carre de droite : None, "?" ou un nom d'objet.
+        self.resultat = None
         self._glisse = None
         self._nombres = []
         # Les couleurs des cases, gardees pour etre RETEINTES sans tout
@@ -332,12 +356,20 @@ class SolDeCraft(Widget):
         self.bind(pos=self._redessine, size=self._redessine)
 
     # -- ce que montre le sol ------------------------------------------ #
-    def montre(self, cases, mains):
-        """{case: [objet, nombre]} (voir GameState.sol_en_cases) et ce que
-        tiennent les mains (source possible d'un glisser)."""
+    def montre(self, cases, mains, resultat=None):
+        """{case: [objet, nombre]} (voir GameState.sol_en_cases), ce que
+        tiennent les mains (source possible d'un glisser), et ce que montre
+        le carre du resultat (None, "?" ou un nom d'objet)."""
         self._cases = {k: list(v) for k, v in (cases or {}).items()}
         self._mains = list(mains or [None, None])
+        self.resultat = resultat if self.avec_centre else None
         self._redessine()
+
+    def rect_resultat(self):
+        """Le carre du resultat a l'ecran : (x, y, cote)."""
+        cote = (CENTRE_LOIN - CENTRE_PRES) * self.height
+        return (self.x + RESULTAT_X * self.width - cote / 2.0,
+                self.y + CENTRE_PRES * self.height, cote)
 
     def grilles(self):
         if not self.avec_centre:
@@ -390,7 +422,26 @@ class SolDeCraft(Widget):
                                 ("case", cle):
                             continue    # il est dans la main du doigt
                         self._dessine_objet(g, col, rang, pile)
+            if self.resultat is not None:
+                self._dessine_resultat()
         self._teinte_cases()
+
+    def _dessine_resultat(self):
+        x, y, cote = self.rect_resultat()
+        Color(*GRIS_RESULTAT)
+        Rectangle(pos=(x, y), size=(cote, cote))
+        Color(*TRAIT_RESULTAT)
+        Line(rectangle=(x, y, cote, cote),
+             width=max(1.0, self.height * 0.0024))
+        if self.resultat == "?":
+            lbl = Label(text="?", bold=True, color=TEXTE_RESULTAT,
+                        font_size=cote * 0.62, size=(cote, cote),
+                        pos=(x, y))
+            self.add_widget(lbl)
+            self._nombres.append(lbl)
+        else:
+            dessine_objet(self.resultat, x + cote / 2.0, y + cote / 2.0,
+                          cote * 0.72, ombre=False)
 
     def _teinte_cases(self):
         """La couleur de chaque case : la visee du doigt, sinon le

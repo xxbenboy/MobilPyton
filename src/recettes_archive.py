@@ -32,7 +32,9 @@ from src.items import BLUEPRINT_T1, WORKBENCH_T1
 # Les categories de l'ancien ecran Craft, dans leur ordre d'affichage.
 CATEGORIES = ("Outils", "Materiaux", "Equipement", "Installations")
 
-# Les recettes, a l'identique. Rappel du format :
+# Les recettes, a l'identique -- sauf le couteau, renomme "Couteau_En_Pierre"
+# depuis (il se fabrique maintenant par assemblage, voir src/assemblages.py).
+# Rappel du format :
 # - "ingredients" : consommes, tous ;
 # - "any_of"      : UNE seule des matieres listees est consommee ;
 # - "tool"        : un outil a proximite, non consomme, qui perd
@@ -40,16 +42,16 @@ CATEGORIES = ("Outils", "Materiaux", "Equipement", "Installations")
 # - "station"     : un deposable qui doit etre POSE sur la case ;
 # - "minutes"     : le temps de jeu que l'ouvrage prend.
 RECETTES = [
-    {"result": "Couteau", "category": "Outils",
+    {"result": "Couteau_En_Pierre", "category": "Outils",
      "ingredients": {"Pierre": 1, "Small_Stick": 1}},
     {"result": "Hache", "category": "Outils",
      "ingredients": {"Pierre": 1, "Small_Stick": 4, "Corde": 1}},
     {"result": "Lance", "category": "Outils",
-     "ingredients": {"Long_Stick": 1, "Couteau": 1, "Corde": 1}},
+     "ingredients": {"Long_Stick": 1, "Couteau_En_Pierre": 1, "Corde": 1}},
     {"result": "Allume_feu", "category": "Outils",
      "ingredients": {"Silex": 1, "Pierre": 1}},
     {"result": "Fibre_Vegetale", "category": "Materiaux", "ingredients": {},
-     "any_of": ["Feuille", "Herbe"], "tool": "Couteau", "tool_wear": 0.10},
+     "any_of": ["Feuille", "Herbe"], "tool": "Couteau_En_Pierre", "tool_wear": 0.10},
     {"result": "Corde", "category": "Materiaux",
      "ingredients": {"Fibre_Vegetale": 3}},
     # Premiere tenue : des feuilles maintenues par des batons et de la corde.
@@ -81,7 +83,7 @@ RECETTES = [
 # assets/items/. None = l'image n'a jamais ete livree (voir le LISEZMOI du
 # dossier). L'ordre est celui des recettes.
 IMAGES = {
-    "Couteau": "Couteau.png",
+    "Couteau_En_Pierre": "Couteau_En_Pierre.png",
     "Hache": "Hache.png",
     "Lance": "Lance.png",
     "Allume_feu": None,
