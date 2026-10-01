@@ -11,7 +11,9 @@ Deux grilles POSEES AU SOL, DROITES (sans perspective) :
               GameState.sol_en_cases) ;
     au centre le PLAN DE TRAVAIL, 4 sur 4, dans l'ecart entre les deux
               mains. Toujours visible, d'un gris leger. Pour l'instant rien
-              ne s'y passe : on y pose des objets, c'est tout.
+              ne s'y passe : on y pose des objets, UN SEUL PAR CASE
+              (pas de pile), et le bouton Assembler ouvre la vue
+              rapprochee (voir assemblage.py).
     a droite  rien pour l'instant -- la place du resultat, plus tard.
 
 Les objets se GLISSENT d'une case a l'autre, du sol vers une main et d'une
@@ -173,6 +175,32 @@ def coins_centre():
     g, d = 0.5 - CENTRE_DEMI, 0.5 + CENTRE_DEMI
     return ((g, CENTRE_PRES), (d, CENTRE_PRES),
             (d, CENTRE_LOIN), (g, CENTRE_LOIN))
+
+
+def dessine_objet(nom, cx, cy, cote, ombre=True):
+    """Un objet centre en (cx, cy), son image entiere dans un carre de
+    `cote`, avec son ombre a plat dessous. Dessine dans le canvas ouvert."""
+    tex, couverture, _masse = _item_infos(nom)
+    if ombre:
+        Color(*OMBRE)
+        ow, oh = cote * 0.80, cote * 0.30
+        Ellipse(pos=(cx - ow / 2.0, cy - cote * 0.42), size=(ow, oh))
+    if tex is None:
+        return
+    tw, th = tex.size
+    # UNE IMAGE AJOUREE EST GROSSIE, comme dans la main (voir player_hands) :
+    # une brindille couvre un dixieme de son cadre, elle disparaissait sinon.
+    # Meme regle, meme plafond.
+    grossi = 1.0
+    if 0.0 < couverture < COUVERTURE_PLEINE:
+        grossi = min(GROSSISSEMENT_MAX,
+                     (COUVERTURE_PLEINE / couverture) ** 0.5)
+    boite = cote * grossi
+    rapport = float(tw) / max(1, th)
+    iw, ih = (boite, boite / rapport) if rapport >= 1.0 \
+        else (boite * rapport, boite)
+    Color(1, 1, 1, 1)
+    Rectangle(texture=tex, pos=(cx - iw / 2.0, cy - ih / 2.0), size=(iw, ih))
 
 
 class _Grille(object):
@@ -407,32 +435,11 @@ class SolDeCraft(Widget):
         il est centre dans la sienne, son image entiere dans un carre fixe,
         sans deformation."""
         nom, nombre = pile
-        tex, couverture, _masse = _item_infos(nom)
         c = float(g.colonnes)
         cx, cy = g.point((col + 0.5) / c, g.vr(rang + 0.5))
         dx, _ = g.point((col + 1) / c, g.vr(rang + 0.5))
         _, bas = g.point((col + 0.5) / c, g.vr(rang))
-        cote = self.height * TAILLE_OBJET
-        # L'ombre, a plat sous l'objet.
-        Color(*OMBRE)
-        ow, oh = cote * 0.80, cote * 0.30
-        Ellipse(pos=(cx - ow / 2.0, cy - cote * 0.42), size=(ow, oh))
-        if tex is not None:
-            tw, th = tex.size
-            # UNE IMAGE AJOUREE EST GROSSIE, comme dans la main (voir
-            # player_hands) : une brindille couvre un dixieme de son cadre,
-            # elle disparaissait sinon. Meme regle, meme plafond.
-            grossi = 1.0
-            if 0.0 < couverture < COUVERTURE_PLEINE:
-                grossi = min(GROSSISSEMENT_MAX,
-                             (COUVERTURE_PLEINE / couverture) ** 0.5)
-            boite = cote * grossi
-            rapport = float(tw) / max(1, th)
-            iw, ih = (boite, boite / rapport) if rapport >= 1.0 \
-                else (boite * rapport, boite)
-            Color(1, 1, 1, 1)
-            Rectangle(texture=tex, pos=(cx - iw / 2.0, cy - ih / 2.0),
-                      size=(iw, ih))
+        dessine_objet(nom, cx, cy, self.height * TAILLE_OBJET)
         if nombre > 1:
             taille = self.height * TAILLE_NOMBRE
             lbl = Label(text="x%d" % nombre, bold=True,
@@ -543,10 +550,20 @@ class SolDeCraft(Widget):
         if cible is None or cible == g["source"]:
             return False
         dessus = self.objet_de(cible)
-        if g["source"][0] == "case" and cible[0] == "main":
+        source = g["source"]
+        if source[0] == "case" and cible[0] == "main":
             return dessus is not None
-        if g["source"][0] == "main" and cible[0] == "case":
-            return dessus is not None and dessus != g["nom"]
+        vers_plan = cible[0] == "case" and cible[1].startswith("C:")
+        if source[0] == "main" and cible[0] == "case":
+            return dessus is not None and (dessus != g["nom"] or vers_plan)
+        if source[0] == "case" and cible[0] == "case" and dessus is not None:
+            # Un objet par case du plan de travail (voir deplace_au_sol).
+            pile = self._cases.get(source[1]) or [None, 1]
+            depuis_plan = source[1].startswith("C:")
+            if vers_plan:
+                return dessus == g["nom"] or pile[1] > 1
+            if depuis_plan and dessus != g["nom"]:
+                return self._cases[cible[1]][1] > 1
         return False
 
     # -- l'objet qui suit le doigt ------------------------------------- #
@@ -593,5 +610,6 @@ class SolDeCraft(Widget):
         self._glisse["fantome"] = None
 
 
-__all__ = ["SolDeCraft", "homographie", "applique", "inverse",
+__all__ = ["SolDeCraft", "dessine_objet", "homographie", "applique",
+           "inverse",
            "coins_proximite", "coins_centre"]

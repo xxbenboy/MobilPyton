@@ -1082,8 +1082,12 @@ class GameState:
 
         Case vide : la pile s'y pose. Meme objet : les deux piles n'en font
         plus qu'une. Objet different : elles echangent leurs places -- rien
-        ne se perd, rien ne se refuse. Renvoie True si quelque chose a
-        bouge."""
+        ne se perd. Renvoie True si quelque chose a bouge.
+
+        LE PLAN DE TRAVAIL NE PREND QU'UN OBJET PAR CASE : une pile qui y
+        va n'y pose qu'un exemplaire, le reste demeure dans sa case ; une
+        case du plan deja prise refuse un objet pareil, et un echange qui y
+        amenerait une pile est refuse."""
         if depuis == vers:
             return False
         cases = self.sol_en_cases()
@@ -1091,13 +1095,23 @@ class GameState:
         if pile is None or vers not in CASES_SOL + CASES_CENTRE:
             return False
         cible = cases.get(vers)
+        vers_plan = vers in CASES_CENTRE
         if cible is None:
-            cases[vers] = pile
-            del cases[depuis]
+            if vers_plan and pile[1] > 1:
+                cases[vers] = [pile[0], 1]
+                pile[1] -= 1
+            else:
+                cases[vers] = pile
+                del cases[depuis]
         elif cible[0] == pile[0]:
+            if vers_plan:
+                return False
             cible[1] += pile[1]
             del cases[depuis]
         else:
+            if (vers_plan and pile[1] > 1) or \
+                    (depuis in CASES_CENTRE and cible[1] > 1):
+                return False
             cases[vers], cases[depuis] = pile, cible
         self.ground_layout[self._cell_key()] = cases
         return True
@@ -1127,7 +1141,8 @@ class GameState:
 
         La case doit etre vide, ou porter le meme objet (il rejoint la pile).
         Une case prise par autre chose refuse : une main ne tient qu'un
-        objet, elle ne peut pas reprendre une pile en echange."""
+        objet, elle ne peut pas reprendre une pile en echange. Une case du
+        plan de travail deja prise refuse tout (un objet par case)."""
         if main not in (0, 1) or self.hands[main] is None:
             return False
         if case not in CASES_SOL + CASES_CENTRE:
@@ -1135,7 +1150,7 @@ class GameState:
         objet = self.hands[main]
         cases = self.sol_en_cases()
         cible = cases.get(case)
-        if cible is not None and cible[0] != objet:
+        if cible is not None and (cible[0] != objet or case in CASES_CENTRE):
             return False
         if not self.drop_from_hands(main):
             return False
@@ -1200,7 +1215,7 @@ class GameState:
             return None
         cases = self.sol_en_cases()
         cible = cases.get(case)
-        if cible is not None and cible[0] != objet:
+        if cible is not None and (cible[0] != objet or case in CASES_CENTRE):
             return None
         res = action()
         if res is None or res is False:

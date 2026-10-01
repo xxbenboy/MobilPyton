@@ -279,6 +279,8 @@ class PlayerHands(Widget):
         self._geste_t = [None, None]
         self._geste_tr = [[], []]
         self._geste_event = None
+        # Le deplacement libre de chaque main (vue d'assemblage), en pixels.
+        self._decale = [[0.0, 0.0], [0.0, 0.0]]
         self.bind(pos=self._redraw, size=self._redraw)
 
     # ---- API publique ----------------------------------------------------
@@ -346,6 +348,20 @@ class PlayerHands(Widget):
             self._geste_event = Clock.schedule_interval(self._tick_geste,
                                                         1.0 / GESTE_FPS)
 
+    def decale(self, index, dx, dy):
+        """Deplace la main `index` (et ce qu'elle tient) de (dx, dy) pixels
+        depuis sa place de base. (0, 0) la ramene a sa place."""
+        self._decale[index] = [float(dx), float(dy)]
+        self._place_gestes()
+
+    def decalage(self, index):
+        return tuple(self._decale[index])
+
+    def paume(self, index):
+        """Le creux de la paume `index` a sa place de base, en pixels."""
+        return (self.x + self.HAND_FX[index] * self.width,
+                self.y + self.ITEM_FY * self.height)
+
     def _tick_geste(self, dt):
         encore = False
         for i in (0, 1):
@@ -374,8 +390,10 @@ class PlayerHands(Widget):
             if t is not None:
                 dy = -GESTE_Y * self.height * math.sin(
                     math.pi * t / GESTE_DUREE)
+            ox, oy = self._decale[i]
             for tr in self._geste_tr[i]:
-                tr.y = dy
+                tr.x = ox
+                tr.y = dy + oy
 
     # ---- Mouvement (souffle + exploration) -------------------------------
 
