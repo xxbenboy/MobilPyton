@@ -236,6 +236,17 @@ BREATH_FPS = 30.0
 # sur un telephone -- assez pour lire "les mains sont passees devant".
 SEARCH_Y = 0.055
 
+# LE GESTE D'UNE MAIN qui pose un objet au sol ou l'y reprend (voir geste).
+# Elle plonge vers le sol puis revient : c'est ce qui dit, sans un mot, que
+# l'objet est passe de la main a la terre ou l'inverse. Vers le BAS
+# seulement, comme le souffle : les bras des images s'arretent au bord
+# inferieur du cadre, et une main qui monterait laisserait voir du vide sous
+# elle. 6 % de la hauteur, un tiers de seconde : assez pour se voir, pas
+# assez pour faire attendre.
+GESTE_Y = 0.06
+GESTE_DUREE = 0.32
+GESTE_FPS = 60.0
+
 
 class PlayerHands(Widget):
     # x du centre de chaque main (gauche, droite) en fraction de la largeur
@@ -262,6 +273,12 @@ class PlayerHands(Widget):
         self._breath_event = None
         self._shift = None
         self._shift_items = None
+        # Le geste de chaque main : son avancement (None au repos), et les
+        # translations qu'il deplace -- celle de la main et celle de l'objet
+        # qu'elle tient, pour qu'ils bougent ensemble.
+        self._geste_t = [None, None]
+        self._geste_tr = [[], []]
+        self._geste_event = None
         self.bind(pos=self._redraw, size=self._redraw)
 
     # ---- API publique ----------------------------------------------------
@@ -316,6 +333,50 @@ class PlayerHands(Widget):
         self._search = progress
         self._apply_motion()
 
+    def geste(self, index):
+        """La main `index` (0 = gauche, 1 = droite) plonge vers le sol et
+        revient : elle vient d'y poser un objet, ou de l'y prendre.
+
+        Relancer un geste deja en cours le reprend du debut : deux objets
+        poses coup sur coup donnent deux gestes, pas un geste tronque."""
+        if index not in (0, 1):
+            return
+        self._geste_t[index] = 0.0
+        if self._geste_event is None:
+            self._geste_event = Clock.schedule_interval(self._tick_geste,
+                                                        1.0 / GESTE_FPS)
+
+    def _tick_geste(self, dt):
+        encore = False
+        for i in (0, 1):
+            t = self._geste_t[i]
+            if t is None:
+                continue
+            t += min(dt, 0.1)
+            if t >= GESTE_DUREE:
+                self._geste_t[i] = None
+            else:
+                self._geste_t[i] = t
+                encore = True
+        self._place_gestes()
+        if not encore and self._geste_event is not None:
+            self._geste_event.cancel()
+            self._geste_event = None
+
+    def _place_gestes(self):
+        """Porte l'avancement de chaque geste sur ses translations.
+
+        Un demi-sinus : la main part a vitesse nulle, touche le sol au
+        milieu du geste, et revient se poser sans a-coup."""
+        for i in (0, 1):
+            t = self._geste_t[i]
+            dy = 0.0
+            if t is not None:
+                dy = -GESTE_Y * self.height * math.sin(
+                    math.pi * t / GESTE_DUREE)
+            for tr in self._geste_tr[i]:
+                tr.y = dy
+
     # ---- Mouvement (souffle + exploration) -------------------------------
 
     def _tick_breath(self, dt):
@@ -362,13 +423,20 @@ class PlayerHands(Widget):
             self._shift = Translate(0, 0, 0)
         # CHAQUE MAIN EST DESSINEE A PART : les deux n'ont pas la meme pose
         # (celle qui tient garde la paume ouverte, l'autre se referme).
+        self._geste_tr = [[], []]
         for i in (0, 1):
+            with self.canvas:
+                PushMatrix()
+                self._geste_tr[i].append(Translate(0, 0, 0))
             self._draw_half(i, REST_STATE if self._items[i] is not None
                             else IDLE_STATE)
+            with self.canvas:
+                PopMatrix()
         with self.canvas:
             PopMatrix()
         self._draw_items()
         self._apply_motion()
+        self._place_gestes()
 
     def _draw_half(self, index, state):
         """Dessine UNE main (0 = gauche, 1 = droite) dans la pose demandee.
@@ -431,7 +499,11 @@ class PlayerHands(Widget):
             # rien -- deux pixels sur la pierre, un sur la baie.
             bas = cy - ih * (1.0 - masse_y)
             with self.canvas.after:
+                # L'objet suit le geste de SA main (voir geste).
+                PushMatrix()
+                self._geste_tr[i].append(Translate(0, 0, 0))
                 Color(1, 1, 1, 1)
                 Rectangle(texture=tex, pos=(cx - iw / 2, bas), size=(iw, ih))
+                PopMatrix()
         with self.canvas.after:
             PopMatrix()

@@ -13,6 +13,13 @@ CE QUI RESTE :
 - le bouton RETOUR, pour sortir du menu, a la hauteur ou il est dans
   l'inventaire.
 
+UNE FOIS PENCHE, LE JOUEUR VOIT SON SOL EN CASES (voir sol_de_craft) : a
+gauche ce qui traine a proximite, 4 cases sur 7 ; au centre, entre ses mains,
+un plan de travail de 4 sur 4 ; a droite, plus tard, le resultat. Les objets
+se glissent d'une case a l'autre et entre le sol et les mains, et la main qui
+prend ou pose un objet fait le geste. En sortant, ce qui reste sur le plan
+de travail retourne a la proximite.
+
 LE FOND EST LA VRAIE SCENE DE LA CASE, celle de l'ecran de jeu, elements et
 proportions compris. Seule la CAMERA bouge : en entrant, elle glisse vers le
 bas, comme un regard qui se baisse vers le sol, et la scene entiere -- ciel
@@ -38,6 +45,7 @@ from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import (scale_font, ROW_TITLE, ROW_BODY,
                                     ROW_HANDS, ROW_HINT, ROW_BACK)
 from src.widgets.menu_toggle import MenuToggle
+from src.widgets.sol_de_craft import SolDeCraft
 
 # Largeur du bouton Retour, en part de l'ecran. Il n'occupe plus toute la
 # largeur comme dans l'inventaire : il se glisse ENTRE LES DEUX AVANT-BRAS,
@@ -48,22 +56,32 @@ LARGEUR_RETOUR = 0.20
 # --- LA CAMERA QUI SE PENCHE ----------------------------------------- #
 # Ou le regard amene l'horizon, en part de la hauteur d'ecran. La scene de
 # jeu le pose entre 0,47 (foret) et 0,75 (lac) : baisser les yeux le fait
-# monter tout en haut, et le sol occupe alors presque tout l'ecran.
+# monter tout en haut, et le sol occupe alors presque tout l'ecran. Il etait
+# a 0,88 ; le joueur trouvait qu'on ne se penchait pas assez.
 #
-# LE GLISSEMENT EST DONC PROPRE A CHAQUE ZONE : 0,40 de l'ecran en foret,
-# 0,18 au bord du lac, dont l'horizon est deja haut. Un glissement
+# LE GLISSEMENT EST DONC PROPRE A CHAQUE ZONE : 0,46 de l'ecran en foret,
+# 0,22 au bord du lac, dont l'horizon est deja haut. Un glissement
 # unique aurait envoye la berge d'en face hors de l'ecran, ou laisse la
 # foret a mi-hauteur.
-HORIZON_PENCHE = 0.88
+HORIZON_PENCHE = 0.93
 # Bornes du glissement, en part de la hauteur. Le haut est aussi ce qui
 # decide du sol prepare sous l'ecran (voir ZoneScenery.sous_sol).
 #
-# LE BAS NE DESCEND PAS SOUS 0,18 : au bord du lac, la formule ne donnait que
-# 0,13, et sur l'apercu on sentait a peine le joueur se pencher. La berge
-# d'en face y remonte un peu au-dessus du haut ideal -- ses cimes frolent le
-# haut de l'ecran -- mais le geste se voit.
-GLISSE_MIN = 0.18
-GLISSE_MAX = 0.40
+# LE BAS NE DESCEND PAS SOUS 0,22 : au bord du lac, la formule donnait bien
+# moins, et on sentait a peine le joueur se pencher. La berge d'en face y
+# remonte au ras du haut de l'ecran -- ses cimes le touchent -- mais le
+# geste se voit.
+GLISSE_MIN = 0.22
+GLISSE_MAX = 0.46
+# AU BORD DU LAC, LE REGARD DESCEND JUSQU'A LA PLAGE. Les grilles du sol
+# (voir sol_de_craft) montent jusqu'a 0,55 de l'ecran ; avec le glissement
+# de 0,22, tout le plan de travail et le fond de la proximite tombaient sur
+# l'eau -- des objets poses sur le lac. Le sable sec de la rive s'arrete a
+# 0,108 de la hauteur de la scene (la ou l'eau commence a laper, dans
+# rive_B) : a 0,42, il monte jusqu'a 0,53 de l'ecran, et les deux grilles
+# reposent sur la greve. La berge d'en face sort alors par le haut : a la
+# rive, se pencher, c'est regarder la plage.
+GLISSE_RIVE = 0.42
 # Durees du mouvement, en secondes. Se pencher prend un peu de temps ; se
 # relever est plus vif, parce que c'est ce qui precede un changement
 # d'ecran, et que personne n'aime attendre un bouton.
@@ -72,6 +90,11 @@ DUREE_RELEVE = 0.35
 # Images par seconde de l'animation : elle ne deplace qu'une translation,
 # c'est la carte graphique qui fait le reste.
 FPS_CAMERA = 60.0
+# Les grilles du sol apparaissent a la FIN du mouvement, en fondu, sur ce
+# dernier bout de la course : elles sont posees sur le sol tel qu'on le voit
+# penche, et glisser avec lui pendant le mouvement les aurait fait flotter.
+# Elles ne repondent au doigt qu'une fois la camera arrivee.
+APPARITION_GRILLES = 0.25
 
 
 def adoucir(p):
@@ -85,9 +108,12 @@ def adoucir(p):
     return p * p * p * (p * (p * 6.0 - 15.0) + 10.0)
 
 
-def glissement(crete):
+def glissement(crete, zone=None):
     """De combien la camera fait monter la scene, en part de la hauteur,
-    pour amener une crete a `crete` jusqu'a HORIZON_PENCHE."""
+    pour amener une crete a `crete` jusqu'a HORIZON_PENCHE -- ou, au bord du
+    lac, pour amener la plage sous les grilles (voir GLISSE_RIVE)."""
+    if zone == "Lac":
+        return GLISSE_RIVE
     return max(GLISSE_MIN, min(GLISSE_MAX, HORIZON_PENCHE - crete))
 
 
@@ -115,6 +141,16 @@ class CraftScreen(Screen):
         self.scenery.sous_sol = GLISSE_MAX + 0.02
         self.monde.add_widget(self.scenery)
         root.add_widget(self.monde)
+
+        # LE SOL EN CASES : sous les mains, qui passent devant lui. L'objet
+        # qu'on glisse, lui, se dessine dans une couche tout en haut (voir
+        # plus bas) : il doit passer par-dessus les mains.
+        self.couche_glisse = Widget(size_hint=(1, 1),
+                                    pos_hint={"x": 0, "y": 0})
+        self.sol = SolDeCraft(depose=self._depose, couche=self.couche_glisse,
+                              size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        self.sol.opacity = 0.0
+        root.add_widget(self.sol)
 
         # LES MAINS DU JOUEUR, hors du monde : elles restent en place pendant
         # que le regard se baisse.
@@ -159,6 +195,7 @@ class CraftScreen(Screen):
         bas.add_widget(Widget(size_hint_x=marge))
         col.add_widget(bas)
         root.add_widget(col)
+        root.add_widget(self.couche_glisse)
 
         self.add_widget(root)
 
@@ -202,7 +239,13 @@ class CraftScreen(Screen):
         self.background.set_horizon(self.scenery.hauteur_horizon())
         self.scenery.set_brume(self.background.couleur_ciel(
             self.scenery.hauteur_horizon()))
-        self._glisse = glissement(self.scenery.hauteur_horizon())
+        self._glisse = glissement(self.scenery.hauteur_horizon(),
+                                  self.scenery._zone)
+        # Un plan de travail qui ne serait pas vide a l'arrivee (une partie
+        # interrompue pendant qu'on s'en servait) est d'abord rendu a la
+        # proximite : on arrive toujours devant un plan libre.
+        if state.vide_le_centre():
+            App.get_running_app().autosave()
         self.refresh()
 
     def on_enter(self):
@@ -214,14 +257,64 @@ class CraftScreen(Screen):
     def on_leave(self):
         self.hands.stop_breathing()
         self._arrete_camera()
+        self.sol.annule()
+        self.sol.actif = False
+        # CE QUI RESTE SUR LE PLAN DE TRAVAIL RETOURNE A LA PROXIMITE, quelle
+        # que soit la sortie -- Retour ou le titre vers l'inventaire. Ces
+        # objets n'ont jamais quitte le sol (voir GameState.sol_en_cases) :
+        # l'inventaire les montrait deja ; ils reprennent simplement une case
+        # de la proximite.
+        state = App.get_running_app().game_state
+        if state is not None and state.vide_le_centre():
+            App.get_running_app().autosave()
 
     def refresh(self):
-        """Les mains montrent ce qu'elles tiennent, gants compris."""
+        """Les mains montrent ce qu'elles tiennent, gants compris, et le sol
+        ce qui y est pose."""
         state = App.get_running_app().game_state
         if state is None:
             return
         self.hands.set_items(state.hands[0], state.hands[1])
         self.hands.set_glove(state.equipment.get("gant"))
+        self.sol.montre(state.sol_en_cases(), state.hands)
+
+    # -- les depots ----------------------------------------------------- #
+    def _depose(self, source, cible):
+        """Un objet lache par le doigt. `source` et `cible` sont des couples
+        ("case", "G:3") ou ("main", 0). Rend True si quelque chose a bouge.
+
+        Les regles sont celles de l'inventaire : une main ne tient qu'un
+        objet et refuse d'en prendre un second ; poser sur une case prise par
+        un autre objet est refuse depuis une main (elle ne peut pas reprendre
+        une pile en echange), mais deux piles du sol, elles, echangent leurs
+        places."""
+        state = App.get_running_app().game_state
+        if state is None:
+            return False
+        (sorte_s, s), (sorte_c, c) = source, cible
+        geste = None
+        if sorte_s == "case" and sorte_c == "case":
+            fait = state.deplace_au_sol(s, c)
+        elif sorte_s == "case" and sorte_c == "main":
+            fait = state.sol_vers_main(s, c)
+            geste = c
+        elif sorte_s == "main" and sorte_c == "case":
+            fait = state.main_vers_sol(s, c)
+            geste = s
+        elif sorte_s == "main" and sorte_c == "main":
+            fait = s != c and state.echange_mains()
+        else:
+            fait = False
+        if not fait:
+            return False
+        App.get_running_app().autosave()
+        self.refresh()
+        # LA MAIN QUI A PRIS OU POSE fait le geste, apres le redessin : elle
+        # plonge vers le sol avec l'objet qu'elle y prend, ou sans celui
+        # qu'elle vient d'y laisser.
+        if geste is not None:
+            self.hands.geste(geste)
+        return True
 
     # -- la camera ------------------------------------------------------ #
     def partir(self, ecran):
@@ -229,6 +322,9 @@ class CraftScreen(Screen):
         mouvement ne fait que changer la destination : on ne se releve pas
         deux fois."""
         self._apres = ecran
+        # Plus de glisser des qu'on se releve : les grilles s'effacent.
+        self.sol.annule()
+        self.sol.actif = False
         if self._horloge is not None and self._cible == 0.0:
             return
         self._anime_vers(0.0, DUREE_RELEVE)
@@ -264,5 +360,12 @@ class CraftScreen(Screen):
             self._horloge = None
 
     def _place_camera(self):
-        """La scene monte a l'ecran d'autant que la camera se penche."""
+        """La scene monte a l'ecran d'autant que la camera se penche, et les
+        grilles du sol apparaissent a la fin du mouvement."""
         self._camera.y = self._pente * self._glisse * self.height
+        debut = 1.0 - APPARITION_GRILLES
+        self.sol.opacity = max(0.0, min(1.0, (self._pente - debut)
+                                        / APPARITION_GRILLES))
+        # Le doigt n'agit que camera arrivee ET tant qu'on ne repart pas.
+        self.sol.actif = self._pente >= 0.999 and not (
+            self._horloge is not None and self._cible == 0.0)

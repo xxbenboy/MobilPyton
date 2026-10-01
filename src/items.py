@@ -158,8 +158,11 @@ def item_stats(name):
 # Plus la nourriture est nourrissante, plus elle porte loin : une poignee de
 # baies tient deux heures, un bon morceau de viande toute une journee de
 # marche.
+#
+# L'HERBE NE SE MANGE PLUS. Elle figurait ici comme en-cas de secours, mais
+# un survivant ne broute pas : elle sert a tresser des fibres, et le bouton
+# "Manger" qu'elle faisait apparaitre dans la main n'avait pas lieu d'etre.
 FOOD = {
-    "Herbe":          {"hunger": 4,  "endurance": 5,  "hours": 1},
     "Baie":           {"hunger": 8,  "endurance": 10, "hours": 2},
     "Brown_Mushroom": {"hunger": 12, "endurance": 15, "hours": 3},
     "Poisson":        {"hunger": 25, "endurance": 35, "hours": 5},

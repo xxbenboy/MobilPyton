@@ -82,6 +82,33 @@ GAME_MINUTES_PER_REAL_MINUTE = 144.0
 # Le joueur ne peut tenir que 2 objets dans ses mains a la fois.
 HANDS_MAX = 2
 
+# --------------------------------------------------------------------- #
+# LE SOL EN CASES (ecran de craft)
+# --------------------------------------------------------------------- #
+# Penche vers le sol, le joueur voit ce qui traine autour de lui range en
+# CASES : a gauche la PROXIMITE, 4 cases de large sur 7 de profondeur, et au
+# centre, entre ses mains, un PLAN DE TRAVAIL de 4 sur 4. Chaque case tient
+# un objet ou une pile d'objets identiques.
+#
+# LE SOL RESTE LA SEULE VERITE. `ground` dit ce qu'il y a sur la case -- c'est
+# lui que lisent l'inventaire, la fouille, la sauvegarde, tout le jeu. La
+# disposition (`ground_layout`) ne dit que OU chaque pile est posee, et elle
+# se REACCORDE au sol a chaque lecture (voir sol_en_cases) : un objet ajoute
+# par la fouille prend la premiere case libre, un objet ramasse depuis
+# l'inventaire quitte sa case. Rien ne peut donc se perdre ni se dupliquer
+# entre deux ecrans, et aucune des nombreuses facons de poser un objet au
+# sol n'a eu a changer.
+#
+# Une case se nomme "G:i" (proximite, i de 0 a 27) ou "C:i" (plan de
+# travail, i de 0 a 15). i = rangee * 4 + colonne, la rangee 0 etant la plus
+# PROCHE du joueur : c'est la qu'un nouvel objet se pose d'abord.
+SOL_COLONNES = 4
+SOL_RANGEES = 7
+CENTRE_COLONNES = 4
+CENTRE_RANGEES = 4
+CASES_SOL = ["G:%d" % i for i in range(SOL_COLONNES * SOL_RANGEES)]
+CASES_CENTRE = ["C:%d" % i for i in range(CENTRE_COLONNES * CENTRE_RANGEES)]
+
 # Directions cardinales dans le sens HORAIRE : Nord, Est, Sud, Ouest.
 # (y augmente vers le bas, donc Nord = (0, -1).)
 CARDINALS = [(0, -1), (1, 0), (0, 1), (-1, 0)]
@@ -200,7 +227,7 @@ class GameState:
                  chopped=None, equipment=None, bag=None,
                  penalty_steps=None, bag_wear=None, bag_stash=None,
                  stats=None, stat_xp=None, food_bonus_points=0,
-                 food_until=0):
+                 food_until=0, ground_layout=None):
         self.seed = seed
         self.name = name
         self.difficulty = difficulty
@@ -231,6 +258,18 @@ class GameState:
                           if i < len(raw_w) and raw_w[i] else [None, 0.0]
                           for i in range(2)]
         self.ground = ground if ground else {}      # {"x,y": {objet: nombre}}
+        # OU chaque pile est posee sur le sol en cases (voir CASES_SOL) :
+        # {"x,y": {"G:3": [objet, nombre], ...}}. Le sol, lui, reste la
+        # verite : cette disposition s'y reaccorde a chaque lecture.
+        self.ground_layout = {}
+        for cell, cases in (ground_layout or {}).items():
+            propre = {}
+            for cle, pile in (cases or {}).items():
+                if (cle in CASES_SOL or cle in CASES_CENTRE) and pile \
+                        and len(pile) == 2 and int(pile[1]) > 0:
+                    propre[cle] = [pile[0], int(pile[1])]
+            if propre:
+                self.ground_layout[cell] = propre
         # Usure des outils POSES AU SOL : {"x,y": {nom: [utilisations, ...]}},
         # une valeur par exemplaire.
         self.ground_wear = {}
@@ -965,6 +1004,175 @@ class GameState:
             self.set_hand(index, None)
             return True
         return False
+
+    # ------------------------------------------------------------------ #
+    # Le sol en cases (voir CASES_SOL)
+    # ------------------------------------------------------------------ #
+    def sol_en_cases(self):
+        """{case: [objet, nombre]} de la case ou l'on se tient, ACCORDE au
+        sol (voir CASES_SOL).
+
+        Trois corrections, dans cet ordre :
+          1. une pile dont l'objet a disparu du sol, ou qui en compte plus
+             qu'il n'y en a, est reduite -- en partant des cases les plus
+             LOINTAINES de la proximite, puis du plan de travail : ce qu'on
+             a sous la main reste la ;
+          2. ce que le sol a en plus rejoint une pile du meme objet dans la
+             proximite, ou a defaut la premiere case libre ;
+          3. s'il n'y a plus de case libre -- vingt-huit sortes d'objets
+             differentes sur une case -- le reste n'est pas dessine, mais il
+             est TOUJOURS AU SOL : l'inventaire le montre, et il reprendra
+             une case des qu'une se liberera.
+
+        La disposition corrigee est gardee : la prochaine lecture repart de
+        la."""
+        cell = self._cell_key()
+        sol = dict(self.ground_here())
+        cases = {k: [v[0], int(v[1])]
+                 for k, v in self.ground_layout.get(cell, {}).items()
+                 if (k in CASES_SOL or k in CASES_CENTRE) and int(v[1]) > 0}
+        # 1. Rien de plus que ce que le sol contient.
+        ordre_retrait = list(reversed(CASES_SOL)) + list(reversed(CASES_CENTRE))
+        for objet in {v[0] for v in cases.values()}:
+            trop = sum(v[1] for v in cases.values() if v[0] == objet) \
+                - sol.get(objet, 0)
+            for cle in ordre_retrait:
+                if trop <= 0:
+                    break
+                pile = cases.get(cle)
+                if pile is None or pile[0] != objet:
+                    continue
+                pris = min(trop, pile[1])
+                pile[1] -= pris
+                trop -= pris
+                if pile[1] <= 0:
+                    del cases[cle]
+        # 2. Tout ce que le sol contient, pose quelque part si possible.
+        for objet in sorted(sol):
+            manque = sol[objet] - sum(v[1] for v in cases.values()
+                                      if v[0] == objet)
+            if manque <= 0:
+                continue
+            cle = next((k for k in CASES_SOL
+                        if k in cases and cases[k][0] == objet), None)
+            if cle is None:
+                cle = next((k for k in CASES_SOL if k not in cases), None)
+            if cle is None:
+                continue                 # 3. plus de case : reste au sol
+            if cle in cases:
+                cases[cle][1] += manque
+            else:
+                cases[cle] = [objet, manque]
+        if cases:
+            self.ground_layout[cell] = cases
+        else:
+            self.ground_layout.pop(cell, None)
+        return {k: list(v) for k, v in cases.items()}
+
+    def deplace_au_sol(self, depuis, vers):
+        """Deplace TOUTE la pile d'une case vers une autre.
+
+        Case vide : la pile s'y pose. Meme objet : les deux piles n'en font
+        plus qu'une. Objet different : elles echangent leurs places -- rien
+        ne se perd, rien ne se refuse. Renvoie True si quelque chose a
+        bouge."""
+        if depuis == vers:
+            return False
+        cases = self.sol_en_cases()
+        pile = cases.get(depuis)
+        if pile is None or vers not in CASES_SOL + CASES_CENTRE:
+            return False
+        cible = cases.get(vers)
+        if cible is None:
+            cases[vers] = pile
+            del cases[depuis]
+        elif cible[0] == pile[0]:
+            cible[1] += pile[1]
+            del cases[depuis]
+        else:
+            cases[vers], cases[depuis] = pile, cible
+        self.ground_layout[self._cell_key()] = cases
+        return True
+
+    def sol_vers_main(self, case, main):
+        """Prend UN objet de cette case dans la main (0 = gauche, 1 = droite).
+
+        Passe par take_from_ground : l'usure d'un outil, l'experience de
+        ramasser, tout reste celui de l'inventaire."""
+        cases = self.sol_en_cases()
+        pile = cases.get(case)
+        if pile is None or main not in (0, 1) or self.hands[main] is not None:
+            return False
+        if not self.take_from_ground(pile[0], main):
+            return False
+        # take_from_ground a retire l'objet du sol ; on le retire de SA case,
+        # et non de celle que la reaccordance aurait choisie.
+        pile[1] -= 1
+        if pile[1] <= 0:
+            del cases[case]
+        self.ground_layout[self._cell_key()] = cases
+        self.sol_en_cases()
+        return True
+
+    def main_vers_sol(self, main, case):
+        """Pose l'objet de cette main DANS cette case.
+
+        La case doit etre vide, ou porter le meme objet (il rejoint la pile).
+        Une case prise par autre chose refuse : une main ne tient qu'un
+        objet, elle ne peut pas reprendre une pile en echange."""
+        if main not in (0, 1) or self.hands[main] is None:
+            return False
+        if case not in CASES_SOL + CASES_CENTRE:
+            return False
+        objet = self.hands[main]
+        cases = self.sol_en_cases()
+        cible = cases.get(case)
+        if cible is not None and cible[0] != objet:
+            return False
+        if not self.drop_from_hands(main):
+            return False
+        if cible is None:
+            cases[case] = [objet, 1]
+        else:
+            cible[1] += 1
+        self.ground_layout[self._cell_key()] = cases
+        self.sol_en_cases()
+        return True
+
+    def echange_mains(self):
+        """Les deux mains echangent ce qu'elles tiennent, usure comprise."""
+        if self.hands[0] is None and self.hands[1] is None:
+            return False
+        self.hands = [self.hands[1], self.hands[0]]
+        self.hand_wear = [self.hand_wear[1], self.hand_wear[0]]
+        return True
+
+    def vide_le_centre(self):
+        """Rend a la proximite tout ce qui reste sur le plan de travail.
+
+        Chaque pile rejoint une pile du meme objet, ou la premiere case
+        libre. Sans case libre, elle reste au sol hors des cases (voir
+        sol_en_cases) : jamais perdue. Renvoie le nombre de piles rendues."""
+        cases = self.sol_en_cases()
+        rendues = 0
+        for cle in CASES_CENTRE:
+            pile = cases.pop(cle, None)
+            if pile is None:
+                continue
+            rendues += 1
+            meme = next((k for k in CASES_SOL
+                         if k in cases and cases[k][0] == pile[0]), None)
+            libre = next((k for k in CASES_SOL if k not in cases), None)
+            if meme is not None:
+                cases[meme][1] += pile[1]
+            elif libre is not None:
+                cases[libre] = pile
+        if cases:
+            self.ground_layout[self._cell_key()] = cases
+        else:
+            self.ground_layout.pop(self._cell_key(), None)
+        self.sol_en_cases()
+        return rendues
 
     # ------------------------------------------------------------------ #
     # Solidite des outils (hache, lance, couteau)
@@ -2290,6 +2498,7 @@ class GameState:
             "water": self.water,
             "hands": self.hands,
             "ground": self.ground,
+            "ground_layout": self.ground_layout,
             "installed": self.installed,
             "built": self.built,
             "build_stages": self.build_stages,
@@ -2345,6 +2554,7 @@ class GameState:
             water=data.get("water", 0),
             hands=data.get("hands"),
             ground=data.get("ground"),
+            ground_layout=data.get("ground_layout"),
             installed=data.get("installed"),
             built=data.get("built"),
             build_stages=data.get("build_stages"),
