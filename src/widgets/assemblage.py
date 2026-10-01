@@ -24,6 +24,15 @@ DANS CETTE VUE :
   devant lui, pas l'inverse. Au lacher, l'objet reste EXACTEMENT ou il est, et la
   main repart seule vers sa place.
 
+LES OBJETS SE COLLENT PAR LEURS CASES. Chaque image porte une grille
+INVISIBLE de 3 x 3 cases. Un objet porte pres d'un autre s'aligne sur la
+grille de celui-ci : il saute a la case la plus proche, cases contre cases,
+bord a bord ou en se chevauchant d'une ou deux rangees. Tant que le doigt
+bouge, l'aimant suit ; s'il reste immobile une seconde, l'aimant lache et
+l'objet revient sous la paume -- il reprend des que le doigt rebouge. Lache
+pendant qu'il est aimante, l'objet RESTE COLLE a l'autre (voir `liens`) ;
+reprendre l'un des deux les decolle.
+
 RIEN DE TOUT CELA NE TOUCHE A LA PARTIE : les objets ne bougent qu'a
 l'ecran. Annuler les remet dans leurs cases, la ou ils etaient avant
 d'assembler (voir CraftScreen).
@@ -59,6 +68,16 @@ ARRIVEE = 0.5
 # taille (a l'ecran, zoome).
 SAISIE = 0.45
 FPS = 60.0
+
+# LA GRILLE INVISIBLE DE CHAQUE IMAGE : 3 x 3 cases, d'un tiers de l'objet.
+CASES_OBJET = 3
+# L'aimant prend un objet dont la grille passe a moins d'une demi-case du
+# contact bord a bord : decalage d'au plus 3 cases dans chaque sens.
+PORTEE_AIMANT = CASES_OBJET + 0.5
+# Doigt pose sans bouger pendant ce temps (s) : l'aimant lache.
+DELAI_AIMANT = 1.0
+# En deca de ce deplacement du doigt (px), il n'a pas bouge.
+SEUIL_BOUGE = 6.0
 
 
 def vue(e, x, y, l, h, ox=0.0, oy=0.0):
@@ -129,6 +148,15 @@ class Assemblage(Widget):
         self._porte = [None, None]
         self._decale = [[0.0, 0.0], [0.0, 0.0]]
         self._horloge = None
+        # L'aimant de chaque main : l'objet auquel l'objet porte s'aligne et
+        # ou il se pose (a l'ecran), s'il est actif, depuis combien de temps
+        # le doigt est immobile, et ou il etait.
+        self._aimante = [None, None]
+        self._aimant = [True, True]
+        self._immobile = [0.0, 0.0]
+        self._ancre = [None, None]
+        # Les objets colles l'un a l'autre : des paires (a, b).
+        self.liens = []
         self.bind(pos=self._redessine, size=self._redessine)
 
     # -- ce qu'il y a sur le plan ---------------------------------------- #
@@ -137,6 +165,8 @@ class Assemblage(Widget):
         self.objets = [{"nom": n, "x": fx, "y": fy, "x0": fx, "y0": fy,
                         "xa": fx, "ya": fy} for n, fx, fy in objets]
         self._porte = [None, None]
+        self._aimante = [None, None]
+        self.liens = []
         self._redessine()
 
     def vide(self):
@@ -198,7 +228,7 @@ class Assemblage(Widget):
         with self.couche.canvas:
             for i in (0, 1):
                 if self._porte[i] is not None:
-                    px, py = self.paume(i)
+                    px, py = self.ou_est_porte(i)
                     dessine_objet(self._porte[i]["nom"], px, py, cote,
                                   ombre=False)
 
@@ -233,18 +263,70 @@ class Assemblage(Widget):
                 meilleur, dist = o, d
         if meilleur is not None:
             self._porte[i] = meilleur
+            self.decolle(meilleur)
             self._redessine()
 
     def _pose(self, i):
         """L'objet porte par la main `i` reste exactement ou il est."""
         o = self._porte[i]
+        px, py = self.ou_est_porte(i)
+        colle = self._aimante[i]
         self._porte[i] = None
-        px, py = self.paume(i)
+        self._aimante[i] = None
+        if colle is not None:
+            self.liens.append((o, colle[0]))
         x, y = vue_inverse(1.0, px, py, self.width, self.height,
                            self.x, self.y)
         o["x"] = (x - self.x) / self.width
         o["y"] = (y - self.y) / self.height
         self._redessine()
+
+    # -- l'aimant ---------------------------------------------------------- #
+    def case_objet(self):
+        """Le cote d'une case de la grille invisible d'un objet, a l'ecran."""
+        return TAILLE_OBJET * self.height * ZOOM / CASES_OBJET
+
+    def _cherche_aimant(self, i):
+        """(objet, x, y) : l'objet libre le plus proche de celui que porte la
+        main `i`, et ou ce dernier se pose grille contre grille ; ou None."""
+        o = self._porte[i]
+        if o is None or not self._aimant[i] or self._doigts[i] is None:
+            return None
+        px, py = self.paume(i)
+        c = self.case_objet()
+        portes = [p for p in self._porte if p is not None]
+        meilleur, dist = None, None
+        for b in self.objets:
+            if any(b is p for p in portes):
+                continue
+            bx, by = self.a_l_ecran(b)
+            kx, ky = (px - bx) / c, (py - by) / c
+            if abs(kx) > PORTEE_AIMANT or abs(ky) > PORTEE_AIMANT:
+                continue
+            kx = max(-CASES_OBJET, min(CASES_OBJET, round(kx)))
+            ky = max(-CASES_OBJET, min(CASES_OBJET, round(ky)))
+            sx, sy = bx + kx * c, by + ky * c
+            d = math.hypot(sx - px, sy - py)
+            if dist is None or d < dist:
+                meilleur, dist = (b, sx, sy), d
+        return meilleur
+
+    def ou_est_porte(self, i):
+        """Ou se dessine l'objet de la main `i` : aimante, ou dans la
+        paume."""
+        if self._aimante[i] is not None:
+            return self._aimante[i][1], self._aimante[i][2]
+        return self.paume(i)
+
+    def decolle(self, o):
+        """Defait les liens de `o` : on l'a repris."""
+        self.liens = [(a, b) for a, b in self.liens
+                      if a is not o and b is not o]
+
+    def colles(self, o):
+        """Les objets colles a `o`."""
+        return [b if a is o else a for a, b in self.liens
+                if a is o or b is o]
 
     def _cible(self, i):
         """Ou va la main `i` : le bas de son avant-bras sous le doigt qui la
@@ -279,8 +361,12 @@ class Assemblage(Widget):
                 self.mains.decale(i, nx, ny)
             if self._doigts[i] is not None:
                 encore = True
+                self._immobile[i] += dt
+                if self._immobile[i] >= DELAI_AIMANT:
+                    self._aimant[i] = False
                 if self._porte[i] is None:
                     self._prend(i)
+            self._aimante[i] = self._cherche_aimant(i)
         self._dessine_portes()
         if not encore:
             self._arrete()
@@ -308,13 +394,25 @@ class Assemblage(Widget):
         if self._doigts[i] is not None:
             return True
         self._doigts[i] = touch
+        self._ancre[i] = (touch.x, touch.y)
+        self._immobile[i] = 0.0
+        self._aimant[i] = True
         if hasattr(touch, "grab"):
             touch.grab(self)
         self._demarre()
         return True
 
     def on_touch_move(self, touch):
-        return self._main_de(touch) is not None
+        i = self._main_de(touch)
+        if i is None:
+            return False
+        ax, ay = self._ancre[i]
+        if math.hypot(touch.x - ax, touch.y - ay) > SEUIL_BOUGE:
+            # Le doigt rebouge : l'aimant reprend.
+            self._ancre[i] = (touch.x, touch.y)
+            self._immobile[i] = 0.0
+            self._aimant[i] = True
+        return True
 
     def on_touch_up(self, touch):
         i = self._main_de(touch)
