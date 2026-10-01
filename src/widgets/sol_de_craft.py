@@ -28,10 +28,15 @@ quadrilatere dont les coins sont choisis pour cela, et dont les bords
 fuient vers un point de l'horizon (HORIZON_GRILLES) : elle se lit posee a
 plat sur le sol, et ne passe jamais sous une main.
 
-LA PERSPECTIVE DES CASES EST EXACTE, elle : chaque grille est l'image d'un
-rectangle par une HOMOGRAPHIE (la transformation d'une photo de sol plat).
-Les rangees se resserrent donc en s'eloignant comme sur un vrai carrelage,
-et le doigt retrouve sa case par la transformation inverse.
+CHAQUE GRILLE EST L'IMAGE D'UN RECTANGLE par une HOMOGRAPHIE (la
+transformation d'une photo de sol plat) : les colonnes fuient vers
+l'horizon, et le doigt retrouve sa case par la transformation inverse.
+
+MAIS TOUTES LES RANGEES ONT LA MEME HAUTEUR A L'ECRAN. Sur un vrai
+carrelage, elles se resserreraient en s'eloignant, et les cases du fond
+devenaient trop minces pour y voir un objet ou y en deposer un. Chaque
+rangee est donc d'autant plus PROFONDE au sol qu'elle est loin, juste ce
+qu'il faut pour paraitre aussi haute que la precedente (voir _Grille.vr).
 """
 from kivy.graphics import Color, Ellipse, Line, Mesh, Rectangle
 from kivy.uix.label import Label
@@ -192,8 +197,40 @@ class _Grille(object):
         self.m = homographie(*pts)
         self.m_inv = inverse(self.m)
 
+        # Les bords de la grille a l'ecran, en bas (proche) et en haut.
+        self.y_pres = self.point(0.5, 0.0)[1]
+        self.y_loin = self.point(0.5, 1.0)[1]
+        self.x_milieu = self.point(0.5, 0.0)[0]
+
     def point(self, u, v):
         return applique(self.m, u, v)
+
+    def vr(self, t):
+        """La profondeur v (0 au bord proche, 1 au fond) de la rangee `t`,
+        comptee en rangees (t peut etre fractionnaire : 2,5 est le milieu
+        de la troisieme).
+
+        LES RANGEES SONT EGALES A L'ECRAN : la rangee t commence a t / n de
+        la hauteur de la grille. Les bords proche et lointain etant
+        horizontaux, et les cotes fuyant vers un point de l'horizon, une
+        profondeur donnee est une ligne horizontale de l'ecran : il suffit
+        de lire la profondeur a cette hauteur, par la transformation
+        inverse."""
+        if t <= 0:
+            return 0.0
+        if t >= self.rangees:
+            return 1.0
+        y = self.y_pres + (self.y_loin - self.y_pres) * t / self.rangees
+        return applique(self.m_inv, self.x_milieu, y)[1]
+
+    def rang_de(self, y):
+        """La rangee (fractionnaire) a la hauteur `y` de l'ecran."""
+        return (y - self.y_pres) / (self.y_loin - self.y_pres) * self.rangees
+
+    def centre(self, cle):
+        """Le milieu d'une case a l'ecran."""
+        col, rang = self.col_rang(cle)
+        return self.point((col + 0.5) / self.colonnes, self.vr(rang + 0.5))
 
     def case_de(self, col, rang):
         return "%s:%d" % (self.prefixe, rang * self.colonnes + col)
@@ -203,32 +240,32 @@ class _Grille(object):
         return i % self.colonnes, i // self.colonnes
 
     def coins_case(self, col, rang):
-        c, r = float(self.colonnes), float(self.rangees)
-        return [self.point(col / c, rang / r),
-                self.point((col + 1) / c, rang / r),
-                self.point((col + 1) / c, (rang + 1) / r),
-                self.point(col / c, (rang + 1) / r)]
+        c = float(self.colonnes)
+        v0, v1 = self.vr(rang), self.vr(rang + 1)
+        return [self.point(col / c, v0),
+                self.point((col + 1) / c, v0),
+                self.point((col + 1) / c, v1),
+                self.point(col / c, v1)]
 
     def sous(self, x, y):
         """La case sous le point (x, y) de l'ecran, ou None."""
-        u, v = applique(self.m_inv, x, y)
-        if not (0.0 <= u < 1.0 and 0.0 <= v < 1.0):
+        u, _v = applique(self.m_inv, x, y)
+        t = self.rang_de(y)
+        if not (0.0 <= u < 1.0 and 0.0 <= t < self.rangees):
             return None
-        return self.case_de(int(u * self.colonnes), int(v * self.rangees))
+        return self.case_de(int(u * self.colonnes), int(t))
 
     def visee(self, x, y):
         """La case VISEE par un doigt qui porte un objet : celle UNE RANGEE
         AU-DESSUS (plus loin) de la case sous le doigt. Le doigt et l'objet
         qu'il porte cachent la case juste dessous ; celle d'au-dessus reste
-        visible quand elle s'allume. Le decalage se compte dans la grille,
-        pas en pixels : une rangee lointaine est plus courte a l'ecran, le
-        doigt reste donc toujours juste sous la case visee. Pour viser la
-        rangee la plus proche, on tient l'objet juste sous la grille."""
-        u, v = applique(self.m_inv, x, y)
-        v += 1.0 / self.rangees
-        if not (0.0 <= u < 1.0 and 0.0 <= v < 1.0):
-            return None
-        return self.case_de(int(u * self.colonnes), int(v * self.rangees))
+        visible quand elle s'allume. C'est la case JUSTE AU-DESSUS A L'ECRAN,
+        a la verticale du doigt : les rangees ayant toutes la meme hauteur
+        a l'ecran, on remonte simplement d'une rangee. (Rester dans la
+        colonne du doigt, elle, ferait glisser la visee de cote : les
+        colonnes fuient en biais vers l'horizon.) Pour viser la rangee la
+        plus proche, on tient l'objet juste sous la grille."""
+        return self.sous(x, y + (self.y_loin - self.y_pres) / self.rangees)
 
     def cles(self):
         return [self.case_de(c, r) for r in range(self.rangees)
@@ -364,7 +401,7 @@ class SolDeCraft(Widget):
             a, b = g.point(u, 0.0), g.point(u, 1.0)
             Line(points=[a[0], a[1], b[0], b[1]], width=largeur)
         for rang in range(g.rangees + 1):
-            v = rang / float(g.rangees)
+            v = g.vr(rang)
             a, b = g.point(0.0, v), g.point(1.0, v)
             Line(points=[a[0], a[1], b[0], b[1]], width=largeur)
 
@@ -377,12 +414,13 @@ class SolDeCraft(Widget):
         plantee dans la terre."""
         nom, nombre = pile
         tex, couverture, _masse = _item_infos(nom)
-        c, r = float(g.colonnes), float(g.rangees)
-        cx, cy = g.point((col + 0.5) / c, (rang + 0.5) / r)
-        gx, _ = g.point(col / c, (rang + 0.5) / r)
-        dx, _ = g.point((col + 1) / c, (rang + 0.5) / r)
-        _, bas = g.point((col + 0.5) / c, rang / r)
-        _, haut = g.point((col + 0.5) / c, (rang + 1) / r)
+        c = float(g.colonnes)
+        vm = g.vr(rang + 0.5)
+        cx, cy = g.point((col + 0.5) / c, vm)
+        gx, _ = g.point(col / c, vm)
+        dx, _ = g.point((col + 1) / c, vm)
+        _, bas = g.point((col + 0.5) / c, g.vr(rang))
+        _, haut = g.point((col + 0.5) / c, g.vr(rang + 1))
         larg_case, haut_case = dx - gx, haut - bas
         ecrase = max(ECRASE_MIN, min(ECRASE_MAX,
                                      1.6 * haut_case / max(1.0, larg_case)))
