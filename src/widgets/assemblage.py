@@ -13,9 +13,12 @@ DANS CETTE VUE :
   et ils deviennent LIBRES : ils ne sont plus ranges en cases ;
 - ce que tenaient les mains n'est plus montre (il revient a la sortie) ;
 - LES MAINS SUIVENT LE DOIGT : un toucher dans la moitie gauche de l'ecran
-  mene la main gauche, dans la moitie droite la main droite. La paume se
-  place AU-DESSUS du doigt et un peu VERS L'INTERIEUR, pour que le doigt ne
-  cache pas ce qu'elle prend. Lachee, la main revient a sa place de base, en bas ;
+  mene la main gauche, dans la moitie droite la main droite. LE DOIGT TIENT
+  LE BAS DE L'AVANT-BRAS, la ou l'image coupe le bras : toute la main est
+  au-dessus de lui, et sa paume, au bout d'un bras qui penche vers
+  l'exterieur, tombe vers l'interieur. Le doigt ne cache ainsi ni la main
+  ni ce qu'elle tient ; l'objet tenu et la zone ou elle prend suivent la
+  paume. Lachee, la main revient a sa place de base, en bas ;
 - une main qui PASSE SUR UN OBJET le prend : il colle a la paume tant que
   le doigt reste pose. Il est tenu DANS la paume : la main se dessine
   devant lui, pas l'inverse. Au lacher, l'objet reste EXACTEMENT ou il est, et la
@@ -46,12 +49,6 @@ CENTRE_VUE = (0.5, 0.5)
 # Duree du rapprochement (et du recul), en secondes.
 DUREE_ZOOM = 0.45
 
-# LA PAUME SE POSE AU-DESSUS DU DOIGT, de cette part de la hauteur, et un
-# peu VERS L'INTERIEUR, de cette part de la largeur (la main gauche a droite
-# du doigt, la droite a gauche) : sous le doigt, on ne verrait ni la main ni
-# ce qu'elle tient. L'objet tenu et la zone ou elle prend suivent la paume.
-LEVE_PAUME = 0.08
-VERS_INTERIEUR = 0.035
 # La main rattrape le doigt en douceur (constante de temps, en secondes) :
 # vite quand on la mene, un peu moins quand elle revient seule.
 SUIVI = 0.05
@@ -250,20 +247,19 @@ class Assemblage(Widget):
         self._redessine()
 
     def _cible(self, i):
-        """Ou va la main `i` : vers le doigt qui la mene (la paume au-dessus
-        et vers l'interieur), sinon a sa place de base."""
+        """Ou va la main `i` : le bas de son avant-bras sous le doigt qui la
+        mene, sinon a sa place de base."""
         doigt = self._doigts[i]
         if doigt is None or self.mains is None:
             return (0.0, 0.0)
-        bx, by = self.paume(i)
-        bx -= self._decale[i][0]
-        by -= self._decale[i][1]
-        vers = 1.0 if i == 0 else -1.0
-        px = min(max(doigt.x + vers * VERS_INTERIEUR * self.width, self.x),
-                 self.x + self.width)
-        py = min(max(doigt.y + LEVE_PAUME * self.height, self.y),
-                 self.y + self.height)
-        return (px - bx, py - by)
+        bx, by = self.mains.bas_avant_bras(i)
+        # Le souffle deplace aussi la main : on le retranche, pour que le
+        # bras reste bien sous le doigt.
+        souffle = getattr(self.mains, "_shift", None)
+        if souffle is not None:
+            bx += souffle.x
+            by += souffle.y
+        return (doigt.x - bx, doigt.y - by)
 
     def _tick(self, dt):
         dt = min(dt, 0.1)

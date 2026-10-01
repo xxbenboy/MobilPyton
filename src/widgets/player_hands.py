@@ -261,6 +261,10 @@ class PlayerHands(Widget):
     # la main au repos se referme vers l'interieur. Un objet pose a HAND_FX
     # tombait sur le dos de la main, du cote exterieur.
     PAUME_REPOS_FX = (0.411, 0.589)
+    # x du BAS DE L'AVANT-BRAS au repos, la ou l'image coupe le bras (au bas
+    # du widget). Mesure sur HandIdle.png : le bras penche vers l'exterieur,
+    # son bout est donc loin du creux de la main.
+    BAS_AVANT_BRAS_FX = (0.322, 0.678)
     # Cote de la boite ou tient un objet, en fraction du PETIT cote de
     # l'ecran. C'est la taille de reference : une image pleine la remplit,
     # une image ajouree recoit un peu plus (voir COUVERTURE_PLEINE).
@@ -367,6 +371,10 @@ class PlayerHands(Widget):
         base, en pixels : la ou elle refermerait les doigts sur un objet."""
         return (self.x + self.PAUME_REPOS_FX[index] * self.width,
                 self.y + self.ITEM_FY * self.height)
+
+    def bas_avant_bras(self, index):
+        """Le bout coupe de l'avant-bras `index` a sa place de base."""
+        return (self.x + self.BAS_AVANT_BRAS_FX[index] * self.width, self.y)
 
     def _tick_geste(self, dt):
         encore = False
