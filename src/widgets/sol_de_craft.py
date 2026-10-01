@@ -4,7 +4,9 @@ craft.
 
 Deux grilles POSEES AU SOL, DROITES (sans perspective) :
 
-    a gauche  la PROXIMITE -- ce qui traine sur la case. Elle va du bord
+    a gauche  la PROXIMITE -- ce qui traine sur la case : un CARRE DE SOL
+              DEFRICHE, terre, litiere, gravier ou sable selon la zone,
+              ses cases tracees au baton. Elle va du bord
               de l'ecran jusqu'a la main gauche, 5 cases de large sur 5 de
               profondeur. C'est le meme sol que la colonne "a proximite" de
               l'inventaire : ce qui est ici y est aussi, et inversement (voir
@@ -42,6 +44,10 @@ le doigt : pour un rectangle, elle se reduit a une simple mise a
 l'echelle, mais une autre forme de grille ne demanderait que d'autres
 coins.
 """
+import os
+import random
+
+from kivy.core.image import Image as CoreImage
 from kivy.graphics import Color, Ellipse, Line, Mesh, Rectangle
 from kivy.uix.label import Label
 from kivy.uix.widget import Widget
@@ -102,6 +108,43 @@ RESULTAT_X = 0.85
 GRIS_RESULTAT = (0.80, 0.81, 0.82, 1.0)
 TRAIT_RESULTAT = (0.42, 0.43, 0.45, 1.0)
 TEXTE_RESULTAT = (0.30, 0.31, 0.33, 1.0)
+
+# LE SOL DEFRICHE DE LA PROXIMITE : une texture par zone (assets/craft/),
+# repetee tous les TUILE_SOL de la hauteur d'ecran. Sans texture (zone
+# inconnue, image absente), la proximite garde son gris uni.
+_ICI = os.path.dirname(os.path.abspath(__file__))
+DOSSIER_CRAFT = os.path.abspath(os.path.join(_ICI, "..", "..", "assets",
+                                             "craft"))
+TUILE_SOL = 0.40
+# Les cases tracees au baton : un sillon sombre, et sous lui la levre de
+# terre eclairee. Le trace tremble un peu, comme a main levee.
+SILLON = (0.18, 0.12, 0.08, 0.48)
+LEVRE = (1.0, 0.95, 0.85, 0.22)
+TREMBLE = 0.0035
+# Teintes d'une case du sol texture (multipliees a la texture) : visee,
+# refus, et cible qui clignote.
+VISEE_SOL = (0.70, 1.00, 0.70, 1.0)
+REFUS_SOL = (1.00, 0.62, 0.58, 1.0)
+CIBLE_SOL = (0.82, 1.00, 0.82, 1.0)
+BLANC = (1.0, 1.0, 1.0, 1.0)
+_TEXTURES = {}
+
+
+def texture_craft(nom, repete=False):
+    """Une texture d'assets/craft/ (None si absente), gardee en memoire."""
+    if nom not in _TEXTURES:
+        tex = None
+        chemin = os.path.join(DOSSIER_CRAFT, nom + ".png")
+        if os.path.isfile(chemin):
+            try:
+                tex = CoreImage(chemin).texture
+                if repete:
+                    tex.wrap = "repeat"
+            except Exception:
+                tex = None
+        _TEXTURES[nom] = tex
+    return _TEXTURES[nom]
+
 
 # LA TAILLE D'UN OBJET POSE, en part de la hauteur de l'ecran : LA MEME
 # PARTOUT, quelle que soit la case. C'est le cote du carre ou l'image tient
@@ -188,7 +231,8 @@ def coins_centre():
             (d, CENTRE_LOIN), (g, CENTRE_LOIN))
 
 
-def dessine_objet(nom, cx, cy, cote, ombre=True, coupe=(0.0, 0.0)):
+def dessine_objet(nom, cx, cy, cote, ombre=True, coupe=(0.0, 0.0),
+                  alpha=1.0):
     """Un objet centre en (cx, cy), son image entiere dans un carre de
     `cote`, avec son ombre a plat dessous. Dessine dans le canvas ouvert.
 
@@ -198,7 +242,7 @@ def dessine_objet(nom, cx, cy, cote, ombre=True, coupe=(0.0, 0.0)):
     g, d = coupe
     reste = max(0.0, 1.0 - g - d)
     if ombre:
-        Color(*OMBRE)
+        Color(OMBRE[0], OMBRE[1], OMBRE[2], OMBRE[3] * alpha)
         ow, oh = cote * 0.80 * reste, cote * 0.30
         ox = cx - cote * 0.40 + cote * 0.80 * g
         Ellipse(pos=(ox, cy - cote * 0.42), size=(ow, oh))
@@ -221,7 +265,7 @@ def dessine_objet(nom, cx, cy, cote, ombre=True, coupe=(0.0, 0.0)):
         tex = tex.get_region(g * tw, 0, reste * tw, th)
         x0 += g * iw
         iw *= reste
-    Color(1, 1, 1, 1)
+    Color(1, 1, 1, alpha)
     Rectangle(texture=tex, pos=(x0, cy - ih / 2.0), size=(iw, ih))
 
 
@@ -342,6 +386,8 @@ class SolDeCraft(Widget):
         self._mains = [None, None]
         # Ce que montre le carre de droite : None, "?" ou un nom d'objet.
         self.resultat = None
+        # La zone ou l'on est : elle choisit le sol de la proximite.
+        self.zone = None
         self._glisse = None
         self._nombres = []
         # Les couleurs des cases, gardees pour etre RETEINTES sans tout
@@ -370,6 +416,16 @@ class SolDeCraft(Widget):
         cote = (CENTRE_LOIN - CENTRE_PRES) * self.height
         return (self.x + RESULTAT_X * self.width - cote / 2.0,
                 self.y + CENTRE_PRES * self.height, cote)
+
+    def set_zone(self, zone):
+        if zone != self.zone:
+            self.zone = zone
+            self._redessine()
+
+    def texture_sol(self):
+        if not self.zone:
+            return None
+        return texture_craft("sol_%s" % self.zone, repete=True)
 
     def grilles(self):
         if not self.avec_centre:
@@ -406,6 +462,9 @@ class SolDeCraft(Widget):
         self._couleurs = {}
         with self.canvas:
             for g in self.grilles():
+                if g is self.proximite and self.texture_sol() is not None:
+                    self._dessine_sol(g, self.texture_sol())
+                    continue
                 fond, trait = ((GRIS_PROX, TRAIT_PROX) if g is self.proximite
                                else (GRIS_CENTRE, TRAIT_CENTRE))
                 self._dessine_grille(g, fond, trait)
@@ -428,6 +487,22 @@ class SolDeCraft(Widget):
 
     def _dessine_resultat(self):
         x, y, cote = self.rect_resultat()
+        ecorce = texture_craft("ecorce")
+        if ecorce is not None:
+            # UN MORCEAU D'ECORCE DE BOULEAU, le ? trace au charbon dessus ;
+            # un objet connu y est pose tel quel.
+            Color(1, 1, 1, 1)
+            Rectangle(texture=ecorce, pos=(x, y), size=(cote, cote))
+            charbon = texture_craft("charbon_question")
+            if self.resultat == "?" and charbon is not None:
+                m = cote * 0.12
+                Rectangle(texture=charbon, pos=(x + m, y + m),
+                          size=(cote - 2 * m, cote - 2 * m))
+                return
+            if self.resultat != "?":
+                dessine_objet(self.resultat, x + cote / 2.0, y + cote / 2.0,
+                              cote * 0.66, ombre=False)
+                return
         Color(*GRIS_RESULTAT)
         Rectangle(pos=(x, y), size=(cote, cote))
         Color(*TRAIT_RESULTAT)
@@ -451,11 +526,17 @@ class SolDeCraft(Widget):
         else:
             visee, refus = self._visee_ext
         for cle, (couleur, fond) in self._couleurs.items():
+            # Une case texturee a un fond blanc : on la TEINTE.
+            sol = fond == BLANC
             if cle == visee:
-                couleur.rgba = VISEE_REFUS if refus else VISEE
+                if sol:
+                    couleur.rgba = REFUS_SOL if refus else VISEE_SOL
+                else:
+                    couleur.rgba = VISEE_REFUS if refus else VISEE
             elif self._pulse is not None and cle.startswith("G:"):
                 p = self._pulse
-                couleur.rgba = tuple(fond[i] + (CIBLE[i] - fond[i]) * p
+                cible = CIBLE_SOL if sol else CIBLE
+                couleur.rgba = tuple(fond[i] + (cible[i] - fond[i]) * p
                                      for i in range(4))
             else:
                 couleur.rgba = fond
@@ -478,6 +559,51 @@ class SolDeCraft(Widget):
             v = g.vr(rang)
             a, b = g.point(0.0, v), g.point(1.0, v)
             Line(points=[a[0], a[1], b[0], b[1]], width=largeur)
+
+    def _dessine_sol(self, g, tex):
+        """La proximite en SOL DEFRICHE : chaque case porte la texture de la
+        zone (repetee, d'un seul tenant d'une case a l'autre), et les cases
+        sont tracees au baton."""
+        tuile = TUILE_SOL * self.height
+        for rang in range(g.rangees):
+            for col in range(g.colonnes):
+                cle = g.case_de(col, rang)
+                self._couleurs[cle] = (Color(*BLANC), BLANC)
+                pts = g.coins_case(col, rang)
+                Mesh(vertices=[v for p in pts
+                               for v in (p[0], p[1], p[0] / tuile,
+                                         p[1] / tuile)],
+                     indices=[0, 1, 2, 0, 2, 3], mode="triangles",
+                     texture=tex)
+        # Les traits : meme hasard a chaque dessin (le trace ne frissonne
+        # pas), un peu de tremblement perpendiculaire.
+        hasard = random.Random(7)
+        largeur = max(1.5, self.height * 0.0028)
+        tremble = TREMBLE * self.height
+
+        def trace(a, b):
+            n = 9
+            pts = []
+            dx, dy = b[0] - a[0], b[1] - a[1]
+            long = max(1e-6, (dx * dx + dy * dy) ** 0.5)
+            nx, ny = -dy / long, dx / long
+            for k in range(n + 1):
+                t = k / float(n)
+                j = hasard.uniform(-1, 1) * tremble if 0 < k < n else 0.0
+                pts.append((a[0] + dx * t + nx * j, a[1] + dy * t + ny * j))
+            Color(*LEVRE)
+            Line(points=[v for p in pts for v in (p[0] + largeur * 0.5,
+                                                  p[1] - largeur * 0.9)],
+                 width=largeur * 0.7)
+            Color(*SILLON)
+            Line(points=[v for p in pts for v in p], width=largeur)
+
+        for col in range(g.colonnes + 1):
+            u = col / float(g.colonnes)
+            trace(g.point(u, 0.0), g.point(u, 1.0))
+        for rang in range(g.rangees + 1):
+            v = g.vr(rang)
+            trace(g.point(0.0, v), g.point(1.0, v))
 
     def _dessine_objet(self, g, col, rang, pile):
         """Un objet pose dans sa case, avec son ombre et son nombre.

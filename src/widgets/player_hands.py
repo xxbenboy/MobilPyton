@@ -372,6 +372,20 @@ class PlayerHands(Widget):
         return (self.x + self.PAUME_REPOS_FX[index] * self.width,
                 self.y + self.ITEM_FY * self.height)
 
+    def image_main(self, index):
+        """L'image de la main `index` au repos, gantee s'il le faut, et le
+        rectangle qu'elle occupe a sa place de base : (texture, pos, taille),
+        ou None."""
+        tex = _hud_texture(IDLE_STATE, self._glove)
+        if tex is None:
+            return None
+        tw, th = max(1, tex.width), max(1, tex.height)
+        moitie = tw // 2
+        lw = self.width / 2.0
+        lh = self.width * th / tw
+        return (tex.get_region(index * moitie, 0, moitie, th),
+                (self.x + index * lw, self.y), (lw, lh))
+
     def bas_avant_bras(self, index):
         """Le bout coupe de l'avant-bras `index` a sa place de base."""
         return (self.x + self.BAS_AVANT_BRAS_FX[index] * self.width, self.y)

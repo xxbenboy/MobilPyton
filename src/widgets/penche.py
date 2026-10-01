@@ -168,6 +168,10 @@ class Penche(object):
                 self.scenery.hauteur_horizon()))
             self._glisse = glissement(self.scenery.hauteur_horizon(),
                                       self.scenery._zone)
+            # Le sol en cases prend le sol de la zone (voir sol_de_craft).
+            sol = getattr(self, "sol", None)
+            if sol is not None and hasattr(sol, "set_zone"):
+                sol.set_zone(self.scenery._zone)
         self._place_camera()
 
     def lance_penche(self):

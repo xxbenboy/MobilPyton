@@ -41,6 +41,7 @@ l'ecran. Annuler les remet dans leurs cases, la ou ils etaient avant
 d'assembler (voir CraftScreen).
 """
 import math
+import random
 
 from kivy.clock import Clock
 from kivy.graphics import Color, Line, PushMatrix, PopMatrix, Translate, Scale
@@ -77,10 +78,13 @@ CASES_OBJET = 3
 # L'aimant prend un objet dont la grille passe a moins d'une demi-case du
 # contact bord a bord.
 PORTEE_AIMANT = CASES_OBJET + 0.5
-# Les grilles, quand elles se touchent : un trait clair, et son epaisseur
-# en part de la hauteur.
-TRAIT_GRILLE = (1.0, 1.0, 1.0, 0.75)
-EPAISSEUR_GRILLE = 0.0018
+# Les grilles, quand elles se touchent : TRACEES A LA CRAIE -- un trait
+# blanc casse qui tremble un peu, et un second, plus pale, a cote (la craie
+# laisse une trainee). Epaisseur en part de la hauteur.
+TRAIT_GRILLE = (0.95, 0.94, 0.88, 0.80)
+TRAINEE_GRILLE = (0.95, 0.94, 0.88, 0.28)
+EPAISSEUR_GRILLE = 0.0024
+TREMBLE_CRAIE = 0.10           # en part d'une case
 # Doigt pose sans bouger pendant ce temps (s) : l'aimant lache.
 DELAI_AIMANT = 1.0
 # En deca de ce deplacement du doigt (px), il n'a pas bouge.
@@ -259,13 +263,30 @@ class Assemblage(Widget):
         c = self.case_objet()
         n = CASES_OBJET
         x0, y0 = cx - n * c / 2.0, cy - n * c / 2.0
-        Color(*TRAIT_GRILLE)
         largeur = max(1.0, EPAISSEUR_GRILLE * self.height)
+        # Meme hasard a chaque image : le trait de craie ne frissonne pas.
+        hasard = random.Random(3)
+        traits = []
         for k in range(n + 1):
-            Line(points=[x0 + k * c, y0, x0 + k * c, y0 + n * c],
-                 width=largeur)
-            Line(points=[x0, y0 + k * c, x0 + n * c, y0 + k * c],
-                 width=largeur)
+            traits.append(((x0 + k * c, y0), (x0 + k * c, y0 + n * c)))
+            traits.append(((x0, y0 + k * c), (x0 + n * c, y0 + k * c)))
+        for (ax, ay), (bx, by) in traits:
+            pts = []
+            pas = 6
+            vertical = ax == bx
+            for j in range(pas + 1):
+                t = j / float(pas)
+                d = hasard.uniform(-1, 1) * TREMBLE_CRAIE * c * 0.25 \
+                    if 0 < j < pas else 0.0
+                x = ax + (bx - ax) * t + (d if vertical else 0.0)
+                y = ay + (by - ay) * t + (0.0 if vertical else d)
+                pts.append((x, y))
+            ox, oy = (largeur * 0.9, 0.0) if vertical else (0.0, -largeur)
+            Color(*TRAINEE_GRILLE)
+            Line(points=[v for p in pts for v in (p[0] + ox, p[1] + oy)],
+                 width=largeur * 0.8)
+            Color(*TRAIT_GRILLE)
+            Line(points=[v for p in pts for v in p], width=largeur)
 
     # -- les mains --------------------------------------------------------- #
     def paume(self, i):

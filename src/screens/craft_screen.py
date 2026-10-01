@@ -27,8 +27,10 @@ ASSEMBLER : des qu'un objet est pose sur le plan de travail, un bouton
 Assembler apparait entre les mains, juste au-dessus de Retour. Il rapproche
 la vue du plan de travail (voir src/widgets/assemblage.py). La, seuls deux
 boutons restent : Assembler, a sa place, et Retour devenu Annuler. Une fois
-rapproche, un VOILE GRIS couvre le decor : les objets du plan se detachent
-d'un sol qui montre parfois les memes images (une pierre, une brindille).
+rapproche, le decor se FLOUTE et s'assombrit (une profondeur de champ ;
+un voile gris si la carte graphique ne s'y prete pas) : les objets du plan
+se detachent d'un sol qui montre parfois les memes images (une pierre, une
+brindille).
 Annuler recule la vue et remet chaque objet dans sa case, et ce que
 tenaient les mains reapparait : on revient exactement a l'etat d'avant.
 
@@ -61,9 +63,11 @@ from src.widgets.responsive import (scale_font, ROW_TITLE, ROW_BODY,
                                     ROW_HANDS, ROW_HINT, ROW_BACK)
 from src.widgets.menu_toggle import MenuToggle
 from src.widgets.sol_de_craft import SolDeCraft
-from src.widgets.assemblage import Assemblage, Loupe, DUREE_ZOOM
+from src.widgets.assemblage import Assemblage, Loupe, DUREE_ZOOM, vue_inverse
+from src.widgets.flou import floute
 from src.widgets.minijeux import MINIJEUX
 from src.widgets.panels import panel
+from src.widgets.bois import plaque, BoutonGalet, TEXTE_BOIS, TITRE_BOIS
 from src import assemblages, items
 # LA CAMERA QUI SE PENCHE vit dans penche.py, partagee avec l'inventaire.
 # Ses reglages sont repris ici sous leurs noms : ce qui les lisait sur cet
@@ -84,6 +88,9 @@ LARGEUR_RETOUR = 0.20
 # apparait en DUREE_VOILE secondes, une fois le zoom termine.
 VOILE = (0.50, 0.51, 0.53, 0.78)
 DUREE_VOILE = 0.25
+# Mieux que le gris : le decor FLOU et assombri (voir flou.py), comme une
+# profondeur de champ. Sa teinte, multipliee a l'image floue.
+TEINTE_FLOU = (0.50, 0.50, 0.53)
 # Duree d'un message bref (assemblage rate), en secondes.
 DUREE_MESSAGE = 2.5
 # LE RETOUR EN FONDU vers l'ecran de craft : l'ecran s'assombrit, la vue
@@ -156,9 +163,12 @@ class CraftScreen(Penche, Screen):
         # libres : il zoome avec eux et couvre donc toujours l'ecran.
         self.voile = Widget(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         with self.voile.canvas:
-            Color(*VOILE)
+            self._voile_gris = Color(*VOILE)
             self._voile_rect = Rectangle(pos=self.voile.pos,
                                          size=self.voile.size)
+            self._flou_couleur = Color(*TEINTE_FLOU, 0.0)
+            self._flou_rect = Rectangle(pos=self.voile.pos, size=(1, 1))
+        self._flou = None
 
         def _sync_voile(*_):
             self._voile_rect.pos = self.voile.pos
@@ -183,6 +193,11 @@ class CraftScreen(Penche, Screen):
         self.loupe.add_widget(self.assemblage)
         root.add_widget(self.couche_portes)
         root.add_widget(self.hands)
+        # LA MAIN FANTOME des mini-jeux et leurs encoches : par-dessus les
+        # vraies mains.
+        self.couche_fantome = Widget(size_hint=(1, 1),
+                                     pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.couche_fantome)
         # Ou en est le rapprochement : "sol" (vue normale), "entre", "zoom"
         # ou "sort" ; son avancement (0 a 1) et son horloge.
         self._mode = "sol"
@@ -377,22 +392,22 @@ class CraftScreen(Penche, Screen):
         """Avant d'assembler : des objets mal places seront detruits."""
         self.assemblage.actif = False
         self.assemblage.lache_tout()
-        boite = BoxLayout(orientation="vertical", padding=dp(14),
+        boite = BoxLayout(orientation="vertical", padding=dp(26),
                           spacing=dp(10), size_hint=(0.46, 0.40),
                           pos_hint={"center_x": 0.5, "center_y": 0.56})
-        panel(boite, alpha=0.82, border=(0.95, 0.70, 0.30, 0.9))
+        plaque(boite)
         boite.add_widget(_police(Label(
-            text="! ATTENTION !", bold=True, color=(1.0, 0.78, 0.35, 1),
+            text="! ATTENTION !", bold=True, color=TITRE_BOIS,
             size_hint=(1, 0.30))))
         boite.add_widget(_police(Label(
             text="Si ces objets ne forment pas un assemblage valide,\n"
                  "ils seront detruits.", halign="center", valign="middle",
-            color=(1, 1, 1, 1), size_hint=(1, 0.40))))
+            color=TEXTE_BOIS, size_hint=(1, 0.40))))
         rang = BoxLayout(orientation="horizontal", spacing=dp(12),
                          size_hint=(1, 0.30))
-        oui = scale_font(StyledButton(text="Continuer"), 0.022)
+        oui = BoutonGalet(text="Continuer")
         oui.bind(on_release=lambda *_: self.confirme())
-        non = scale_font(StyledButton(text="Annuler"), 0.022)
+        non = BoutonGalet(text="Annuler")
         non.bind(on_release=lambda *_: self.ferme_alerte())
         rang.add_widget(non)
         rang.add_widget(oui)
@@ -434,7 +449,8 @@ class CraftScreen(Penche, Screen):
         self._garnit(self._rang_bas, None)
         self._garnit(self._rang_titre, self._consigne, 1.0)
         self._minijeu = jeu(self.assemblage, lambda: self._reussit(r),
-                            self._dit_consigne)
+                            self._dit_consigne, couche=self.couche_fantome,
+                            mains=self.hands)
         self._minijeu.demarre()
         self.assemblage.actif = True
 
@@ -463,21 +479,20 @@ class CraftScreen(Penche, Screen):
         self._mode = "appris"
         self._garnit(self._rang_retour, None)
         self._garnit(self._rang_titre, None)
-        boite = BoxLayout(orientation="vertical", padding=dp(14),
+        boite = BoxLayout(orientation="vertical", padding=dp(26),
                           spacing=dp(10), size_hint=(0.46, 0.44),
                           pos_hint={"center_x": 0.5, "center_y": 0.56})
-        panel(boite, alpha=0.82, border=(0.55, 1.00, 0.62, 0.9))
+        plaque(boite)
         boite.add_widget(_police(Label(
-            text="Nouveau craft appris !", bold=True,
-            color=(0.70, 1.0, 0.74, 1), size_hint=(1, 0.28))))
+            text="Nouveau craft appris !", bold=True, color=TITRE_BOIS,
+            size_hint=(1, 0.28))))
         boite.add_widget(_police(Label(
             text="Tu sais maintenant fabriquer :\n%s"
                  % items.display_name(objet), halign="center",
-            valign="middle", color=(1, 1, 1, 1), size_hint=(1, 0.42))))
+            valign="middle", color=TEXTE_BOIS, size_hint=(1, 0.42))))
         rang = BoxLayout(orientation="horizontal", size_hint=(1, 0.30))
         rang.add_widget(Widget(size_hint_x=0.3))
-        ok = scale_font(StyledButton(text="Confirmer", size_hint_x=0.4),
-                        0.022)
+        ok = BoutonGalet(text="Confirmer", size_hint_x=0.4)
         ok.bind(on_release=lambda *_: self.confirme_appris())
         rang.add_widget(ok)
         rang.add_widget(Widget(size_hint_x=0.3))
@@ -531,12 +546,12 @@ class CraftScreen(Penche, Screen):
     # -- le message bref ------------------------------------------------ #
     def montre_message(self, texte):
         self._efface_message()
-        boite = BoxLayout(orientation="vertical", padding=dp(6),
-                          size_hint=(0.36, 0.10),
+        boite = BoxLayout(orientation="vertical", padding=dp(16),
+                          size_hint=(0.40, 0.13),
                           pos_hint={"center_x": 0.5, "top": 0.86})
-        panel(boite, alpha=0.65)
+        plaque(boite, echelle_bord=0.35)
         boite.add_widget(_police(Label(text=texte, halign="center",
-                                       valign="middle", color=(1, 1, 1, 1),
+                                       valign="middle", color=TEXTE_BOIS,
                                        size_hint=(1, 1))))
         self._message = boite
         self._racine.add_widget(boite)
@@ -623,6 +638,7 @@ class CraftScreen(Penche, Screen):
         if self._zoom_cible >= 1.0:
             self._mode = "zoom"
             self.assemblage.actif = True
+            self._prepare_flou()
             # Le voile vient UNE FOIS LE ZOOM TERMINE.
             self._arrete_voile()
             self._voile_horloge = Clock.schedule_interval(
@@ -641,6 +657,40 @@ class CraftScreen(Penche, Screen):
         if self._mode == "sort" and self._zoom_depart > 0.0:
             self.voile.opacity = self._voile_depart * self._zoom \
                 / self._zoom_depart
+
+    def _prepare_flou(self):
+        """Le decor tel qu'on le voit rapproche, sans les objets, flou : il
+        remplace le voile gris. Calcule une fois, a l'arrivee du zoom."""
+        caches = (self.assemblage.opacity, self.voile.opacity,
+                  self.sol.opacity)
+        self.assemblage.opacity = self.voile.opacity = 0.0
+        self.sol.opacity = 0.0
+        res = floute(self.loupe)
+        (self.assemblage.opacity, self.voile.opacity,
+         self.sol.opacity) = caches
+        self._flou = res
+        if res is None:
+            self._flou_couleur.a = 0.0
+            self._voile_gris.a = VOILE[3]
+            return
+        # Le voile est DANS la loupe (il passe sous les objets) : on le pose
+        # la ou le zoom l'etale exactement sur tout l'ecran.
+        lo = self.loupe
+        x0, y0 = vue_inverse(1.0, lo.x, lo.y, lo.width, lo.height,
+                             lo.x, lo.y)
+        x1, y1 = vue_inverse(1.0, lo.x + lo.width, lo.y + lo.height,
+                             lo.width, lo.height, lo.x, lo.y)
+        self._flou_rect.texture = res[0]
+        self._flou_rect.pos = (x0, y0)
+        self._flou_rect.size = (x1 - x0, y1 - y0)
+        self._flou_couleur.a = 1.0
+        self._voile_gris.a = 0.0
+
+    def _oublie_flou(self):
+        self._flou = None
+        self._flou_couleur.a = 0.0
+        self._flou_rect.texture = None
+        self._voile_gris.a = VOILE[3]
 
     def _tick_voile(self, dt):
         self.voile.opacity = min(1.0, self.voile.opacity
@@ -680,6 +730,7 @@ class CraftScreen(Penche, Screen):
         self._garnit(self._rang_bas, None)
         self._arrete_voile()
         self.voile.opacity = 0.0
+        self._oublie_flou()
         self._place_camera()
         self.refresh()
 
