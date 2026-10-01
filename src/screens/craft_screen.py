@@ -26,9 +26,11 @@ LE FOND EST LA VRAIE SCENE DE LA CASE, vue par un joueur qui se penche
 ASSEMBLER : des qu'un objet est pose sur le plan de travail, un bouton
 Assembler apparait entre les mains, juste au-dessus de Retour. Il rapproche
 la vue du plan de travail (voir src/widgets/assemblage.py). La, seuls deux
-boutons restent : Annuler, a la place d'Assembler, et Assembler juste
-au-dessus. Annuler recule la vue et remet chaque objet dans sa case, et ce
-que tenaient les mains reapparait : on revient exactement a l'etat d'avant.
+boutons restent : Assembler, a sa place, et Retour devenu Annuler. Une fois
+rapproche, un VOILE GRIS couvre le decor : les objets du plan se detachent
+d'un sol qui montre parfois les memes images (une pierre, une brindille).
+Annuler recule la vue et remet chaque objet dans sa case, et ce que
+tenaient les mains reapparait : on revient exactement a l'etat d'avant.
 """
 from kivy.app import App
 from kivy.clock import Clock
@@ -60,6 +62,12 @@ from src.widgets.penche import (Penche, adoucir, glissement, HORIZON_PENCHE,
 # PlayerHands.HAND_FX). Sa hauteur, elle, est celle de l'inventaire.
 LARGEUR_RETOUR = 0.20
 
+# LE VOILE DE LA VUE D'ASSEMBLAGE : un gris qui laisse deviner le sol sans
+# qu'on confonde ses pierres et ses brindilles avec celles du plan. Il
+# apparait en DUREE_VOILE secondes, une fois le zoom termine.
+VOILE = (0.50, 0.51, 0.53, 0.78)
+DUREE_VOILE = 0.25
+
 
 class CraftScreen(Penche, Screen):
     def __init__(self, **kwargs):
@@ -81,6 +89,21 @@ class CraftScreen(Penche, Screen):
                               size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         self.sol.opacity = 0.0
         self.loupe.add_widget(self.sol)
+
+        # LE VOILE GRIS de la vue d'assemblage, entre le decor et les objets
+        # libres : il zoome avec eux et couvre donc toujours l'ecran.
+        self.voile = Widget(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        with self.voile.canvas:
+            Color(*VOILE)
+            self._voile_rect = Rectangle(pos=self.voile.pos,
+                                         size=self.voile.size)
+
+        def _sync_voile(*_):
+            self._voile_rect.pos = self.voile.pos
+            self._voile_rect.size = self.voile.size
+        self.voile.bind(pos=_sync_voile, size=_sync_voile)
+        self.voile.opacity = 0.0
+        self.loupe.add_widget(self.voile)
 
         # LES MAINS DU JOUEUR, hors du monde : elles restent en place pendant
         # que le regard se baisse, et ne zooment pas.
@@ -105,6 +128,8 @@ class CraftScreen(Penche, Screen):
         self._zoom_cible = 0.0
         self._zoom_ecoule = 0.0
         self._zoom_horloge = None
+        self._voile_horloge = None
+        self._voile_depart = 0.0
 
         # Voile de NUIT : assombrit tout selon l'heure, mains comprises, comme
         # dans l'ecran de jeu.
@@ -137,18 +162,15 @@ class CraftScreen(Penche, Screen):
         self._rang_titre.add_widget(self._titre)
         col.add_widget(self._rang_titre)
 
-        # Le milieu, vide, avec en bas les deux rangs des boutons
-        # d'assemblage, de la hauteur de Retour. Il est a part pour que
-        # le titre et Retour gardent exactement leurs places.
+        # Le milieu, vide, avec en bas le rang d'Assembler, de la hauteur de
+        # Retour. Il est a part pour que le titre et Retour gardent
+        # exactement leurs places.
         milieu = BoxLayout(orientation="vertical", spacing=dp(8),
                            size_hint=(1, ROW_BODY + ROW_HANDS + ROW_HINT))
         milieu.add_widget(Widget(size_hint=(1, ROW_BODY + ROW_HANDS
-                                            + ROW_HINT - 2 * ROW_BACK)))
-        self._rang_haut = BoxLayout(orientation="horizontal",
-                                    size_hint=(1, ROW_BACK))
+                                            + ROW_HINT - ROW_BACK)))
         self._rang_bas = BoxLayout(orientation="horizontal",
                                    size_hint=(1, ROW_BACK))
-        milieu.add_widget(self._rang_haut)
         milieu.add_widget(self._rang_bas)
         col.add_widget(milieu)
 
@@ -167,7 +189,6 @@ class CraftScreen(Penche, Screen):
             text="Annuler", size_hint_x=LARGEUR_RETOUR), 0.022)
         self._annuler.bind(on_release=lambda *_: self.annule_assemblage())
         self._garnit(self._rang_retour, self._retour)
-        self._garnit(self._rang_haut, None)
         self._garnit(self._rang_bas, None)
         root.add_widget(col)
         root.add_widget(self.couche_glisse)
@@ -270,11 +291,9 @@ class CraftScreen(Penche, Screen):
         self.sol.actif = False
         self.assemblage.charge(objets)
         self.hands.set_items(None, None)
-        # Seuls Annuler, a la place d'Assembler, et Assembler au-dessus.
+        # Seuls Assembler, a sa place, et Retour devenu Annuler.
         self._garnit(self._rang_titre, None)
-        self._garnit(self._rang_retour, None)
-        self._garnit(self._rang_bas, self._annuler)
-        self._garnit(self._rang_haut, self._assembler)
+        self._garnit(self._rang_retour, self._annuler)
         self._mode = "entre"
         self._anime_zoom(1.0)
         return True
@@ -287,6 +306,8 @@ class CraftScreen(Penche, Screen):
         self.assemblage.actif = False
         self.assemblage.lache_tout()
         self.assemblage.fige_depart()
+        self._arrete_voile()
+        self._voile_depart = self.voile.opacity
         self._mode = "sort"
         self._anime_zoom(0.0)
         return True
@@ -316,6 +337,10 @@ class CraftScreen(Penche, Screen):
         if self._zoom_cible >= 1.0:
             self._mode = "zoom"
             self.assemblage.actif = True
+            # Le voile vient UNE FOIS LE ZOOM TERMINE.
+            self._arrete_voile()
+            self._voile_horloge = Clock.schedule_interval(
+                self._tick_voile, 1.0 / FPS_CAMERA)
         else:
             self._fin_assemblage()
 
@@ -326,11 +351,27 @@ class CraftScreen(Penche, Screen):
         # reculant ; les objets, eux, restent (voir Assemblage).
         self.sol.opacity = 1.0 - e
         self.assemblage.opacity = 1.0 if self._mode != "sol" else 0.0
+        # En reculant, le voile s'en va avec le zoom.
+        if self._mode == "sort" and self._zoom_depart > 0.0:
+            self.voile.opacity = self._voile_depart * self._zoom \
+                / self._zoom_depart
+
+    def _tick_voile(self, dt):
+        self.voile.opacity = min(1.0, self.voile.opacity
+                                 + min(dt, 0.1) / DUREE_VOILE)
+        if self.voile.opacity >= 1.0:
+            self._arrete_voile()
+
+    def _arrete_voile(self):
+        if self._voile_horloge is not None:
+            self._voile_horloge.cancel()
+            self._voile_horloge = None
 
     def _arrete_zoom(self):
         if self._zoom_horloge is not None:
             self._zoom_horloge.cancel()
             self._zoom_horloge = None
+        self._voile_horloge = None
 
     def _fin_assemblage(self):
         """Retour a la vue normale, tout de suite."""
@@ -343,8 +384,9 @@ class CraftScreen(Penche, Screen):
         self.assemblage.opacity = 0.0
         self._garnit(self._rang_titre, self._titre, 1.0)
         self._garnit(self._rang_retour, self._retour)
-        self._garnit(self._rang_haut, None)
         self._garnit(self._rang_bas, None)
+        self._arrete_voile()
+        self.voile.opacity = 0.0
         self._place_camera()
         self.refresh()
 
