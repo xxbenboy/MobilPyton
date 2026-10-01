@@ -2,7 +2,7 @@
 LE SOL DEVANT SOI, EN CASES : ce que voit le joueur penche dans l'ecran de
 craft.
 
-Deux grilles POSEES AU SOL, en perspective :
+Deux grilles POSEES AU SOL, DROITES (sans perspective) :
 
     a gauche  la PROXIMITE -- ce qui traine sur la case. Elle va du bord
               de l'ecran jusqu'a la main gauche, 5 cases de large sur 5 de
@@ -19,24 +19,23 @@ main vers le sol (ou vers l'autre main). Ce widget ne sait que dessiner et
 suivre le doigt : ce que devient l'objet, c'est l'ecran qui en decide (voir
 `depose`), parce que c'est lui qui connait l'etat du jeu.
 
-POURQUOI DES COINS FIXES, ET PAS LA PERSPECTIVE DU DECOR. Le decor du jeu
-converge tres fort (voir GROUND_DEPTH) : une grille qui la suivrait
-exactement irait, depuis le bord gauche, se ranger sous la main gauche, puis
-au milieu de l'ecran. La demande est une DISPOSITION -- un tiers a gauche
-jusqu'a la main, un tiers entre les mains. Chaque grille est donc un
-quadrilatere dont les coins sont choisis pour cela, et dont les bords
-fuient vers un point de l'horizon (HORIZON_GRILLES) : elle se lit posee a
-plat sur le sol, et ne passe jamais sous une main.
+LES GRILLES SONT DES RECTANGLES DROITS. Elles ont d'abord fui vers
+l'horizon, comme un carrelage vu en perspective : les cases du fond
+devenaient minces et les objets y paraissaient minuscules. Elles sont
+maintenant a plat face au joueur, toutes les cases d'une grille de la meme
+taille. La place de chacune reste une DISPOSITION -- un tiers a gauche
+jusqu'a la main, un tiers entre les mains -- et ne passe jamais sous une
+main.
 
-CHAQUE GRILLE EST L'IMAGE D'UN RECTANGLE par une HOMOGRAPHIE (la
-transformation d'une photo de sol plat) : les colonnes fuient vers
-l'horizon, et le doigt retrouve sa case par la transformation inverse.
+TOUS LES OBJETS ONT LA MEME TAILLE (TAILLE_OBJET), quelle que soit la case :
+une pierre du plan de travail est aussi grosse qu'une pierre de la
+proximite.
 
-MAIS TOUTES LES RANGEES ONT LA MEME HAUTEUR A L'ECRAN. Sur un vrai
-carrelage, elles se resserreraient en s'eloignant, et les cases du fond
-devenaient trop minces pour y voir un objet ou y en deposer un. Chaque
-rangee est donc d'autant plus PROFONDE au sol qu'elle est loin, juste ce
-qu'il faut pour paraitre aussi haute que la precedente (voir _Grille.vr).
+Le calcul passe toujours par une HOMOGRAPHIE (la transformation d'un carre
+unite vers les quatre coins) et sa reciproque pour retrouver la case sous
+le doigt : pour un rectangle, elle se reduit a une simple mise a
+l'echelle, mais une autre forme de grille ne demanderait que d'autres
+coins.
 """
 from kivy.graphics import Color, Ellipse, Line, Mesh, Rectangle
 from kivy.uix.label import Label
@@ -48,18 +47,15 @@ from src.game_state import (SOL_COLONNES, SOL_RANGEES, CENTRE_COLONNES,
 from src.widgets.player_hands import (PlayerHands, _item_infos,
                                       COUVERTURE_PLEINE, GROSSISSEMENT_MAX)
 
-# L'horizon vers lequel fuient les bords des grilles, en part de la hauteur.
-# C'est celui du decor une fois le joueur penche (voir
-# craft_screen.HORIZON_PENCHE) : les grilles et le sol partagent la meme
-# ligne de fuite.
+# L'horizon du decor une fois le joueur penche (voir penche.HORIZON_PENCHE).
+# Les grilles n'y fuient plus (elles sont droites) ; garde pour `fuite`.
 HORIZON_GRILLES = 0.93
 
 # --- LA PROXIMITE (a gauche) ------------------------------------------- #
 # Son bord proche va du bord de l'ecran jusqu'a la main gauche. MESURE sur
 # les images des mains, toutes poses et gants confondus : le bord gauche de
 # la main gauche ne descend jamais sous 0,287 de la largeur. Le bord droit de
-# la grille est pose a 0,28 et fuit VERS LE HAUT, a la verticale : il longe
-# la main sans jamais passer dessous.
+# la grille est pose a 0,28 : il longe la main sans jamais passer dessous.
 PROX_GAUCHE = 0.012
 PROX_DROITE = 0.28
 PROX_PRES = 0.03
@@ -70,11 +66,11 @@ PROX_LOIN = 0.52
 # libre ne descend jamais sous 0,393 - 0,607 AU-DESSUS de 0,28 de la
 # hauteur. Plus bas, les mains au repos se referment vers le centre et ne
 # laissent que 0,448 - 0,550 : un plan de travail pose la aurait ete a moitie
-# cache par les doigts. Il commence donc juste au-dessus d'eux, et fuit vers
-# le milieu de l'horizon.
+# cache par les doigts. Il commence donc juste au-dessus d'eux, droit, dans
+# le couloir (0,402 - 0,598).
 CENTRE_PRES = 0.29
 CENTRE_LOIN = 0.55
-CENTRE_DEMI = 0.098          # demi-largeur du bord proche
+CENTRE_DEMI = 0.098          # demi-largeur
 
 # Couleurs. LES CASES SONT PLEINES, pas transparentes : sur un sol
 # transparent, une touffe d'herbe posee dans une prairie se fondait dans
@@ -94,12 +90,16 @@ VISEE_REFUS = (0.92, 0.55, 0.50, 1.0)
 # vert de l'inventaire, qui clignote.
 CIBLE = (0.70, 0.86, 0.68, 1.0)
 
-# Part de la case qu'occupe un objet, et son ombre.
-OBJET_PART = 0.80
+# LA TAILLE D'UN OBJET POSE, en part de la hauteur de l'ecran : LA MEME
+# PARTOUT, quelle que soit la case. C'est le cote du carre ou l'image tient
+# sans etre deformee. 0,072 fait ~78 px sur 1080 : un peu plus que la
+# hauteur d'une case du plan de travail (0,065), bien moins que celle d'une
+# case de la proximite (0,098) -- un objet du plan de travail deborde a
+# peine de sa case, comme une pierre posee qui depasse d'un carreau.
+TAILLE_OBJET = 0.072
 OMBRE = (0.0, 0.0, 0.0, 0.28)
-# Un objet pose au sol se lit ECRASE par la perspective : sa hauteur suit
-# celle de sa case (voir _dessine_objet), dans ces bornes.
-ECRASE_MIN, ECRASE_MAX = 0.50, 0.95
+# Le nombre d'une pile, en part de la hauteur de l'ecran.
+TAILLE_NOMBRE = 0.026
 
 # Taille de l'objet qui suit le doigt, en part de la hauteur de l'ecran.
 FANTOME = 0.12
@@ -162,22 +162,17 @@ def coins_proximite():
     """Les quatre coins de la proximite, en parts de l'ecran : proche-gauche,
     proche-droit, loin-droit, loin-gauche.
 
-    Ses bords fuient vers un point de l'horizon a la verticale de son bord
-    droit : c'est ce qui garde ce bord hors de la main gauche."""
-    vx, vy = PROX_DROITE, HORIZON_GRILLES
-    loin_g = fuite(PROX_GAUCHE, PROX_PRES, vx, vy, PROX_LOIN)
+    Un rectangle droit, du bord de l'ecran jusqu'a la main gauche."""
     return ((PROX_GAUCHE, PROX_PRES), (PROX_DROITE, PROX_PRES),
-            (PROX_DROITE, PROX_LOIN), loin_g)
+            (PROX_DROITE, PROX_LOIN), (PROX_GAUCHE, PROX_LOIN))
 
 
 def coins_centre():
-    """Les quatre coins du plan de travail : il fuit vers le milieu de
-    l'horizon, et se resserre donc entre les mains en s'eloignant."""
-    vx, vy = 0.5, HORIZON_GRILLES
+    """Les quatre coins du plan de travail : un rectangle droit, entre les
+    mains."""
     g, d = 0.5 - CENTRE_DEMI, 0.5 + CENTRE_DEMI
     return ((g, CENTRE_PRES), (d, CENTRE_PRES),
-            fuite(d, CENTRE_PRES, vx, vy, CENTRE_LOIN),
-            fuite(g, CENTRE_PRES, vx, vy, CENTRE_LOIN))
+            (d, CENTRE_LOIN), (g, CENTRE_LOIN))
 
 
 class _Grille(object):
@@ -406,55 +401,44 @@ class SolDeCraft(Widget):
             Line(points=[a[0], a[1], b[0], b[1]], width=largeur)
 
     def _dessine_objet(self, g, col, rang, pile):
-        """Un objet pose au sol dans sa case, avec son ombre et son nombre.
+        """Un objet pose dans sa case, avec son ombre et son nombre.
 
-        IL EST ECRASE PAR LA PERSPECTIVE, a la mesure de sa case : une case
-        lointaine est plus basse que large, l'objet qui y repose aussi. Sans
-        cela il se tiendrait debout face au joueur, comme une carte a jouer
-        plantee dans la terre."""
+        IL A LA MEME TAILLE PARTOUT (TAILLE_OBJET), quelle que soit la case :
+        il est centre dans la sienne, son image entiere dans un carre fixe,
+        sans deformation."""
         nom, nombre = pile
         tex, couverture, _masse = _item_infos(nom)
         c = float(g.colonnes)
-        vm = g.vr(rang + 0.5)
-        cx, cy = g.point((col + 0.5) / c, vm)
-        gx, _ = g.point(col / c, vm)
-        dx, _ = g.point((col + 1) / c, vm)
+        cx, cy = g.point((col + 0.5) / c, g.vr(rang + 0.5))
+        dx, _ = g.point((col + 1) / c, g.vr(rang + 0.5))
         _, bas = g.point((col + 0.5) / c, g.vr(rang))
-        _, haut = g.point((col + 0.5) / c, g.vr(rang + 1))
-        larg_case, haut_case = dx - gx, haut - bas
-        ecrase = max(ECRASE_MIN, min(ECRASE_MAX,
-                                     1.6 * haut_case / max(1.0, larg_case)))
+        cote = self.height * TAILLE_OBJET
         # L'ombre, a plat sous l'objet.
         Color(*OMBRE)
-        ow, oh = larg_case * 0.78, haut_case * 0.42
-        Ellipse(pos=(cx - ow / 2.0, cy - oh * 0.75), size=(ow, oh))
-        if tex is None:
-            return
-        tw, th = tex.size
-        # UNE IMAGE AJOUREE EST GROSSIE, comme dans la main (voir
-        # player_hands) : une brindille couvre un dixieme de son cadre, et
-        # dans une case du fond elle disparaissait. Meme regle, meme plafond.
-        grossi = 1.0
-        if 0.0 < couverture < COUVERTURE_PLEINE:
-            grossi = min(GROSSISSEMENT_MAX,
-                         (COUVERTURE_PLEINE / couverture) ** 0.5)
-        iw = larg_case * OBJET_PART * grossi
-        ih = iw * float(th) / max(1, tw) * ecrase
-        if ih > haut_case * 1.9:
-            # Un objet tres haut (une branche dressee) ne deborde pas sur la
-            # case de derriere.
-            iw *= haut_case * 1.9 / ih
-            ih = haut_case * 1.9
-        Color(1, 1, 1, 1)
-        Rectangle(texture=tex, pos=(cx - iw / 2.0, cy - ih * 0.35),
-                  size=(iw, ih))
+        ow, oh = cote * 0.80, cote * 0.30
+        Ellipse(pos=(cx - ow / 2.0, cy - cote * 0.42), size=(ow, oh))
+        if tex is not None:
+            tw, th = tex.size
+            # UNE IMAGE AJOUREE EST GROSSIE, comme dans la main (voir
+            # player_hands) : une brindille couvre un dixieme de son cadre,
+            # elle disparaissait sinon. Meme regle, meme plafond.
+            grossi = 1.0
+            if 0.0 < couverture < COUVERTURE_PLEINE:
+                grossi = min(GROSSISSEMENT_MAX,
+                             (COUVERTURE_PLEINE / couverture) ** 0.5)
+            boite = cote * grossi
+            rapport = float(tw) / max(1, th)
+            iw, ih = (boite, boite / rapport) if rapport >= 1.0 \
+                else (boite * rapport, boite)
+            Color(1, 1, 1, 1)
+            Rectangle(texture=tex, pos=(cx - iw / 2.0, cy - ih / 2.0),
+                      size=(iw, ih))
         if nombre > 1:
+            taille = self.height * TAILLE_NOMBRE
             lbl = Label(text="x%d" % nombre, bold=True,
-                        color=(1, 1, 1, 0.95),
-                        font_size=max(dp(9), haut_case * 0.34))
-            lbl.size = (larg_case * 0.5, haut_case * 0.45)
-            lbl.pos = (dx - lbl.size[0] - larg_case * 0.04,
-                       bas + haut_case * 0.02)
+                        color=(1, 1, 1, 0.95), font_size=taille)
+            lbl.size = (taille * 2.4, taille * 1.3)
+            lbl.pos = (dx - lbl.size[0] - taille * 0.15, bas + taille * 0.1)
             self.add_widget(lbl)
             self._nombres.append(lbl)
 
