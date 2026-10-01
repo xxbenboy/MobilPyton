@@ -1313,14 +1313,19 @@ class GameState:
 
     def assemble(self, recette):
         """Fabrique `recette` avec les objets du plan de travail : ils sont
-        consommes, l'objet fabrique est pose dans la proximite, et il devient
+        consommes, et l'objet fabrique va DANS LA MAIN DROITE, sinon dans la
+        gauche, sinon dans la proximite si les deux sont prises. Il devient
         connu. Rend son nom, ou None si le plan ne correspond pas."""
         from src import assemblages
         if assemblages.selon_objets(self.objets_du_plan()) is not recette:
             return None
         self.detruit_le_plan()
         objet = recette["result"]
-        self.add_ground(objet)
+        main = next((i for i in (1, 0) if self.hands[i] is None), None)
+        if main is not None and objet not in items.GROUND_ONLY:
+            self.set_hand(main, objet)
+        else:
+            self.add_ground(objet)
         if objet not in self.crafts_connus:
             self.crafts_connus = sorted(self.crafts_connus + [objet])
         self.sol_en_cases()

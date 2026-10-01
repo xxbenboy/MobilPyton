@@ -41,8 +41,9 @@ DETRUITS. Si le joueur continue :
   - mal places (voir assemblages.valide) : ils disparaissent ;
   - bien places, objet deja connu : il est fabrique ;
   - bien places, objet inconnu : son MINI-JEU se lance (voir minijeux.py).
-    Reussi, l'objet est fabrique, devient connu, et la vue se referme sur
-    l'ecran de craft, l'objet pose dans la proximite.
+    Reussi, un message annonce le craft APPRIS, que le joueur confirme.
+L'objet fabrique va dans la main droite, sinon la gauche, sinon dans la
+proximite. Puis la vue revient EN FONDU sur l'ecran de craft.
 """
 from kivy.app import App
 from kivy.clock import Clock
@@ -83,8 +84,11 @@ LARGEUR_RETOUR = 0.20
 # apparait en DUREE_VOILE secondes, une fois le zoom termine.
 VOILE = (0.50, 0.51, 0.53, 0.78)
 DUREE_VOILE = 0.25
-# Duree d'un message bref (assemblage rate, objet fabrique), en secondes.
+# Duree d'un message bref (assemblage rate), en secondes.
 DUREE_MESSAGE = 2.5
+# LE RETOUR EN FONDU vers l'ecran de craft : l'ecran s'assombrit, la vue
+# normale revient dessous, puis il s'eclaircit. Duree de chaque moitie.
+DUREE_FONDU = 0.35
 
 
 def _police(label, remplit=0.62):
@@ -98,6 +102,33 @@ def _police(label, remplit=0.62):
     label.bind(size=_maj, text=_maj)
     _maj()
     return label
+
+
+class _Fondu(Widget):
+    """Un voile noir plein ecran ; tant qu'il est actif, il prend les
+    touchers (rien ne doit bouger pendant le fondu)."""
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.actif = False
+        self.opacity = 0.0
+        with self.canvas:
+            Color(0, 0, 0, 1)
+            self._rect = Rectangle(pos=self.pos, size=self.size)
+        self.bind(pos=self._sync, size=self._sync)
+
+    def _sync(self, *_):
+        self._rect.pos = self.pos
+        self._rect.size = self.size
+
+    def on_touch_down(self, touch):
+        return self.actif
+
+    def on_touch_move(self, touch):
+        return self.actif
+
+    def on_touch_up(self, touch):
+        return self.actif
 
 
 class CraftScreen(Penche, Screen):
@@ -168,6 +199,9 @@ class CraftScreen(Penche, Screen):
         self._message = None
         self._message_horloge = None
         self._message_reste = 0.0
+        self._appris = None
+        self._fondu_horloge = None
+        self._fondu_sens = 0
 
         # Voile de NUIT : assombrit tout selon l'heure, mains comprises, comme
         # dans l'ecran de jeu.
@@ -236,6 +270,9 @@ class CraftScreen(Penche, Screen):
                                        valign="middle", color=(1, 1, 1, 1),
                                        size_hint=(1, 1)))
         panel(self._consigne, alpha=0.55)
+        # LE FONDU, tout en haut : il prend les touchers tant qu'il est la.
+        self.fondu = _Fondu(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.fondu)
         self._racine = root
         self.add_widget(root)
 
@@ -261,6 +298,7 @@ class CraftScreen(Penche, Screen):
     def on_leave(self):
         self.hands.stop_breathing()
         self.quitte_penche()
+        self._arrete_fondu()
         if self._mode != "sol":
             self._fin_assemblage()
         self.sol.annule()
@@ -400,15 +438,91 @@ class CraftScreen(Penche, Screen):
         self._consigne.text = texte
 
     def _reussit(self, recette):
-        """L'objet est fabrique : la vue se referme, il est dans la
-        proximite."""
+        """L'objet est fabrique. La premiere fois, le joueur confirme qu'il a
+        appris le craft ; ensuite la vue revient en fondu."""
         state = App.get_running_app().game_state
+        connu = state is not None and state.connait(recette["result"])
         objet = state.assemble(recette) if state is not None else None
         if objet is not None:
             App.get_running_app().autosave()
-        self._fin_assemblage()
-        if objet is not None:
-            self.montre_message("%s fabrique !" % items.display_name(objet))
+        self._arrete_minijeu()
+        self.assemblage.actif = False
+        self.assemblage.lache_tout()
+        if objet is not None and not connu:
+            self.annonce_appris(objet)
+        else:
+            self.retour_en_fondu()
+
+    # -- le craft appris ------------------------------------------------ #
+    def annonce_appris(self, objet):
+        """Le message du craft appris, a confirmer."""
+        self._mode = "appris"
+        self._garnit(self._rang_retour, None)
+        self._garnit(self._rang_titre, None)
+        boite = BoxLayout(orientation="vertical", padding=dp(14),
+                          spacing=dp(10), size_hint=(0.46, 0.44),
+                          pos_hint={"center_x": 0.5, "center_y": 0.56})
+        panel(boite, alpha=0.82, border=(0.55, 1.00, 0.62, 0.9))
+        boite.add_widget(_police(Label(
+            text="Nouveau craft appris !", bold=True,
+            color=(0.70, 1.0, 0.74, 1), size_hint=(1, 0.28))))
+        boite.add_widget(_police(Label(
+            text="Tu sais maintenant fabriquer :\n%s"
+                 % items.display_name(objet), halign="center",
+            valign="middle", color=(1, 1, 1, 1), size_hint=(1, 0.42))))
+        rang = BoxLayout(orientation="horizontal", size_hint=(1, 0.30))
+        rang.add_widget(Widget(size_hint_x=0.3))
+        ok = scale_font(StyledButton(text="Confirmer", size_hint_x=0.4),
+                        0.022)
+        ok.bind(on_release=lambda *_: self.confirme_appris())
+        rang.add_widget(ok)
+        rang.add_widget(Widget(size_hint_x=0.3))
+        boite.add_widget(rang)
+        self._appris = boite
+        self._appris_ok = ok
+        self._racine.add_widget(boite)
+
+    def confirme_appris(self):
+        self._ferme_appris()
+        self.retour_en_fondu()
+
+    def _ferme_appris(self):
+        if self._appris is not None and self._appris.parent is not None:
+            self._appris.parent.remove_widget(self._appris)
+        self._appris = None
+
+    # -- le retour en fondu --------------------------------------------- #
+    def retour_en_fondu(self):
+        """L'ecran s'assombrit, la vue normale revient, il s'eclaircit."""
+        self._mode = "fondu"
+        self._garnit(self._rang_retour, None)
+        self._garnit(self._rang_bas, None)
+        self._fondu_sens = 1
+        self.fondu.actif = True
+        if self._fondu_horloge is None:
+            self._fondu_horloge = Clock.schedule_interval(
+                self._tick_fondu, 1.0 / FPS_CAMERA)
+
+    def _tick_fondu(self, dt):
+        pas = min(dt, 0.1) / DUREE_FONDU
+        if self._fondu_sens > 0:
+            self.fondu.opacity = min(1.0, self.fondu.opacity + pas)
+            if self.fondu.opacity >= 1.0:
+                # Tout est noir : la vue normale revient dessous.
+                self._fin_assemblage()
+                self._fondu_sens = -1
+            return
+        self.fondu.opacity = max(0.0, self.fondu.opacity - pas)
+        if self.fondu.opacity <= 0.0:
+            self._arrete_fondu()
+
+    def _arrete_fondu(self):
+        if self._fondu_horloge is not None:
+            self._fondu_horloge.cancel()
+            self._fondu_horloge = None
+        self.fondu.opacity = 0.0
+        self.fondu.actif = False
+        self._fondu_sens = 0
 
     # -- le message bref ------------------------------------------------ #
     def montre_message(self, texte):
@@ -549,6 +663,7 @@ class CraftScreen(Penche, Screen):
         """Retour a la vue normale, tout de suite."""
         self._arrete_zoom()
         self.ferme_alerte(rend_la_main=False)
+        self._ferme_appris()
         self._arrete_minijeu()
         self._mode = "sol"
         self._zoom = 0.0
