@@ -1,9 +1,14 @@
 """Ecran INVENTAIRE : ce qui est A PORTEE, ce qu'on PORTE, ce qu'on TRANSPORTE.
 
-Trois colonnes :
-- a gauche, les objets AU SOL de la case. Meme source que le menu Craft
-  (state.ground_here()), donc les deux listes montrent toujours la meme
-  chose ;
+LE JOUEUR SE PENCHE, comme dans le craft (voir src/widgets/penche.py) : le
+fond est la vraie scene de la case, la camera glisse vers le sol, et l'on
+voit ses VRAIES MAINS au premier plan -- la bande de mains dessinee en bas
+d'ecran est retiree.
+
+Trois sections :
+- a gauche, LE SOL EN CASES, pose a plat devant soi : la meme proximite que
+  dans le craft, 4 cases sur 7 (voir sol_de_craft). C'est le meme sol, au
+  meme endroit : passer d'un ecran a l'autre ne deplace rien ;
 - au milieu, deux menus a deux sous-menus chacun :
     Equipement -> Tenue (la silhouette et ses emplacements)
                -> Statistiques (ce que chaque piece apporte)
@@ -12,8 +17,9 @@ Trois colonnes :
 - a droite le contenu du SAC A DOS. Sans sac, il n'y a aucune place : la
   colonne l'explique au lieu d'afficher une grille vide.
 
-En bas, les deux MAINS. Un objet se glisse librement d'une section a
-l'autre : sol, mains, sac, corps.
+Les deux sections du milieu et de droite tiennent dans le HAUT de l'ecran :
+le bas est au sol et aux mains. Un objet se glisse librement d'une section a
+l'autre : les cases du sol, les mains, le sac, le corps.
 
 Le titre est un TITRE A DEUX VOLETS partage avec le craft : les deux ecrans
 montrent les memes objets sous deux angles, on passe de l'un a l'autre en
@@ -47,9 +53,12 @@ from src.widgets.item_icon import ItemIcon
 from src.widgets.item_info import show_item_info
 from src.widgets.styled_button import StyledButton, TabButton
 from src.widgets.panels import panel
-from src.widgets.hand_slot import (hands_row, empty_slot,
-                                   item_text)
-from src.widgets.item_grid import fill_ground, fill_bag
+from src.widgets.hand_slot import empty_slot, item_text
+from src.widgets.item_grid import fill_bag
+from src.widgets.player_hands import PlayerHands
+from src.widgets.sol_de_craft import (SolDeCraft, MAIN_DEMI_LARGEUR,
+                                      MAIN_HAUT)
+from src.widgets.penche import Penche
 from src.widgets.drag_drop import (DragDrop, hit,
                                    make_highlightable)
 from src.widgets.responsive import (scale_font, dh, fit_text,
@@ -80,6 +89,25 @@ _CELL_W = 182           # largeur d'une case (celle d'une case du sac)
 # existe. 0.26 laisse aux cases d'equipement la place de ne pas mordre sur
 # la silhouette (voir _cell_size).
 _STAT_ROW = 120         # hauteur d'une ligne de statistique
+
+# LA MISE EN PAGE PENCHEE. La colonne garde le gabarit du craft -- titre en
+# haut, Retour en bas, aux memes places -- mais les sections du milieu et de
+# droite (equipement, sac) ne descendent plus jusqu'en bas : la moitie basse
+# de l'ecran est au sol et aux mains. MESURE sur les images des mains, toutes
+# poses : les doigts montent jusqu'a 0,47 de la hauteur. Les sections
+# s'arretent donc au-dessus, a 0,49. Ce sont des poids de BoxLayout (voir
+# responsive.py), calcules pour cette limite.
+_POIDS_TITRE = ROW_TITLE
+_POIDS_SECTIONS = 0.446
+_POIDS_VIDE = 0.394
+_POIDS_BAS = ROW_BACK
+# Le bas : le Retour ENTRE LES DEUX AVANT-BRAS, comme dans le craft, et la
+# ligne d'aide a droite de la main droite (qui s'arrete a 0,71 de la
+# largeur). Parts de la largeur de la rangee.
+_BAS_MARGE = 0.40
+_BAS_RETOUR = 0.20
+_BAS_ECART = 0.13
+_BAS_AIDE = 0.27
 
 # Les deux menus du milieu, et leurs sous-menus dans l'ordre des boutons.
 _SUBTABS = {
@@ -180,17 +208,30 @@ def _label(text, color=(0.92, 0.92, 0.95, 1), halign="left", scale=1.0,
     return lbl
 
 
-class InventoryScreen(DragDrop, Screen):
+class InventoryScreen(Penche, DragDrop, Screen):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
         root = FloatLayout()
-        self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
-                                             pos_hint={"x": 0, "y": 0})
-        root.add_widget(self.background)
-        # La scene de la case en fond, comme la carte et la zone (voir
-        # on_pre_enter).
-        self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
-        root.add_widget(self.scenery)
+        # LE MONDE, vu par un joueur qui se penche (voir penche.py).
+        self.construit_monde(root)
+
+        # LE SOL EN CASES, la proximite seule : le milieu de l'ecran est a
+        # l'equipement. Ici le glisser est mene par l'ecran (voir drag_drop) :
+        # le sol ne sert qu'a dessiner et a dire quelle case est sous le
+        # doigt.
+        self.sol = SolDeCraft(avec_centre=False, size_hint=(1, 1),
+                              pos_hint={"x": 0, "y": 0})
+        self.sol.opacity = 0.0
+        root.add_widget(self.sol)
+
+        # LES VRAIES MAINS, a la place de la bande de mains d'avant.
+        self.hands = PlayerHands(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.hands)
+        # Leurs places de depart et d'arrivee pour le glisser : invisibles,
+        # elles ne font que s'allumer quand une main peut recevoir l'objet.
+        self.hand_slots = [_MainReelle(i) for i in (0, 1)]
+        for slot in self.hand_slots:
+            root.add_widget(slot)
 
         # Voile de nuit, comme les autres ecrans.
         self.night = Widget(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
@@ -207,31 +248,23 @@ class InventoryScreen(DragDrop, Screen):
         col = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(8),
                         size_hint=(0.96, 0.96),
                         pos_hint={"center_x": 0.5, "center_y": 0.5})
-        # Titre a deux volets : "INVENTAIRE / craft". Les deux mots gardent
-        # toujours la meme place, seule la surbrillance change d'ecran.
-        col.add_widget(MenuToggle(self, "inventory", size_hint=(1, ROW_TITLE)))
+        # Titre a deux volets : "INVENTAIRE / craft". On passe au craft sans
+        # se relever (voir penche.partir).
+        col.add_widget(MenuToggle(self, "inventory",
+                                  size_hint=(1, _POIDS_TITRE),
+                                  switch=self.partir))
 
-        # Les cases d'equipement occupent trois rangees : cette section a
-        # besoin de hauteur, elle en prend sur les mains et le bas d'ecran.
         body = BoxLayout(orientation="horizontal", spacing=dp(10),
-                         size_hint=(1, ROW_BODY))
+                         size_hint=(1, _POIDS_SECTIONS))
 
-        # ---- Gauche : ce qui traine A PROXIMITE ----
-        # Meme source que le menu Craft (state.ground_here()) : les deux
-        # listes montrent donc toujours la meme chose.
-        near = BoxLayout(orientation="vertical", spacing=dp(6),
-                         size_hint_x=SIDE_SHARE)
-        self.near_title = scale_font(Label(text="A proximite", bold=True,
-                                     size_hint=(1, COL_TITLE)), 0.022)
-        near.add_widget(self.near_title)
-        sc0 = self.ground_scroll = make_highlightable(ScrollView(
-            size_hint=(1, COL_LIST)))
-        self.ground_box = BoxLayout(orientation="vertical", spacing=dp(4),
-                                    size_hint_y=None)
-        self.ground_box.bind(minimum_height=self.ground_box.setter("height"))
-        sc0.add_widget(self.ground_box)
-        near.add_widget(sc0)
-        body.add_widget(near)
+        # ---- Gauche : la place du sol, qui se voit plus bas ----
+        body.add_widget(Widget(size_hint_x=SIDE_SHARE))
+        # Le sol accepte tout ce qu'on y lache, case ou pas : cette zone
+        # invisible, posee sur la grille, est la cible "sol" du glisser, et
+        # fait clignoter les cases quand on peut y poser.
+        self.ground_scroll = _ZoneSol(self.sol)
+        root.add_widget(self.ground_scroll)
+        self._ground_cells = []
 
         # ---- Milieu : deux menus, deux sous-menus chacun ----
         rest = center_share()
@@ -263,6 +296,7 @@ class InventoryScreen(DragDrop, Screen):
 
         self.content = BoxLayout(size_hint=(1, 0.83))
         center.add_widget(self.content)
+        _panel(center)
         body.add_widget(center)
 
         # Les quatre panneaux, crees une fois et permutes dans `content`.
@@ -284,32 +318,29 @@ class InventoryScreen(DragDrop, Screen):
         self.bag_box.bind(minimum_height=self.bag_box.setter("height"))
         sc2.add_widget(self.bag_box)
         right.add_widget(sc2)
+        _panel(right)
         body.add_widget(right)
 
         col.add_widget(body)
+        col.add_widget(Widget(size_hint=(1, _POIDS_VIDE)))
 
-        # ---- Les MAINS, en bas : source du glisser-deposer ----
-        # Meme bande que dans le craft (widget partage) : rien ne bouge en
-        # bas quand on bascule d'un ecran a l'autre. Ici seulement, chaque
-        # main s'allume quand on peut y lacher un objet.
-        hands, self.hand_slots = hands_row(size_hint=(1, ROW_HANDS))
-        for slot in self.hand_slots:
-            make_highlightable(slot)
-        col.add_widget(hands)
-
-        # Message d'aide / refus (pourquoi un depot n'a pas marche).
-        self.hint = _label("Glisse un objet entre le sol, tes mains, ton sac "
-                           "et ton equipement : les cases ou tu peux le "
-                           "lacher clignotent.", _DIM, halign="center",
-                           size_hint=(1, ROW_HINT))
-        col.add_widget(self.hint)
-
+        # ---- En bas : le Retour entre les avant-bras, l'aide a droite ----
+        bas = BoxLayout(orientation="horizontal", spacing=dp(6),
+                        size_hint=(1, _POIDS_BAS))
+        bas.add_widget(Widget(size_hint_x=_BAS_MARGE))
         back = scale_font(StyledButton(text="Retour",
-                                       size_hint=(1, ROW_BACK)), 0.022)
-        back.bind(on_release=lambda *_: setattr(self.manager, "current", "game"))
-        col.add_widget(back)
+                                       size_hint_x=_BAS_RETOUR), 0.022)
+        back.bind(on_release=lambda *_: self.partir("game"))
+        bas.add_widget(back)
+        bas.add_widget(Widget(size_hint_x=_BAS_ECART))
+        # Message d'aide / refus (pourquoi un depot n'a pas marche).
+        self.hint = fit_text(Label(
+            text="Glisse un objet entre le sol, tes mains, ton sac et ton "
+                 "equipement.", color=_DIM, halign="center", valign="middle",
+            size_hint_x=_BAS_AIDE), TEXT_NORMAL * 0.8, wrap=True)
+        bas.add_widget(self.hint)
+        col.add_widget(bas)
 
-        _panel(col)
         root.add_widget(col)
 
         # Couche du glisser-deposer : l'objet suivi par le doigt passe
@@ -321,7 +352,6 @@ class InventoryScreen(DragDrop, Screen):
         # Cibles du glisser-deposer, reconstruites a chaque rafraichissement.
         self._equip_slots = []
         self._bag_cells = []
-        self._ground_cells = []
         self.init_drag()
         # Les cases d'equipement ont une taille FIXE (celle d'une case du
         # sac) : il faut la recalculer quand le panneau change de taille.
@@ -332,37 +362,28 @@ class InventoryScreen(DragDrop, Screen):
     # ------------------------------------------------------------------ #
     def on_pre_enter(self):
         state = App.get_running_app().game_state
-        if state is not None:
-            self.background.set_seconds(state.time_seconds)
-            self.background.set_weather(state.effective_weather())
-            self.scenery.set_wind(state.effective_weather())
-            # Le voile de nuit prend AUSSI la teinte de l'heure, et le decor
-            # suit le soleil (couleur de la lumiere, ombres portees).
-            self._night_color.rgb = daylight.veil_color(state.time_seconds)
-            self._night_color.a = night_darkness(state.time_seconds)
-            self.scenery.set_daylight(state.time_seconds)
-            # FOND : LA SCENE DE LA CASE, telle qu'elle est -- la meme que le
-            # jeu, la carte et la zone, par la meme methode. C'etait la vue du
-            # sol en plongee : ouvrir son sac faisait changer de decor. Rien
-            # n'est redessine tant que la case ne change pas (voir
-            # montre_la_case).
-            self.scenery.montre_la_case(state)
-            self.background.set_horizon(self.scenery.hauteur_horizon())
-            self.scenery.set_brume(self.background.couleur_ciel(
-                self.scenery.hauteur_horizon()))
+        # Le monde, la scene de la case et le regard de depart (voir
+        # penche.py) : depuis le jeu on arrive debout, depuis le craft deja
+        # penche.
+        self.prepare_penche(state)
         self.refresh()
+
+    def on_enter(self):
+        self.hands.start_breathing()
+        self.lance_penche()
 
     def on_leave(self):
         """Ne laisse ni clignotement ni fiche ouverte sur un ecran qu'on quitte."""
         self._cancel_drag()
         if self._info is not None:
             self._info.close()
+        self.hands.stop_breathing()
+        self.quitte_penche()
 
     def refresh(self):
         state = App.get_running_app().game_state
         if state is None:
             return
-        self._fill_ground(state)
         self._fill_avatar(state)
         self._fill_stats(state)
         self._fill_equipment(state)
@@ -370,9 +391,133 @@ class InventoryScreen(DragDrop, Screen):
         # Apres les DEUX colonnes : la mise a l'echelle touche les cases de
         # l'equipement comme celles du sac, qui viennent d'etre recreees.
         self._size_equip_slots()
+        # Les mains et le sol.
+        self.hands.set_items(state.hands[0], state.hands[1])
+        self.hands.set_glove(state.equipment.get("gant"))
         for slot in self.hand_slots:
-            name = state.hands[slot.hand]
-            slot.set_item(name, item_text(state, name))
+            slot.item = state.hands[slot.hand]
+        self.sol.montre(state.sol_en_cases(), state.hands)
+        self._place_cibles()
+
+    # ------------------------------------------------------------------ #
+    # Le sol en cases et les vraies mains dans le glisser (voir drag_drop)
+    # ------------------------------------------------------------------ #
+    def _place_cibles(self, *_):
+        """Pose les cibles invisibles des mains et du sol sur leurs dessins."""
+        w, h = self.width, self.height
+        for slot in self.hand_slots:
+            fx = PlayerHands.HAND_FX[slot.hand]
+            slot.size_hint = (None, None)
+            slot.size = (2 * MAIN_DEMI_LARGEUR * w, MAIN_HAUT * h)
+            slot.pos = (self.x + (fx - MAIN_DEMI_LARGEUR) * w, self.y)
+        xs, ys = zip(*[(fx * w, fy * h) for fx, fy in
+                       self.sol.proximite.coins])
+        self.ground_scroll.size_hint = (None, None)
+        self.ground_scroll.pos = (self.x + min(xs), self.y + min(ys))
+        self.ground_scroll.size = (max(xs) - min(xs), max(ys) - min(ys))
+
+    def on_size(self, *_):
+        self._place_cibles()
+
+    def _source_virtuelle(self, touch):
+        """Une pile du sol sous le doigt : ("case", "G:3", objet)."""
+        if self._pente < 0.999:
+            return None
+        cible = self.sol.sous_le_doigt(touch.x, touch.y)
+        if cible is None or cible[0] != "case":
+            return None
+        nom = self.sol.objet_de(cible)
+        return ("case", cible[1], nom) if nom else None
+
+    def _survol_virtuel(self, touch):
+        """La case sous l'objet qu'on porte s'allume."""
+        if touch is None or self._drag is None:
+            self.sol.visee_externe(None)
+            return
+        cible = self.sol.sous_le_doigt(touch.x, touch.y)
+        if cible is None or cible[0] != "case":
+            self.sol.visee_externe(None)
+            return
+        kind, _i, nom = self._drag["source"]
+        dessus = self.sol.objet_de(cible)
+        refus = (kind != "case" and dessus is not None and dessus != nom)
+        self.sol.visee_externe(cible[1], refus)
+
+    def _depot_virtuel(self, state, kind, index, name, touch):
+        """Ce que font les cases du sol et les vraies mains, comme source ou
+        comme cible. Rend un message, ou None pour laisser les regles
+        ordinaires (le sac, le corps) s'appliquer."""
+        label = items.display_name(name)
+        cible = self.sol.sous_le_doigt(touch.x, touch.y)
+        case = cible[1] if cible and cible[0] == "case" else None
+        main = cible[1] if cible and cible[0] == "main" else None
+        # ---- DEPUIS une case du sol ----
+        if kind == "case":
+            if case is not None:
+                if case == index:
+                    return ""
+                state.deplace_au_sol(index, case)
+                return ""
+            if main is not None:
+                if state.hands[main] is not None:
+                    return "Cette main est deja occupee."
+                state.sol_vers_main(index, main)
+                return f"{label} ramasse."
+            if hit(self.bag_scroll, touch):
+                if state.bag_capacity() <= 0:
+                    return "Aucun sac a dos pour ranger cet objet."
+                if state.bag_free() <= 0:
+                    return "Le sac est plein."
+                state.sol_vers_sac(index)
+                return f"{label} ramasse dans le sac."
+            for widget in self._equip_widgets():
+                if not hit(widget, touch):
+                    continue
+                good = items.equip_slot(name)
+                if good is None:
+                    return f"{label} ne se porte pas."
+                if good != widget.slot:
+                    return (f"{label} se porte a "
+                            f"l'emplacement {items.EQUIP_SLOT_NAMES[good]}.")
+                state.sol_equipe(index)
+                return f"{label} ramasse et equipe."
+            return ""
+        # ---- VERS une case du sol ----
+        if case is not None:
+            dessus = self.sol.objet_de(cible)
+            if dessus is not None and dessus != name:
+                return "Cette case est deja prise."
+            if kind == "hand":
+                state.main_vers_sol(index, case)
+                return f"{label} pose au sol."
+            if kind == "bag":
+                state.vers_case(case, name, lambda: state.bag_drop(index))
+                return f"{label} sorti du sac, pose au sol."
+            if kind == "equip":
+                res = state.vers_case(case, name,
+                                      lambda: state.unequip_to_ground(index))
+                if res is None:
+                    return ""
+                return f"{label} retire et pose au sol."
+            return None
+        # ---- D'une main a l'autre ----
+        if kind == "hand" and main is not None:
+            if main != index:
+                state.echange_mains()
+            return ""
+        return None
+
+    def _drop(self, touch):
+        """Le depot ordinaire, puis LE GESTE de chaque main dont le contenu
+        vient de changer : elle a pris ou pose quelque chose."""
+        state = App.get_running_app().game_state
+        avant = list(state.hands) if state is not None else None
+        super()._drop(touch)
+        if state is None:
+            return
+        for i in (0, 1):
+            if state.hands[i] != avant[i]:
+                self.hands.geste(i)
 
     # ------------------------------------------------------------------ #
     # Glisser-deposer
@@ -593,14 +738,42 @@ class InventoryScreen(DragDrop, Screen):
         """Le sac. Meme colonne que dans le craft (widget partage)."""
         self._bag_cells = fill_bag(self.bag_box, self.bag_title, state)
 
-    def _fill_ground(self, state):
-        """Ce qui traine sur la case. Meme colonne que dans le craft (widget
-        partage) : les deux ecrans ne peuvent plus la dessiner autrement.
 
-        Ici seulement, chaque case sert de point de DEPART a un glisser vers
-        la main, le sac ou le corps."""
-        self._ground_cells = fill_ground(self.ground_box, self.near_title,
-                                         state)
+class _MainReelle(Widget):
+    """La place d'une vraie main dans le glisser : invisible, elle porte ce
+    que la main tient (`item`) et s'allume quand elle peut recevoir
+    l'objet porte -- une lueur verte au creux de la paume, qui clignote."""
+
+    def __init__(self, hand, **kwargs):
+        super().__init__(**kwargs)
+        self.hand = hand
+        self.item = None
+        with self.canvas:
+            self._lueur = Color(0.45, 1.0, 0.62, 0.0)
+            self._disque = Ellipse()
+        self.bind(pos=self._sync, size=self._sync)
+
+    def _sync(self, *_):
+        r = self.width * 0.62
+        cy = self.y + self.height * (PlayerHands.ITEM_FY / MAIN_HAUT) * 0.98
+        self._disque.pos = (self.center_x - r, cy - r * 0.55)
+        self._disque.size = (2 * r, 1.1 * r)
+
+    def set_highlight(self, on, pulse=1.0):
+        self._lueur.a = 0.16 + 0.22 * pulse if on else 0.0
+
+
+class _ZoneSol(Widget):
+    """La cible "sol" du glisser : invisible, posee sur la grille de la
+    proximite. Quand on peut y lacher l'objet, ce sont les CASES elles-memes
+    qui clignotent (voir SolDeCraft.pulse), pas un cadre autour."""
+
+    def __init__(self, sol, **kwargs):
+        super().__init__(**kwargs)
+        self._sol = sol
+
+    def set_highlight(self, on, pulse=1.0):
+        self._sol.pulse(on, pulse)
 
 
 class _BodyPanel(FloatLayout):

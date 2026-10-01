@@ -71,15 +71,23 @@ CENTRE_PRES = 0.29
 CENTRE_LOIN = 0.55
 CENTRE_DEMI = 0.098          # demi-largeur du bord proche
 
-# Couleurs. Le plan de travail est TOUJOURS visible, d'un gris leger ; la
-# proximite n'a qu'un trace discret -- c'est le sol, pas un meuble.
-GRIS_CENTRE = (0.88, 0.89, 0.90, 0.16)
-TRAIT_CENTRE = (0.92, 0.93, 0.95, 0.50)
-GRIS_PROX = (1.0, 1.0, 1.0, 0.04)
-TRAIT_PROX = (1.0, 1.0, 1.0, 0.20)
-# La case sous le doigt, pendant un glisser.
-VISEE = (0.55, 1.00, 0.65, 0.34)
-VISEE_REFUS = (1.00, 0.45, 0.40, 0.30)
+# Couleurs. LES CASES SONT PLEINES, pas transparentes : sur un sol
+# transparent, une touffe d'herbe posee dans une prairie se fondait dans
+# l'herbe du decor, et une brindille dans la litiere. Un fond uni et clair
+# detache chaque objet, quel que soit le sol. Le plan de travail est d'un
+# gris leger ; la proximite d'un gris a peine plus chaud et plus sombre,
+# pour qu'on distingue d'un coup d'oeil ce qui traine de ce qu'on prepare.
+# Les traits, plus sombres, separent les cases.
+GRIS_CENTRE = (0.80, 0.81, 0.82, 1.0)
+TRAIT_CENTRE = (0.42, 0.43, 0.45, 1.0)
+GRIS_PROX = (0.70, 0.68, 0.64, 1.0)
+TRAIT_PROX = (0.38, 0.36, 0.33, 1.0)
+# La case sous le doigt, pendant un glisser : pleine elle aussi.
+VISEE = (0.62, 0.90, 0.64, 1.0)
+VISEE_REFUS = (0.92, 0.55, 0.50, 1.0)
+# Le fond des cases quand un objet peut y etre lache (voir pulse) : le
+# vert de l'inventaire, qui clignote.
+CIBLE = (0.70, 0.86, 0.68, 1.0)
 
 # Part de la case qu'occupe un objet, et son ombre.
 OBJET_PART = 0.80
@@ -221,7 +229,8 @@ class SolDeCraft(Widget):
     `couche` est le widget ou se dessine l'objet qui suit le doigt : il doit
     passer par-dessus les mains."""
 
-    def __init__(self, depose=None, couche=None, **kwargs):
+    def __init__(self, depose=None, couche=None, avec_centre=True,
+                 **kwargs):
         super().__init__(**kwargs)
         self.depose = depose
         self.couche = couche
@@ -230,10 +239,22 @@ class SolDeCraft(Widget):
                                  coins_proximite())
         self.centre = _Grille("C", CENTRE_COLONNES, CENTRE_RANGEES,
                               coins_centre())
+        # L'INVENTAIRE n'a que la proximite : son milieu est occupe par
+        # l'equipement (voir InventoryScreen).
+        self.avec_centre = avec_centre
         self._cases = {}
         self._mains = [None, None]
         self._glisse = None
         self._nombres = []
+        # Les couleurs des cases, gardees pour etre RETEINTES sans tout
+        # redessiner : le clignotement d'une cible tourne a trente images par
+        # seconde, et refaire la grille et ses objets a chaque fois serait du
+        # travail pour rien.
+        self._couleurs = {}
+        # Une visee imposee du dehors (l'inventaire mene son propre glisser,
+        # voir visee_externe), et le clignotement des cases ou lacher.
+        self._visee_ext = (None, False)
+        self._pulse = None
         self.bind(pos=self._redessine, size=self._redessine)
 
     # -- ce que montre le sol ------------------------------------------ #
@@ -245,7 +266,25 @@ class SolDeCraft(Widget):
         self._redessine()
 
     def grilles(self):
+        if not self.avec_centre:
+            return (self.proximite,)
         return (self.proximite, self.centre)
+
+    def visee_externe(self, cle, refus=False):
+        """La case que vise un glisser mene par l'ecran lui-meme (voir
+        l'inventaire), ou None."""
+        if (cle, refus) != self._visee_ext:
+            self._visee_ext = (cle, refus)
+            self._teinte_cases()
+
+    def pulse(self, allume, force=1.0):
+        """Fait clignoter la proximite : on peut y lacher l'objet tenu.
+
+        Meme interface que les cibles de l'inventaire (voir
+        drag_drop.make_highlightable), pour qu'il la traite comme les
+        autres."""
+        self._pulse = force if allume else None
+        self._teinte_cases()
 
     # -- dessin -------------------------------------------------------- #
     def _redessine(self, *_):
@@ -258,13 +297,12 @@ class SolDeCraft(Widget):
             return
         for g in self.grilles():
             g.cale(self.x, self.y, self.width, self.height)
-        visee = self._glisse["visee"] if self._glisse else None
-        refus = self._glisse["refus"] if self._glisse else False
+        self._couleurs = {}
         with self.canvas:
-            self._dessine_grille(self.proximite, GRIS_PROX, TRAIT_PROX, visee,
-                                 refus)
-            self._dessine_grille(self.centre, GRIS_CENTRE, TRAIT_CENTRE,
-                                 visee, refus)
+            for g in self.grilles():
+                fond, trait = ((GRIS_PROX, TRAIT_PROX) if g is self.proximite
+                               else (GRIS_CENTRE, TRAIT_CENTRE))
+                self._dessine_grille(g, fond, trait)
             # Du plus LOIN au plus pres : un objet de la rangee de devant
             # passe devant celui de derriere.
             for g in self.grilles():
@@ -278,15 +316,30 @@ class SolDeCraft(Widget):
                                 ("case", cle):
                             continue    # il est dans la main du doigt
                         self._dessine_objet(g, col, rang, pile)
+        self._teinte_cases()
 
-    def _dessine_grille(self, g, fond, trait, visee, refus):
+    def _teinte_cases(self):
+        """La couleur de chaque case : la visee du doigt, sinon le
+        clignotement d'une cible, sinon son fond."""
+        if self._glisse:
+            visee, refus = self._glisse["visee"], self._glisse["refus"]
+        else:
+            visee, refus = self._visee_ext
+        for cle, (couleur, fond) in self._couleurs.items():
+            if cle == visee:
+                couleur.rgba = VISEE_REFUS if refus else VISEE
+            elif self._pulse is not None and cle.startswith("G:"):
+                p = self._pulse
+                couleur.rgba = tuple(fond[i] + (CIBLE[i] - fond[i]) * p
+                                     for i in range(4))
+            else:
+                couleur.rgba = fond
+
+    def _dessine_grille(self, g, fond, trait):
         for rang in range(g.rangees):
             for col in range(g.colonnes):
                 cle = g.case_de(col, rang)
-                if cle == visee:
-                    Color(*(VISEE_REFUS if refus else VISEE))
-                else:
-                    Color(*fond)
+                self._couleurs[cle] = (Color(*fond), fond)
                 pts = g.coins_case(col, rang)
                 Mesh(vertices=[v for p in pts for v in (p[0], p[1], 0, 0)],
                      indices=[0, 1, 2, 0, 2, 3], mode="triangles")
@@ -377,7 +430,9 @@ class SolDeCraft(Widget):
 
     # -- le glisser ---------------------------------------------------- #
     def on_touch_down(self, touch):
-        if not self.actif:
+        # Sans `depose`, c'est l'ecran qui mene le glisser (l'inventaire,
+        # voir drag_drop) : le sol ne fait que dessiner.
+        if not self.actif or self.depose is None:
             return False
         source = self.sous_le_doigt(touch.x, touch.y)
         nom = self.objet_de(source)
@@ -407,7 +462,7 @@ class SolDeCraft(Widget):
         refus = self._refuse(g, cible)
         if visee != g["visee"] or refus != g["refus"]:
             g["visee"], g["refus"] = visee, refus
-            self._redessine()
+            self._teinte_cases()
         return True
 
     def on_touch_up(self, touch):

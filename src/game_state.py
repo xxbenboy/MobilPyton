@@ -1139,6 +1139,72 @@ class GameState:
         self.sol_en_cases()
         return True
 
+    def _depuis_case(self, case, action):
+        """Fait `action(objet)` avec l'objet de cette case -- une action qui
+        retire UN exemplaire du sol (vers le sac, vers le corps) -- puis le
+        retire de SA case, et non de celle que la reaccordance aurait
+        choisie.
+
+        Ce que l'action a pu poser au sol en echange (la piece qu'on
+        remplace en s'equipant) reprend la case liberee, s'il y en a une.
+        Rend ce que rend l'action, ou None si la case est vide."""
+        cases = self.sol_en_cases()
+        pile = cases.get(case)
+        if pile is None:
+            return None
+        objet = pile[0]
+        avant = dict(self.ground_here())
+        res = action(objet)
+        if res is None or res is False:
+            return res
+        pile[1] -= 1
+        if pile[1] <= 0:
+            del cases[case]
+            # La piece rendue en echange prend la place laissee.
+            apres = self.ground_here()
+            nouveaux = [k for k in apres
+                        if apres[k] > avant.get(k, 0) and k != objet]
+            if len(nouveaux) == 1 and not any(
+                    v[0] == nouveaux[0] for v in cases.values()):
+                cases[case] = [nouveaux[0], apres[nouveaux[0]]
+                               - avant.get(nouveaux[0], 0)]
+        self.ground_layout[self._cell_key()] = cases
+        self.sol_en_cases()
+        return res
+
+    def sol_vers_sac(self, case):
+        """Range dans le sac UN objet de cette case."""
+        return bool(self._depuis_case(case, self.ground_to_bag))
+
+    def sol_equipe(self, case):
+        """Porte la piece posee dans cette case (voir ground_equip). Rend le
+        nombre d'objets que le sac a du lacher, ou None si rien n'a eu
+        lieu."""
+        return self._depuis_case(case, self.ground_equip)
+
+    def vers_case(self, case, objet, action):
+        """Fait `action()` -- qui pose UN `objet` au sol (en le sortant du
+        sac, en l'otant du corps) -- et le range DANS cette case.
+
+        La case doit etre vide ou porter le meme objet : sinon rien n'est
+        fait, et None est rendu. Rend ce que rend l'action."""
+        if case not in CASES_SOL + CASES_CENTRE:
+            return None
+        cases = self.sol_en_cases()
+        cible = cases.get(case)
+        if cible is not None and cible[0] != objet:
+            return None
+        res = action()
+        if res is None or res is False:
+            return res
+        if cible is None:
+            cases[case] = [objet, 1]
+        else:
+            cible[1] += 1
+        self.ground_layout[self._cell_key()] = cases
+        self.sol_en_cases()
+        return res
+
     def echange_mains(self):
         """Les deux mains echangent ce qu'elles tiennent, usure comprise."""
         if self.hands[0] is None and self.hands[1] is None:

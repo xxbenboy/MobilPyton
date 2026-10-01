@@ -22,6 +22,14 @@ L'ecran doit fournir :
     hint            un libelle pour les messages (facultatif)
     refresh()       pour se redessiner apres un depot
 
+Et, FACULTATIVEMENT, des sources et des cibles qui ne sont pas des widgets
+(le sol en cases de l'inventaire, dessine en perspective, voir
+sol_de_craft) :
+    _source_virtuelle(touch)   -> (sorte, index, nom) ou None
+    _depot_virtuel(state, sorte, index, nom, touch) -> message, ou None
+                               pour laisser faire les regles ordinaires
+    _survol_virtuel(touch)     le doigt passe (touch=None : il est parti)
+
 Un TAP (doigt pose et releve sans bouger) n'est pas un glisser : il ouvre la
 fiche de l'objet. C'est la meme geste au depart, seule la distance parcourue
 les separe.
@@ -120,6 +128,9 @@ class DragDrop:
     def on_touch_move(self, touch):
         if self._drag is not None:
             self._drag["ghost"].center = touch.pos
+            survol = getattr(self, "_survol_virtuel", None)
+            if survol is not None:
+                survol(touch)
             return True
         return super().on_touch_move(touch)
 
@@ -198,6 +209,9 @@ class DragDrop:
         for cell in self._station_widgets():
             if cell.item and hit(cell, touch):
                 source = ("station", cell.station_index, cell.item)
+        virtuelle = getattr(self, "_source_virtuelle", None)
+        if source is None and virtuelle is not None:
+            source = virtuelle(touch)
         if source is None:
             return False
         name = source[2]
@@ -282,6 +296,9 @@ class DragDrop:
         self._hl_widgets = []
         for widget in self._targets():
             widget.set_highlight(False)
+        survol = getattr(self, "_survol_virtuel", None)
+        if survol is not None:
+            survol(None)
 
     def _cancel_drag(self):
         """Abandonne le glisser en cours sans rien deplacer."""
@@ -306,6 +323,13 @@ class DragDrop:
 
     def _apply_drop(self, state, kind, index, name, touch):
         """Effectue le depot et renvoie le message a afficher."""
+        # Les sources et cibles VIRTUELLES d'abord (voir l'en-tete) : un
+        # ecran qui en declare decide lui-meme de ce qu'elles acceptent.
+        virtuel = getattr(self, "_depot_virtuel", None)
+        if virtuel is not None:
+            message = virtuel(state, kind, index, name, touch)
+            if message is not None:
+                return message
         label = items.display_name(name)
         # ---- vers un emplacement d'EQUIPEMENT ----
         for widget in self._equip_widgets():
