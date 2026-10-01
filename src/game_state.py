@@ -99,11 +99,19 @@ HANDS_MAX = 2
 # entre deux ecrans, et aucune des nombreuses facons de poser un objet au
 # sol n'a eu a changer.
 #
-# Une case se nomme "G:i" (proximite, i de 0 a 27) ou "C:i" (plan de
-# travail, i de 0 a 15). i = rangee * 4 + colonne, la rangee 0 etant la plus
-# PROCHE du joueur : c'est la qu'un nouvel objet se pose d'abord.
-SOL_COLONNES = 4
-SOL_RANGEES = 7
+# Une case se nomme "G:i" (proximite, i de 0 a 24) ou "C:i" (plan de
+# travail, i de 0 a 15). i = rangee * colonnes + colonne, la rangee 0 etant
+# la plus PROCHE du joueur : c'est la qu'un nouvel objet se pose d'abord.
+#
+# LA PROXIMITE FAIT 5 SUR 5. Elle faisait 4 de large sur 7 de profondeur : en
+# perspective, les rangees du fond etaient si minces que les objets y
+# paraissaient minuscules et qu'on y deposait mal. Sur la meme surface, 5
+# rangees au lieu de 7 les rendent nettement plus grosses. Une partie
+# sauvee avec l'ancienne grille se reaccorde seule (voir sol_en_cases) : les
+# cases qui n'existent plus sont oubliees, et leurs objets reprennent une
+# case libre.
+SOL_COLONNES = 5
+SOL_RANGEES = 5
 CENTRE_COLONNES = 4
 CENTRE_RANGEES = 4
 CASES_SOL = ["G:%d" % i for i in range(SOL_COLONNES * SOL_RANGEES)]
@@ -1019,7 +1027,7 @@ class GameState:
              a sous la main reste la ;
           2. ce que le sol a en plus rejoint une pile du meme objet dans la
              proximite, ou a defaut la premiere case libre ;
-          3. s'il n'y a plus de case libre -- vingt-huit sortes d'objets
+          3. s'il n'y a plus de case libre -- vingt-cinq sortes d'objets
              differentes sur une case -- le reste n'est pas dessine, mais il
              est TOUJOURS AU SOL : l'inventaire le montre, et il reprendra
              une case des qu'une se liberera.

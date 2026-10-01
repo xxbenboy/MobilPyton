@@ -5,7 +5,7 @@ craft.
 Deux grilles POSEES AU SOL, en perspective :
 
     a gauche  la PROXIMITE -- ce qui traine sur la case. Elle va du bord
-              de l'ecran jusqu'a la main gauche, 4 cases de large sur 7 de
+              de l'ecran jusqu'a la main gauche, 5 cases de large sur 5 de
               profondeur. C'est le meme sol que la colonne "a proximite" de
               l'inventaire : ce qui est ici y est aussi, et inversement (voir
               GameState.sol_en_cases) ;

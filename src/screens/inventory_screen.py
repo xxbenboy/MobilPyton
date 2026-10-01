@@ -7,7 +7,7 @@ d'ecran est retiree.
 
 Trois sections :
 - a gauche, LE SOL EN CASES, pose a plat devant soi : la meme proximite que
-  dans le craft, 4 cases sur 7 (voir sol_de_craft). C'est le meme sol, au
+  dans le craft, 5 cases sur 5 (voir sol_de_craft). C'est le meme sol, au
   meme endroit : passer d'un ecran a l'autre ne deplace rien ;
 - au milieu, deux menus a deux sous-menus chacun :
     Equipement -> Tenue (la silhouette et ses emplacements)

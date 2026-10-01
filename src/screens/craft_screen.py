@@ -14,7 +14,7 @@ CE QUI RESTE :
   l'inventaire.
 
 UNE FOIS PENCHE, LE JOUEUR VOIT SON SOL EN CASES (voir sol_de_craft) : a
-gauche ce qui traine a proximite, 4 cases sur 7 ; au centre, entre ses mains,
+gauche ce qui traine a proximite, 5 cases sur 5 ; au centre, entre ses mains,
 un plan de travail de 4 sur 4 ; a droite, plus tard, le resultat. Les objets
 se glissent d'une case a l'autre et entre le sol et les mains, et la main qui
 prend ou pose un objet fait le geste. En sortant, ce qui reste sur le plan
