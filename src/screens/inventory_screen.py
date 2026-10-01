@@ -456,7 +456,7 @@ class InventoryScreen(Penche, DragDrop, Screen):
         if touch is None or self._drag is None:
             self.sol.visee_externe(None)
             return
-        cible = self.sol.sous_le_doigt(touch.x, touch.y)
+        cible = self.sol.vise_depot(touch.x, touch.y)
         if cible is None or cible[0] != "case":
             self.sol.visee_externe(None)
             return
@@ -470,7 +470,9 @@ class InventoryScreen(Penche, DragDrop, Screen):
         comme cible. Rend un message, ou None pour laisser les regles
         ordinaires (le sac, le corps) s'appliquer."""
         label = items.display_name(name)
-        cible = self.sol.sous_le_doigt(touch.x, touch.y)
+        # La case visee est UNE RANGEE AU-DESSUS du doigt (voir
+        # sol_de_craft._Grille.visee) : celle qui s'allume pendant le glisser.
+        cible = self.sol.vise_depot(touch.x, touch.y)
         if cible and cible[0] == "main" and any(
                 hit(p, touch) for p in self._panneaux):
             cible = None

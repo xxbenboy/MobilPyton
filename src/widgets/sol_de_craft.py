@@ -216,6 +216,20 @@ class _Grille(object):
             return None
         return self.case_de(int(u * self.colonnes), int(v * self.rangees))
 
+    def visee(self, x, y):
+        """La case VISEE par un doigt qui porte un objet : celle UNE RANGEE
+        AU-DESSUS (plus loin) de la case sous le doigt. Le doigt et l'objet
+        qu'il porte cachent la case juste dessous ; celle d'au-dessus reste
+        visible quand elle s'allume. Le decalage se compte dans la grille,
+        pas en pixels : une rangee lointaine est plus courte a l'ecran, le
+        doigt reste donc toujours juste sous la case visee. Pour viser la
+        rangee la plus proche, on tient l'objet juste sous la grille."""
+        u, v = applique(self.m_inv, x, y)
+        v += 1.0 / self.rangees
+        if not (0.0 <= u < 1.0 and 0.0 <= v < 1.0):
+            return None
+        return self.case_de(int(u * self.colonnes), int(v * self.rangees))
+
     def cles(self):
         return [self.case_de(c, r) for r in range(self.rangees)
                 for c in range(self.colonnes)]
@@ -420,6 +434,17 @@ class SolDeCraft(Widget):
                 return ("main", i)
         return None
 
+    def vise_depot(self, x, y):
+        """Ou irait l'objet lache en (x, y) : ("case", cle) -- la case une
+        rangee au-dessus du doigt, voir _Grille.visee --, ("main", i) ou
+        None. La SAISIE, elle, prend la case sous le doigt (sous_le_doigt)."""
+        for g in self.grilles():
+            cle = g.visee(x, y)
+            if cle is not None:
+                return ("case", cle)
+        cible = self.sous_le_doigt(x, y)
+        return cible if cible is not None and cible[0] == "main" else None
+
     def objet_de(self, cible):
         if cible is None:
             return None
@@ -457,7 +482,7 @@ class SolDeCraft(Widget):
             g["bouge"] = True
             self._cree_fantome()
         self._place_fantome(touch.x, touch.y)
-        cible = self.sous_le_doigt(touch.x, touch.y)
+        cible = self.vise_depot(touch.x, touch.y)
         visee = cible[1] if cible and cible[0] == "case" else None
         refus = self._refuse(g, cible)
         if visee != g["visee"] or refus != g["refus"]:
@@ -474,7 +499,7 @@ class SolDeCraft(Widget):
         self._efface_fantome()
         self._glisse = None
         if g["bouge"]:
-            cible = self.sous_le_doigt(touch.x, touch.y)
+            cible = self.vise_depot(touch.x, touch.y)
             if cible is not None and cible != g["source"] and self.depose:
                 self.depose(g["source"], cible)
         self._redessine()
