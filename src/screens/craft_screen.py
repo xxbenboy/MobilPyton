@@ -110,7 +110,8 @@ class CraftScreen(Penche, Screen):
         self.hands = PlayerHands(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
 
         # LA VUE D'ASSEMBLAGE : les objets libres dans la loupe, et ceux que
-        # portent les mains dans une couche au-dessus d'elles.
+        # portent les mains dans une couche JUSTE SOUS ELLES : l'objet est
+        # tenu dans la paume, la main passe devant lui.
         self.couche_portes = Widget(size_hint=(1, 1),
                                     pos_hint={"x": 0, "y": 0})
         self.assemblage = Assemblage(mains=self.hands,
@@ -118,8 +119,8 @@ class CraftScreen(Penche, Screen):
                                      size_hint=(1, 1),
                                      pos_hint={"x": 0, "y": 0})
         self.loupe.add_widget(self.assemblage)
-        root.add_widget(self.hands)
         root.add_widget(self.couche_portes)
+        root.add_widget(self.hands)
         # Ou en est le rapprochement : "sol" (vue normale), "entre", "zoom"
         # ou "sort" ; son avancement (0 a 1) et son horloge.
         self._mode = "sol"

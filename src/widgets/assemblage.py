@@ -17,7 +17,8 @@ DANS CETTE VUE :
   place un peu AU-DESSUS du doigt, pour que le doigt ne cache pas ce
   qu'elle prend. Lachee, la main revient a sa place de base, en bas ;
 - une main qui PASSE SUR UN OBJET le prend : il colle a la paume tant que
-  le doigt reste pose. Au lacher, l'objet reste EXACTEMENT ou il est, et la
+  le doigt reste pose. Il est tenu DANS la paume : la main se dessine
+  devant lui, pas l'inverse. Au lacher, l'objet reste EXACTEMENT ou il est, et la
   main repart seule vers sa place.
 
 RIEN DE TOUT CELA NE TOUCHE A LA PARTIE : les objets ne bougent qu'a
@@ -112,7 +113,8 @@ class Assemblage(Widget):
 
     Il vit DANS la Loupe : ses objets se dessinent aux coordonnees de la vue
     normale, et zooment avec elle. Ceux que porte une main se dessinent dans
-    `couche`, au-dessus des mains, a la taille zoomee. Les touchers, eux,
+    `couche`, SOUS les mains (l'objet est dans la paume, la main devant
+    lui), a la taille zoomee. Les touchers, eux,
     arrivent en coordonnees de l'ecran."""
 
     def __init__(self, mains=None, couche=None, **kwargs):
