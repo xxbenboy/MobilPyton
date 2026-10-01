@@ -14,8 +14,8 @@ DANS CETTE VUE :
 - ce que tenaient les mains n'est plus montre (il revient a la sortie) ;
 - LES MAINS SUIVENT LE DOIGT : un toucher dans la moitie gauche de l'ecran
   mene la main gauche, dans la moitie droite la main droite. La paume se
-  place un peu AU-DESSUS du doigt, pour que le doigt ne cache pas ce
-  qu'elle prend. Lachee, la main revient a sa place de base, en bas ;
+  place AU-DESSUS du doigt et un peu VERS L'INTERIEUR, pour que le doigt ne
+  cache pas ce qu'elle prend. Lachee, la main revient a sa place de base, en bas ;
 - une main qui PASSE SUR UN OBJET le prend : il colle a la paume tant que
   le doigt reste pose. Il est tenu DANS la paume : la main se dessine
   devant lui, pas l'inverse. Au lacher, l'objet reste EXACTEMENT ou il est, et la
@@ -46,9 +46,12 @@ CENTRE_VUE = (0.5, 0.5)
 # Duree du rapprochement (et du recul), en secondes.
 DUREE_ZOOM = 0.45
 
-# LA PAUME SE POSE AU-DESSUS DU DOIGT, de cette part de la hauteur : sous le
-# doigt, on ne verrait ni la main ni ce qu'elle tient.
-LEVE_PAUME = 0.06
+# LA PAUME SE POSE AU-DESSUS DU DOIGT, de cette part de la hauteur, et un
+# peu VERS L'INTERIEUR, de cette part de la largeur (la main gauche a droite
+# du doigt, la droite a gauche) : sous le doigt, on ne verrait ni la main ni
+# ce qu'elle tient. L'objet tenu et la zone ou elle prend suivent la paume.
+LEVE_PAUME = 0.08
+VERS_INTERIEUR = 0.035
 # La main rattrape le doigt en douceur (constante de temps, en secondes) :
 # vite quand on la mene, un peu moins quand elle revient seule.
 SUIVI = 0.05
@@ -247,15 +250,17 @@ class Assemblage(Widget):
         self._redessine()
 
     def _cible(self, i):
-        """Ou va la main `i` : sous le doigt qui la mene (la paume un peu
-        au-dessus), sinon a sa place de base."""
+        """Ou va la main `i` : vers le doigt qui la mene (la paume au-dessus
+        et vers l'interieur), sinon a sa place de base."""
         doigt = self._doigts[i]
         if doigt is None or self.mains is None:
             return (0.0, 0.0)
         bx, by = self.paume(i)
         bx -= self._decale[i][0]
         by -= self._decale[i][1]
-        px = min(max(doigt.x, self.x), self.x + self.width)
+        vers = 1.0 if i == 0 else -1.0
+        px = min(max(doigt.x + vers * VERS_INTERIEUR * self.width, self.x),
+                 self.x + self.width)
         py = min(max(doigt.y + LEVE_PAUME * self.height, self.y),
                  self.y + self.height)
         return (px - bx, py - by)
