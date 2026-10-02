@@ -67,7 +67,7 @@ from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import (scale_font, ROW_TITLE, ROW_BODY,
                                     ROW_HANDS, ROW_HINT, ROW_BACK)
 from src.widgets.menu_toggle import MenuToggle
-from src.widgets.sol_de_craft import SolDeCraft, coins_rect, PROX_DROITE
+from src.widgets.sol_de_craft import SolDeCraft, coins_carre
 from src.widgets.assemblage import Assemblage, Loupe, DUREE_ZOOM, vue_inverse
 from src.widgets.flou import floute
 from src.widgets.minijeux import MINIJEUX
@@ -89,11 +89,11 @@ from src.widgets.penche import (Penche, adoucir, glissement, HORIZON_PENCHE,
 # PlayerHands.HAND_FX). Sa hauteur, elle, est celle de l'inventaire.
 LARGEUR_RETOUR = 0.20
 
-# LA PROXIMITE, DANS LE CRAFT : du coin haut gauche de l'ecran -- juste sous
-# le titre, qui la couvrirait -- jusqu'au bas de l'ecran, et jusqu'a la main
-# gauche, qui ne vient jamais a gauche de 0,287 de la largeur (voir
-# sol_de_craft.PROX_DROITE). Le haut suit le bas du titre une fois la page
-# mise en place ; avant, on l'estime.
+# LA PROXIMITE, DANS LE CRAFT : un CARRE, son coin haut gauche au coin de
+# l'ecran -- juste sous le titre, qui la couvrirait -- et aussi grand que
+# possible sans passer devant une main (voir sol_de_craft.plus_grand_carre,
+# mesure sur les images des mains). Le haut suit le bas du titre une fois la
+# page mise en place ; avant, on l'estime.
 PROX_HAUT_ESTIME = 0.92
 
 # LE VOILE DE LA VUE D'ASSEMBLAGE : un gris qui laisse deviner le sol sans
@@ -170,11 +170,12 @@ class CraftScreen(Penche, Screen):
         self.couche_glisse = Widget(size_hint=(1, 1),
                                     pos_hint={"x": 0, "y": 0})
         self.sol = SolDeCraft(depose=self._depose, couche=self.couche_glisse,
-                              coins_prox=coins_rect(0.0, 0.0, PROX_DROITE,
-                                                    PROX_HAUT_ESTIME),
+                              coins_prox=coins_carre(2340.0, 1080.0,
+                                                     PROX_HAUT_ESTIME),
                               size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         self.sol.opacity = 0.0
         self.loupe.add_widget(self.sol)
+        self.sol.bind(size=self._cale_proximite)
 
         # LE VOILE GRIS de la vue d'assemblage, entre le decor et les objets
         # libres : il zoome avec eux et couvre donc toujours l'ecran.
@@ -322,11 +323,14 @@ class CraftScreen(Penche, Screen):
     def _cale_proximite(self, *_):
         """Le haut de la proximite au bas du titre."""
         sol = self.sol
-        if sol.height <= 0 or self._rang_titre.height <= 0:
+        if sol.width <= 0 or sol.height <= 0:
             return
-        haut = (self._rang_titre.y - sol.y) / float(sol.height)
-        if 0.5 < haut <= 1.0:
-            sol.set_coins_proximite(coins_rect(0.0, 0.0, PROX_DROITE, haut))
+        haut = PROX_HAUT_ESTIME
+        if self._rang_titre.height > 0:
+            h = (self._rang_titre.y - sol.y) / float(sol.height)
+            if 0.5 < h <= 1.0:
+                haut = h
+        sol.set_coins_proximite(coins_carre(sol.width, sol.height, haut))
 
     # ------------------------------------------------------------------ #
     def on_pre_enter(self):

@@ -244,6 +244,62 @@ def coins_proximite():
             (PROX_DROITE, PROX_LOIN), (PROX_GAUCHE, PROX_LOIN))
 
 
+# LE PROFIL DES MAINS, MESURE sur leurs images (toutes poses, gants
+# compris) : pour chaque tranche de 0,005 de la largeur, de 0 a 0,5, la
+# hauteur du plus haut pixel de main, en part de la LARGEUR de l'ecran (les
+# mains sont dessinees a la largeur de l'ecran, leur hauteur suit). Il dit
+# ou une zone peut s'etendre sans passer devant une main.
+PROFIL_MAINS = (
+    0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000,
+    0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000,
+    0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000,
+    0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000,
+    0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000,
+    0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000,
+    0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000,
+    0.1484, 0.1668, 0.1672, 0.1664, 0.1642, 0.1604, 0.1540, 0.2070,
+    0.2083, 0.2083, 0.2079, 0.1985, 0.2160, 0.2173, 0.2173, 0.2169,
+    0.2139, 0.2117, 0.2134, 0.2134, 0.2096, 0.1912, 0.1933, 0.1933,
+    0.1891, 0.1257, 0.1262, 0.1262, 0.1249, 0.1236, 0.1210, 0.1185,
+    0.1176, 0.1163, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000, 0.0000,
+    0.0000, 0.0000, 0.0000, 0.0000,
+)
+# Un peu d'air entre une zone et la main.
+MARGE_MAINS = 0.004
+
+
+def hauteur_mains(x0, x1, largeur):
+    """La plus haute main entre x0 et x1 (pixels), en pixels."""
+    n = len(PROFIL_MAINS)
+    pas = 0.5 / n
+    k0 = max(0, int(x0 / largeur / pas))
+    k1 = min(n - 1, int(x1 / largeur / pas))
+    if k0 > n - 1:
+        return 0.0
+    return max(PROFIL_MAINS[k0:k1 + 1]) * largeur
+
+
+def plus_grand_carre(largeur, hauteur, haut):
+    """Le cote (pixels) du plus grand CARRE colle au bord gauche, son haut a
+    `haut` (part de la hauteur), qui ne passe devant aucune main."""
+    sommet = haut * hauteur
+    marge = MARGE_MAINS * largeur
+    bas, haut_c = 0.0, sommet
+    for _ in range(40):
+        c = (bas + haut_c) / 2.0
+        if sommet - c >= hauteur_mains(0.0, c + marge, largeur):
+            bas = c
+        else:
+            haut_c = c
+    return bas
+
+
+def coins_carre(largeur, hauteur, haut):
+    """Les coins de ce plus grand carre, en parts de l'ecran."""
+    c = plus_grand_carre(largeur, hauteur, haut)
+    return coins_rect(0.0, haut - c / hauteur, c / largeur, haut)
+
+
 def coins_rect(gauche, bas, droite, haut):
     """Les quatre coins d'un rectangle droit (parts de l'ecran)."""
     return ((gauche, bas), (droite, bas), (droite, haut), (gauche, haut))
