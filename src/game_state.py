@@ -1315,21 +1315,27 @@ class GameState:
     def detruit_le_plan(self):
         """Les objets du plan de travail DISPARAISSENT (assemblage rate).
         Rend leur nombre."""
+        return len(self._retire_le_plan())
+
+    def _retire_le_plan(self):
+        """Retire du sol les objets du plan de travail ; rend [(nom, usure)].
+        """
         cases = self.sol_en_cases()
-        detruits = 0
+        retires = []
         for cle in CASES_CENTRE:
             pile = cases.pop(cle, None)
             if pile is None:
                 continue
             for _ in range(pile[1]):
-                if self._pull_ground(pile[0]) is not None:
-                    detruits += 1
+                usure = self._pull_ground(pile[0])
+                if usure is not None:
+                    retires.append((pile[0], usure))
         if cases:
             self.ground_layout[self._cell_key()] = cases
         else:
             self.ground_layout.pop(self._cell_key(), None)
         self.sol_en_cases()
-        return detruits
+        return retires
 
     def assemble(self, recette):
         """Fabrique `recette` avec les objets du plan de travail : ils sont
@@ -1339,7 +1345,14 @@ class GameState:
         from src import assemblages
         if assemblages.selon_objets(self.objets_du_plan()) is not recette:
             return None
-        self.detruit_le_plan()
+        retires = self._retire_le_plan()
+        # LES OUTILS servent sans etre consommes : ils s'usent et retournent
+        # a la proximite, sauf uses jusqu'au bout.
+        for outil, usure in recette.get("outils", {}).items():
+            avant = next((u for n, u in retires if n == outil), 0.0)
+            apres = float(avant) + float(usure)
+            if apres < 1.0 - 1e-9:
+                self.add_ground(outil, wear=apres)
         objet = recette["result"]
         main = next((i for i in (1, 0) if self.hands[i] is None), None)
         if main is not None and objet not in items.GROUND_ONLY:

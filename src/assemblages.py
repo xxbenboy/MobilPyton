@@ -13,11 +13,35 @@ mini-jeu.
 """
 COUTEAU_EN_PIERRE = "Couteau_En_Pierre"
 
+# A MAINS NUES, LE PLAN DE TRAVAIL FAIT 2 x 2 : une recette demande QUATRE
+# OBJETS AU PLUS. Les anciennes recettes qui en demandaient davantage
+# attendent un meilleur etabli (voir recettes_archive.py).
+#
+# "outils" : des objets qui doivent etre sur le plan mais NE SONT PAS
+# consommes ; ils perdent cette part de leur solidite et retournent a la
+# proximite (ou se brisent, uses jusqu'au bout).
 ASSEMBLAGES = [
     # Deux pierres collees : l'une taille l'autre en lame.
     {"result": COUTEAU_EN_PIERRE, "objets": {"Pierre": 2},
      "minijeu": "couteau"},
+    # Le couteau emmanche au bout d'un long baton, ligature a la corde.
+    {"result": "Lance",
+     "objets": {"Long_Stick": 1, COUTEAU_EN_PIERRE: 1, "Corde": 1}},
+    # Un silex et une pierre pour battre le feu.
+    {"result": "Allume_feu", "objets": {"Silex": 1, "Pierre": 1}},
+    # Une feuille ou une touffe d'herbe, effilochee au couteau.
+    {"result": "Fibre_Vegetale",
+     "objets": {"Feuille": 1, COUTEAU_EN_PIERRE: 1},
+     "outils": {COUTEAU_EN_PIERRE: 0.10}},
+    {"result": "Fibre_Vegetale",
+     "objets": {"Herbe": 1, COUTEAU_EN_PIERRE: 1},
+     "outils": {COUTEAU_EN_PIERRE: 0.10}},
+    # Trois fibres tressees.
+    {"result": "Corde", "objets": {"Fibre_Vegetale": 3}},
 ]
+
+# Le plus d'objets qu'une recette peut demander, a mains nues.
+OBJETS_MAX = 4
 
 
 def compte(noms):
