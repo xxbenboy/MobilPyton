@@ -67,7 +67,7 @@ from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import (scale_font, ROW_TITLE, ROW_BODY,
                                     ROW_HANDS, ROW_HINT, ROW_BACK)
 from src.widgets.menu_toggle import MenuToggle
-from src.widgets.sol_de_craft import SolDeCraft
+from src.widgets.sol_de_craft import SolDeCraft, coins_rect, PROX_DROITE
 from src.widgets.assemblage import Assemblage, Loupe, DUREE_ZOOM, vue_inverse
 from src.widgets.flou import floute
 from src.widgets.minijeux import MINIJEUX
@@ -88,6 +88,13 @@ from src.widgets.penche import (Penche, adoucir, glissement, HORIZON_PENCHE,
 # qui descendent jusqu'au bas de l'ecran de part et d'autre (voir
 # PlayerHands.HAND_FX). Sa hauteur, elle, est celle de l'inventaire.
 LARGEUR_RETOUR = 0.20
+
+# LA PROXIMITE, DANS LE CRAFT : du coin haut gauche de l'ecran -- juste sous
+# le titre, qui la couvrirait -- jusqu'au bas de l'ecran, et jusqu'a la main
+# gauche, qui ne vient jamais a gauche de 0,287 de la largeur (voir
+# sol_de_craft.PROX_DROITE). Le haut suit le bas du titre une fois la page
+# mise en place ; avant, on l'estime.
+PROX_HAUT_ESTIME = 0.92
 
 # LE VOILE DE LA VUE D'ASSEMBLAGE : un gris qui laisse deviner le sol sans
 # qu'on confonde ses pierres et ses brindilles avec celles du plan. Il
@@ -163,6 +170,8 @@ class CraftScreen(Penche, Screen):
         self.couche_glisse = Widget(size_hint=(1, 1),
                                     pos_hint={"x": 0, "y": 0})
         self.sol = SolDeCraft(depose=self._depose, couche=self.couche_glisse,
+                              coins_prox=coins_rect(0.0, 0.0, PROX_DROITE,
+                                                    PROX_HAUT_ESTIME),
                               size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         self.sol.opacity = 0.0
         self.loupe.add_widget(self.sol)
@@ -256,6 +265,8 @@ class CraftScreen(Penche, Screen):
                                  switch=self.partir)
         self._rang_titre.add_widget(self._titre)
         col.add_widget(self._rang_titre)
+        self._rang_titre.bind(pos=self._cale_proximite,
+                              size=self._cale_proximite)
 
         # Le milieu, vide, avec en bas le rang d'Assembler, de la hauteur de
         # Retour. Il est a part pour que le titre et Retour gardent
@@ -307,6 +318,15 @@ class CraftScreen(Penche, Screen):
         root.add_widget(self.fondu)
         self._racine = root
         self.add_widget(root)
+
+    def _cale_proximite(self, *_):
+        """Le haut de la proximite au bas du titre."""
+        sol = self.sol
+        if sol.height <= 0 or self._rang_titre.height <= 0:
+            return
+        haut = (self._rang_titre.y - sol.y) / float(sol.height)
+        if 0.5 < haut <= 1.0:
+            sol.set_coins_proximite(coins_rect(0.0, 0.0, PROX_DROITE, haut))
 
     # ------------------------------------------------------------------ #
     def on_pre_enter(self):

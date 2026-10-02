@@ -56,7 +56,8 @@ from src.widgets.panels import panel
 from src.widgets.hand_slot import empty_slot, item_text
 from src.widgets.item_grid import fill_bag
 from src.widgets.player_hands import PlayerHands
-from src.widgets.sol_de_craft import (SolDeCraft, MAIN_DEMI_LARGEUR,
+from src.widgets.sol_de_craft import (SolDeCraft, coins_rect, PROX_GAUCHE,
+                                      PROX_DROITE, MAIN_DEMI_LARGEUR,
                                       MAIN_HAUT)
 from src.widgets.penche import Penche
 from src.widgets.corps import Corps, ANCRES
@@ -228,8 +229,13 @@ class InventoryScreen(Penche, DragDrop, Screen):
         # l'equipement. Ici le glisser est mene par l'ecran (voir drag_drop) :
         # le sol ne sert qu'a dessiner et a dire quelle case est sous le
         # doigt.
-        self.sol = SolDeCraft(avec_centre=False, size_hint=(1, 1),
-                              pos_hint={"x": 0, "y": 0})
+        # LA PROXIMITE EN FACE DES DEUX PANNEAUX : meme haut, meme bas (voir
+        # _cale_proximite) ; avant la mise en page, on l'estime.
+        self.sol = SolDeCraft(avec_centre=False,
+                              coins_prox=coins_rect(
+                                  PROX_GAUCHE, BAS_SECTIONS, PROX_DROITE,
+                                  0.98 - 0.96 * _POIDS_TITRE),
+                              size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         self.sol.opacity = 0.0
         root.add_widget(self.sol)
 
@@ -266,8 +272,11 @@ class InventoryScreen(Penche, DragDrop, Screen):
         body = BoxLayout(orientation="horizontal", spacing=dp(10),
                          size_hint=(1, _POIDS_SECTIONS))
 
-        # ---- Gauche : la place du sol, qui se voit plus bas ----
-        body.add_widget(Widget(size_hint_x=_PART_SOL))
+        # ---- Gauche : la place du sol, EN FACE des deux panneaux ----
+        self._place_sol = Widget(size_hint_x=_PART_SOL)
+        body.add_widget(self._place_sol)
+        self._place_sol.bind(pos=self._cale_proximite,
+                             size=self._cale_proximite)
         # Le sol accepte tout ce qu'on y lache, case ou pas : cette zone
         # invisible, posee sur la grille, est la cible "sol" du glisser, et
         # fait clignoter les cases quand on peut y poser.
@@ -419,6 +428,19 @@ class InventoryScreen(Penche, DragDrop, Screen):
     # ------------------------------------------------------------------ #
     # Le sol en cases et les vraies mains dans le glisser (voir drag_drop)
     # ------------------------------------------------------------------ #
+    def _cale_proximite(self, *_):
+        """La proximite prend exactement la place de gauche de la rangee des
+        panneaux : son haut et son bas sont les leurs."""
+        w, sol = self._place_sol, self.sol
+        if sol.width <= 0 or sol.height <= 0 or w.height <= 0:
+            return
+        sol.set_coins_proximite(coins_rect(
+            (w.x - sol.x) / float(sol.width),
+            (w.y - sol.y) / float(sol.height),
+            (w.right - sol.x) / float(sol.width),
+            (w.top - sol.y) / float(sol.height)))
+        self._place_cibles()
+
     def _place_cibles(self, *_):
         """Pose les cibles invisibles des mains et du sol sur leurs dessins."""
         w, h = self.width, self.height

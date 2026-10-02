@@ -174,6 +174,10 @@ OMBRE = (0.0, 0.0, 0.0, 0.28)
 # Le nombre d'une pile, en part de la hauteur de l'ecran.
 TAILLE_NOMBRE = 0.026
 
+# La case visee pendant un glisser est au plus a cette hauteur au-dessus du
+# doigt (en part de l'ecran) : assez pour qu'il ne la cache pas.
+VISEE_DOIGT = 0.075
+
 # Taille de l'objet qui suit le doigt, en part de la hauteur de l'ecran.
 FANTOME = 0.12
 # En deca, un toucher n'est pas un glisser.
@@ -240,6 +244,11 @@ def coins_proximite():
             (PROX_DROITE, PROX_LOIN), (PROX_GAUCHE, PROX_LOIN))
 
 
+def coins_rect(gauche, bas, droite, haut):
+    """Les quatre coins d'un rectangle droit (parts de l'ecran)."""
+    return ((gauche, bas), (droite, bas), (droite, haut), (gauche, haut))
+
+
 def coins_centre():
     """Les quatre coins du plan de travail : un rectangle droit, entre les
     mains."""
@@ -299,6 +308,7 @@ class _Grille(object):
 
     def cale(self, x, y, w, h):
         """Pose la grille sur un widget de cette taille."""
+        self.h = h
         pts = [(x + fx * w, y + fy * h) for fx, fy in self.coins]
         self.m = homographie(*pts)
         self.m_inv = inverse(self.m)
@@ -370,8 +380,13 @@ class _Grille(object):
         a l'ecran, on remonte simplement d'une rangee. (Rester dans la
         colonne du doigt, elle, ferait glisser la visee de cote : les
         colonnes fuient en biais vers l'horizon.) Pour viser la rangee la
-        plus proche, on tient l'objet juste sous la grille."""
-        return self.sous(x, y + (self.y_loin - self.y_pres) / self.rangees)
+        plus proche, on tient l'objet juste sous la grille.
+
+        Le decalage ne depasse pas la hauteur d'un doigt (VISEE_DOIGT) : sur
+        une grande grille aux rangees hautes, remonter d'une rangee entiere
+        rendrait la rangee du bas inaccessible au bord de l'ecran."""
+        rang = (self.y_loin - self.y_pres) / self.rangees
+        return self.sous(x, y + min(rang, VISEE_DOIGT * self.h))
 
     def cles(self):
         return [self.case_de(c, r) for r in range(self.rangees)
@@ -387,13 +402,15 @@ class SolDeCraft(Widget):
     passer par-dessus les mains."""
 
     def __init__(self, depose=None, couche=None, avec_centre=True,
-                 **kwargs):
+                 coins_prox=None, **kwargs):
         super().__init__(**kwargs)
         self.depose = depose
         self.couche = couche
         self.actif = False
+        # La proximite peut etre posee ailleurs que par defaut : l'ecran qui
+        # la montre sait ou elle doit aller (voir set_coins_proximite).
         self.proximite = _Grille("G", SOL_COLONNES, SOL_RANGEES,
-                                 coins_proximite())
+                                 coins_prox or coins_proximite())
         self.centre = _Grille("C", CENTRE_COLONNES, CENTRE_RANGEES,
                               coins_centre())
         # L'INVENTAIRE n'a que la proximite : son milieu est occupe par
@@ -433,6 +450,13 @@ class SolDeCraft(Widget):
         cote = (CENTRE_LOIN - CENTRE_PRES) * self.height
         return (self.x + RESULTAT_X * self.width - cote / 2.0,
                 self.y + CENTRE_PRES * self.height, cote)
+
+    def set_coins_proximite(self, coins):
+        """Pose la proximite sur ces quatre coins (parts de l'ecran)."""
+        coins = tuple(tuple(float(v) for v in c) for c in coins)
+        if coins != tuple(self.proximite.coins):
+            self.proximite.coins = coins
+            self._redessine()
 
     def set_zone(self, zone):
         if zone != self.zone:
