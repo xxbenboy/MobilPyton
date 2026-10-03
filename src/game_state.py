@@ -1396,7 +1396,7 @@ class GameState:
 
         `amount` = part de solidite consommee ; par defaut une utilisation
         pleine, soit 1 / TOOL_USES. Une recette peut demander autre chose
-        (la fibre vegetale coute 10 % du couteau).
+        (la fibre vegetale coute un quart du couteau).
 
         Un outil casse disparait de la main : c'est ce qui donne son prix a
         l'entretien du materiel."""
@@ -1753,6 +1753,24 @@ class GameState:
             return None
         # gy croissant = de plus en plus loin : on coupe le plus proche.
         cell = min(trees, key=lambda c: (c[1], c[0]))
+        self.chopped.setdefault(self._cell_key(), []).append([cell[0], cell[1]])
+        self.gain_xp("couper")
+        return cell
+
+    def bushes_here(self):
+        """Buissons encore DEBOUT sur la case : [(gx, gy), ...]."""
+        return [cell for cell, kind in sorted(self.nature_cells_here().items())
+                if kind == "bush"]
+
+    def cut_bush(self):
+        """Coupe le buisson le plus PROCHE. Renvoie sa cellule, ou None.
+
+        Comme un arbre abattu, il quitte le decor pour de bon : il est range
+        avec eux dans `chopped`, que la scene et la grille respectent deja."""
+        bushes = self.bushes_here()
+        if not bushes:
+            return None
+        cell = min(bushes, key=lambda c: (c[1], c[0]))
         self.chopped.setdefault(self._cell_key(), []).append([cell[0], cell[1]])
         self.gain_xp("couper")
         return cell

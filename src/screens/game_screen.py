@@ -35,7 +35,7 @@ from src import items
 from src.widgets.player_hands import PlayerHands
 from src.widgets.insects import InsectLayer, FireflyLayer
 from src.widgets.weather import WeatherLayer, LightningLayer
-from src.widgets.icon_button import IconButton
+from src.widgets.icon_button import IconButton, ICONS
 from src.widgets.lieu_toggle import ouvrir_zone
 from src.widgets.styled_button import StyledButton, TabButton
 from src.widgets.panels import panel
@@ -85,6 +85,10 @@ EFFECT_FLY_SECONDS = 0.75
 # temps). "requires_sleep" => possible seulement si on est assez fatigue.
 # Ce que rapporte un arbre abattu, depose AU SOL : (objet, mini, maxi).
 CHOP_YIELD = (("Buche", 3, 3), ("Long_Stick", 3, 5), ("Feuille", 5, 10))
+# Ce que rapporte le COUTEAU EN PIERRE, depose au sol lui aussi : un buisson
+# coupe (il quitte le decor), une plaque d'ecorce levee (l'arbre reste).
+BUSH_YIELD = (("Small_Stick", 2, 4), ("Feuille", 3, 6))
+BARK_YIELD = (("Ecorce", 1, 2),)
 
 ACTIONS = [
     {"label": "Explorer", "icon": "explore", "name": "Explorer",
@@ -100,7 +104,22 @@ ACTIONS = [
      "minutes": 15, "energy": -3, "type": "fill", "need_gourde": True},
     {"label": "Se reposer", "icon": "rest", "name": "Se\nreposer",
      "minutes": 240, "energy": 25, "sleep": 50, "requires_sleep": True},
+    {"label": "Couper buisson", "icon": "bush", "name": "Couper\nbuisson",
+     "minutes": 30, "energy": -10, "need_knife": True, "type": "bush"},
+    {"label": "Couper ecorce", "icon": "bark", "name": "Couper\necorce",
+     "minutes": 20, "energy": -6, "need_knife": True, "type": "bark"},
 ]
+
+# LE SOUS-MENU ACTION DEPEND DE CE QUE L'ON TIENT. Mains vides : chercher a
+# manger, boire (et couper du bois, s'il n'y a pas d'arbre a mettre en
+# avant). Un couteau en pierre en main : ce qu'on fait avec une lame. Une
+# section en tete du sous-menu dit lequel des deux on regarde.
+SOUS_MENU = {
+    "vides": ("Chercher a manger", "Boire"),
+    "couteau": ("Couper buisson", "Couper ecorce"),
+}
+TITRE_SOUS_MENU = {"vides": "Mains vides :", "couteau": "Couteau\nen pierre :"}
+LABELS_SOUS_MENU = {l for labels in SOUS_MENU.values() for l in labels}
 
 
 def _action_minutes(action):
@@ -145,6 +164,12 @@ def _action_reason(state, action):
         return "Aucun ruisseau ici\npour remplir la gourde."
     if action.get("type") == "explore" and state.hands_full():
         return "Mains occupees.\nVide une main pour explorer."
+    if action.get("need_knife") and items.KNIFE_ITEM not in state.hands:
+        return "Il faut un couteau\nen pierre en main."
+    if action.get("type") == "bush" and not state.bushes_here():
+        return "Aucun buisson a couper\nsur cette case."
+    if action.get("type") == "bark" and not state.trees_here():
+        return "Aucun arbre a ecorcer\nsur cette case."
     if action.get("need_axe"):
         if items.AXE_ITEM not in state.hands:
             return "Il faut une hache\nen main pour couper."
@@ -286,6 +311,7 @@ class GameScreen(Screen):
         self._found_item = None        # objet decouvert a la fin d'une exploration
         self._did_explore = False      # vient-on d'explorer ? (pour le message)
         self._did_chop = False         # vient-on d'abattre un arbre ?
+        self._did_cut = None           # "bush" / "bark" : travail au couteau
         # Panneau lateral escamotable : None (masque), "stats" ou "effects".
         self._panel_mode = None
         # Effets deja vus (pour reperer les NOUVEAUX) et bulles affichees.
@@ -672,7 +698,14 @@ class GameScreen(Screen):
         """Cle resumant quels boutons conditionnels sont visibles."""
         return (any(state.has_item(g) for g in items.GOURDE_ITEMS),
                 bool(state.trees_here()),
-                self._action_submenu_visible)
+                self._action_submenu_visible,
+                self._hands_mode(state))
+
+    @staticmethod
+    def _hands_mode(state):
+        """Quel sous-menu Action montrer : "couteau" si l'une des mains tient
+        un couteau en pierre, sinon celui des mains vides."""
+        return "couteau" if items.KNIFE_ITEM in state.hands else "vides"
 
     def _toggle_action_submenu(self, *_):
         """Bouton 'Action' : affiche/cache les boutons Manger et Boire."""
@@ -768,16 +801,27 @@ class GameScreen(Screen):
         # "Couper du bois" occupe une place de choix TANT QU'IL Y A DES ARBRES
         # a abattre ici. Ailleurs, elle n'encombre pas la grille : elle se
         # range dans le sous-menu Action, avec Manger et Boire.
+        mode = self._hands_mode(state)
         submenu = []
         if has_trees:
             order.append("Couper du bois")
-        elif self._action_submenu_visible:
+        elif self._action_submenu_visible and mode == "vides":
             submenu.append("Couper du bois")
         if self._action_submenu_visible:
-            submenu += ["Chercher a manger", "Boire"]
+            submenu += list(SOUS_MENU[mode])
+            # Le sous-menu ouvre SA colonne, coiffee de sa section : on
+            # complete la colonne en cours avec des cases vides.
+            order += ["VIDE"] * (-len(order) % self.grid.rows)
+            order.append("TITRE")
         order += submenu
         order.append("Remplir gourde")
         for label in order:
+            if label == "VIDE":
+                self.grid.add_widget(Widget(size_hint_x=None, width=0))
+                continue
+            if label == "TITRE":
+                self._add_submenu_title(mode, cells, _fit_cells)
+                continue
             if label == "INVENTAIRE":
                 # Un seul bouton pour les deux ecrans : il ouvre l'inventaire,
                 # dont le titre bascule vers le craft.
@@ -800,6 +844,40 @@ class GameScreen(Screen):
             self._action_buttons.append((btn, action))
             if action["label"] in submenu:
                 self._action_submenu_btns.append(btn)
+
+    def _add_submenu_title(self, mode, cells, fit):
+        """Section en tete du sous-menu Action : ce que l'on tient (une main
+        ouverte, ou l'objet) et son nom en dore. Ce n'est pas un bouton : les
+        actions possibles avec ce qu'on tient sont rangees dessous."""
+        cell = BoxLayout(orientation="vertical", spacing=2, size_hint_x=None)
+        area = AnchorLayout(size_hint=(1, 0.66))
+        if mode == "couteau":
+            icon = ItemIcon(items.KNIFE_ITEM, show_name=False,
+                            size_hint=(None, None))
+        else:
+            icon = Widget(size_hint=(None, None))
+
+            def _main(w, *_):
+                w.canvas.clear()
+                with w.canvas:
+                    ICONS["hand"](w.center_x, w.center_y,
+                                  min(w.width, w.height) * 0.42)
+            icon.bind(pos=_main, size=_main)
+
+        def _carre(a, *_):
+            s = a.height * 0.94
+            icon.size = (s, s)
+        area.bind(size=_carre)
+        area.add_widget(icon)
+        lbl = _button_label(TITRE_SOUS_MENU[mode])
+        lbl.color = (0.96, 0.82, 0.45, 1)
+        lbl.bold = True
+        cell.add_widget(area)
+        cell.add_widget(lbl)
+        cells.append((cell, icon, lbl))
+        icon.bind(size=fit)
+        lbl.bind(texture_size=fit)
+        self.grid.add_widget(cell)
 
     # ------------------------------------------------------------------ #
     # Panneau lateral (Statut / Effet)
@@ -1015,7 +1093,7 @@ class GameScreen(Screen):
     def do_action(self, action):
         # Si l'action vient du sous-menu (Manger ou Boire), on ferme le
         # sous-menu juste apres le clic (qu'elle reussisse ou non).
-        if action["label"] in ("Chercher a manger", "Boire"):
+        if action["label"] in LABELS_SOUS_MENU:
             Clock.schedule_once(self._close_action_submenu, 0)
         state = App.get_running_app().game_state
         if state is None or self._ff_active or self._moving:
@@ -1044,6 +1122,9 @@ class GameScreen(Screen):
         elif atype == "chop":
             # L'arbre tombe (et le bois arrive) a la FIN du travail.
             self._did_chop = True
+        elif atype in ("bush", "bark"):
+            # Buisson coupe / ecorce levee a la FIN du travail, eux aussi.
+            self._did_cut = atype
 
         state.health = state.clamp_gauge(state.health
                                          + action.get("health", 0))
@@ -1070,7 +1151,9 @@ class GameScreen(Screen):
         self._ff_scale = self._ff_total / self._ff_real
         self._ff_label = action["label"]
         # Outil mobilise par l'action : il s'usera a la fin du travail.
-        self._ff_tool = items.AXE_ITEM if action.get("need_axe") else None
+        self._ff_tool = (items.AXE_ITEM if action.get("need_axe")
+                         else items.KNIFE_ITEM if action.get("need_knife")
+                         else None)
         self._time_accum = 0.0
         self.refresh()
         # Repos : voile noir + horloge + message (comme le deplacement).
@@ -1099,6 +1182,9 @@ class GameScreen(Screen):
         if self._did_chop:
             self._did_chop = False
             self._fell_tree()
+        if self._did_cut:
+            cut, self._did_cut = self._did_cut, None
+            self._cut_with_knife(cut)
         if self._did_explore:
             self._did_explore = False
             # La trouvaille et le RETRAIT de l'objet du decor se font ICI, a la
@@ -1124,6 +1210,29 @@ class GameScreen(Screen):
             got.append(f"{n} {items.display_name(name).lower()}")
         state.add_log("Arbre abattu : " + ", ".join(got))
         self._show_message("Arbre abattu.\n" + ", ".join(got))
+
+    def _cut_with_knife(self, kind):
+        """Fin d'un travail au couteau : un buisson coupe ("bush") quitte le
+        decor et laisse ses branches et feuilles AU SOL ; une ecorce levee
+        ("bark") laisse l'arbre debout."""
+        state = App.get_running_app().game_state
+        if state is None:
+            return
+        if kind == "bush":
+            if state.cut_bush() is None:
+                return
+            yields, titre = BUSH_YIELD, "Buisson coupe"
+        else:
+            if not state.trees_here():
+                return
+            yields, titre = BARK_YIELD, "Ecorce levee"
+        got = []
+        for name, lo, hi in yields:
+            n = random.randint(lo, hi)
+            state.add_ground(name, n)
+            got.append(f"{n} {items.display_name(name).lower()}")
+        state.add_log(titre + " : " + ", ".join(got))
+        self._show_message(titre + ".\n" + ", ".join(got))
 
     def _show_message(self, text):
         """Petit message d'information bref (1.2 s puis fondu), au centre haut.

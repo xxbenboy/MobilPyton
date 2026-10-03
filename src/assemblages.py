@@ -29,16 +29,24 @@ ASSEMBLAGES = [
      "objets": {"Long_Stick": 1, COUTEAU_EN_PIERRE: 1, "Corde": 1}},
     # Un silex et une pierre pour battre le feu.
     {"result": "Allume_feu", "objets": {"Silex": 1, "Pierre": 1}},
-    # Une feuille ou une touffe d'herbe, effilochee au couteau.
-    {"result": "Fibre_Vegetale",
-     "objets": {"Feuille": 1, COUTEAU_EN_PIERRE: 1},
-     "outils": {COUTEAU_EN_PIERRE: 0.10}},
-    {"result": "Fibre_Vegetale",
-     "objets": {"Herbe": 1, COUTEAU_EN_PIERRE: 1},
-     "outils": {COUTEAU_EN_PIERRE: 0.10}},
+    # Trois brins -- herbes ou feuilles, melangees comme on veut -- effiloches
+    # au couteau (voir RECETTES_FIBRE plus bas).
     # Trois fibres tressees.
     {"result": "Corde", "objets": {"Fibre_Vegetale": 3}},
 ]
+
+# LA FIBRE VEGETALE : un couteau en pierre et trois brins, herbes ou feuilles
+# dans n'importe quelle proportion (3 herbes, 2 herbes et 1 feuille, ...). Le
+# couteau y laisse un quart de sa solidite.
+BRINS_FIBRE = 3
+USURE_FIBRE = 0.25
+RECETTES_FIBRE = [
+    {"result": "Fibre_Vegetale",
+     "objets": {k: v for k, v in (("Herbe", h), ("Feuille", BRINS_FIBRE - h),
+                                  (COUTEAU_EN_PIERRE, 1)) if v},
+     "outils": {COUTEAU_EN_PIERRE: USURE_FIBRE}}
+    for h in range(BRINS_FIBRE, -1, -1)]
+ASSEMBLAGES[3:3] = RECETTES_FIBRE
 
 # Le plus d'objets qu'une recette peut demander, a mains nues.
 OBJETS_MAX = 4

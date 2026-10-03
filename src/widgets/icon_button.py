@@ -242,9 +242,31 @@ def _anvil(cx, cy, s):                               # etabli (atelier)
                      size=(s * 0.52, s * 0.20), radius=[s * 0.06])
 
 
+def _bush(cx, cy, s):                                # buisson (couper)
+    Color(0.20, 0.45, 0.18, 1)                       # touffe de lobes
+    for dx, dy, r in ((-0.38, -0.20, 0.34), (0.38, -0.20, 0.34),
+                      (0.0, 0.10, 0.42), (-0.20, -0.42, 0.30),
+                      (0.22, -0.42, 0.30)):
+        Ellipse(pos=(cx + (dx - r) * s, cy + (dy - r) * s),
+                size=(2 * r * s, 2 * r * s))
+    Color(0.86, 0.88, 0.90, 1)                       # la lame qui tranche
+    Triangle(points=[cx - s * 0.70, cy + s * 0.70, cx - s * 0.52, cy + s * 0.78,
+                     cx + s * 0.70, cy - s * 0.30])
+
+
+def _bark(cx, cy, s):                                # plaque d'ecorce
+    Color(0.86, 0.82, 0.74, 1)                       # bouleau, clair
+    RoundedRectangle(pos=(cx - s * 0.62, cy - s * 0.46),
+                     size=(s * 1.24, s * 0.92), radius=[s * 0.20])
+    Color(0.22, 0.18, 0.15, 1)                       # ses lenticelles
+    for dx, dy, w in ((-0.36, 0.24, 0.40), (0.10, 0.06, 0.46),
+                      (-0.20, -0.18, 0.34), (0.20, -0.30, 0.30)):
+        Rectangle(pos=(cx + dx * s, cy + dy * s), size=(w * s, s * 0.07))
+
+
 ICONS = {"anvil": _anvil, "explore": _explore, "wood": _wood, "food": _food, "drink": _drink,
          "fill": _fill, "rest": _rest, "map": _map, "home": _home,
-         "craft": _craft, "move": _move, "fire": _fire, "wet": _wet, "actions": _actions, "hand": _hand, "bag": _bag,
+         "craft": _craft, "move": _move, "fire": _fire, "wet": _wet, "actions": _actions, "hand": _hand, "bush": _bush, "bark": _bark, "bag": _bag,
          # Logos des stats (section "Etat"). On reutilise certains logos
          # existants (pomme=faim, goutte=soif, Zzz=sommeil) et on ajoute le
          # coeur (vie) et l'eclair (energie).

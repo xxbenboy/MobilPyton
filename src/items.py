@@ -54,6 +54,8 @@ COMPASS_ITEM = "Boussole"
 # - une HACHE (en main) pour couper du bois,
 # - une GOURDE (possedee) pour remplir/transporter de l'eau.
 AXE_ITEM = "Hache"
+# - un COUTEAU EN PIERRE (en main) pour couper un buisson ou lever l'ecorce.
+KNIFE_ITEM = "Couteau_En_Pierre"
 GOURDE_ITEMS = {"Gourde"}
 
 # OUTILS A USAGE MULTIPLE : nombre d'utilisations avant de casser. Une hache
@@ -471,7 +473,7 @@ ITEM_NOTES = {
     "Plume": "Une plume tombee d'un oiseau.",
     "Coquillage": "Un coquillage du rivage.",
     # Matieres travaillees
-    "Fibre_Vegetale": "Un tas de fibres tirees d'une feuille ou d'une herbe.",
+    "Fibre_Vegetale": "Un tas de fibres tirees de trois herbes ou feuilles.",
     "Corde": "Un metre de corde tressee. Tout ce qui doit tenir en depend.",
     # Outils
     "Couteau_En_Pierre": "Une pierre taillee en lame contre une autre. Elle "
