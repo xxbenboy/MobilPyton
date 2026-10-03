@@ -481,7 +481,8 @@ class CraftScreen(Penche, Screen):
         state = App.get_running_app().game_state
         if state is None or self._mode != "zoom":
             return
-        r = assemblages.valide(self.assemblage.objets, self.assemblage.liens)
+        r = assemblages.valide(self.assemblage.objets,
+                              self.assemblage.contacts())
         # La disposition validee, pour le carnet (les objets bougeront
         # pendant le mini-jeu).
         self._disposition = self.disposition() if r is not None else None

@@ -2,9 +2,9 @@
 LES ASSEMBLAGES : ce que l'on fabrique en disposant des objets sur le plan de
 travail.
 
-Une recette dit QUELS objets il faut (et combien), et COMMENT ils doivent
-etre places dans la vue d'assemblage : pour l'instant, tous colles les uns
-aux autres (voir Assemblage.liens), peu importe par quelles cases.
+Une recette dit QUELS objets il faut (et combien). Leur disposition dans la
+vue d'assemblage est libre : il suffit que CHAQUE objet soit colle a au
+moins un autre (voir Assemblage.contacts), peu importe par quelles cases.
 
 LA PREMIERE FOIS, il faut reussir le mini-jeu de l'objet (voir minijeux.py).
 Une fois fabrique au moins une fois, l'objet est CONNU : l'ecran de craft le
@@ -86,14 +86,21 @@ def tous_colles(objets, liens):
     return len(vus) == len(objets)
 
 
+def chacun_colle(objets, liens):
+    """Chaque objet est-il colle a au moins un autre ?"""
+    if len(objets) < 2:
+        return False
+    return all(any(a is o or b is o for a, b in liens) for o in objets)
+
+
 def valide(objets, liens):
-    """La recette realisee par ces objets ({"nom": ...}) et leurs liens dans
-    la vue d'assemblage, ou None s'ils ne sont pas bien places."""
+    """La recette realisee par ces objets ({"nom": ...}) et leurs contacts
+    dans la vue d'assemblage, ou None si l'un d'eux n'est colle a rien."""
     r = selon_objets([o["nom"] for o in objets])
-    if r is None or not tous_colles(objets, liens):
+    if r is None or not chacun_colle(objets, liens):
         return None
     return r
 
 
 __all__ = ["ASSEMBLAGES", "COUTEAU_EN_PIERRE", "selon_objets", "valide",
-           "tous_colles", "compte"]
+           "tous_colles", "chacun_colle", "compte"]

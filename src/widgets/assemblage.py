@@ -92,6 +92,8 @@ TREMBLE_CRAIE = 0.10           # en part d'une case
 DELAI_AIMANT = 1.0
 # En deca de ce deplacement du doigt (px), il n'a pas bouge.
 SEUIL_BOUGE = 6.0
+# Deux grilles se touchent bord a bord a cette part de case pres.
+TOLERANCE_CONTACT = 0.15
 
 
 def vue(e, x, y, l, h, ox=0.0, oy=0.0):
@@ -425,6 +427,29 @@ class Assemblage(Widget):
         """Defait les liens de `o` : on l'a repris."""
         self.liens = [(a, b) for a, b in self.liens
                       if a is not o and b is not o]
+
+    def contacts(self):
+        """Les paires d'objets COLLES pour la recette : ceux que l'aimant a
+        lies, et tous ceux dont les grilles se touchent bord a bord.
+
+        Reprendre un objet defait ses liens ; ses voisins, eux, restent la ou
+        ils sont. Sans ce releve, un objet toujours colle a l'ecran comptait
+        pour seul, et l'assemblage ratait."""
+        c, n = self.case_objet(), CASES_OBJET
+        tol = TOLERANCE_CONTACT * c
+        paires = list(self.liens)
+        for i, a in enumerate(self.objets):
+            ax, ay = self.a_l_ecran(a)
+            for b in self.objets[i + 1:]:
+                if any((p is a and q is b) or (p is b and q is a)
+                       for p, q in paires):
+                    continue
+                bx, by = self.a_l_ecran(b)
+                dx, dy = abs(ax - bx), abs(ay - by)
+                if (abs(dx - n * c) <= tol and dy < n * c - tol) or \
+                        (abs(dy - n * c) <= tol and dx < n * c - tol):
+                    paires.append((a, b))
+        return paires
 
     def colles(self, o):
         """Les objets colles a `o`."""
