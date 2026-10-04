@@ -475,10 +475,12 @@ class SolDeCraft(Widget):
     `couche` est le widget ou se dessine l'objet qui suit le doigt : il doit
     passer par-dessus les mains."""
 
-    def __init__(self, depose=None, couche=None, avec_centre=True,
+    def __init__(self, depose=None, couche=None, avec_centre=True, tape=None,
                  coins_prox=None, **kwargs):
         super().__init__(**kwargs)
         self.depose = depose
+        # Un TAP sur une case ou une main (sans glisser) : tape(source).
+        self.tape = tape
         self.couche = couche
         self.actif = False
         # La proximite peut etre posee ailleurs que par defaut : l'ecran qui
@@ -918,6 +920,8 @@ class SolDeCraft(Widget):
             cible = self.vise_depot(touch.x, touch.y)
             if cible is not None and cible != g["source"] and self.depose:
                 self.depose(g["source"], cible)
+        elif self.tape is not None:
+            self.tape(g["source"])
         self._redessine()
         return True
 

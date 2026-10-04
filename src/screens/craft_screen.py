@@ -166,6 +166,7 @@ class CraftScreen(Penche, Screen):
         self.couche_glisse = Widget(size_hint=(1, 1),
                                     pos_hint={"x": 0, "y": 0})
         self.sol = SolDeCraft(depose=self._depose, couche=self.couche_glisse,
+                              tape=self._tape,
                               coins_prox=coins_estimes(),
                               size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         self.sol.opacity = 0.0
@@ -894,4 +895,26 @@ class CraftScreen(Penche, Screen):
         # qu'elle vient d'y laisser.
         if geste is not None:
             self.hands.geste(geste)
+        return True
+
+    def _tape(self, source):
+        """Un simple toucher : l'objet d'une main va a proximite (le sac
+        n'est pas montre ici) ; un objet de la proximite ou du plan vient en
+        main (voir GameState.prend_rapide)."""
+        state = App.get_running_app().game_state
+        if state is None or self._mode != "sol":
+            return False
+        sorte, ou = source
+        if sorte == "main":
+            message = state.range_main(ou, sac=False)
+        else:
+            message = state.prend_rapide(("case", ou))
+        if message is None:
+            return False
+        App.get_running_app().autosave()
+        self.refresh()
+        if message.startswith("Vide"):
+            self.montre_message(message)
+        elif sorte == "main":
+            self.hands.geste(ou)
         return True

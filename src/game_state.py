@@ -1535,6 +1535,84 @@ class GameState:
         self.set_hand(hand, self.bag.pop(index), wear)
         return True
 
+    # ------------------------------------------------------------------ #
+    # Le transfert rapide : un simple toucher (voir drag_drop, craft)
+    # ------------------------------------------------------------------ #
+    def range_main(self, main, sac=True):
+        """Range l'objet de cette main : dans le SAC s'il est montre (`sac`)
+        et qu'il y reste de la place, sinon a PROXIMITE. Rend le message a
+        afficher, ou None si la main est vide."""
+        nom = self.hands[main] if main in (0, 1) else None
+        if nom is None:
+            return None
+        label = items.display_name(nom)
+        if sac and self.bag_free() > 0 and not items.is_bag(nom):
+            self.bag_store(main)
+            return f"{label} range dans le sac."
+        self.drop_from_hands(main)
+        self.sol_en_cases()
+        return f"{label} pose a proximite."
+
+    def main_pour_prendre(self):
+        """(main, echange) : la main qui recoit un objet pris d'un toucher.
+
+        Une main VIDE d'abord, la droite en priorite. Les deux pleines : on
+        echange avec la droite si elle tient un objet ordinaire, sinon avec
+        la gauche ; jamais avec un outil ou une arme. (None, False) si les
+        deux tiennent un outil."""
+        for i in (1, 0):
+            if self.hands[i] is None:
+                return i, False
+        for i in (1, 0):
+            if not items.is_tool(self.hands[i]):
+                return i, True
+        return None, False
+
+    def prend_rapide(self, source):
+        """Prend en main l'objet de `source` -- ("case", cle) ou
+        ("bag", index) -- selon main_pour_prendre. En echange, l'objet de la
+        main prend sa place (sa case si elle s'est videe, l'emplacement du
+        sac). Rend le message a afficher."""
+        sorte, ou = source
+        if sorte == "case":
+            pile = self.sol_en_cases().get(ou)
+            nom = pile[0] if pile else None
+        elif sorte == "bag":
+            nom = self.bag[ou] if 0 <= ou < len(self.bag) else None
+        else:
+            nom = None
+        if nom is None:
+            return None
+        label = items.display_name(nom)
+        main, echange = self.main_pour_prendre()
+        if main is None:
+            return "Vide une main pour prendre un objet."
+        if not echange:
+            ok = (self.sol_vers_main(ou, main) if sorte == "case"
+                  else self.bag_take(ou, main))
+            return f"{label} en main." if ok else None
+        rendu, usure = self.hands[main], self.tool_wear(main)
+        if sorte == "bag":
+            usure_b = self.bag_wear[ou] if ou < len(self.bag_wear) else 0.0
+            self.bag[ou] = rendu
+            while len(self.bag_wear) <= ou:
+                self.bag_wear.append(0.0)
+            self.bag_wear[ou] = usure
+            self.set_hand(main, nom, usure_b)
+        else:
+            self.set_hand(main, None)
+            if not self.sol_vers_main(ou, main):
+                self.set_hand(main, rendu, usure)
+                return None
+            self.add_ground(rendu, wear=usure)
+            cases = self.sol_en_cases()
+            # L'objet rendu reprend la case liberee, s'il est seul de son
+            # espece et que la case est libre.
+            ici = next((k for k, v in cases.items() if v[0] == rendu), None)
+            if ici is not None and ou not in cases and cases[ici][1] == 1:
+                self.deplace_au_sol(ici, ou)
+        return f"{label} en main, {items.display_name(rendu)} rendu."
+
     def can_equip(self, index):
         """L'objet tenu dans cette main se porte-t-il ?"""
         name = self.hands[index] if index in (0, 1) else None

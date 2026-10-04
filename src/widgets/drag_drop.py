@@ -30,11 +30,14 @@ sol_de_craft) :
                                pour laisser faire les regles ordinaires
     _survol_virtuel(touch)     le doigt passe (touch=None : il est parti)
 
-Un TAP (doigt pose et releve sans bouger) n'est pas un glisser : il ouvre la
-fiche de l'objet. C'est la meme geste au depart, seule la distance parcourue
-les separe.
+Un TAP (doigt pose et releve sans bouger) n'est pas un glisser : c'est un
+TRANSFERT RAPIDE. Toucher l'objet d'une main le range (dans le sac s'il y a
+de la place, sinon a proximite) ; toucher un objet du sol ou du sac le prend
+en main (voir GameState.prend_rapide). Un doigt qui reste pose sans bouger
+(APPUI_LONG) ouvre la fiche de l'objet, comme le tap le faisait avant.
 """
 import math
+import time
 
 from kivy.app import App
 from kivy.clock import Clock
@@ -51,6 +54,9 @@ from src.widgets.panels import panel
 # Un doigt bouge toujours un peu : sans cette marge, ouvrir une fiche d'objet
 # serait une affaire de chance.
 TAP_SLOP = dp(14)
+# Au-dela de cette duree (en secondes), un doigt pose sans bouger ouvre la
+# fiche de l'objet au lieu de le transferer.
+APPUI_LONG = 0.5
 
 # Cadence du clignotement des cibles, et sa vitesse.
 PULSE_FPS = 30.0
@@ -141,12 +147,37 @@ class DragDrop:
             start = self._drag["start"]
             moved = max(abs(touch.x - start[0]), abs(touch.y - start[1]))
             if moved <= TAP_SLOP:
+                source = self._drag["source"]
+                long = time.monotonic() - self._drag["t0"] >= APPUI_LONG
                 self._cancel_drag()
-                self._show_info(self._drag_name)
+                if long or not self._transfert_rapide(source):
+                    self._show_info(self._drag_name)
             else:
                 self._drop(touch)
             return True
         return super().on_touch_up(touch)
+
+    # -- transfert rapide ----------------------------------------------- #
+    def _transfert_rapide(self, source):
+        """Un tap sur un objet : une main se vide (vers le sac, sinon le
+        sol), ou un objet du sol ou du sac vient en main. Rend False si ce
+        tap n'en fait pas (une piece portee, l'etabli...)."""
+        state = App.get_running_app().game_state
+        if state is None:
+            return False
+        kind, index, _name = source
+        if kind == "hand":
+            message = state.range_main(index, sac=True)
+        elif kind in ("case", "bag"):
+            message = state.prend_rapide((kind, index))
+        else:
+            return False
+        if message is None:
+            return False
+        self._say(message)
+        App.get_running_app().autosave()
+        self.refresh()
+        return True
 
     # -- fiche d'objet -------------------------------------------------- #
     def _show_info(self, name):
@@ -222,7 +253,8 @@ class DragDrop:
         ghost.center = touch.pos
         ghost.opacity = 0.9
         self.drag_layer.add_widget(ghost)
-        self._drag = {"source": source, "ghost": ghost, "start": touch.pos}
+        self._drag = {"source": source, "ghost": ghost, "start": touch.pos,
+                      "t0": time.monotonic()}
         self._drag_name = name
         # Montre OU cet objet peut aller : les cibles valables clignotent
         # tant que le doigt le tient.
