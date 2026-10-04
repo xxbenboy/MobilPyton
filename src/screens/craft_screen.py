@@ -47,8 +47,8 @@ DANS LA VUE, ASSEMBLER AVERTIT d'abord : des objets mal places seront
 DETRUITS. Si le joueur continue :
   - mal places (voir assemblages.valide) : ils disparaissent, sauf les
     OUTILS de la recette, qui s'usent comme pour une reussite et restent ;
-  - bien places, objet deja connu : il est fabrique ;
-  - bien places, objet inconnu : son MINI-JEU se lance (voir minijeux.py).
+  - bien places : son MINI-JEU se lance, a chaque fois (voir minijeux.py),
+    puis l'objet est fabrique.
     Reussi, un message annonce le craft APPRIS, que le joueur confirme.
 L'objet fabrique va dans la main droite, sinon la gauche, sinon dans la
 proximite. Puis la vue revient EN FONDU sur l'ecran de craft.
@@ -496,9 +496,8 @@ class CraftScreen(Penche, Screen):
             self._fin_assemblage()
             self.montre_message("Assemblage rate : les objets sont perdus")
             return
-        if state.connait(r["result"]):
-            self._reussit(r)
-            return
+        # Le mini-jeu se joue A CHAQUE FABRICATION, pas seulement la
+        # premiere fois.
         jeu = MINIJEUX.get(r.get("minijeu"))
         if jeu is None:
             self._reussit(r)

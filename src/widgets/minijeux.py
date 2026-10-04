@@ -1,6 +1,6 @@
 """
-LES MINI-JEUX D'ASSEMBLAGE : ce qu'il faut reussir pour fabriquer un objet
-la premiere fois (voir src/assemblages.py).
+LES MINI-JEUX D'ASSEMBLAGE : ce qu'il faut reussir pour fabriquer un objet,
+CHAQUE FOIS (voir src/assemblages.py).
 
 Chaque mini-jeu se joue dans la vue d'assemblage, avec les mains libres et
 les objets du plan (voir Assemblage). Il coupe l'aimant, suit chaque pas de
@@ -16,6 +16,13 @@ LE COUTEAU EN PIERRE
        le premier -- cinq couches. Frotter deux fois de suite le meme cote
        ne taille rien.
 
+LA FIBRE VEGETALE
+    1. prendre le couteau en pierre dans une main ;
+    2. decouper chaque brin en CINQ BANDES : un trait de couteau de haut en
+       bas par bande, en passant du dessus au dessous du brin ;
+    3. trois brins, l'un apres l'autre : les feuilles d'abord, puis les
+       herbes (deux feuilles et une herbe : feuille, feuille, herbe).
+
 PEU DE TEXTE : une MAIN FANTOME, a demi transparente, montre UNE FOIS
 chaque geste (aller prendre les pierres, puis frotter), et l'avancement se
 lit en CINQ ENCOCHES gravees sur la pierre qu'on taille.
@@ -24,6 +31,8 @@ from kivy.clock import Clock
 from kivy.graphics import Color, Line, Rectangle
 
 from src.widgets.sol_de_craft import dessine_objet
+
+COUTEAU = "Couteau_En_Pierre"
 
 # Part de la largeur de l'image retiree a chaque couche : apres cinq, la
 # pierre n'a plus que 55 % de sa largeur -- une lame.
@@ -308,10 +317,219 @@ class MiniJeuCouteau(object):
             self._annonce("frotter")
 
 
+# LA FIBRE : chaque brin se coupe en BANDES (des traits verticaux), sur la
+# part du brin qui porte de la matiere (en tailles d'objet, de part et
+# d'autre de son centre). Un trait commence AU-DESSUS du brin et finit
+# AU-DESSOUS, sans en sortir sur les cotes.
+BANDES = 5
+LARGE_BRIN = 0.40
+HAUT_BRIN = 0.30
+ORDRE_BRINS = ("Feuille", "Herbe")
+DUREE_COUPER = 2.2
+FENTE = (0.10, 0.08, 0.06, 0.95)
+FENTE_LEVRE = (1.0, 1.0, 0.92, 0.45)
+A_COUPER = (1.0, 1.0, 1.0, 0.28)
+
+
+class MiniJeuFibre(object):
+    """Decouper au couteau trois brins en bandes."""
+
+    def __init__(self, assemblage, reussi, consigne, couche=None,
+                 mains=None):
+        self.asm = assemblage
+        self.reussi = reussi
+        self.consigne = consigne
+        self.couche = couche
+        self.mains = mains
+        self.fantome = Fantome(couche, mains,
+                               lambda: assemblage.case_objet() * 3) \
+            if couche is not None and mains is not None else None
+        # Les brins dans l'ordre ou on les coupe : feuilles, puis herbes ;
+        # de gauche a droite a egalite.
+        self.brins = sorted(
+            (o for o in assemblage.objets if o["nom"] in ORDRE_BRINS),
+            key=lambda o: (ORDRE_BRINS.index(o["nom"]),
+                           assemblage.a_l_ecran(o)[0]))
+        self.coupes = [set() for _ in self.brins]
+        self.actuel = 0
+        self._trait = None          # [x cumules, nombre] du trait en cours
+        self._vu_couper = False
+        self._dit = None
+        self.fini = False
+
+    # -- cycle ----------------------------------------------------------- #
+    def demarre(self):
+        self.asm.aimant_permis = False
+        self.asm.liens = []
+        self.asm.sur_pas = self._pas
+        self._annonce()
+        self._montre_prendre()
+
+    def arrete(self):
+        if self.asm.sur_pas == self._pas:
+            self.asm.sur_pas = None
+        self.asm.aimant_permis = True
+        if self.fantome is not None:
+            self.fantome.arrete()
+        if self.couche is not None:
+            self.couche.canvas.after.clear()
+
+    # -- ou sont les choses ---------------------------------------------- #
+    def main_du_couteau(self):
+        for i in (1, 0):
+            o = self.asm.porte(i)
+            if o is not None and o["nom"] == COUTEAU:
+                return i
+        return None
+
+    def _centre(self, o):
+        for i in (0, 1):
+            if self.asm.porte(i) is o:
+                return self.asm.ou_est_porte(i)
+        return self.asm.a_l_ecran(o)
+
+    def _taille(self):
+        return self.asm.case_objet() * 3
+
+    def bande(self, x, o):
+        """La bande du brin `o` sous l'abscisse `x` (0..BANDES-1), ou None
+        hors du brin."""
+        cx, _ = self._centre(o)
+        t = self._taille()
+        u = (x - (cx - LARGE_BRIN * t)) / (2.0 * LARGE_BRIN * t)
+        if not 0.0 <= u < 1.0:
+            return None
+        return int(u * BANDES)
+
+    def _x_bande(self, k, o):
+        cx, _ = self._centre(o)
+        t = self._taille()
+        return cx - LARGE_BRIN * t + (k + 0.5) * 2.0 * LARGE_BRIN * t / BANDES
+
+    # -- ce que montre la main fantome ------------------------------------ #
+    def _montre_prendre(self):
+        """La main droite va chercher le couteau."""
+        if self.fantome is None or self.mains is None:
+            return
+        couteau = next((o for o in self.asm.objets if o["nom"] == COUTEAU),
+                       None)
+        if couteau is None:
+            return
+        depart = self.mains.paume(1)
+        lieu = self.asm.a_l_ecran(couteau)
+        self.fantome.joue(1, [depart, lieu, lieu], DUREE_PRENDRE)
+
+    def _montre_couper(self, main, couteau):
+        """Le couteau passe deux fois de haut en bas sur le brin, sur deux
+        bandes."""
+        if self.fantome is None or self.actuel >= len(self.brins):
+            return
+        o = self.brins[self.actuel]
+        _, cy = self._centre(o)
+        t = self._taille()
+        haut, bas = cy + (HAUT_BRIN + 0.12) * t, cy - (HAUT_BRIN + 0.12) * t
+        x0, x1 = self._x_bande(1, o), self._x_bande(3, o)
+        self.fantome.joue(main, [(x0, haut), (x0, bas), (x1, haut),
+                                 (x1, bas)], DUREE_COUPER, objet=couteau)
+
+    # -- les fentes -------------------------------------------------------- #
+    def _dessine(self):
+        """Sur chaque brin, une fente sombre par bande coupee ; sur le brin a
+        couper, un trait pale montre les bandes qui restent."""
+        if self.couche is None:
+            return
+        self.couche.canvas.after.clear()
+        t = self._taille()
+        largeur = max(1.5, t * 0.018)
+        with self.couche.canvas.after:
+            for n, o in enumerate(self.brins):
+                _, cy = self._centre(o)
+                y0, y1 = cy - HAUT_BRIN * t, cy + HAUT_BRIN * t
+                for k in range(BANDES):
+                    x = self._x_bande(k, o)
+                    if k in self.coupes[n]:
+                        Color(*FENTE_LEVRE)
+                        Line(points=[x + largeur, y0, x + largeur, y1],
+                             width=largeur * 0.6)
+                        Color(*FENTE)
+                        Line(points=[x, y0, x, y1], width=largeur)
+                    elif n == self.actuel:
+                        Color(*A_COUPER)
+                        Line(points=[x, y0, x, y1], width=largeur * 0.6)
+
+    # -- les consignes ---------------------------------------------------- #
+    def _annonce(self):
+        if self.main_du_couteau() is None:
+            texte = "Prends le couteau"
+        else:
+            o = self.brins[self.actuel]
+            texte = "Coupe %s en %d bandes, de haut en bas (%d/%d)" % (
+                "la feuille" if o["nom"] == "Feuille" else "l'herbe",
+                BANDES, self.actuel + 1, len(self.brins))
+        if texte != self._dit:
+            self._dit = texte
+            self.consigne(texte)
+
+    # -- chaque pas de la vue ---------------------------------------------- #
+    def _pas(self, dt):
+        if self.fini or not self.brins:
+            return
+        self._dessine()
+        main = self.main_du_couteau()
+        self._annonce()
+        if main is None:
+            self._trait = None
+            return
+        couteau = self.asm.porte(main)
+        if not self._vu_couper:
+            self._vu_couper = True
+            if self.fantome is not None:
+                self.fantome.arrete()
+            self._montre_couper(main, couteau)
+        o = self.brins[self.actuel]
+        x, y = self.asm.ou_est_porte(main)
+        _, cy = self._centre(o)
+        t = self._taille()
+        if self.bande(x, o) is None:
+            self._trait = None       # sorti du brin par le cote
+            return
+        if y >= cy + HAUT_BRIN * t:
+            self._trait = [0.0, 0]   # au-dessus : un trait peut commencer
+            return
+        if self._trait is None:
+            return
+        self._trait[0] += x
+        self._trait[1] += 1
+        if y > cy - HAUT_BRIN * t:
+            return                   # encore dans le brin
+        # Passe au-dessous : le trait est fini.
+        xm = self._trait[0] / max(1, self._trait[1])
+        self._trait = None
+        k = self.bande(xm, o)
+        if k is not None:
+            self.coupe(k)
+
+    def coupe(self, k):
+        """La bande `k` du brin en cours est coupee."""
+        if k in self.coupes[self.actuel]:
+            return
+        self.coupes[self.actuel].add(k)
+        if len(self.coupes[self.actuel]) >= BANDES:
+            self.actuel += 1
+            if self.actuel >= len(self.brins):
+                self.fini = True
+                self._dessine()
+                self.reussi()
+                return
+        self._dessine()
+        self._annonce()
+
+
 MINIJEUX = {
     "couteau": MiniJeuCouteau,
+    "fibre": MiniJeuFibre,
 }
 
 
-__all__ = ["MiniJeuCouteau", "Fantome", "MINIJEUX", "COUCHE",
+__all__ = ["MiniJeuCouteau", "MiniJeuFibre", "Fantome", "MINIJEUX", "COUCHE",
            "AMINCISSEMENTS"]

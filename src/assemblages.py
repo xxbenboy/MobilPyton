@@ -6,10 +6,9 @@ Une recette dit QUELS objets il faut (et combien). Leur disposition dans la
 vue d'assemblage est libre : il suffit que CHAQUE objet soit colle a au
 moins un autre (voir Assemblage.contacts), peu importe par quelles cases.
 
-LA PREMIERE FOIS, il faut reussir le mini-jeu de l'objet (voir minijeux.py).
+A CHAQUE FOIS, il faut reussir le mini-jeu de l'objet (voir minijeux.py).
 Une fois fabrique au moins une fois, l'objet est CONNU : l'ecran de craft le
-montre a droite au lieu d'un "?", et l'assembler ne demande plus le
-mini-jeu.
+montre a droite au lieu d'un "?".
 """
 COUTEAU_EN_PIERRE = "Couteau_En_Pierre"
 
@@ -44,7 +43,7 @@ RECETTES_FIBRE = [
     {"result": "Fibre_Vegetale",
      "objets": {k: v for k, v in (("Herbe", h), ("Feuille", BRINS_FIBRE - h),
                                   (COUTEAU_EN_PIERRE, 1)) if v},
-     "outils": {COUTEAU_EN_PIERRE: USURE_FIBRE}}
+     "outils": {COUTEAU_EN_PIERRE: USURE_FIBRE}, "minijeu": "fibre"}
     for h in range(BRINS_FIBRE, -1, -1)]
 ASSEMBLAGES[3:3] = RECETTES_FIBRE
 
