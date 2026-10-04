@@ -41,33 +41,48 @@ ASSEMBLAGES = [
 # quatre feuilles, deux branches, une corde, et le couteau qui perce (un
 # outil). C'est LA FORME DES QUATRE FEUILLES dans la vue d'assemblage qui dit
 # quelle piece on fabrique ; les branches, la corde et le couteau se collent
-# ou l'on veut. Chaque forme ressemble a sa piece (y vers le haut) :
+# ou l'on veut (y vers le haut, X = une feuille, . = une place vide) :
 #
-#   Casque   . X .      un dome : une rangee, une feuille dessus au milieu
+#   Casque   . X X .     ou    X X X X
+#            X . . X
+#
+#   Plastron . X .       (la veste)
 #            X X X
 #
-#   Veste    X X X      les epaules et les manches, le corps dessous
-#            . X .
+#   Pantalon X X
+#            X X
 #
-#   Pantalon X . X      deux jambes (collees ou non : X X / X X aussi)
-#            X . X
+#   Bottes   X . X       deux colonnes de deux, PEU IMPORTE L'ECART (au
+#            X . X       moins une place vide : collees, c'est le pantalon)
 #
-#   Gants    X .        la main et le pouce sur le cote (d'un cote ou de
-#            X X        l'autre)
-#            X .
-#
-#   Souliers X . .      une botte : le pied, et la tige a un bout (d'un cote
-#            X X X      ou de l'autre)
+#   Gants    X X . X X   deux paires cote a cote, PEU IMPORTE L'ECART (au
+#                        moins une place vide : collees, c'est le casque)
 FEUILLE = "Feuille"
+
+
+def _deux_colonnes(f):
+    """Deux colonnes de deux feuilles, separees d'au moins une place."""
+    xs = sorted({x for x, _y in f})
+    return (len(f) == 4 and len(xs) == 2 and xs[1] - xs[0] >= 2
+            and all({y for x, y in f if x == c} == {0, 1} for c in xs))
+
+
+def _deux_paires(f):
+    """Deux paires de feuilles sur une rangee, separees d'au moins une
+    place."""
+    xs = sorted(x for x, _y in f)
+    return (len(f) == 4 and {y for _x, y in f} == {0}
+            and xs[1] == xs[0] + 1 and xs[3] == xs[2] + 1
+            and xs[2] - xs[1] >= 2)
+
+
 FORMES_FEUILLE = {
-    "Casque_De_Feuille": ({(0, 0), (1, 0), (2, 0), (1, 1)},),
-    "Veste_De_Feuille": ({(0, 1), (1, 1), (2, 1), (1, 0)},),
-    "Pantalon_De_Feuille": ({(0, 0), (0, 1), (2, 0), (2, 1)},
-                            {(0, 0), (0, 1), (1, 0), (1, 1)}),
-    "Gant_De_Feuille": ({(0, 0), (0, 1), (0, 2), (1, 1)},
-                        {(1, 0), (1, 1), (1, 2), (0, 1)}),
-    "Soulier_De_Feuille": ({(0, 0), (1, 0), (2, 0), (0, 1)},
-                           {(0, 0), (1, 0), (2, 0), (2, 1)}),
+    "Casque_De_Feuille": ({(1, 1), (2, 1), (0, 0), (3, 0)},
+                          {(0, 0), (1, 0), (2, 0), (3, 0)}),
+    "Veste_De_Feuille": ({(1, 1), (0, 0), (1, 0), (2, 0)},),
+    "Pantalon_De_Feuille": ({(0, 0), (1, 0), (0, 1), (1, 1)},),
+    "Soulier_De_Feuille": (_deux_colonnes,),
+    "Gant_De_Feuille": (_deux_paires,),
 }
 EQUIPEMENT_FEUILLE = {
     "result": None, "famille": "feuille",
@@ -121,8 +136,9 @@ def selon_forme(recette, points):
     if len(f) != len(points):
         return None
     for objet, formes in recette["formes"].items():
-        if f in formes:
-            return objet
+        for attendue in formes:
+            if (attendue(f) if callable(attendue) else f == attendue):
+                return objet
     return None
 
 
