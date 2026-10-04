@@ -26,16 +26,27 @@ LA FIBRE VEGETALE
     4. trois brins, l'un apres l'autre : les feuilles d'abord, puis les
        herbes (deux feuilles et une herbe : feuille, feuille, herbe).
 
+LE FEU DE CAMP
+    1. la recette ne demande que QUATRE pierres, mais au debut du jeu chaque
+       pierre se DEDOUBLE : il y en a huit ;
+    2. huit places, en cercle autour du milieu du plan, attendent chacune
+       une pierre ; une pierre lachee pres d'une place libre s'y range ;
+    3. les huit places remplies : le feu de camp est fait.
+    Annule, les pierres en double disparaissent : les quatre vraies
+    regagnent leurs cases, comme d'habitude.
+
 PEU DE TEXTE : une MAIN FANTOME, a demi transparente, montre UNE FOIS
 chaque geste, et ce qu'il reste a faire se voit SUR L'OBJET MEME : la couche
 a retirer de la pierre, les traits a couper du brin (voir
 assemblage.dessine_travail).
 """
+import math
+
 from kivy.clock import Clock
 from kivy.graphics import Color, Rectangle
 
 from src.widgets.sol_de_craft import dessine_objet, cadre_image
-from src.widgets.assemblage import decalage_morceau
+from src.widgets.assemblage import decalage_morceau, vue_inverse
 
 COUTEAU = "Couteau_En_Pierre"
 
@@ -531,11 +542,174 @@ class MiniJeuFibre(object):
         self._annonce()
 
 
+# LE FEU DE CAMP : huit places sur un cercle de RAYON_CERCLE (en tailles
+# d'objet), un peu au-dessus du milieu du plan pour passer au-dessus des
+# mains. Une pierre lachee a moins de PRISE_PLACE d'une place libre s'y range.
+PLACES_FEU = 8
+RAYON_CERCLE = 0.95
+HAUSSE_CERCLE = 0.05
+PRISE_PLACE = 0.50
+DUREE_RANGER = 1.6
+PIERRE = "Pierre"
+
+
+class MiniJeuFeu(object):
+    """Poser huit pierres en cercle."""
+
+    def __init__(self, assemblage, reussi, consigne, couche=None,
+                 mains=None):
+        self.asm = assemblage
+        self.reussi = reussi
+        self.consigne = consigne
+        self.couche = couche
+        self.mains = mains
+        self.fantome = Fantome(couche, mains,
+                               lambda: assemblage.case_objet() * 3) \
+            if couche is not None and mains is not None else None
+        self.doubles = []
+        self.places = []            # a l'ecran
+        self._tenues = [None, None]  # ce que tenaient les mains au pas d'avant
+        self._dit = None
+        self._vu = False
+        self.fini = False
+
+    def _taille(self):
+        return self.asm.case_objet() * 3
+
+    # -- cycle ----------------------------------------------------------- #
+    def demarre(self):
+        asm = self.asm
+        asm.aimant_permis = False
+        asm.liens = []
+        asm.sur_pas = self._pas
+        mx, my = asm.centre_du_plan()
+        my += HAUSSE_CERCLE * asm.height
+        r = RAYON_CERCLE * self._taille()
+        self.places = [(mx + r * math.sin(2 * math.pi * k / PLACES_FEU),
+                        my + r * math.cos(2 * math.pi * k / PLACES_FEU))
+                       for k in range(PLACES_FEU)]
+        asm.emplacements = []
+        for px, py in self.places:
+            x, y = vue_inverse(1.0, px, py, asm.width, asm.height,
+                               asm.x, asm.y)
+            asm.emplacements.append((PIERRE, (x - asm.x) / asm.width,
+                                     (y - asm.y) / asm.height))
+        # CHAQUE PIERRE SE DEDOUBLE : sa jumelle parait juste a cote, a la
+        # premiere place libre bord a bord.
+        for o in [o for o in asm.objets if o["nom"] == PIERRE]:
+            jumelle = {"nom": PIERRE, "x": o["x"], "y": o["y"],
+                       "x0": o["x0"], "y0": o["y0"], "xa": o["x"],
+                       "ya": o["y"], "coupe": [0.0, 0.0], "double": True}
+            ox, oy = asm.a_l_ecran(o)
+            libre = asm._place_libre(ox, oy, jumelle, pres=[o])
+            if libre is None:
+                libre = (o, ox + self._taille(), oy)
+            asm.objets.append(jumelle)
+            asm.place_a_l_ecran(jumelle, libre[1], libre[2])
+            self.doubles.append(jumelle)
+        asm._redessine()
+        self._annonce()
+        self._montre()
+
+    def arrete(self):
+        asm = self.asm
+        if asm.sur_pas == self._pas:
+            asm.sur_pas = None
+        asm.aimant_permis = True
+        if self.fantome is not None:
+            self.fantome.arrete()
+        # Les pierres en double n'ont jamais existe : elles disparaissent,
+        # meme tenues en main.
+        for i in (0, 1):
+            if any(asm._porte[i] is d for d in self.doubles):
+                asm._porte[i] = None
+                asm._aimante[i] = None
+        asm.objets = [o for o in asm.objets
+                      if not any(o is d for d in self.doubles)]
+        self.doubles = []
+        asm.emplacements = []
+        asm._redessine()
+
+    # -- les places -------------------------------------------------------- #
+    def libres(self):
+        """Les pierres posees (pas en main)."""
+        portes = [self.asm.porte(i) for i in (0, 1)]
+        return [o for o in self.asm.objets if o["nom"] == PIERRE
+                and not any(o is p for p in portes)]
+
+    def remplies(self):
+        """Les indices des places ou une pierre est rangee."""
+        pres = 0.08 * self._taille()
+        out = set()
+        for o in self.libres():
+            ox, oy = self.asm.a_l_ecran(o)
+            for k, (px, py) in enumerate(self.places):
+                if math.hypot(ox - px, oy - py) <= pres:
+                    out.add(k)
+        return out
+
+    def _montre(self):
+        """Une main fantome porte une pierre jusqu'a une place."""
+        if self.fantome is None or self.mains is None or not self.places:
+            return
+        pierres = self.libres()
+        if not pierres:
+            return
+        o = min(pierres, key=lambda p: self.asm.a_l_ecran(p)[1])
+        ox, oy = self.asm.a_l_ecran(o)
+        main = 0 if ox < self.asm.center_x else 1
+        cible = min(self.places, key=lambda p: math.hypot(p[0] - ox,
+                                                          p[1] - oy))
+        self.fantome.joue(main, [self.mains.paume(main), (ox, oy),
+                                 (ox, oy), cible, cible], DUREE_RANGER,
+                          objet=o)
+
+    def _annonce(self):
+        texte = "Place les pierres en cercle (%d/%d)" % (len(self.remplies()),
+                                                         PLACES_FEU)
+        if texte != self._dit:
+            self._dit = texte
+            self.consigne(texte)
+
+    # -- chaque pas de la vue ---------------------------------------------- #
+    def _pas(self, dt):
+        if self.fini:
+            return
+        prises = self.remplies()
+        prise = PRISE_PLACE * self._taille()
+        # Seule une pierre qu'une main vient de LACHER se range : celles qui
+        # attendent pres du cercle depuis le debut restent ou elles sont.
+        tenues = [self.asm.porte(i) for i in (0, 1)]
+        lachees = [o for o in self._tenues if o is not None
+                   and not any(o is t for t in tenues)]
+        self._tenues = tenues
+        for o in lachees:
+            ox, oy = self.asm.a_l_ecran(o)
+            if any(math.hypot(ox - px, oy - py) <= 0.08 * self._taille()
+                   for px, py in self.places):
+                continue
+            proches = [(math.hypot(ox - px, oy - py), k)
+                       for k, (px, py) in enumerate(self.places)
+                       if k not in prises]
+            if not proches:
+                continue
+            d, k = min(proches)
+            if d <= prise:
+                # Lachee pres d'une place libre : elle s'y range.
+                self.asm.place_a_l_ecran(o, *self.places[k])
+                prises.add(k)
+        self._annonce()
+        if len(prises) >= PLACES_FEU:
+            self.fini = True
+            self.reussi()
+
+
 MINIJEUX = {
     "couteau": MiniJeuCouteau,
     "fibre": MiniJeuFibre,
+    "feu": MiniJeuFeu,
 }
 
 
-__all__ = ["MiniJeuCouteau", "MiniJeuFibre", "Fantome", "MINIJEUX", "COUCHE",
+__all__ = ["MiniJeuCouteau", "MiniJeuFibre", "MiniJeuFeu", "Fantome", "MINIJEUX", "COUCHE",
            "AMINCISSEMENTS"]

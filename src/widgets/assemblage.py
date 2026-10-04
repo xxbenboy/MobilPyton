@@ -126,6 +126,9 @@ def vue_inverse(e, X, Y, l, h, ox=0.0, oy=0.0):
 # - "entailles" : [(cote, part)] -- la couche a retirer d'un flanc, de son
 #   bord jusqu'au trait en pointilles.
 ECART_MORCEAU = 0.045
+# - les EMPLACEMENTS (Assemblage.emplacements) : [(nom, fx, fy)], les places
+#   ou un mini-jeu attend un objet, dessinees sous les objets.
+ALPHA_EMPLACEMENT = 0.30
 POINTILLE = 0.035
 TRAIT_A_FAIRE = (1.0, 1.0, 0.95, 0.95)
 OMBRE_TRAIT = (0.10, 0.08, 0.05, 0.75)
@@ -255,6 +258,7 @@ class Assemblage(Widget):
         # se coller), et se fait prevenir a chaque pas (sur_pas(dt)).
         self.aimant_permis = True
         self.sur_pas = None
+        self.emplacements = []
         self.bind(pos=self._redessine, size=self._redessine)
 
     # -- ce qu'il y a sur le plan ---------------------------------------- #
@@ -273,6 +277,7 @@ class Assemblage(Widget):
         self.objets = []
         self.aimant_permis = True
         self.sur_pas = None
+        self.emplacements = []
         self._arrete()
         self._decale = [[0.0, 0.0], [0.0, 0.0]]
         if self.mains is not None:
@@ -313,6 +318,15 @@ class Assemblage(Widget):
         portes = [o for o in self._porte if o is not None]
         cote = TAILLE_OBJET * self.height
         with self.canvas:
+            # LES PLACES A REMPLIR d'un mini-jeu, sous les objets : l'objet
+            # attendu, en fantome, dans un rond de craie.
+            for nom, fx, fy in self.emplacements:
+                px, py = self.x + fx * self.width, self.y + fy * self.height
+                Color(*TRAIT_A_FAIRE[:3], 0.55)
+                Line(circle=(px, py, cote * 0.42),
+                     width=max(1.2, cote * 0.018))
+                dessine_objet(nom, px, py, cote, ombre=False,
+                              alpha=ALPHA_EMPLACEMENT)
             # Du plus loin (haut) au plus pres : celui de devant passe devant.
             for o in sorted(self.objets, key=lambda o: -o["y"]):
                 if any(o is p for p in portes):

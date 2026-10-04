@@ -32,6 +32,9 @@ ASSEMBLAGES = [
     # au couteau (voir RECETTES_FIBRE plus bas).
     # Trois fibres tressees.
     {"result": "Corde", "objets": {"Fibre_Vegetale": 3}},
+    # Quatre pierres : de quoi commencer un cercle de feu. Le mini-jeu en
+    # fait poser HUIT, en cercle (voir minijeux.MiniJeuFeu).
+    {"result": "Feu_de_camp", "objets": {"Pierre": 4}, "minijeu": "feu"},
 ]
 
 # LA FIBRE VEGETALE : un couteau en pierre et trois brins, herbes ou feuilles
