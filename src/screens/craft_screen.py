@@ -851,7 +851,15 @@ class CraftScreen(Penche, Screen):
             self._minijeu = None
 
     def _annonce_modele(self, nom):
+        """Le nom du modele fantome en haut ; rien pendant qu'il est efface
+        (le joueur deplace un objet)."""
+        if self._mode != "zoom":
+            return
+        if nom is None:
+            self._garnit(self._rang_titre, None)
+            return
         self._consigne.text = "Modele : %s" % items.display_name(nom)
+        self._garnit(self._rang_titre, self._consigne, 1.0)
 
     def _arrete_demo(self):
         self._demo.arrete()

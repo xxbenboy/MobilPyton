@@ -53,8 +53,13 @@ PILE_MAX = {CORDE: 5}
 
 def pile_max(name):
     """Combien d'exemplaires une pile de cet objet tient au plus (None =
-    sans limite)."""
-    return PILE_MAX.get(name)
+    sans limite). UN OUTIL, UNE ARME OU UNE PIECE D'EQUIPEMENT NE S'EMPILE
+    PAS : chacun prend sa case."""
+    if name in PILE_MAX:
+        return PILE_MAX[name]
+    if is_tool(name) or is_equipment(name) or name in NON_EMPILABLES:
+        return 1
+    return None
 
 
 def metres(name, wear=0.0):
@@ -111,6 +116,10 @@ KNIFE_FINDS = {
 KNIFE_WEAR_EXPLORE = 0.05
 KNIFE_WEAR_MINIGAME = 0.10
 GOURDE_ITEMS = {"Gourde"}
+# Les autres objets qui ne s'empilent pas (voir pile_max) : outils sans usure
+# et instruments. Les outils qui s'usent (TOOL_USES) et l'equipement
+# (EQUIP_ITEM_SLOT) s'y ajoutent d'eux-memes.
+NON_EMPILABLES = {"Allume_feu", MAP_ITEM, COMPASS_ITEM} | GOURDE_ITEMS
 
 # OUTILS A USAGE MULTIPLE : nombre d'utilisations avant de casser. Une hache
 # de pierre abat cinq arbres, un couteau taille plus longtemps qu'il ne coupe

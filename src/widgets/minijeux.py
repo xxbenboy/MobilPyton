@@ -725,21 +725,42 @@ class MiniJeuFeu(object):
 # L'EQUIPEMENT EN FEUILLE. Les cinq feuilles de chaque tiers, en tailles
 # d'objet autour du milieu du plan (releve de HAUSSE_FEUILLES), dans l'ordre
 # ou la main fantome les montre : la forme du morceau qu'on coud.
-_COLONNE = ((0, 0.9), (0, 0.45), (0, 0), (0, -0.45), (0, -0.9))
-_RANGEE = ((-1.1, 0), (-0.55, 0), (0, 0), (0.55, 0), (1.1, 0))
-_DIAG_G = ((0.8, 0.8), (0.4, 0.4), (0, 0), (-0.4, -0.4), (-0.8, -0.8))
-_DIAG_D = ((-0.8, 0.8), (-0.4, 0.4), (0, 0), (0.4, -0.4), (0.8, -0.8))
+#
+# QUINZE FORMES TOUTES DIFFERENTES : chaque tiers de chaque piece a la
+# sienne, on ne coud jamais deux fois le meme dessin.
+# Casque : un bord qui monte, le sommet en dome, l'autre bord.
 _MONTE = ((-1.0, -0.8), (-0.75, -0.3), (-0.45, 0.15), (-0.05, 0.5),
           (0.45, 0.7))
-_DESCEND = tuple((-x, y) for x, y in reversed(_MONTE))
 _DOME = ((-1.1, 0.35), (-0.55, 0.6), (0, 0.7), (0.55, 0.6), (1.1, 0.35))
+_DESCEND_CASQUE = ((-0.5, 0.8), (-0.05, 0.6), (0.35, 0.25), (0.6, -0.25),
+                   (0.75, -0.8))
+# Veste : une manche droite en diagonale, le corps en V (l'encolure), l'autre
+# manche coudee.
+_MANCHE_G = ((0.8, 0.8), (0.4, 0.4), (0, 0), (-0.4, -0.4), (-0.8, -0.8))
+_ENCOLURE = ((-0.8, 0.8), (-0.4, 0.35), (0, -0.1), (0.4, 0.35), (0.8, 0.8))
+_MANCHE_D = ((-0.9, 0.7), (-0.45, 0.45), (0, 0.2), (0.35, -0.25),
+             (0.6, -0.8))
+# Pantalon : deux jambes qui s'evasent chacune de son cote, la ceinture droite.
+_JAMBE_G = ((0.2, 0.9), (0.05, 0.45), (-0.1, 0), (-0.25, -0.45),
+            (-0.4, -0.9))
+_CEINTURE = ((-1.1, 0), (-0.55, 0), (0, 0), (0.55, 0), (1.1, 0))
+_JAMBE_D = ((-0.3, 0.9), (-0.25, 0.45), (-0.1, 0), (0.15, -0.45),
+            (0.45, -0.9))
+# Gant : le pouce en crochet, la paume en pentagone, les doigts en dents.
+_POUCE = ((0.6, -0.8), (0.2, -0.6), (-0.1, -0.25), (-0.2, 0.2), (-0.1, 0.65))
+_PAUME = ((0, 0.7), (0.6, 0.25), (0.4, -0.5), (-0.4, -0.5), (-0.6, 0.25))
+_DOIGTS = ((-1.0, -0.4), (-0.5, 0.5), (0, -0.4), (0.5, 0.5), (1.0, -0.4))
+# Soulier : la tige en equerre, la semelle en sourire, la pointe qui file.
+_TIGE = ((-0.6, 0.9), (-0.6, 0.45), (-0.6, 0), (-0.15, -0.15), (0.3, -0.15))
+_SEMELLE = ((-1.1, 0.25), (-0.55, -0.1), (0, -0.25), (0.55, -0.1),
+            (1.1, 0.25))
 _POINTE = ((-1.1, 0.25), (-0.55, 0.15), (0, 0), (0.55, -0.15), (1.1, -0.3))
 PATRONS_FEUILLE = {
-    "Casque_De_Feuille": (_MONTE, _DOME, _DESCEND),       # bord, sommet, bord
-    "Veste_De_Feuille": (_DIAG_G, _COLONNE, _DIAG_D),     # manche, corps, manche
-    "Pantalon_De_Feuille": (_COLONNE, _RANGEE, _COLONNE),  # jambe, ceinture, jambe
-    "Gant_De_Feuille": (_DIAG_D, _COLONNE, _COLONNE),     # pouce, paume, doigts
-    "Soulier_De_Feuille": (_COLONNE, _RANGEE, _POINTE),   # tige, pied, pointe
+    "Casque_De_Feuille": (_MONTE, _DOME, _DESCEND_CASQUE),  # bord, sommet, bord
+    "Veste_De_Feuille": (_MANCHE_G, _ENCOLURE, _MANCHE_D),  # manche, corps, manche
+    "Pantalon_De_Feuille": (_JAMBE_G, _CEINTURE, _JAMBE_D),  # jambe, ceinture, jambe
+    "Gant_De_Feuille": (_POUCE, _PAUME, _DOIGTS),          # pouce, paume, doigts
+    "Soulier_De_Feuille": (_TIGE, _SEMELLE, _POINTE),      # tige, pied, pointe
 }
 TIERS = 3
 HAUSSE_FEUILLES = 0.05

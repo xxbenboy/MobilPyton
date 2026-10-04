@@ -9,6 +9,9 @@ transparentes, et une main fantome qui apporte la DERNIERE feuille. La forme
 complete reste DELAI secondes, puis vient la piece suivante ; apres la
 derniere, on revient a la premiere. Seules les feuilles sont montrees : les
 autres objets de la recette se posent ou l'on veut.
+
+Des que le joueur deplace un objet, le fantome s'efface ; il revient apres
+REPRISE secondes sans qu'aucun objet ne bouge.
 """
 import math
 
@@ -24,6 +27,7 @@ ALPHA_MAIN = 0.40
 DUREE_MAIN = 2.2            # la main apporte la derniere feuille (s)
 DELAI = 3.0                 # la forme complete reste, avant la suivante (s)
 FONDU = 0.3                 # apparition / effacement d'une forme (s)
+REPRISE = 5.0               # sans objet deplace pendant ce temps : il revient
 # L'espace du modele, en parts de la hauteur : sous le titre, au-dessus des
 # mains.
 BAS_LIBRE = 0.30
@@ -49,9 +53,12 @@ class DemoFeuille(object):
         self.k = 0
         self.t = 0.0
         self._horloge = None
+        self.pause = False
+        self._calme = 0.0
 
     def demarre(self):
         self.k, self.t = 0, 0.0
+        self.pause = False
         self._annonce()
         if self._horloge is None:
             self._horloge = Clock.schedule_interval(self._pas, 1.0 / FPS)
@@ -69,25 +76,24 @@ class DemoFeuille(object):
     # -- geometrie ---------------------------------------------------------- #
     def _places(self, cases):
         """Les feuilles du modele a l'ecran, centrees entre les objets ranges
-        sur les cotes, au-dessus des mains. Calees sur la grille du plan ; un
-        modele trop grand pour cet espace (les bottes, trois feuilles de
-        haut) est montre en plus petit."""
+        sur les cotes, au-dessus des mains.
+
+        TOUJOURS A TAILLE REELLE ET CALEES SUR LA GRILLE DU PLAN, exactement
+        la ou se poserait une vraie feuille : un modele reduit pour tenir
+        dans la place libre tombait entre les cases, et montrait une forme
+        qu'on ne peut pas reproduire. Un modele plus haut que la place libre
+        (les bottes, trois feuilles) en garde le haut et descend vers les
+        mains."""
         asm = self.asm
         t = asm.case_objet() * 3
-        cx = asm.center_x
-        cy = asm.y + (BAS_LIBRE + HAUT_LIBRE) / 2.0 * asm.height
-        larg_libre = asm.width - 2 * (0.01 * asm.width + 2 * t) - 0.2 * t
-        haut_libre = (HAUT_LIBRE - BAS_LIBRE) * asm.height
         c0, c1 = min(c for c, _r in cases), max(c for c, _r in cases)
         r0, r1 = min(r for _c, r in cases), max(r for _c, r in cases)
-        s = min(1.0, larg_libre / ((c1 - c0 + 1) * t),
-                haut_libre / ((r1 - r0 + 1) * t))
-        u = t * s
-        bx = cx - (c0 + c1) / 2.0 * u
-        by = cy - (r0 + r1) / 2.0 * u
-        if s >= 1.0:
-            bx, by = asm.sur_grille(bx, by)
-        return [(bx + c * u, by + r * u) for c, r in cases], u
+        haut = asm.y + HAUT_LIBRE * asm.height
+        cy = asm.y + (BAS_LIBRE + HAUT_LIBRE) / 2.0 * asm.height
+        cy = min(cy, haut - (r1 - r0 + 1) * t / 2.0)
+        bx, by = asm.sur_grille(asm.center_x - (c0 + c1) / 2.0 * t,
+                                cy - (r0 + r1) / 2.0 * t)
+        return [(bx + c * t, by + r * t) for c, r in cases], t
 
     def _depart(self):
         """D'ou la main fantome prend la feuille : la plus haute des vraies
@@ -107,7 +113,26 @@ class DemoFeuille(object):
         asm = self.asm
         if asm.width <= 0 or asm.height <= 0:
             return
-        self.t += min(dt, 0.1)
+        dt = min(dt, 0.1)
+        # LE JOUEUR DEPLACE UN OBJET : le fantome s'efface. Il revient apres
+        # REPRISE secondes sans qu'aucun objet ne bouge, en reprenant le
+        # modele interrompu depuis son debut.
+        if any(asm.porte(i) is not None for i in (0, 1)):
+            self._calme = 0.0
+            if not self.pause:
+                self.pause = True
+                self.couche.canvas.clear()
+                if self.annonce is not None:
+                    self.annonce(None)
+            return
+        if self.pause:
+            self._calme += dt
+            if self._calme < REPRISE:
+                return
+            self.pause = False
+            self.t = 0.0
+            self._annonce()
+        self.t += dt
         if self.t >= DUREE_MAIN + DELAI:
             self.t = 0.0
             self.k = (self.k + 1) % len(assemblages.MODELES_FEUILLE)
