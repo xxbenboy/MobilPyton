@@ -3565,9 +3565,14 @@ class ZoneScenery(Widget):
             fx = grass_pick() if rng.random() < 0.72 else None
             gx, gb, sc, t = place(fx=fx)
             gh = rng.uniform(0.05, 0.13) * h * sc
+            # La couleur est TIREE AVANT de savoir si la touffe est dessinee :
+            # sauter un tirage decalerait tout le hasard qui suit, et les
+            # arbres de l'horizon changeaient de place des qu'on posait un
+            # objet ou ramassait de l'herbe.
+            vert = rng.choice(GREENS) + (1,)
             if self._is_blocked(gx, gb, gb + gh):
                 continue
-            items.append((gb, f_grass(gx, gb, gh, rng.choice(GREENS) + (1,), sc)))
+            items.append((gb, f_grass(gx, gb, gh, vert, sc)))
         # ET DE L'HERBE A RAMASSER, A PORTEE DE MAIN. [recoltable: Herbe]
         #
         # La foret n'en donnait pas : il fallait retourner en plaine pour la
@@ -3586,10 +3591,10 @@ class ZoneScenery(Widget):
             fx = grass_pick() if rng.random() < 0.72 else None
             gx, gb, sc, t = place(fx=fx, floor=_HARVEST_FLOOR)
             gh = rng.uniform(0.06, 0.15) * h * sc
+            vert = rng.choice(GREENS) + (1,)      # avant le test : voir plus haut
             if (not self._take_or_skip("Herbe")
                     and not self._is_blocked(gx, gb, gb + gh)):
-                items.append((gb, f_grass(gx, gb, gh,
-                                          rng.choice(GREENS) + (1,), sc)))
+                items.append((gb, f_grass(gx, gb, gh, vert, sc)))
         # Fougeres / plantes (bosquets).
         for _ in range(rng.randint(8, 12)):
             px, py, sc, t = place(fx=fern_pick())
@@ -4817,12 +4822,15 @@ class ZoneScenery(Widget):
                 # ciel sous une touffe. Aucun tirage en plus : le decor ne
                 # bouge pas, seules les touffes de crete descendent.
                 gb = self._plante_sur(crete, gx, gb, gh)
+                # La teinte est TIREE AVANT de savoir si la touffe reste :
+                # sauter ce tirage pour une touffe ramassee decalait tout le
+                # hasard qui suit (gazon, plantes, arbres de l'horizon...).
+                teinte = rng.uniform(0.85, 1.0)
                 if recoltable and self._take_or_skip("Herbe"):
                     continue
                 if self._is_blocked(gx, gb, gb + gh):
                     continue
-                items.append((gb, f_grass(gx, gb, gh,
-                                          green_at(rng.uniform(0.85, 1.0)),
+                items.append((gb, f_grass(gx, gb, gh, green_at(teinte),
                                           sc, None, 0)))
 
         # Recoltables x5 (etait 125) : le nombre affecte l'aspect visuel mais
