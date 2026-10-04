@@ -43,6 +43,17 @@ def display_name(name):
 # l'instant : tous les objets sont ramassables. A completer plus tard.)
 GROUND_ONLY = set()
 
+# LE PLAN DE TRAVAIL du craft prend un objet par case, SAUF ces matieres
+# brutes, qui s'y empilent (huit pierres pour un feu, quatre feuilles pour un
+# vetement...).
+EMPILABLES_PLAN = {"Pierre", "Small_Stick", "Feuille", "Herbe"}
+
+
+def empilable_au_plan(name):
+    """Cet objet peut-il s'empiler dans une case du plan de travail ?"""
+    return name in EMPILABLES_PLAN
+
+
 # Objets speciaux (a CRAFTER plus tard, indisponibles pour l'instant) :
 # - CARTE   : necessaire pour ouvrir l'ecran carte.
 # - BOUSSOLE: affiche les directions en points cardinaux (Nord/Sud/Est/Ouest)

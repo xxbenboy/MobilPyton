@@ -53,6 +53,7 @@ from kivy.uix.label import Label
 from kivy.uix.widget import Widget
 from kivy.metrics import dp
 
+from src import items
 from src.game_state import (SOL_COLONNES, SOL_RANGEES, CENTRE_COLONNES,
                             CENTRE_RANGEES)
 from src.widgets.player_hands import (PlayerHands, _item_infos,
@@ -940,16 +941,20 @@ class SolDeCraft(Widget):
         if source[0] == "case" and cible[0] == "main":
             return dessus is not None
         vers_plan = cible[0] == "case" and cible[1].startswith("C:")
+        empile = items.empilable_au_plan
         if source[0] == "main" and cible[0] == "case":
-            return dessus is not None and (dessus != g["nom"] or vers_plan)
+            return dessus is not None and (
+                dessus != g["nom"] or (vers_plan and not empile(dessus)))
         if source[0] == "case" and cible[0] == "case" and dessus is not None:
-            # Un objet par case du plan de travail (voir deplace_au_sol).
+            # Les regles du plan de travail (voir deplace_au_sol).
             pile = self._cases.get(source[1]) or [None, 1]
             depuis_plan = source[1].startswith("C:")
             if vers_plan:
-                return dessus == g["nom"] or pile[1] > 1
+                if dessus == g["nom"]:
+                    return not empile(dessus)
+                return pile[1] > 1 and not depuis_plan
             if depuis_plan and dessus != g["nom"]:
-                return self._cases[cible[1]][1] > 1
+                return self._cases[cible[1]][1] > 1 and not empile(dessus)
         return False
 
     # -- l'objet qui suit le doigt ------------------------------------- #

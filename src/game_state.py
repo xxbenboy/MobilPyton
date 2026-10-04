@@ -1112,10 +1112,13 @@ class GameState:
         plus qu'une. Objet different : elles echangent leurs places -- rien
         ne se perd. Renvoie True si quelque chose a bouge.
 
-        LE PLAN DE TRAVAIL NE PREND QU'UN OBJET PAR CASE : une pile qui y
-        va n'y pose qu'un exemplaire, le reste demeure dans sa case ; une
-        case du plan deja prise refuse un objet pareil, et un echange qui y
-        amenerait une pile est refuse."""
+        LE PLAN DE TRAVAIL POSE LES OBJETS UN A UN : une pile qui y va n'y
+        pose qu'un exemplaire, le reste demeure dans sa case. Seules les
+        matieres empilables (items.EMPILABLES_PLAN) y font des piles : un
+        exemplaire de plus rejoint celui de la case. Les autres n'y vont
+        qu'a raison d'un par case, et un echange qui amenerait sur le plan
+        la pile d'un objet qui ne s'y empile pas est refuse. D'une case du
+        plan a une autre, la pile entiere se deplace."""
         if depuis == vers:
             return False
         cases = self.sol_en_cases()
@@ -1124,21 +1127,30 @@ class GameState:
             return False
         cible = cases.get(vers)
         vers_plan = vers in CASES_CENTRE
+        depuis_plan = depuis in CASES_CENTRE
+        un_a_un = vers_plan and not depuis_plan   # on pose sur le plan
         if cible is None:
-            if vers_plan and pile[1] > 1:
+            if un_a_un and pile[1] > 1:
                 cases[vers] = [pile[0], 1]
                 pile[1] -= 1
             else:
                 cases[vers] = pile
                 del cases[depuis]
         elif cible[0] == pile[0]:
-            if vers_plan:
+            if vers_plan and not items.empilable_au_plan(pile[0]):
                 return False
-            cible[1] += pile[1]
-            del cases[depuis]
+            if un_a_un:
+                cible[1] += 1
+                pile[1] -= 1
+                if pile[1] <= 0:
+                    del cases[depuis]
+            else:
+                cible[1] += pile[1]
+                del cases[depuis]
         else:
-            if (vers_plan and pile[1] > 1) or \
-                    (depuis in CASES_CENTRE and cible[1] > 1):
+            if (un_a_un and pile[1] > 1) or \
+                    (depuis_plan and not vers_plan and cible[1] > 1
+                     and not items.empilable_au_plan(cible[0])):
                 return False
             cases[vers], cases[depuis] = pile, cible
         self.ground_layout[self._cell_key()] = cases
@@ -1178,7 +1190,8 @@ class GameState:
         objet = self.hands[main]
         cases = self.sol_en_cases()
         cible = cases.get(case)
-        if cible is not None and (cible[0] != objet or case in CASES_CENTRE):
+        if cible is not None and (cible[0] != objet or (
+                case in CASES_CENTRE and not items.empilable_au_plan(objet))):
             return False
         if not self.drop_from_hands(main):
             return False
@@ -1243,7 +1256,8 @@ class GameState:
             return None
         cases = self.sol_en_cases()
         cible = cases.get(case)
-        if cible is not None and (cible[0] != objet or case in CASES_CENTRE):
+        if cible is not None and (cible[0] != objet or (
+                case in CASES_CENTRE and not items.empilable_au_plan(objet))):
             return None
         res = action()
         if res is None or res is False:
@@ -1360,7 +1374,9 @@ class GameState:
         gauche, sinon dans la proximite si les deux sont prises. Il devient
         connu. Rend son nom, ou None si le plan ne correspond pas."""
         from src import assemblages
-        if assemblages.selon_objets(self.objets_du_plan()) is not recette:
+        base = assemblages.selon_objets(self.objets_du_plan())
+        if base is None or base["objets"] != recette["objets"] \
+                or not recette.get("result"):
             return None
         retires = self._retire_le_plan()
         # LES OUTILS servent sans etre consommes : ils s'usent et retournent

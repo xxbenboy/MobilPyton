@@ -27,15 +27,25 @@ LA FIBRE VEGETALE
        herbes (deux feuilles et une herbe : feuille, feuille, herbe).
 
 LE FEU DE CAMP
-    1. la recette ne demande que QUATRE pierres, mais au debut du jeu chaque
-       pierre se DEDOUBLE : il y en a huit ;
+    1. la recette demande HUIT pierres (empilees sur le plan) ;
     2. les huit pierres sont rangees A GAUCHE DE L'ECRAN ; huit places, en
        cercle autour du milieu du plan, attendent chacune une pierre ;
     3. une pierre lachee sur une place libre, ou un peu a cote, se recentre
        dessus et s'y VERROUILLE : on ne peut plus la reprendre ;
     4. les huit places remplies : le feu de camp est fait.
-    Annule, les pierres en double disparaissent : les quatre vraies
-    regagnent leurs cases, comme d'habitude.
+    Annule, les pierres regagnent leurs cases, comme d'habitude.
+
+L'EQUIPEMENT EN FEUILLE (casque, veste, pantalon, gants, souliers)
+    la piece est decoupee en TROIS TIERS (gauche, milieu, droite), et
+    chaque tiers se fabrique en un tour :
+    1. cinq feuilles paraissent au milieu, disposees comme le tiers qu'on
+       fait (la manche, le corps, la jambe...) ; on perce un trou au
+       COUTEAU au milieu de chacune ;
+    2. on passe la CORDE dans les cinq trous : les feuilles cousues
+       deviennent le tiers de la piece, qui va attendre a gauche ;
+    3. apres trois tours, on pose les trois tiers sur la piece en
+       fantome : ils s'y recentrent et s'y verrouillent.
+    Les feuilles et les branches du plan sont mises de cote pendant le jeu.
 
 PEU DE TEXTE : une MAIN FANTOME, a demi transparente, montre UNE FOIS
 chaque geste, et ce qu'il reste a faire se voit SUR L'OBJET MEME : la couche
@@ -160,7 +170,7 @@ class MiniJeuCouteau(object):
     """Tailler une pierre en lame avec une autre."""
 
     def __init__(self, assemblage, reussi, consigne, couche=None,
-                 mains=None):
+                 mains=None, recette=None):
         self.asm = assemblage
         self.reussi = reussi
         self.consigne = consigne
@@ -333,7 +343,7 @@ class MiniJeuFibre(object):
     """Decouper au couteau trois brins en morceaux."""
 
     def __init__(self, assemblage, reussi, consigne, couche=None,
-                 mains=None):
+                 mains=None, recette=None):
         self.asm = assemblage
         self.reussi = reussi
         self.consigne = consigne
@@ -565,7 +575,7 @@ class MiniJeuFeu(object):
     """Poser huit pierres en cercle."""
 
     def __init__(self, assemblage, reussi, consigne, couche=None,
-                 mains=None):
+                 mains=None, recette=None):
         self.asm = assemblage
         self.reussi = reussi
         self.consigne = consigne
@@ -602,19 +612,6 @@ class MiniJeuFeu(object):
                                asm.x, asm.y)
             asm.emplacements.append((PIERRE, (x - asm.x) / asm.width,
                                      (y - asm.y) / asm.height))
-        # CHAQUE PIERRE SE DEDOUBLE : sa jumelle parait juste a cote, a la
-        # premiere place libre bord a bord.
-        for o in [o for o in asm.objets if o["nom"] == PIERRE]:
-            jumelle = {"nom": PIERRE, "x": o["x"], "y": o["y"],
-                       "x0": o["x0"], "y0": o["y0"], "xa": o["x"],
-                       "ya": o["y"], "coupe": [0.0, 0.0], "double": True}
-            ox, oy = asm.a_l_ecran(o)
-            libre = asm._place_libre(ox, oy, jumelle, pres=[o])
-            if libre is None:
-                libre = (o, ox + self._taille(), oy)
-            asm.objets.append(jumelle)
-            asm.place_a_l_ecran(jumelle, libre[1], libre[2])
-            self.doubles.append(jumelle)
         # TOUTES LES PIERRES A GAUCHE de l'ecran, loin du cercle.
         t = self._taille()
         pierres = [o for o in asm.objets if o["nom"] == PIERRE]
@@ -725,12 +722,312 @@ class MiniJeuFeu(object):
             self.reussi()
 
 
+# L'EQUIPEMENT EN FEUILLE. Les cinq feuilles de chaque tiers, en tailles
+# d'objet autour du milieu du plan (releve de HAUSSE_FEUILLES), dans l'ordre
+# ou la main fantome les montre : la forme du morceau qu'on coud.
+_COLONNE = ((0, 0.9), (0, 0.45), (0, 0), (0, -0.45), (0, -0.9))
+_RANGEE = ((-1.1, 0), (-0.55, 0), (0, 0), (0.55, 0), (1.1, 0))
+_DIAG_G = ((0.8, 0.8), (0.4, 0.4), (0, 0), (-0.4, -0.4), (-0.8, -0.8))
+_DIAG_D = ((-0.8, 0.8), (-0.4, 0.4), (0, 0), (0.4, -0.4), (0.8, -0.8))
+_MONTE = ((-1.0, -0.8), (-0.75, -0.3), (-0.45, 0.15), (-0.05, 0.5),
+          (0.45, 0.7))
+_DESCEND = tuple((-x, y) for x, y in reversed(_MONTE))
+_DOME = ((-1.1, 0.35), (-0.55, 0.6), (0, 0.7), (0.55, 0.6), (1.1, 0.35))
+_POINTE = ((-1.1, 0.25), (-0.55, 0.15), (0, 0), (0.55, -0.15), (1.1, -0.3))
+PATRONS_FEUILLE = {
+    "Casque_De_Feuille": (_MONTE, _DOME, _DESCEND),       # bord, sommet, bord
+    "Veste_De_Feuille": (_DIAG_G, _COLONNE, _DIAG_D),     # manche, corps, manche
+    "Pantalon_De_Feuille": (_COLONNE, _RANGEE, _COLONNE),  # jambe, ceinture, jambe
+    "Gant_De_Feuille": (_DIAG_D, _COLONNE, _COLONNE),     # pouce, paume, doigts
+    "Soulier_De_Feuille": (_COLONNE, _RANGEE, _POINTE),   # tige, pied, pointe
+}
+TIERS = 3
+HAUSSE_FEUILLES = 0.05
+PRISE_TROU = 0.20           # en taille d'objet : la lame ou la corde y passe
+PRISE_MORCEAU = 0.50
+CORDE = "Corde"
+DUREE_PERCER = 1.6
+DUREE_ENFILER = 2.2
+# Ou attendent le couteau et la corde (a droite), et les tiers finis (a
+# gauche), en parts de l'ecran.
+PLACE_COUTEAU = (0.80, 0.62)
+PLACE_CORDE = (0.80, 0.36)
+PLACE_TIERS = (0.12, 0.78, -0.25)     # x, y du premier, pas vertical
+
+
+class MiniJeuFeuille(object):
+    """Coudre une piece d'equipement en feuille, tiers par tiers."""
+
+    def __init__(self, assemblage, reussi, consigne, couche=None,
+                 mains=None, recette=None):
+        self.asm = assemblage
+        self.reussi = reussi
+        self.consigne = consigne
+        self.couche = couche
+        self.mains = mains
+        self.piece = (recette or {}).get("result") or "Veste_De_Feuille"
+        self.patrons = PATRONS_FEUILLE.get(self.piece,
+                                           PATRONS_FEUILLE["Veste_De_Feuille"])
+        self.fantome = Fantome(couche, mains,
+                               lambda: assemblage.case_objet() * 3) \
+            if couche is not None and mains is not None else None
+        self.tour = 0
+        self.phase = None           # "percer", "enfiler", "assembler"
+        self.feuilles = []          # les cinq du tour, objets de la vue
+        self.enfilees = []
+        self.tiers = []             # les morceaux finis
+        self._ajoutes = []          # tout ce que le jeu a mis dans la vue
+        self._caches = []
+        self._tenus = [None, None]
+        self._vus = set()
+        self._dit = None
+        self.fini = False
+
+    def _taille(self):
+        return self.asm.case_objet() * 3
+
+    def _milieu(self):
+        mx, my = self.asm.centre_du_plan()
+        return mx, my + HAUSSE_FEUILLES * self.asm.height
+
+    def _ajoute(self, nom, px, py, **extra):
+        o = {"nom": nom, "x": 0.0, "y": 0.0, "x0": 0.0, "y0": 0.0,
+             "xa": 0.0, "ya": 0.0, "coupe": [0.0, 0.0]}
+        o.update(extra)
+        self.asm.objets.append(o)
+        self.asm.place_a_l_ecran(o, px, py)
+        o["x0"], o["y0"] = o["x"], o["y"]
+        self._ajoutes.append(o)
+        return o
+
+    def _premier(self, nom):
+        return next((o for o in self.asm.objets if o["nom"] == nom
+                     and not o.get("cache")
+                     and not any(o is a for a in self._ajoutes)), None)
+
+    def _tenu(self, nom):
+        """La main qui tient un `nom` (droite d'abord), ou None."""
+        for i in (1, 0):
+            o = self.asm.porte(i)
+            if o is not None and o["nom"] == nom:
+                return i
+        return None
+
+    # -- cycle ----------------------------------------------------------- #
+    def demarre(self):
+        asm = self.asm
+        asm.aimant_permis = False
+        asm.liens = []
+        asm.sur_pas = self._pas
+        # Les feuilles et les branches du plan, mises de cote : ce sont les
+        # feuilles du jeu qu'on perce et qu'on coud.
+        for o in asm.objets:
+            if o["nom"] in ("Feuille", "Small_Stick"):
+                o["cache"] = True
+                self._caches.append(o)
+        w, h = asm.width, asm.height
+        for nom, (fx, fy) in ((COUTEAU, PLACE_COUTEAU), (CORDE, PLACE_CORDE)):
+            o = self._premier(nom)
+            if o is not None:
+                asm.place_a_l_ecran(o, asm.x + fx * w, asm.y + fy * h)
+        self._nouveau_tour()
+
+    def arrete(self):
+        asm = self.asm
+        if asm.sur_pas == self._pas:
+            asm.sur_pas = None
+        asm.aimant_permis = True
+        if self.fantome is not None:
+            self.fantome.arrete()
+        for i in (0, 1):
+            if any(asm._porte[i] is a for a in self._ajoutes):
+                asm._porte[i] = None
+                asm._aimante[i] = None
+        asm.objets = [o for o in asm.objets
+                      if not any(o is a for a in self._ajoutes)]
+        for o in self._caches:
+            o.pop("cache", None)
+        self._ajoutes, self._caches = [], []
+        asm.emplacements = []
+        asm.fils = []
+        asm._redessine()
+
+    # -- les tours ------------------------------------------------------- #
+    def _nouveau_tour(self):
+        mx, my = self._milieu()
+        t = self._taille()
+        self.feuilles = [self._ajoute("Feuille", mx + dx * t, my + dy * t,
+                                      verrou=True, trou=False)
+                         for dx, dy in self.patrons[self.tour]]
+        self.enfilees = []
+        self.asm.fils = []
+        self.phase = "percer"
+        self.asm._redessine()
+        self._annonce()
+        self._montre("percer")
+
+    def _tiers_fini(self):
+        """Les cinq feuilles cousues deviennent le tiers de la piece : il va
+        attendre a gauche, et le tour suivant commence."""
+        asm = self.asm
+        asm.objets = [o for o in asm.objets
+                      if not any(o is f for f in self.feuilles)]
+        self._ajoutes = [o for o in self._ajoutes
+                         if not any(o is f for f in self.feuilles)]
+        k = self.tour
+        x, y, pas = PLACE_TIERS
+        # Le tiers est l'image ENTIERE rognee : son milieu visible est
+        # decale du centre de l'objet. On le range par ce qu'on en voit.
+        decale = (k - 1) * self._largeur_piece() / TIERS
+        morceau = self._ajoute(self.piece, asm.x + x * asm.width - decale,
+                               asm.y + (y + k * pas) * asm.height,
+                               verrou=True, tiers=k,
+                               coupe=[k / float(TIERS),
+                                      1.0 - (k + 1) / float(TIERS)])
+        self.tiers.append(morceau)
+        self.feuilles, self.enfilees = [], []
+        asm.fils = []
+        self.tour += 1
+        if self.tour < TIERS:
+            self._nouveau_tour()
+            return
+        # LES TROIS TIERS : on les pose sur la piece en fantome.
+        self.phase = "assembler"
+        mx, my = self._milieu()
+        fx, fy = vue_inverse(1.0, mx, my, asm.width, asm.height,
+                             asm.x, asm.y)
+        asm.emplacements = [(self.piece, (fx - asm.x) / asm.width,
+                             (fy - asm.y) / asm.height, False)]
+        for m in self.tiers:
+            m.pop("verrou", None)
+        asm._redessine()
+        self._annonce()
+        self._montre("assembler")
+
+    def _largeur_piece(self):
+        cadre = cadre_image(self.piece, self._taille())
+        return cadre[0] if cadre else self._taille()
+
+    # -- ce que montre la main fantome ------------------------------------ #
+    def _montre(self, quoi):
+        if quoi in self._vus or self.fantome is None or self.mains is None:
+            return
+        self._vus.add(quoi)
+        asm = self.asm
+        if quoi in ("percer", "enfiler"):
+            nom = COUTEAU if quoi == "percer" else CORDE
+            o = self._premier(nom)
+            if o is None or not self.feuilles:
+                return
+            depart = asm.a_l_ecran(o)
+            trous = [asm.a_l_ecran(f) for f in self.feuilles[:3]]
+            self.fantome.joue(1, [self.mains.paume(1), depart] + trous,
+                              DUREE_PERCER if quoi == "percer"
+                              else DUREE_ENFILER, objet=o)
+        elif quoi == "assembler" and self.tiers:
+            m = self.tiers[0]
+            depart = asm.a_l_ecran(m)
+            self.fantome.joue(0, [self.mains.paume(0), depart, depart,
+                                  self._milieu()], DUREE_RANGER, objet=m)
+
+    def _annonce(self):
+        if self.phase == "percer":
+            n = sum(1 for f in self.feuilles if f.get("trou"))
+            texte = ("Perce les feuilles au couteau (%d/5) - morceau %d/%d"
+                     % (n, self.tour + 1, TIERS))
+        elif self.phase == "enfiler":
+            texte = ("Passe la corde dans les trous (%d/5) - morceau %d/%d"
+                     % (len(self.enfilees), self.tour + 1, TIERS))
+        else:
+            n = sum(1 for m in self.tiers if m.get("verrou"))
+            texte = "Assemble les morceaux (%d/%d)" % (n, TIERS)
+        if texte != self._dit:
+            self._dit = texte
+            self.consigne(texte)
+
+    # -- chaque pas de la vue ---------------------------------------------- #
+    def _range_outils(self):
+        """L'outil qui ne sert pas a l'etape en cours, lache, retourne a sa
+        place a droite : on le retrouve toujours au meme endroit."""
+        asm = self.asm
+        tenus = [asm.porte(i) for i in (0, 1)]
+        for nom, (fx, fy), etape in ((COUTEAU, PLACE_COUTEAU, "percer"),
+                                     (CORDE, PLACE_CORDE, "enfiler")):
+            if self.phase == etape:
+                continue
+            o = self._premier(nom)
+            if o is None or any(o is t for t in tenus):
+                continue
+            px, py = asm.x + fx * asm.width, asm.y + fy * asm.height
+            ox, oy = asm.a_l_ecran(o)
+            if math.hypot(ox - px, oy - py) > 1.0:
+                asm.place_a_l_ecran(o, px, py)
+
+    def _pas(self, dt):
+        if self.fini:
+            return
+        asm = self.asm
+        prise = PRISE_TROU * self._taille()
+        self._range_outils()
+        if self.phase == "percer":
+            main = self._tenu(COUTEAU)
+            if main is not None:
+                lx, ly = asm.ou_est_porte(main)
+                for f in self.feuilles:
+                    fx, fy = asm.a_l_ecran(f)
+                    if not f["trou"] and math.hypot(lx - fx,
+                                                    ly - fy) <= prise:
+                        f["trou"] = True
+                        asm._redessine()
+                if all(f["trou"] for f in self.feuilles):
+                    self.phase = "enfiler"
+                    self._montre("enfiler")
+        elif self.phase == "enfiler":
+            main = self._tenu(CORDE)
+            if main is not None:
+                cx, cy = asm.ou_est_porte(main)
+                for f in self.feuilles:
+                    if any(f is e for e in self.enfilees):
+                        continue
+                    fx, fy = asm.a_l_ecran(f)
+                    if math.hypot(cx - fx, cy - fy) <= prise:
+                        self.enfilees.append(f)
+                        asm.fils = [(e["x"], e["y"]) for e in self.enfilees]
+                        asm._redessine()
+                if len(self.enfilees) >= len(self.feuilles):
+                    self._tiers_fini()
+        elif self.phase == "assembler":
+            tenus = [asm.porte(i) for i in (0, 1)]
+            lachees = [o for o in self._tenus if o is not None
+                       and not any(o is t for t in tenus)]
+            self._tenus = tenus
+            mx, my = self._milieu()
+            for m in lachees:
+                if not any(m is t for t in self.tiers) or m.get("verrou"):
+                    continue
+                ox, oy = asm.a_l_ecran(m)
+                if math.hypot(ox - mx, oy - my) <= PRISE_MORCEAU \
+                        * self._taille():
+                    # Sur sa place, ou un peu a cote : il s'y recentre et
+                    # s'y verrouille.
+                    m["verrou"] = True
+                    asm.place_a_l_ecran(m, mx, my)
+            if self.tiers and all(m.get("verrou") for m in self.tiers):
+                self.fini = True
+                self._annonce()
+                self.reussi()
+                return
+        self._annonce()
+
+
 MINIJEUX = {
     "couteau": MiniJeuCouteau,
     "fibre": MiniJeuFibre,
     "feu": MiniJeuFeu,
+    "feuille": MiniJeuFeuille,
 }
 
 
-__all__ = ["MiniJeuCouteau", "MiniJeuFibre", "MiniJeuFeu", "Fantome", "MINIJEUX", "COUCHE",
+__all__ = ["MiniJeuCouteau", "MiniJeuFibre", "MiniJeuFeu", "MiniJeuFeuille",
+           "Fantome", "MINIJEUX", "COUCHE",
            "AMINCISSEMENTS"]

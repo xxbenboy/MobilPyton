@@ -44,8 +44,8 @@ import math
 import random
 
 from kivy.clock import Clock
-from kivy.graphics import (Color, Line, PushMatrix, PopMatrix, Rectangle,
-                           Translate, Scale)
+from kivy.graphics import (Color, Ellipse, Line, PushMatrix, PopMatrix,
+                           Rectangle, Translate, Scale)
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
 
@@ -95,6 +95,8 @@ DELAI_AIMANT = 1.0
 SEUIL_BOUGE = 6.0
 # Deux grilles se touchent bord a bord a cette part de case pres.
 TOLERANCE_CONTACT = 0.15
+# Deux objets pareils a moins de cette part de leur taille sont EN PILE.
+EMPILE = 0.30
 
 
 def vue(e, x, y, l, h, ox=0.0, oy=0.0):
@@ -129,6 +131,12 @@ ECART_MORCEAU = 0.045
 # - les EMPLACEMENTS (Assemblage.emplacements) : [(nom, fx, fy)], les places
 #   ou un mini-jeu attend un objet, dessinees sous les objets.
 ALPHA_EMPLACEMENT = 0.30
+# - "trou" : False, un trou A PERCER au milieu de l'objet (un rond en
+#   pointilles) ; True, le trou perce. Et Assemblage.fils : la corde passee
+#   de trou en trou, [(fx, fy)].
+TROU = 0.10
+COULEUR_TROU = (0.08, 0.06, 0.04, 0.95)
+COULEUR_FIL = (0.78, 0.66, 0.42, 1.0)
 POINTILLE = 0.035
 TRAIT_A_FAIRE = (1.0, 1.0, 0.95, 0.95)
 OMBRE_TRAIT = (0.10, 0.08, 0.05, 0.75)
@@ -172,6 +180,25 @@ def dessine_travail(o, cx, cy, cote, ombre=True):
             dy = (0.012 if j % 2 else -0.012) * cote
             dessine_objet(o["nom"], cx + dx, cy + dy, cote, ombre=ombre,
                           coupe=(a, 1.0 - b))
+    trou = o.get("trou")
+    if trou is not None:
+        r = TROU * cote
+        if trou:
+            Color(*TRAIT_A_FAIRE[:3], 0.55)
+            Ellipse(pos=(cx - r * 1.15, cy - r * 1.15),
+                    size=(r * 2.3, r * 2.3))
+            Color(*COULEUR_TROU)
+            Ellipse(pos=(cx - r, cy - r), size=(r * 2, r * 2))
+        else:
+            n = 12
+            for k in range(0, n, 2):
+                a0 = 360.0 * k / n
+                Color(*OMBRE_TRAIT)
+                Line(circle=(cx, cy, r, a0, a0 + 360.0 / n),
+                     width=max(1.5, cote * 0.020))
+                Color(*TRAIT_A_FAIRE)
+                Line(circle=(cx, cy, r, a0, a0 + 360.0 / n),
+                     width=max(1.0, cote * 0.012))
     a_couper = o.get("a_couper", ())
     entailles = o.get("entailles", ())
     if not a_couper and not entailles:
@@ -259,6 +286,7 @@ class Assemblage(Widget):
         self.aimant_permis = True
         self.sur_pas = None
         self.emplacements = []
+        self.fils = []
         self.bind(pos=self._redessine, size=self._redessine)
 
     # -- ce qu'il y a sur le plan ---------------------------------------- #
@@ -278,6 +306,7 @@ class Assemblage(Widget):
         self.aimant_permis = True
         self.sur_pas = None
         self.emplacements = []
+        self.fils = []
         self._arrete()
         self._decale = [[0.0, 0.0], [0.0, 0.0]]
         if self.mains is not None:
@@ -320,19 +349,31 @@ class Assemblage(Widget):
         with self.canvas:
             # LES PLACES A REMPLIR d'un mini-jeu, sous les objets : l'objet
             # attendu, en fantome, dans un rond de craie.
-            for nom, fx, fy in self.emplacements:
+            for place in self.emplacements:
+                nom, fx, fy = place[:3]
+                rond = place[3] if len(place) > 3 else True
                 px, py = self.x + fx * self.width, self.y + fy * self.height
-                Color(*TRAIT_A_FAIRE[:3], 0.55)
-                Line(circle=(px, py, cote * 0.42),
-                     width=max(1.2, cote * 0.018))
+                if rond:
+                    Color(*TRAIT_A_FAIRE[:3], 0.55)
+                    Line(circle=(px, py, cote * 0.42),
+                         width=max(1.2, cote * 0.018))
                 dessine_objet(nom, px, py, cote, ombre=False,
                               alpha=ALPHA_EMPLACEMENT)
             # Du plus loin (haut) au plus pres : celui de devant passe devant.
             for o in sorted(self.objets, key=lambda o: -o["y"]):
-                if any(o is p for p in portes):
+                if any(o is p for p in portes) or o.get("cache"):
                     continue
                 dessine_travail(o, self.x + o["x"] * self.width,
                                 self.y + o["y"] * self.height, cote)
+            # LA CORDE ENFILEE d'un mini-jeu, de trou en trou.
+            if len(self.fils) >= 2:
+                pts = [v for fx, fy in self.fils
+                       for v in (self.x + fx * self.width,
+                                 self.y + fy * self.height)]
+                Color(*OMBRE_TRAIT)
+                Line(points=pts, width=max(1.5, cote * 0.030))
+                Color(*COULEUR_FIL)
+                Line(points=pts, width=max(1.2, cote * 0.020))
         self._dessine_portes()
 
     def _dessine_portes(self):
@@ -419,8 +460,9 @@ class Assemblage(Widget):
         portes = [o for o in self._porte if o is not None]
         meilleur, dist = None, rayon
         for o in self.objets:
-            if any(o is p for p in portes) or o.get("verrou"):
-                continue            # deja tenu, ou verrouille par un mini-jeu
+            if any(o is p for p in portes) or o.get("verrou") \
+                    or o.get("cache"):
+                continue            # deja tenu, ou mis de cote par un mini-jeu
             ox, oy = self.a_l_ecran(o)
             d = math.hypot(ox - px, oy - py)
             if d <= dist:
@@ -551,6 +593,11 @@ class Assemblage(Widget):
                 dx, dy = abs(ax - bx), abs(ay - by)
                 if (abs(dx - n * c) <= tol and dy < n * c - tol) or \
                         (abs(dy - n * c) <= tol and dx < n * c - tol):
+                    paires.append((a, b))
+                elif a["nom"] == b["nom"] and \
+                        math.hypot(dx, dy) <= EMPILE * n * c:
+                    # Encore EN PILE (pareils, presque l'un sur l'autre) :
+                    # une pile qu'on n'a pas defaite tient ensemble.
                     paires.append((a, b))
         return paires
 

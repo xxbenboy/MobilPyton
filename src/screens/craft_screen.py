@@ -122,6 +122,11 @@ def _police(label, remplit=0.62):
     return label
 
 
+
+# L'ecart entre deux exemplaires d'une pile dans la vue d'assemblage, en part
+# de la largeur de l'ecran (avant le grossissement).
+ECART_PILE = 0.004
+
 class _Fondu(Widget):
     """Un voile noir plein ecran ; tant qu'il est actif, il prend les
     touchers (rien ne doit bouger pendant le fondu)."""
@@ -413,7 +418,9 @@ class CraftScreen(Penche, Screen):
         r = assemblages.selon_objets(plan)
         if r is None:
             return None
-        if state.connait(r["result"]):
+        # Une famille (l'equipement en feuille) : la piece depend de la
+        # forme qu'on donnera aux feuilles, on ne peut pas encore la montrer.
+        if r["result"] is not None and state.connait(r["result"]):
             return r["result"]
         return "?"
 
@@ -486,8 +493,11 @@ class CraftScreen(Penche, Screen):
         state = App.get_running_app().game_state
         if state is None or self._mode != "zoom":
             return
-        r = assemblages.valide(self.assemblage.objets,
-                              self.assemblage.contacts())
+        asm = self.assemblage
+        taille = asm.case_objet() * 3
+        r = assemblages.valide(
+            asm.objets, asm.contacts(),
+            position=lambda o: tuple(v / taille for v in asm.a_l_ecran(o)))
         # La disposition validee, pour le carnet (les objets bougeront
         # pendant le mini-jeu).
         self._disposition = self.disposition() if r is not None else None
@@ -511,7 +521,7 @@ class CraftScreen(Penche, Screen):
         self._garnit(self._rang_titre, self._consigne, 1.0)
         self._minijeu = jeu(self.assemblage, lambda: self._reussit(r),
                             self._dit_consigne, couche=self.couche_fantome,
-                            mains=self.hands)
+                            mains=self.hands, recette=r)
         self._minijeu.demarre()
         self.assemblage.actif = True
 
@@ -679,11 +689,17 @@ class CraftScreen(Penche, Screen):
         if state is None or self._mode != "sol" or self._pente < 0.999:
             return False
         objets = []
-        for cle, (nom, _n) in sorted(state.sol_en_cases().items()):
+        for cle, (nom, n) in sorted(state.sol_en_cases().items()):
             if cle.startswith("C:"):
                 x, y = self.sol.centre.centre(cle)
-                objets.append((nom, (x - self.sol.x) / self.sol.width,
-                               (y - self.sol.y) / self.sol.height))
+                fx = (x - self.sol.x) / self.sol.width
+                fy = (y - self.sol.y) / self.sol.height
+                # UNE PILE S'ETALE EN EVENTAIL : chaque exemplaire est un
+                # objet a part dans la vue, un peu decale du precedent.
+                for k in range(n):
+                    objets.append((nom, fx + k * ECART_PILE,
+                                   fy + k * ECART_PILE * self.sol.width
+                                   / max(1.0, self.sol.height)))
         if not objets:
             return False
         self.sol.annule()

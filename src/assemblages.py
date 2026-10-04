@@ -32,10 +32,51 @@ ASSEMBLAGES = [
     # au couteau (voir RECETTES_FIBRE plus bas).
     # Trois fibres tressees.
     {"result": "Corde", "objets": {"Fibre_Vegetale": 3}},
-    # Quatre pierres : de quoi commencer un cercle de feu. Le mini-jeu en
-    # fait poser HUIT, en cercle (voir minijeux.MiniJeuFeu).
-    {"result": "Feu_de_camp", "objets": {"Pierre": 4}, "minijeu": "feu"},
+    # Huit pierres, posees en cercle par le mini-jeu (voir
+    # minijeux.MiniJeuFeu).
+    {"result": "Feu_de_camp", "objets": {"Pierre": 8}, "minijeu": "feu"},
 ]
+
+# L'EQUIPEMENT EN FEUILLE : une seule liste d'objets pour les cinq pieces --
+# quatre feuilles, deux branches, une corde, et le couteau qui perce (un
+# outil). C'est LA FORME DES QUATRE FEUILLES dans la vue d'assemblage qui dit
+# quelle piece on fabrique ; les branches, la corde et le couteau se collent
+# ou l'on veut. Chaque forme ressemble a sa piece (y vers le haut) :
+#
+#   Casque   . X .      un dome : une rangee, une feuille dessus au milieu
+#            X X X
+#
+#   Veste    X X X      les epaules et les manches, le corps dessous
+#            . X .
+#
+#   Pantalon X . X      deux jambes (collees ou non : X X / X X aussi)
+#            X . X
+#
+#   Gants    X .        la main et le pouce sur le cote (d'un cote ou de
+#            X X        l'autre)
+#            X .
+#
+#   Souliers X . .      une botte : le pied, et la tige a un bout (d'un cote
+#            X X X      ou de l'autre)
+FEUILLE = "Feuille"
+FORMES_FEUILLE = {
+    "Casque_De_Feuille": ({(0, 0), (1, 0), (2, 0), (1, 1)},),
+    "Veste_De_Feuille": ({(0, 1), (1, 1), (2, 1), (1, 0)},),
+    "Pantalon_De_Feuille": ({(0, 0), (0, 1), (2, 0), (2, 1)},
+                            {(0, 0), (0, 1), (1, 0), (1, 1)}),
+    "Gant_De_Feuille": ({(0, 0), (0, 1), (0, 2), (1, 1)},
+                        {(1, 0), (1, 1), (1, 2), (0, 1)}),
+    "Soulier_De_Feuille": ({(0, 0), (1, 0), (2, 0), (0, 1)},
+                           {(0, 0), (1, 0), (2, 0), (2, 1)}),
+}
+EQUIPEMENT_FEUILLE = {
+    "result": None, "famille": "feuille",
+    "objets": {FEUILLE: 4, "Small_Stick": 2, COUTEAU_EN_PIERRE: 1,
+               "Corde": 1},
+    "outils": {COUTEAU_EN_PIERRE: 0.10},
+    "minijeu": "feuille", "formes": FORMES_FEUILLE,
+}
+ASSEMBLAGES.append(EQUIPEMENT_FEUILLE)
 
 # LA FIBRE VEGETALE : un couteau en pierre et trois brins, herbes ou feuilles
 # dans n'importe quelle proportion (3 herbes, 2 herbes et 1 feuille, ...). Le
@@ -50,8 +91,39 @@ RECETTES_FIBRE = [
     for h in range(BRINS_FIBRE, -1, -1)]
 ASSEMBLAGES[3:3] = RECETTES_FIBRE
 
-# Le plus d'objets qu'une recette peut demander, a mains nues.
+# Le plus de CASES qu'une recette peut prendre, a mains nues (le plan fait
+# 2 x 2). Une matiere qui s'empile n'en prend qu'une (voir cases_requises).
 OBJETS_MAX = 4
+
+
+def cases_requises(recette):
+    """Combien de cases du plan cette recette occupe : une par matiere qui
+    s'empile, une par exemplaire pour les autres."""
+    from src import items
+    return sum(1 if items.empilable_au_plan(n) else c
+               for n, c in recette["objets"].items())
+
+
+def forme(points):
+    """Les points (en tailles d'objet) ramenes a des cases entieres, le coin
+    bas gauche en (0, 0) : un ensemble de (colonne, rangee)."""
+    if not points:
+        return set()
+    x0 = min(x for x, _y in points)
+    y0 = min(y for _x, y in points)
+    return {(int(round(x - x0)), int(round(y - y0))) for x, y in points}
+
+
+def selon_forme(recette, points):
+    """L'objet d'une famille (voir EQUIPEMENT_FEUILLE) que dessinent ces
+    points, ou None."""
+    f = forme(points)
+    if len(f) != len(points):
+        return None
+    for objet, formes in recette["formes"].items():
+        if f in formes:
+            return objet
+    return None
 
 
 def compte(noms):
@@ -95,12 +167,24 @@ def chacun_colle(objets, liens):
     return all(any(a is o or b is o for a, b in liens) for o in objets)
 
 
-def valide(objets, liens):
+def valide(objets, liens, position=None):
     """La recette realisee par ces objets ({"nom": ...}) et leurs contacts
-    dans la vue d'assemblage, ou None si l'un d'eux n'est colle a rien."""
+    dans la vue d'assemblage, ou None si l'un d'eux n'est colle a rien.
+
+    Pour une FAMILLE (l'equipement en feuille), c'est la forme des feuilles
+    qui choisit l'objet : `position(objet)` rend sa place en tailles
+    d'objet. La recette rendue est alors une copie, son objet renseigne."""
     r = selon_objets([o["nom"] for o in objets])
     if r is None or not chacun_colle(objets, liens):
         return None
+    if r.get("famille"):
+        if position is None:
+            return None
+        objet = selon_forme(r, [position(o) for o in objets
+                                if o["nom"] == FEUILLE])
+        if objet is None:
+            return None
+        r = dict(r, result=objet)
     return r
 
 
