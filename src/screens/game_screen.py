@@ -186,7 +186,11 @@ def _action_reason(state, action):
         return "Pas d'eau ici,\nni dans la gourde."
     if action.get("type") == "fill" and not state.has_water_source():
         return "Aucun ruisseau ici\npour remplir la gourde."
-    if action.get("type") == "explore" and state.hands_full():
+    # Mains pleines : ce qu'on a ramasse se pose de lui-meme au sol en
+    # explorant (voir do_action) ; seuls deux outils ou objets fabriques
+    # bloquent.
+    if action.get("type") == "explore" and state.hands_full() \
+            and state.main_a_vider() is None:
         return "Mains occupees.\nVide une main pour explorer."
     if action.get("type") == "berries":
         if state.berries_left() <= 0:
@@ -1143,6 +1147,15 @@ class GameScreen(Screen):
         elif atype == "drink" and not state.has_water_source():
             state.water = max(0, state.water - 1)
         elif atype == "explore":
+            # MAINS PLEINES : l'objet ramasse d'une main est pose au sol (a
+            # proximite) pour faire place a la trouvaille. Un outil, une arme
+            # ou un objet fabrique reste en main.
+            if state.hands_full():
+                main = state.main_a_vider()
+                if main is not None:
+                    pose = state.hands[main]
+                    state.drop_from_hands(main)
+                    state.add_log(f"{items.display_name(pose)} pose au sol")
             # La trouvaille et le retrait du decor se font a la FIN du trajet
             # (cf. _finish_action) ; ici on lance juste l'exploration.
             state.reveal_zone(state.player_x, state.player_y)

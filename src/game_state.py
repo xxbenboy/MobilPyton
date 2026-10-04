@@ -1039,6 +1039,15 @@ class GameState:
         self.add_log(f"{items.display_name(name)} retire")
         return spilled
 
+    def main_a_vider(self):
+        """Mains pleines : la main dont l'objet ramasse peut etre pose pour
+        explorer (la droite d'abord, ou ira la trouvaille), ou None si les
+        deux tiennent un outil, une arme ou un objet fabrique."""
+        for i in (1, 0):
+            if items.est_collectable(self.hands[i]):
+                return i
+        return None
+
     def drop_from_hands(self, index):
         """Depose au sol l'objet tenu dans la main donnee (0=gauche, 1=droite)."""
         if index in (0, 1) and self.hands[index] is not None:

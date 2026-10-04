@@ -451,6 +451,16 @@ def is_hand_collectable(name):
     return name not in GROUND_ONLY
 
 
+def est_collectable(name):
+    """Vrai pour ce qu'on RAMASSE dans la nature (exploration, couteau) :
+    les matieres brutes. Faux pour un outil, une arme, un equipement ou tout
+    objet fabrique."""
+    if name is None or pile_max(name) == 1:
+        return False
+    return any(name == n for table in ZONE_FINDS.values() for n, _w in table) \
+        or any(name in table for table in KNIFE_FINDS.values())
+
+
 # Objets trouvables par type de zone : (nom, poids).
 # Le POIDS = rarete relative. Plus il est grand, plus l'objet est frequent.
 # Ex : une Small_Stick ou une Pierre (poids eleve) sont communes ; une Carcasse
