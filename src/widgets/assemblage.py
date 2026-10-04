@@ -101,8 +101,7 @@ DELAI_AIMANT = 1.0
 SEUIL_BOUGE = 6.0
 # Deux grilles se touchent bord a bord a cette part de case pres.
 TOLERANCE_CONTACT = 0.15
-# Deux objets pareils a moins de cette part de leur taille sont EN PILE.
-EMPILE = 0.30
+
 
 
 def vue(e, x, y, l, h, ox=0.0, oy=0.0):
@@ -298,6 +297,8 @@ class Assemblage(Widget):
     # -- ce qu'il y a sur le plan ---------------------------------------- #
     def charge(self, objets):
         """[(nom, fx, fy)] : les objets du plan, au milieu de leur case."""
+        # Cales sur la grille du plan des le depart.
+        objets = [(n,) + self.grille_fraction(fx, fy) for n, fx, fy in objets]
         self.objets = [{"nom": n, "x": fx, "y": fy, "x0": fx, "y0": fy,
                         "xa": fx, "ya": fy, "coupe": [0.0, 0.0]}
                        for n, fx, fy in objets]
@@ -403,6 +404,19 @@ class Assemblage(Widget):
             y = oy + k * case
             Line(points=[self.x, y, self.x + self.width, y], width=largeur)
 
+    def grille_fraction(self, fx, fy):
+        """Le point (parts du widget, avant grossissement) cale sur la grille
+        du plan."""
+        if self.width <= 0 or self.height <= 0:
+            return fx, fy
+        case = TAILLE_OBJET * self.height / CASES_OBJET
+        ox = CENTRE_PLAN[0] * self.width
+        oy = CENTRE_PLAN[1] * self.height
+        x, y = fx * self.width, fy * self.height
+        x = ox + (round((x - ox) / case - 0.5) + 0.5) * case
+        y = oy + (round((y - oy) / case - 0.5) + 0.5) * case
+        return x / self.width, y / self.height
+
     def sur_grille(self, px, py):
         """Le point de l'ecran ou se cale un objet lache en (px, py) : ses
         cases sur celles de la grille du plan."""
@@ -489,9 +503,13 @@ class Assemblage(Widget):
                    self.x, self.y)
 
     def _prend(self, i):
-        """La paume `i` passe-t-elle sur un objet libre ? Elle le prend."""
+        """La paume `i` passe-t-elle sur un objet libre ? Elle le prend --
+        mais seulement s'il est aussi la ou le doigt l'emmene : en chemin
+        vers l'endroit touche, la main passe sur d'autres objets sans les
+        ramasser."""
         px, py = self.paume(i)
         rayon = SAISIE * TAILLE_OBJET * self.height * ZOOM
+        vx, vy = self.paume_visee(i)
         portes = [o for o in self._porte if o is not None]
         meilleur, dist = None, rayon
         for o in self.objets:
@@ -500,22 +518,30 @@ class Assemblage(Widget):
                 continue            # deja tenu, ou mis de cote par un mini-jeu
             ox, oy = self.a_l_ecran(o)
             d = math.hypot(ox - px, oy - py)
-            if d <= dist:
+            if d <= dist and math.hypot(ox - vx, oy - vy) <= rayon:
                 meilleur, dist = o, d
         if meilleur is not None:
             self._porte[i] = meilleur
             self.decolle(meilleur)
             self._redessine()
 
+    def paume_visee(self, i):
+        """Ou sera la paume `i` une fois arrivee sous le doigt qui la mene."""
+        if self.mains is None:
+            return self.paume(i)
+        bx, by = self.mains.paume(i)
+        tx, ty = self._cible(i)
+        souffle = getattr(self.mains, "_shift", None)
+        sx, sy = (souffle.x, souffle.y) if souffle is not None else (0, 0)
+        return bx + tx + sx, by + ty + sy
+
     def _pose(self, i):
         """L'objet porte par la main `i` reste exactement ou il est."""
         o = self._porte[i]
         px, py = self.ou_est_porte(i)
         colle = self._aimante[i]
-        if colle is None and self.aimant_permis:
-            # Cale sur la grille du plan (pas pendant un mini-jeu, qui place
-            # les objets a sa facon).
-            px, py = self.sur_grille(px, py)
+        # TOUJOURS calee sur la grille du plan.
+        px, py = self.sur_grille(px, py)
         if colle is None and self.aimant_permis and \
                 self._chevauche(px, py, o):
             # LACHE PAR-DESSUS UN AUTRE : pousse a la place libre la plus
@@ -630,13 +656,15 @@ class Assemblage(Widget):
                     continue
                 bx, by = self.a_l_ecran(b)
                 dx, dy = abs(ax - bx), abs(ay - by)
-                if (abs(dx - n * c) <= tol and dy < n * c - tol) or \
-                        (abs(dy - n * c) <= tol and dx < n * c - tol):
+                if (abs(dx - n * c) <= tol and dy < n * c + tol) or \
+                        (abs(dy - n * c) <= tol and dx < n * c + tol):
+                    # Bord a bord, ou COIN A COIN : en diagonale, deux objets
+                    # se tiennent aussi (le casque en est fait).
                     paires.append((a, b))
-                elif a["nom"] == b["nom"] and \
-                        math.hypot(dx, dy) <= EMPILE * n * c:
-                    # Encore EN PILE (pareils, presque l'un sur l'autre) :
-                    # une pile qu'on n'a pas defaite tient ensemble.
+                elif a["nom"] == b["nom"] and dx < n * c - tol \
+                        and dy < n * c - tol:
+                    # Encore EN PILE (pareils, l'un sur l'autre) : une pile
+                    # qu'on n'a pas defaite tient ensemble.
                     paires.append((a, b))
         return paires
 

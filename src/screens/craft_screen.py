@@ -68,7 +68,7 @@ from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import (scale_font, ROW_TITLE, ROW_BODY,
                                     ROW_HANDS, ROW_HINT, ROW_BACK)
 from src.widgets.menu_toggle import MenuToggle
-from src.widgets.sol_de_craft import SolDeCraft, coins_rect
+from src.widgets.sol_de_craft import SolDeCraft, coins_rect, TAILLE_OBJET
 from src.screens.inventory_screen import gabarit_proximite, coins_estimes
 from src.widgets.assemblage import Assemblage, Loupe, DUREE_ZOOM, vue_inverse
 from src.widgets.flou import floute
@@ -121,11 +121,6 @@ def _police(label, remplit=0.62):
     _maj()
     return label
 
-
-
-# L'ecart entre deux exemplaires d'une pile dans la vue d'assemblage, en part
-# de la largeur de l'ecran (avant le grossissement).
-ECART_PILE = 0.004
 
 class _Fondu(Widget):
     """Un voile noir plein ecran ; tant qu'il est actif, il prend les
@@ -694,12 +689,14 @@ class CraftScreen(Penche, Screen):
                 x, y = self.sol.centre.centre(cle)
                 fx = (x - self.sol.x) / self.sol.width
                 fy = (y - self.sol.y) / self.sol.height
-                # UNE PILE S'ETALE EN EVENTAIL : chaque exemplaire est un
-                # objet a part dans la vue, un peu decale du precedent.
+                # UNE PILE S'ETALE EN GRAPPE : chaque exemplaire est un objet
+                # a part dans la vue, decale d'une case de la grille (trois
+                # par rangee), et ils se chevauchent : la pile tient ensemble.
+                case_x = TAILLE_OBJET * self.sol.height / 3.0 \
+                    / max(1.0, self.sol.width)
                 for k in range(n):
-                    objets.append((nom, fx + k * ECART_PILE,
-                                   fy + k * ECART_PILE * self.sol.width
-                                   / max(1.0, self.sol.height)))
+                    objets.append((nom, fx + (k % 3) * case_x,
+                                   fy - (k // 3) * TAILLE_OBJET / 3.0))
         if not objets:
             return False
         self.sol.annule()
