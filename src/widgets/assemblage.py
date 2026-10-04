@@ -419,8 +419,8 @@ class Assemblage(Widget):
         portes = [o for o in self._porte if o is not None]
         meilleur, dist = None, rayon
         for o in self.objets:
-            if any(o is p for p in portes):
-                continue
+            if any(o is p for p in portes) or o.get("verrou"):
+                continue            # deja tenu, ou verrouille par un mini-jeu
             ox, oy = self.a_l_ecran(o)
             d = math.hypot(ox - px, oy - py)
             if d <= dist:

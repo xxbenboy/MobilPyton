@@ -29,9 +29,11 @@ LA FIBRE VEGETALE
 LE FEU DE CAMP
     1. la recette ne demande que QUATRE pierres, mais au debut du jeu chaque
        pierre se DEDOUBLE : il y en a huit ;
-    2. huit places, en cercle autour du milieu du plan, attendent chacune
-       une pierre ; une pierre lachee pres d'une place libre s'y range ;
-    3. les huit places remplies : le feu de camp est fait.
+    2. les huit pierres sont rangees A GAUCHE DE L'ECRAN ; huit places, en
+       cercle autour du milieu du plan, attendent chacune une pierre ;
+    3. une pierre lachee sur une place libre, ou un peu a cote, se recentre
+       dessus et s'y VERROUILLE : on ne peut plus la reprendre ;
+    4. les huit places remplies : le feu de camp est fait.
     Annule, les pierres en double disparaissent : les quatre vraies
     regagnent leurs cases, comme d'habitude.
 
@@ -548,7 +550,13 @@ class MiniJeuFibre(object):
 PLACES_FEU = 8
 RAYON_CERCLE = 0.95
 HAUSSE_CERCLE = 0.05
-PRISE_PLACE = 0.50
+PRISE_PLACE = 0.65
+# LA RESERVE : les huit pierres, au debut, en deux colonnes de quatre au bord
+# gauche de l'ecran (parts de la largeur et de la hauteur, et ecart entre
+# deux pierres en tailles d'objet).
+RESERVE_X = 0.06
+RESERVE_Y = 0.74
+PAS_RESERVE = 0.80
 DUREE_RANGER = 1.6
 PIERRE = "Pierre"
 
@@ -607,6 +615,15 @@ class MiniJeuFeu(object):
             asm.objets.append(jumelle)
             asm.place_a_l_ecran(jumelle, libre[1], libre[2])
             self.doubles.append(jumelle)
+        # TOUTES LES PIERRES A GAUCHE de l'ecran, loin du cercle.
+        t = self._taille()
+        pierres = [o for o in asm.objets if o["nom"] == PIERRE]
+        for n, o in enumerate(pierres):
+            col, rang = n // 4, n % 4
+            asm.place_a_l_ecran(o, asm.x + RESERVE_X * asm.width
+                                + col * PAS_RESERVE * t,
+                                asm.y + RESERVE_Y * asm.height
+                                - rang * PAS_RESERVE * t)
         asm._redessine()
         self._annonce()
         self._montre()
@@ -626,6 +643,8 @@ class MiniJeuFeu(object):
                 asm._aimante[i] = None
         asm.objets = [o for o in asm.objets
                       if not any(o is d for d in self.doubles)]
+        for o in asm.objets:
+            o.pop("verrou", None)
         self.doubles = []
         asm.emplacements = []
         asm._redessine()
@@ -695,7 +714,9 @@ class MiniJeuFeu(object):
                 continue
             d, k = min(proches)
             if d <= prise:
-                # Lachee pres d'une place libre : elle s'y range.
+                # Lachee sur une place libre ou un peu a cote : elle se
+                # recentre dessus, et s'y VERROUILLE.
+                o["verrou"] = True
                 self.asm.place_a_l_ecran(o, *self.places[k])
                 prises.add(k)
         self._annonce()
