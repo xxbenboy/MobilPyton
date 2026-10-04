@@ -937,6 +937,7 @@ class ZoneScenery(Widget):
         self._gros = {}
         self._pos_baies = {}
         self._cellule = None
+        self._dessin_de = None
         self._ord = {}
         self._harvest_total = {}
         self._avail = {}            # {nom: nb recoltable} (aleatoire, par case)
@@ -2486,6 +2487,15 @@ class ZoneScenery(Widget):
             tw, th = tex.size
             height = width * (float(th) / float(tw)) if tw else width
         w, h = foliage.size_for(tex, height)
+        # Un GROS element en cours de dessin (voir _dessine_gros) retient son
+        # image et son cadre exact : le mode action le redessine par-dessus
+        # le reste du decor pour le faire clignoter.
+        cell = self._dessin_de
+        if cell is not None and cell in self._gros:
+            g = self._gros[cell]
+            g["image"] = (tex, cx - w / 2.0, base, w, h,
+                          tuple(teinte[:3]) if teinte else (1.0, 1.0, 1.0))
+            g["boite"] = (cx - w / 2.0, base, cx + w / 2.0, base + h)
         # CARTES DE RELIEF, SI ELLES ONT ETE FOURNIES (nom_R / nom_P a cote de
         # l'image). L'element est alors eclaire par le soleil de la scene et
         # son cote clair suit l'heure, au lieu de porter un relief peint une
@@ -3496,8 +3506,18 @@ class ZoneScenery(Widget):
         d = r * 0.13
         return [(x, y, d) for x, y in places[:n]]
 
+    def _dessine_gros(self, cell, dessin, *args):
+        """Dessine le gros element `cell` en notant son image (voir
+        _sprite)."""
+        self._dessin_de = cell
+        try:
+            dessin(*args)
+        finally:
+            self._dessin_de = None
+
     def _bush_et_baies(self, cx, cy, r, color, cell):
-        self._bush(cx, cy, r, color, sprite=self._zs("bush"))
+        self._dessine_gros(cell, self._bush, cx, cy, r, color,
+                           self._zs("bush"))
         n = self._baies.get(cell, 0)
         if n <= 0:
             return
@@ -3719,15 +3739,20 @@ class ZoneScenery(Widget):
             if kind == "tree":
                 th = (1.00 - 0.58 * depth) * jit.uniform(0.85, 1.10) * h
                 self._note_gros("tree", tx, tb, th * 0.55, th)
+                cell = self._cellule
                 if jit.random() < 0.5:
                     tw = (0.11 - 0.05 * depth) * jit.uniform(0.85, 1.15) * w
-                    items.append((tb, lambda tx=tx, tb=tb, tw=tw, th=th:
-                                  self._pine(tx, tb, tw, th,
-                                             (0.06, 0.15, 0.09, 1))))
+                    items.append((tb, lambda tx=tx, tb=tb, tw=tw, th=th,
+                                  cell=cell:
+                                  self._dessine_gros(cell, self._pine, tx, tb,
+                                                     tw, th,
+                                                     (0.06, 0.15, 0.09, 1))))
                 else:
                     sc = 1.0 - 0.6 * depth
-                    items.append((tb, lambda tx=tx, tb=tb, th=th, sc=sc:
-                                  self._forest_tree(tx, tb, th, sc)))
+                    items.append((tb, lambda tx=tx, tb=tb, th=th, sc=sc,
+                                  cell=cell:
+                                  self._dessine_gros(cell, self._forest_tree,
+                                                     tx, tb, th, sc)))
             else:                                     # buisson de sous-bois
                 g2 = jit.uniform(0.0, 0.06)
                 r = (0.13 - 0.06 * depth) * jit.uniform(0.85, 1.15) * h

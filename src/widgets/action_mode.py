@@ -23,6 +23,7 @@ import random
 from kivy.clock import Clock
 from kivy.graphics import (Color, Ellipse, Line, Rectangle, PushMatrix,
                            PopMatrix, Translate, Scale, Triangle)
+from kivy.graphics.texture import Texture
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
 
@@ -95,15 +96,55 @@ class Approche(FloatLayout):
 # --------------------------------------------------------------------- #
 # CE QUI CLIGNOTE
 # --------------------------------------------------------------------- #
-LUEUR = (1.0, 0.95, 0.70)
-CADENCE = 1.4               # clignotements par seconde
+_SILHOUETTES = {}
+
+
+def silhouette(tex):
+    """La silhouette BLANCHE d'une image : ses pixels passes en blanc, sa
+    transparence gardee. Calculee une fois par image ; None si l'image ne se
+    laisse pas lire."""
+    cle = id(tex)
+    if cle not in _SILHOUETTES:
+        sil = None
+        try:
+            w, h = tex.size
+            px = bytearray(tex.pixels)
+            n = w * h
+            if len(px) == n * 4:
+                blanc = b"\xff" * n
+                px[0::4] = blanc
+                px[1::4] = blanc
+                px[2::4] = blanc
+                sil = Texture.create(size=(w, h), colorfmt="rgba")
+                sil.blit_buffer(bytes(px), colorfmt="rgba", bufferfmt="ubyte")
+                sil.wrap = "clamp_to_edge"
+                if tex.uvsize[1] < 0:
+                    sil.flip_vertical()
+        except Exception:
+            sil = None
+        _SILHOUETTES[cle] = (tex, sil)
+    return _SILHOUETTES[cle][1]
+
+
+JAUNE = (1.0, 0.88, 0.10)           # le clignotement, transparent
+CONTOUR = (0.85, 0.58, 0.0, 1.0)    # le contour, jaune fonce et plein
+EPAISSEUR_CONTOUR = 0.0065          # en part de la hauteur de l'ecran
+VOILE = (0.80, 0.82, 0.85, 0.42)    # estompe le reste du decor
+CADENCE = 1.4                       # clignotements par seconde
 
 
 class Clignote(Widget):
     """Les elements avec lesquels on peut agir, qui clignotent.
 
     Une cible : {"kind": "baies" | "eau" | "arbre", "cell": (gx, gy) ou
-    None, "boite": (x0, y0, x1, y1) a l'ecran}."""
+    None, "boite": (x0, y0, x1, y1) a l'ecran, et, si le decor l'a
+    dessinee en image, "image": (texture, x, y, l, h, teinte) et "baies":
+    [(x, y, d)]}.
+
+    LE RESTE DU DECOR S'ESTOMPE sous un voile clair, et chaque element est
+    REDESSINE PAR-DESSUS : on le voit donc en entier, meme cache derriere un
+    rocher ou un autre arbre. Sa silhouette est cernee d'un contour jaune
+    fonce et plein, et un jaune transparent clignote sur lui."""
 
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
@@ -142,22 +183,70 @@ class Clignote(Widget):
         p = 0.5 + 0.5 * math.sin(self._t * 2.0 * math.pi * CADENCE)
         self.canvas.clear()
         with self.canvas:
+            self._voile()
             for c in self.cibles:
-                x0, y0, x1, y1 = c["boite"]
-                w, h = x1 - x0, y1 - y0
                 if c["kind"] == "eau":
-                    Color(*LUEUR, 0.10 + 0.22 * p)
-                    Rectangle(pos=(x0, y0), size=(w, h))
-                    Color(*LUEUR, 0.35 + 0.55 * p)
-                    Line(points=[x0, y1, x1, y1], width=max(1.5, h * 0.012))
-                    continue
-                # Une lueur douce sur l'element, et son contour.
-                for k, a in ((1.10, 0.06), (1.00, 0.10), (0.85, 0.12)):
-                    Color(*LUEUR, a * (0.4 + 1.2 * p))
-                    Ellipse(pos=(x0 + w * (1 - k) / 2.0, y0 + h * (1 - k) / 2.0),
-                            size=(w * k, h * k))
-                Color(*LUEUR, 0.30 + 0.60 * p)
-                Line(ellipse=(x0, y0, w, h), width=max(1.5, 0.004 * self.height))
+                    self._eau(c, p)
+                elif c.get("image") is not None:
+                    self._silhouette(c, p)
+                else:
+                    self._ovale(c, p)
+
+    def _voile(self):
+        """Le voile sur tout l'ecran, SAUF l'eau qui clignote (elle n'est
+        pas redessinee : la voiler la cacherait)."""
+        x, w = self.x, self.width
+        bandes = sorted((c["boite"][1], c["boite"][3]) for c in self.cibles
+                        if c["kind"] == "eau")
+        Color(*VOILE)
+        bas = self.y
+        for b0, b1 in bandes:
+            if b0 > bas:
+                Rectangle(pos=(x, bas), size=(w, b0 - bas))
+            bas = max(bas, b1)
+        if bas < self.top:
+            Rectangle(pos=(x, bas), size=(w, self.top - bas))
+
+    def _silhouette(self, c, p):
+        tex, x, y, w, h, teinte = c["image"]
+        # La silhouette BLANCHE de l'image : teintee, elle donne un jaune
+        # franc. L'image elle-meme, multipliee par du jaune, restait verte.
+        sil = silhouette(tex) or tex
+        e = max(1.5, EPAISSEUR_CONTOUR * self.height)
+        # Le CONTOUR : la silhouette en jaune fonce, decalee tout autour.
+        Color(*CONTOUR)
+        for k in range(12):
+            a = 2.0 * math.pi * k / 12.0
+            Rectangle(texture=sil, pos=(x + math.cos(a) * e,
+                                        y + math.sin(a) * e), size=(w, h))
+        # L'element lui-meme, par-dessus le voile et ce qui le cachait.
+        Color(*teinte, 1.0)
+        Rectangle(texture=tex, pos=(x, y), size=(w, h))
+        for bx, by, d in c.get("baies", ()):
+            dessine_grappe(bx, by, d)
+        # Le CLIGNOTEMENT : un jaune transparent sur sa silhouette.
+        Color(*JAUNE, 0.10 + 0.40 * p)
+        Rectangle(texture=sil, pos=(x, y), size=(w, h))
+
+    def _eau(self, c, p):
+        x0, y0, x1, y1 = c["boite"]
+        Color(*JAUNE, 0.14 + 0.28 * p)
+        Rectangle(pos=(x0, y0), size=(x1 - x0, y1 - y0))
+        Color(*CONTOUR)
+        e = max(1.5, EPAISSEUR_CONTOUR * self.height)
+        Line(points=[x0, y1, x1, y1], width=e)
+
+    def _ovale(self, c, p):
+        """Un element dessine sans image : un ovale a sa place."""
+        x0, y0, x1, y1 = c["boite"]
+        w, h = x1 - x0, y1 - y0
+        Color(*JAUNE, 0.12 + 0.35 * p)
+        Ellipse(pos=(x0, y0), size=(w, h))
+        Color(*CONTOUR)
+        Line(ellipse=(x0, y0, w, h),
+             width=max(1.5, EPAISSEUR_CONTOUR * self.height))
+        for bx, by, d in c.get("baies", ()):
+            dessine_grappe(bx, by, d)
 
 
 # --------------------------------------------------------------------- #

@@ -358,6 +358,11 @@ class GameScreen(Screen):
         # Insectes animes (papillons / abeilles) qui volent dans la scene.
         self.insects = InsectLayer(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         self.monde.add_widget(self.insects)
+        # Ce qui CLIGNOTE en mode action : par-dessus le decor (qu'il voile
+        # et dont il redessine l'element vise), mais SOUS les mains, qui
+        # restent devant tout.
+        self.clignote = Clignote(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.clignote)
         # Ce que dessinent les mini-jeux du mode action : SOUS les mains (les
         # baies sur le buisson, l'entaille du tronc) et SUR elles (l'eau
         # dans les paumes, les copeaux).
@@ -403,10 +408,6 @@ class GameScreen(Screen):
                                         pos_hint={"x": 0, "y": 0})
         root.add_widget(self.lightning)
 
-        # Ce qui CLIGNOTE en mode action : par-dessus le voile de nuit, pour
-        # se voir aussi la nuit.
-        self.clignote = Clignote(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
-        root.add_widget(self.clignote)
 
         # LE HUD, tout entier dans un seul conteneur : le mode action l'efface
         # d'un fondu, et le rend de meme.
@@ -1075,7 +1076,9 @@ class GameScreen(Screen):
                     gros = sc.boite_de(cell)
                     if gros is not None and sc.baies_de(cell):
                         cibles.append({"kind": "baies", "cell": cell,
-                                       "boite": gros["boite"], "gros": gros})
+                                       "boite": gros["boite"], "gros": gros,
+                                       "image": gros.get("image"),
+                                       "baies": sc.baies_de(cell)})
         if state.au_bord_de_l_eau():
             x0, y0, w, h = sc.x, sc.y, sc.width, sc.height
             cibles.append({"kind": "eau", "cell": None,
@@ -1088,7 +1091,8 @@ class GameScreen(Screen):
                     gros = sc.boite_de(cell)
                     if gros is not None:
                         cibles.append({"kind": "arbre", "cell": cell,
-                                       "boite": gros["boite"], "gros": gros})
+                                       "boite": gros["boite"], "gros": gros,
+                                       "image": gros.get("image")})
             else:
                 raisons.append("Il faut une hache en main\npour couper un arbre.")
         if not cibles and not raisons:

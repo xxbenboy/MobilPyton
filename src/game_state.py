@@ -1929,15 +1929,15 @@ class GameState:
     # ------------------------------------------------------------------ #
     #
     # TOUS LES BUISSONS NE PORTENT PAS DE BAIES, ET PAS SUR TOUTES LES CASES :
-    # une case sur deux (CASES_A_BAIES) a des buissons a baies, et sur cette
-    # case chaque buisson en porte avec la chance BUISSON_A_BAIES (au moins
+    # quatre cases sur cinq (CASES_A_BAIES) ont des buissons a baies, et sur
+    # elles chaque buisson en porte avec la chance BUISSON_A_BAIES (au moins
     # un). Tire de la graine de la case : stable d'une visite a l'autre.
     # Les baies cueillies se comptent PAR BUISSON, dans les recoltes de la
     # case (`harvested`), sous des cles a part que la scene ignore. Un
     # buisson depouille de sa derniere baie quitte le decor.
     BAIES_PAR_BUISSON = (2, 4)
-    CASES_A_BAIES = 0.5
-    BUISSON_A_BAIES = 0.6
+    CASES_A_BAIES = 0.8
+    BUISSON_A_BAIES = 0.85
 
     @staticmethod
     def _cle_baies(cell):
