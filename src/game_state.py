@@ -1312,10 +1312,27 @@ class GameState:
         return [pile[0] for cle, pile in sorted(self.sol_en_cases().items())
                 if cle in CASES_CENTRE for _ in range(pile[1])]
 
-    def detruit_le_plan(self):
+    def detruit_le_plan(self, recette=None):
         """Les objets du plan de travail DISPARAISSENT (assemblage rate).
-        Rend leur nombre."""
-        return len(self._retire_le_plan())
+        Rend leur nombre.
+
+        Sauf LES OUTILS de la recette tentee (`recette`) : le coup a ete
+        donne, ils perdent la meme part de solidite qu'en cas de reussite,
+        mais retournent a la proximite comme apres un craft reussi."""
+        retires = self._retire_le_plan()
+        self._rend_les_outils(retires, (recette or {}).get("outils", {}))
+        return len(retires)
+
+    def _rend_les_outils(self, retires, outils):
+        """Les outils `outils` ({nom: usure}) retires du plan s'usent de leur
+        part et retournent a la proximite, sauf uses jusqu'au bout."""
+        for outil, usure in outils.items():
+            avant = next((u for n, u in retires if n == outil), None)
+            if avant is None:
+                continue
+            apres = float(avant) + float(usure)
+            if apres < 1.0 - 1e-9:
+                self.add_ground(outil, wear=apres)
 
     def _retire_le_plan(self):
         """Retire du sol les objets du plan de travail ; rend [(nom, usure)].
@@ -1348,11 +1365,7 @@ class GameState:
         retires = self._retire_le_plan()
         # LES OUTILS servent sans etre consommes : ils s'usent et retournent
         # a la proximite, sauf uses jusqu'au bout.
-        for outil, usure in recette.get("outils", {}).items():
-            avant = next((u for n, u in retires if n == outil), 0.0)
-            apres = float(avant) + float(usure)
-            if apres < 1.0 - 1e-9:
-                self.add_ground(outil, wear=apres)
+        self._rend_les_outils(retires, recette.get("outils", {}))
         objet = recette["result"]
         main = next((i for i in (1, 0) if self.hands[i] is None), None)
         if main is not None and objet not in items.GROUND_ONLY:

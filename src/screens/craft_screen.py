@@ -45,7 +45,8 @@ les aura tous des sa fabrication.
 
 DANS LA VUE, ASSEMBLER AVERTIT d'abord : des objets mal places seront
 DETRUITS. Si le joueur continue :
-  - mal places (voir assemblages.valide) : ils disparaissent ;
+  - mal places (voir assemblages.valide) : ils disparaissent, sauf les
+    OUTILS de la recette, qui s'usent comme pour une reussite et restent ;
   - bien places, objet deja connu : il est fabrique ;
   - bien places, objet inconnu : son MINI-JEU se lance (voir minijeux.py).
     Reussi, un message annonce le craft APPRIS, que le joueur confirme.
@@ -452,7 +453,8 @@ class CraftScreen(Penche, Screen):
             size_hint=(1, 0.30))))
         boite.add_widget(_police(Label(
             text="Si ces objets ne forment pas un assemblage valide,\n"
-                 "ils seront detruits.", halign="center", valign="middle",
+                 "ils seront detruits (les outils s'usent, mais restent).",
+            halign="center", valign="middle",
             color=TEXTE_BOIS, size_hint=(1, 0.40))))
         rang = BoxLayout(orientation="horizontal", spacing=dp(12),
                          size_hint=(1, 0.30))
@@ -487,7 +489,9 @@ class CraftScreen(Penche, Screen):
         # pendant le mini-jeu).
         self._disposition = self.disposition() if r is not None else None
         if r is None:
-            state.detruit_le_plan()
+            # Les outils de la recette tentee s'usent mais restent.
+            state.detruit_le_plan(assemblages.selon_objets(
+                [o["nom"] for o in self.assemblage.objets]))
             App.get_running_app().autosave()
             self._fin_assemblage()
             self.montre_message("Assemblage rate : les objets sont perdus")
