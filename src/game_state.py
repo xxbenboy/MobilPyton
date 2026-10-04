@@ -1770,6 +1770,57 @@ class GameState:
         self.gain_xp("couper")
         return cell
 
+    # ------------------------------------------------------------------ #
+    # Baies des buissons et trouvailles au couteau
+    # ------------------------------------------------------------------ #
+    # Comptees avec les recoltes de la case (`harvested`), sous des cles a
+    # part : la scene ne les connait pas et les ignore.
+    BAIES_CUEILLIES = "buisson:baies"
+    BAIES_PAR_BUISSON = (2, 4)
+
+    def berry_bushes_left(self):
+        """Buissons debout de la case qu'on n'a pas encore cueillis."""
+        cueillis = self.harvested_here().get(self.BAIES_CUEILLIES, 0)
+        return max(0, len(self.bushes_here()) - cueillis)
+
+    def pick_berries(self, rng=None):
+        """Cueille les baies d'un buisson : elles vont au sol. Rend leur
+        nombre (0 s'il n'y a plus de buisson a cueillir)."""
+        if self.berry_bushes_left() <= 0:
+            return 0
+        rng = rng or random
+        n = rng.randint(*self.BAIES_PAR_BUISSON)
+        taken = self.harvested_here()
+        taken[self.BAIES_CUEILLIES] = taken.get(self.BAIES_CUEILLIES, 0) + 1
+        self.add_ground("Baie", n)
+        return n
+
+    def knife_finds_left(self):
+        """{objet: nombre} que le couteau peut encore trouver sur la case."""
+        table = items.KNIFE_FINDS.get(self.current_zone(), {})
+        taken = self.harvested_here()
+        rng = random.Random("%s:couteau" % world.scene_seed(self.player_x,
+                                                             self.player_y))
+        out = {}
+        for name in sorted(table):
+            if name == items.LEAFY_BRANCH:
+                left = len(self.bushes_here())
+            else:
+                lo, hi = table[name]
+                left = rng.randint(lo, hi) - taken.get("couteau:" + name, 0)
+            if left > 0:
+                out[name] = left
+        return out
+
+    def take_knife_find(self, name):
+        """Compte une trouvaille au couteau. La branche feuillue se coupe sur
+        un buisson : il quitte le decor."""
+        if name == items.LEAFY_BRANCH:
+            self.cut_bush()
+            return
+        taken = self.harvested_here()
+        taken["couteau:" + name] = taken.get("couteau:" + name, 0) + 1
+
     def bushes_here(self):
         """Buissons encore DEBOUT sur la case : [(gx, gy), ...]."""
         return [cell for cell, kind in sorted(self.nature_cells_here().items())

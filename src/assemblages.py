@@ -39,9 +39,9 @@ ASSEMBLAGES = [
 
 # LA FIBRE VEGETALE : un couteau en pierre et trois brins, herbes ou feuilles
 # dans n'importe quelle proportion (3 herbes, 2 herbes et 1 feuille, ...). Le
-# couteau y laisse un quart de sa solidite.
+# couteau y laisse un dixieme de sa solidite, comme tout mini-jeu.
 BRINS_FIBRE = 3
-USURE_FIBRE = 0.25
+USURE_FIBRE = 0.10          # un mini-jeu use le couteau de 10 %
 RECETTES_FIBRE = [
     {"result": "Fibre_Vegetale",
      "objets": {k: v for k, v in (("Herbe", h), ("Feuille", BRINS_FIBRE - h),

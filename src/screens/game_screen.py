@@ -85,10 +85,10 @@ EFFECT_FLY_SECONDS = 0.75
 # temps). "requires_sleep" => possible seulement si on est assez fatigue.
 # Ce que rapporte un arbre abattu, depose AU SOL : (objet, mini, maxi).
 CHOP_YIELD = (("Buche", 3, 3), ("Long_Stick", 3, 5), ("Feuille", 5, 10))
-# Ce que rapporte le COUTEAU EN PIERRE, depose au sol lui aussi : un buisson
-# coupe (il quitte le decor), une plaque d'ecorce levee (l'arbre reste).
-BUSH_YIELD = (("Small_Stick", 2, 4), ("Feuille", 3, 6))
-BARK_YIELD = (("Ecorce", 1, 2),)
+
+# Ce qu'Explorer ne trouve PAS, meme visible : les baies se cueillent sur les
+# buissons (Chercher a manger).
+EXPLORE_SANS = {"Baie"}
 
 ACTIONS = [
     {"label": "Explorer", "icon": "explore", "name": "Explorer",
@@ -96,29 +96,44 @@ ACTIONS = [
      "energy": -20, "type": "explore"},
     {"label": "Couper du bois", "icon": "wood", "name": "Couper\ndu bois",
      "minutes": 180, "energy": -75, "need_axe": True, "type": "chop"},
+    # A mains nues : les baies d'un buisson de la case (voir
+    # GameState.pick_berries). Sans buisson a cueillir, le bouton est grise.
     {"label": "Chercher a manger", "icon": "food", "name": "Chercher\na manger",
-     "minutes": 60, "energy": -15, "hunger": -25, "food": 2},
+     "minutes": 30, "energy": -8, "type": "berries"},
     {"label": "Boire", "icon": "drink", "name": "Boire",
      "minutes": 10, "energy": -2, "thirst": -40, "type": "drink"},
     {"label": "Remplir gourde", "icon": "fill", "name": "Remplir\ngourde",
      "minutes": 15, "energy": -3, "type": "fill", "need_gourde": True},
     {"label": "Se reposer", "icon": "rest", "name": "Se\nreposer",
      "minutes": 240, "energy": 25, "sleep": 50, "requires_sleep": True},
-    {"label": "Couper buisson", "icon": "bush", "name": "Couper\nbuisson",
-     "minutes": 30, "energy": -10, "need_knife": True, "type": "bush"},
-    {"label": "Couper ecorce", "icon": "bark", "name": "Couper\necorce",
-     "minutes": 20, "energy": -6, "need_knife": True, "type": "bark"},
 ]
 
 # LE SOUS-MENU ACTION DEPEND DE CE QUE L'ON TIENT. Mains vides : chercher a
-# manger, boire (et couper du bois, s'il n'y a pas d'arbre a mettre en
-# avant). Un couteau en pierre en main : ce qu'on fait avec une lame. Une
-# section en tete du sous-menu dit lequel des deux on regarde.
+# manger, boire. Une hache en main : couper du bois. Un couteau : il sert a
+# EXPLORER (voir le bouton Explorer), il n'a plus d'action a lui. Une section
+# en tete du sous-menu dit lequel on regarde.
 SOUS_MENU = {
     "vides": ("Chercher a manger", "Boire"),
-    "couteau": ("Couper buisson", "Couper ecorce"),
+    "hache": ("Couper du bois", "Boire"),
+    "couteau": ("Boire",),
 }
-TITRE_SOUS_MENU = {"vides": "Mains vides :", "couteau": "Couteau\nen pierre :"}
+TITRE_SOUS_MENU = {"vides": "Mains vides :", "hache": "Hache :",
+                   "couteau": "Couteau\nen pierre :"}
+
+# LE BOUTON EXPLORER suit ce que l'on tient : a mains nues, ou au couteau
+# (qui trouve davantage, voir items.KNIFE_FINDS).
+EXPLORER = {
+    False: ("hand", "Explorer\nmain nue"),
+    True: ("knife", "Explorer\ncouteau"),
+}
+
+
+def _couteau_en_main(state):
+    """L'indice de la main qui tient un couteau (droite d'abord), ou None."""
+    for i in (1, 0):
+        if state.hands[i] in items.KNIFE_ITEMS:
+            return i
+    return None
 LABELS_SOUS_MENU = {l for labels in SOUS_MENU.values() for l in labels}
 
 
@@ -164,12 +179,8 @@ def _action_reason(state, action):
         return "Aucun ruisseau ici\npour remplir la gourde."
     if action.get("type") == "explore" and state.hands_full():
         return "Mains occupees.\nVide une main pour explorer."
-    if action.get("need_knife") and items.KNIFE_ITEM not in state.hands:
-        return "Il faut un couteau\nen pierre en main."
-    if action.get("type") == "bush" and not state.bushes_here():
-        return "Aucun buisson a couper\nsur cette case."
-    if action.get("type") == "bark" and not state.trees_here():
-        return "Aucun arbre a ecorcer\nsur cette case."
+    if action.get("type") == "berries" and state.berry_bushes_left() <= 0:
+        return "Aucun buisson a baies\na cueillir ici."
     if action.get("need_axe"):
         if items.AXE_ITEM not in state.hands:
             return "Il faut une hache\nen main pour couper."
@@ -311,7 +322,8 @@ class GameScreen(Screen):
         self._found_item = None        # objet decouvert a la fin d'une exploration
         self._did_explore = False      # vient-on d'explorer ? (pour le message)
         self._did_chop = False         # vient-on d'abattre un arbre ?
-        self._did_cut = None           # "bush" / "bark" : travail au couteau
+        self._did_berries = False      # vient-on de cueillir des baies ?
+        self._ff_wear = None           # part de solidite que l'outil perdra
         # Panneau lateral escamotable : None (masque), "stats" ou "effects".
         self._panel_mode = None
         # Effets deja vus (pour reperer les NOUVEAUX) et bulles affichees.
@@ -699,13 +711,18 @@ class GameScreen(Screen):
         return (any(state.has_item(g) for g in items.GOURDE_ITEMS),
                 bool(state.trees_here()),
                 self._action_submenu_visible,
-                self._hands_mode(state))
+                self._hands_mode(state),
+                _couteau_en_main(state) is not None)
 
     @staticmethod
     def _hands_mode(state):
-        """Quel sous-menu Action montrer : "couteau" si l'une des mains tient
-        un couteau en pierre, sinon celui des mains vides."""
-        return "couteau" if items.KNIFE_ITEM in state.hands else "vides"
+        """Quel sous-menu Action montrer : "hache" si une main tient une
+        hache, "couteau" si elle tient un couteau, sinon les mains vides."""
+        if items.AXE_ITEM in state.hands:
+            return "hache"
+        if _couteau_en_main(state) is not None:
+            return "couteau"
+        return "vides"
 
     def _toggle_action_submenu(self, *_):
         """Bouton 'Action' : affiche/cache les boutons Manger et Boire."""
@@ -791,7 +808,6 @@ class GameScreen(Screen):
             return btn
 
         has_gourde = any(state.has_item(g) for g in items.GOURDE_ITEMS)
-        has_trees = bool(state.trees_here())
         by_label = {a["label"]: a for a in ACTIONS}
         # Ordre voulu : colonne gauche = Explorer / Se reposer / Action /
         # Inv.-Craft (4 lignes), puis actions conditionnelles dans les colonnes
@@ -803,10 +819,6 @@ class GameScreen(Screen):
         # range dans le sous-menu Action, avec Manger et Boire.
         mode = self._hands_mode(state)
         submenu = []
-        if has_trees:
-            order.append("Couper du bois")
-        elif self._action_submenu_visible and mode == "vides":
-            submenu.append("Couper du bois")
         if self._action_submenu_visible:
             submenu += list(SOUS_MENU[mode])
             # Le sous-menu ouvre SA colonne, coiffee de sa section : on
@@ -839,7 +851,10 @@ class GameScreen(Screen):
             action = by_label[label]
             if action.get("need_gourde") and not has_gourde:
                 continue            # pas de gourde -> bouton retire
-            btn = add_cell(action["icon"], action["name"],
+            icon, name = action["icon"], action["name"]
+            if action.get("type") == "explore":
+                icon, name = EXPLORER[_couteau_en_main(state) is not None]
+            btn = add_cell(icon, name,
                            lambda _w, a=action: self.do_action(a))
             self._action_buttons.append((btn, action))
             if action["label"] in submenu:
@@ -1122,9 +1137,9 @@ class GameScreen(Screen):
         elif atype == "chop":
             # L'arbre tombe (et le bois arrive) a la FIN du travail.
             self._did_chop = True
-        elif atype in ("bush", "bark"):
-            # Buisson coupe / ecorce levee a la FIN du travail, eux aussi.
-            self._did_cut = atype
+        elif atype == "berries":
+            # Les baies arrivent a la FIN de la cueillette.
+            self._did_berries = True
 
         state.health = state.clamp_gauge(state.health
                                          + action.get("health", 0))
@@ -1151,9 +1166,13 @@ class GameScreen(Screen):
         self._ff_scale = self._ff_total / self._ff_real
         self._ff_label = action["label"]
         # Outil mobilise par l'action : il s'usera a la fin du travail.
-        self._ff_tool = (items.AXE_ITEM if action.get("need_axe")
-                         else items.KNIFE_ITEM if action.get("need_knife")
-                         else None)
+        # Explorer au couteau l'use aussi (5 %).
+        self._ff_tool, self._ff_wear = None, None
+        if action.get("need_axe"):
+            self._ff_tool = items.AXE_ITEM
+        elif atype == "explore" and _couteau_en_main(state) is not None:
+            self._ff_tool = state.hands[_couteau_en_main(state)]
+            self._ff_wear = items.KNIFE_WEAR_EXPLORE
         self._time_accum = 0.0
         self.refresh()
         # Repos : voile noir + horloge + message (comme le deplacement).
@@ -1172,7 +1191,7 @@ class GameScreen(Screen):
         if used_tool is not None:
             state = App.get_running_app().game_state
             hand = state.hand_holding(used_tool)
-            if hand is not None and state.use_tool(hand):
+            if hand is not None and state.use_tool(hand, self._ff_wear):
                 self._show_message(
                     f"{items.display_name(used_tool)} : l'outil s'est brise.")
         if was_resting:
@@ -1182,9 +1201,9 @@ class GameScreen(Screen):
         if self._did_chop:
             self._did_chop = False
             self._fell_tree()
-        if self._did_cut:
-            cut, self._did_cut = self._did_cut, None
-            self._cut_with_knife(cut)
+        if self._did_berries:
+            self._did_berries = False
+            self._cueille_baies()
         if self._did_explore:
             self._did_explore = False
             # La trouvaille et le RETRAIT de l'objet du decor se font ICI, a la
@@ -1211,28 +1230,21 @@ class GameScreen(Screen):
         state.add_log("Arbre abattu : " + ", ".join(got))
         self._show_message("Arbre abattu.\n" + ", ".join(got))
 
-    def _cut_with_knife(self, kind):
-        """Fin d'un travail au couteau : un buisson coupe ("bush") quitte le
-        decor et laisse ses branches et feuilles AU SOL ; une ecorce levee
-        ("bark") laisse l'arbre debout."""
+    def _cueille_baies(self):
+        """Fin de la cueillette : les baies d'un buisson, AU SOL. Les baies
+        dessinees dans le decor s'eclaircissent d'autant."""
         state = App.get_running_app().game_state
         if state is None:
             return
-        if kind == "bush":
-            if state.cut_bush() is None:
-                return
-            yields, titre = BUSH_YIELD, "Buisson coupe"
-        else:
-            if not state.trees_here():
-                return
-            yields, titre = BARK_YIELD, "Ecorce levee"
-        got = []
-        for name, lo, hi in yields:
-            n = random.randint(lo, hi)
-            state.add_ground(name, n)
-            got.append(f"{n} {items.display_name(name).lower()}")
-        state.add_log(titre + " : " + ", ".join(got))
-        self._show_message(titre + ".\n" + ", ".join(got))
+        n = state.pick_berries()
+        if n <= 0:
+            self._show_message("Plus de baies a cueillir ici.")
+            return
+        taken = state.harvested_here()
+        taken["Baie"] = taken.get("Baie", 0) + 1
+        self.scenery.set_taken(taken)
+        state.add_log("Baies cueillies : %d" % n)
+        self._show_message("Baies cueillies : %d\n(au sol)" % n)
 
     def _show_message(self, text):
         """Petit message d'information bref (1.2 s puis fondu), au centre haut.
@@ -1378,25 +1390,42 @@ class GameScreen(Screen):
         taken = state.harvested_here()
         rem = {}
         for name, mx in self.scenery.harvest_max.items():
+            if name in EXPLORE_SANS:
+                continue
             left = mx - taken.get(name, 0)
             if left > 0:
                 rem[name] = left
         return rem
 
+    def _remaining_knife(self, state):
+        """{nom: restant} de ce que le COUTEAU trouve en plus sur la case,
+        s'il y en a un en main ; sinon {}."""
+        if _couteau_en_main(state) is None:
+            return {}
+        return state.knife_finds_left()
+
     def _can_find(self):
         state = App.get_running_app().game_state
-        return bool(self._remaining_harvest(state))
+        return bool(self._remaining_harvest(state)
+                    or self._remaining_knife(state))
 
     def _explore_find(self):
         """Choisit au hasard un objet recoltable visible, le retire de la scene
         et renvoie son nom (ou None s'il n'y a plus rien)."""
         state = App.get_running_app().game_state
         rem = self._remaining_harvest(state)
-        if not rem:
+        couteau = self._remaining_knife(state)
+        if not rem and not couteau:
             return None
-        names = list(rem.keys())
-        weights = list(rem.values())
-        name = random.choices(names, weights=weights, k=1)[0]
+        pool = [(n, w, False) for n, w in rem.items()] + \
+               [(n, w, True) for n, w in couteau.items()]
+        name, _w, au_couteau = random.choices(
+            pool, weights=[w for _n, w, _c in pool], k=1)[0]
+        if au_couteau:
+            # Une trouvaille du couteau : comptee a part (la branche feuillue
+            # coupe un buisson, qui quitte le decor au prochain refresh).
+            state.take_knife_find(name)
+            return name
         taken = state.harvested_here()
         taken[name] = taken.get(name, 0) + 1
         self.scenery.set_taken(taken)       # retire l'objet du decor

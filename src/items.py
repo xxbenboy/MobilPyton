@@ -54,8 +54,23 @@ COMPASS_ITEM = "Boussole"
 # - une HACHE (en main) pour couper du bois,
 # - une GOURDE (possedee) pour remplir/transporter de l'eau.
 AXE_ITEM = "Hache"
-# - un COUTEAU EN PIERRE (en main) pour couper un buisson ou lever l'ecorce.
+# - un COUTEAU (en main) pour explorer au couteau (voir KNIFE_FINDS).
 KNIFE_ITEM = "Couteau_En_Pierre"
+KNIFE_ITEMS = {KNIFE_ITEM}
+
+# EXPLORER AU COUTEAU : en plus de ce qu'on trouve a mains nues, le couteau
+# donne ces objets, tant que la case en a : {zone: {objet: (mini, maxi)}}.
+# La BRANCHE FEUILLUE se coupe sur un buisson de la case, qui disparait : il
+# y en a autant que de buissons debout. Au lac et en montagne, rien de plus.
+LEAFY_BRANCH = "Branche_Feuillue"
+KNIFE_FINDS = {
+    "Foret": {"Long_Stick": (1, 2), "Ecorce": (1, 3), "Racine": (1, 2),
+              LEAFY_BRANCH: None},
+    "Plaine": {"Ver": (1, 3), LEAFY_BRANCH: None},
+}
+# Ce qu'use le couteau : une exploration, un mini-jeu d'assemblage.
+KNIFE_WEAR_EXPLORE = 0.05
+KNIFE_WEAR_MINIGAME = 0.10
 GOURDE_ITEMS = {"Gourde"}
 
 # OUTILS A USAGE MULTIPLE : nombre d'utilisations avant de casser. Une hache
@@ -455,6 +470,10 @@ ITEM_NOTES = {
     "Loafy_Long_Stick": "Une branche encore feuillue : elle brule moins bien.",
     "Buche": "Un rondin fendu d'un arbre abattu. Il tient toute la nuit.",
     "Ecorce": "Une plaque d'ecorce seche. Elle prend feu au moindre eclat.",
+    "Branche_Feuillue": "Une branche coupee sur un buisson, encore garnie de "
+                        "feuilles.",
+    "Racine": "Une racine deterree au couteau, souple et solide.",
+    "Ver": "Un ver de terre, deterre dans le champ. Petit, mais vivant.",
     "Feuille": "Une large feuille. Seche, elle aide la flamme a prendre.",
     "Herbe": "Une touffe d'herbe. Ses fibres se tressent.",
     "Fleur": "Jolie, et rien de plus pour l'instant.",

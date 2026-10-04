@@ -242,6 +242,18 @@ def _anvil(cx, cy, s):                               # etabli (atelier)
                      size=(s * 0.52, s * 0.20), radius=[s * 0.06])
 
 
+def _knife(cx, cy, s):                               # couteau de pierre
+    Color(0.48, 0.34, 0.20, 1)                       # le manche, ligature
+    Line(points=[cx - s * 0.62, cy - s * 0.62, cx - s * 0.12, cy - s * 0.12],
+         width=max(2.0, s * 0.16))
+    Color(0.72, 0.70, 0.66, 1)                       # la lame taillee
+    Triangle(points=[cx - s * 0.20, cy - s * 0.02, cx - s * 0.02, cy - s * 0.20,
+                     cx + s * 0.70, cy + s * 0.70])
+    Color(0.88, 0.87, 0.84, 1)                       # son fil, plus clair
+    Line(points=[cx - s * 0.10, cy - s * 0.04, cx + s * 0.66, cy + s * 0.66],
+         width=max(1.0, s * 0.04))
+
+
 def _bush(cx, cy, s):                                # buisson (couper)
     Color(0.20, 0.45, 0.18, 1)                       # touffe de lobes
     for dx, dy, r in ((-0.38, -0.20, 0.34), (0.38, -0.20, 0.34),
@@ -266,7 +278,7 @@ def _bark(cx, cy, s):                                # plaque d'ecorce
 
 ICONS = {"anvil": _anvil, "explore": _explore, "wood": _wood, "food": _food, "drink": _drink,
          "fill": _fill, "rest": _rest, "map": _map, "home": _home,
-         "craft": _craft, "move": _move, "fire": _fire, "wet": _wet, "actions": _actions, "hand": _hand, "bush": _bush, "bark": _bark, "bag": _bag,
+         "craft": _craft, "move": _move, "fire": _fire, "wet": _wet, "actions": _actions, "hand": _hand, "bush": _bush, "bark": _bark, "knife": _knife, "bag": _bag,
          # Logos des stats (section "Etat"). On reutilise certains logos
          # existants (pomme=faim, goutte=soif, Zzz=sommeil) et on ajoute le
          # coeur (vie) et l'eclair (energie).
