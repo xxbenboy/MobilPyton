@@ -18,19 +18,24 @@ LE COUTEAU EN PIERRE
 
 LA FIBRE VEGETALE
     1. prendre le couteau en pierre dans une main ;
-    2. decouper chaque brin en CINQ BANDES : un trait de couteau de haut en
-       bas par bande, en passant du dessus au dessous du brin ;
-    3. trois brins, l'un apres l'autre : les feuilles d'abord, puis les
+    2. le brin a couper est pose AU MILIEU DU PLAN, quelle que soit la place
+       ou le joueur l'avait mis ; CINQ TRAITS EN POINTILLES y montrent ou
+       couper ;
+    3. un coup de couteau a travers le brin, de haut en bas ou de bas en
+       haut, coupe le trait le plus proche : le brin s'ouvre en morceaux ;
+    4. trois brins, l'un apres l'autre : les feuilles d'abord, puis les
        herbes (deux feuilles et une herbe : feuille, feuille, herbe).
 
 PEU DE TEXTE : une MAIN FANTOME, a demi transparente, montre UNE FOIS
-chaque geste (aller prendre les pierres, puis frotter), et l'avancement se
-lit en CINQ ENCOCHES gravees sur la pierre qu'on taille.
+chaque geste, et ce qu'il reste a faire se voit SUR L'OBJET MEME : la couche
+a retirer de la pierre, les traits a couper du brin (voir
+assemblage.dessine_travail).
 """
 from kivy.clock import Clock
-from kivy.graphics import Color, Line, Rectangle
+from kivy.graphics import Color, Rectangle
 
-from src.widgets.sol_de_craft import dessine_objet
+from src.widgets.sol_de_craft import dessine_objet, cadre_image
+from src.widgets.assemblage import decalage_morceau
 
 COUTEAU = "Couteau_En_Pierre"
 
@@ -56,13 +61,6 @@ DUREE_PRENDRE = 1.1
 DUREE_FROTTER = 2.4
 FPS_FANTOME = 60.0
 
-# LES ENCOCHES : sous le milieu de la pierre, en tailles d'objet.
-ENCOCHE_LONG = 0.14
-ENCOCHE_ECART = 0.11
-ENCOCHE_BAS = 0.30
-GRAVE = (0.13, 0.12, 0.11, 0.92)
-GRAVE_LEVRE = (1.0, 1.0, 1.0, 0.40)
-A_GRAVER = (0.13, 0.12, 0.11, 0.25)
 
 
 def _doux(t):
@@ -184,8 +182,9 @@ class MiniJeuCouteau(object):
         self.asm.aimant_permis = True
         if self.fantome is not None:
             self.fantome.arrete()
-        if self.couche is not None:
-            self.couche.canvas.after.clear()
+        for o in self.asm.objets:
+            o.pop("entailles", None)
+        self.asm._redessine()
 
     # -- ce que montre la main fantome ------------------------------------ #
     def _montre_prendre(self):
@@ -214,39 +213,19 @@ class MiniJeuCouteau(object):
         self.fantome.joue(1, [(x, haut), (x, bas), (x, haut), (x, bas),
                               (x, haut)], DUREE_FROTTER, objet=droite)
 
-    # -- les encoches ------------------------------------------------------ #
-    def _dessine_encoches(self):
-        """Cinq encoches sur la pierre qu'on taille : gravees pour les couches
-        faites, a peine marquees pour les autres."""
-        if self.couche is None:
-            return
-        self.couche.canvas.after.clear()
+    # -- l'entaille a faire -------------------------------------------- #
+    def _marque_entailles(self):
+        """Sur la pierre qu'on taille, la COUCHE A RETIRER : du bord du flanc
+        attendu jusqu'a un trait en pointilles (les deux flancs au premier
+        coup, quand l'un ou l'autre convient)."""
         o = self.pierre
         if o is None:
             return
-        if self.asm.porte(0) is o:
-            cx, cy = self.asm.ou_est_porte(0)
-        elif self.asm.porte(1) is o:
-            cx, cy = self.asm.ou_est_porte(1)
-        else:
-            cx, cy = self.asm.a_l_ecran(o)
-        t = self.asm.case_objet() * 3
-        largeur = max(1.5, t * 0.022)
-        y0 = cy - ENCOCHE_BAS * t - ENCOCHE_LONG * t / 2.0
-        y1 = y0 + ENCOCHE_LONG * t
-        with self.couche.canvas.after:
-            for k in range(AMINCISSEMENTS):
-                x = cx + (k - (AMINCISSEMENTS - 1) / 2.0) * ENCOCHE_ECART * t
-                if k < self.fait:
-                    Color(*GRAVE_LEVRE)
-                    Line(points=[x + largeur, y0, x + largeur, y1],
-                         width=largeur * 0.6)
-                    Color(*GRAVE)
-                    Line(points=[x, y0, x, y1], width=largeur)
-                else:
-                    Color(*A_GRAVER)
-                    Line(points=[x, y0 + (y1 - y0) * 0.3, x, y1],
-                         width=largeur * 0.7)
+        cotes = COTES if self.attendu is None else (self.attendu,)
+        g, d = o["coupe"]
+        o["entailles"] = [("gauche", g + COUCHE) if c == "gauche"
+                          else ("droite", 1.0 - d - COUCHE) for c in cotes]
+        self.asm._redessine()
 
     # -- les consignes ---------------------------------------------------- #
     def _annonce(self, phase):
@@ -266,7 +245,6 @@ class MiniJeuCouteau(object):
         if self.fini:
             return
         gauche, droite = self.asm.porte(0), self.asm.porte(1)
-        self._dessine_encoches()
         if not (gauche and droite and gauche["nom"] == "Pierre"
                 and droite["nom"] == "Pierre"):
             self._contact = None
@@ -274,6 +252,7 @@ class MiniJeuCouteau(object):
             return
         if self.pierre is None:
             self.pierre = gauche
+            self._marque_entailles()
         self._annonce("frotter")
         if not self._vu_frotter:
             self._vu_frotter = True
@@ -306,33 +285,39 @@ class MiniJeuCouteau(object):
         """Une couche de moins sur ce flanc de la pierre."""
         pierre["coupe"][COTES.index(cote)] += COUCHE
         self.fait += 1
-        self._dessine_encoches()
         if self.premier is None:
             self.premier = cote
         self.attendu = COTES[1 - COTES.index(cote)]
         if self.fait >= AMINCISSEMENTS:
             self.fini = True
+            pierre.pop("entailles", None)
+            self.asm._redessine()
             self.reussi()
         else:
+            self._marque_entailles()
             self._annonce("frotter")
 
 
-# LA FIBRE : chaque brin se coupe en BANDES (des traits verticaux), sur la
-# part du brin qui porte de la matiere (en tailles d'objet, de part et
-# d'autre de son centre). Un trait commence AU-DESSUS du brin et finit
-# AU-DESSOUS, sans en sortir sur les cotes.
-BANDES = 5
-LARGE_BRIN = 0.40
-HAUT_BRIN = 0.30
+# LA FIBRE : chaque brin se coupe en CINQ TRAITS, a ces parts de la largeur
+# de son image. Un coup de couteau traverse le brin -- de plus haut que
+# HAUT_BRIN au-dessus de son milieu a plus bas que HAUT_BRIN au-dessous, ou
+# l'inverse -- et coupe le trait restant le plus proche, s'il en passe a
+# moins de PRISE_TRAIT ecart(s) entre deux traits.
+TRAITS = tuple((k + 1) / 6.0 for k in range(5))
+HAUT_BRIN = 0.22
+PRISE_TRAIT = 0.75
+LARGE_COUP = 0.75
 ORDRE_BRINS = ("Feuille", "Herbe")
 DUREE_COUPER = 2.2
-FENTE = (0.10, 0.08, 0.06, 0.95)
-FENTE_LEVRE = (1.0, 1.0, 0.92, 0.45)
-A_COUPER = (1.0, 1.0, 1.0, 0.28)
+# Ou se rangent les brins qui attendent (a gauche du milieu) et le couteau
+# (a droite), en tailles d'objet depuis le milieu du plan.
+RANGE_BRINS = (-1.25, 0.0)
+PAS_BRINS = (-0.35, 0.55)
+RANGE_COUTEAU = (1.30, -0.15)
 
 
 class MiniJeuFibre(object):
-    """Decouper au couteau trois brins en bandes."""
+    """Decouper au couteau trois brins en morceaux."""
 
     def __init__(self, assemblage, reussi, consigne, couche=None,
                  mains=None):
@@ -350,9 +335,8 @@ class MiniJeuFibre(object):
             (o for o in assemblage.objets if o["nom"] in ORDRE_BRINS),
             key=lambda o: (ORDRE_BRINS.index(o["nom"]),
                            assemblage.a_l_ecran(o)[0]))
-        self.coupes = [set() for _ in self.brins]
         self.actuel = 0
-        self._trait = None          # [x cumules, nombre] du trait en cours
+        self._coup = None           # [cote de depart, x cumules, nombre]
         self._vu_couper = False
         self._dit = None
         self.fini = False
@@ -362,6 +346,9 @@ class MiniJeuFibre(object):
         self.asm.aimant_permis = False
         self.asm.liens = []
         self.asm.sur_pas = self._pas
+        for o in self.brins:
+            o["morceaux"] = []
+        self._range()
         self._annonce()
         self._montre_prendre()
 
@@ -371,8 +358,10 @@ class MiniJeuFibre(object):
         self.asm.aimant_permis = True
         if self.fantome is not None:
             self.fantome.arrete()
-        if self.couche is not None:
-            self.couche.canvas.after.clear()
+        for o in self.brins:
+            o.pop("a_couper", None)
+            o.pop("morceaux", None)
+        self.asm._redessine()
 
     # -- ou sont les choses ---------------------------------------------- #
     def main_du_couteau(self):
@@ -382,29 +371,53 @@ class MiniJeuFibre(object):
                 return i
         return None
 
+    def _taille(self):
+        return self.asm.case_objet() * 3
+
     def _centre(self, o):
         for i in (0, 1):
             if self.asm.porte(i) is o:
                 return self.asm.ou_est_porte(i)
         return self.asm.a_l_ecran(o)
 
-    def _taille(self):
-        return self.asm.case_objet() * 3
+    def _range(self):
+        """Le brin a couper AU MILIEU DU PLAN, ceux qui attendent a sa
+        gauche, ceux deja coupes plus loin, le couteau a sa droite (s'il
+        n'est pas deja en main). Peu importe ou le joueur les avait mis."""
+        mx, my = self.asm.centre_du_plan()
+        t = self._taille()
+        autres = [o for n, o in enumerate(self.brins) if n != self.actuel]
+        for n, o in enumerate(self.brins):
+            if n == self.actuel:
+                px, py = mx, my
+            else:
+                k = autres.index(o)
+                px = mx + (RANGE_BRINS[0] + PAS_BRINS[0] * k) * t
+                py = my + (RANGE_BRINS[1] + PAS_BRINS[1] * k) * t
+            if not any(self.asm.porte(i) is o for i in (0, 1)):
+                self.asm.place_a_l_ecran(o, px, py)
+            o["a_couper"] = [u for u in TRAITS
+                             if u not in o["morceaux"]] \
+                if n == self.actuel else []
+        couteau = next((o for o in self.asm.objets if o["nom"] == COUTEAU),
+                       None)
+        if couteau is not None and self.main_du_couteau() is None:
+            self.asm.place_a_l_ecran(couteau, mx + RANGE_COUTEAU[0] * t,
+                                     my + RANGE_COUTEAU[1] * t)
+        self.asm._redessine()
 
-    def bande(self, x, o):
-        """La bande du brin `o` sous l'abscisse `x` (0..BANDES-1), ou None
-        hors du brin."""
+    def x_trait(self, u, o):
+        """Ou passe, a l'ecran, le trait `u` du brin `o`."""
         cx, _ = self._centre(o)
         t = self._taille()
-        u = (x - (cx - LARGE_BRIN * t)) / (2.0 * LARGE_BRIN * t)
-        if not 0.0 <= u < 1.0:
-            return None
-        return int(u * BANDES)
+        cadre = cadre_image(o["nom"], t)
+        iw = cadre[0] if cadre else t
+        return cx - iw / 2.0 + u * iw + decalage_morceau(o, u, t)
 
-    def _x_bande(self, k, o):
-        cx, _ = self._centre(o)
+    def _ecart_traits(self, o):
         t = self._taille()
-        return cx - LARGE_BRIN * t + (k + 0.5) * 2.0 * LARGE_BRIN * t / BANDES
+        cadre = cadre_image(o["nom"], t)
+        return (cadre[0] if cadre else t) / 6.0
 
     # -- ce que montre la main fantome ------------------------------------ #
     def _montre_prendre(self):
@@ -420,42 +433,17 @@ class MiniJeuFibre(object):
         self.fantome.joue(1, [depart, lieu, lieu], DUREE_PRENDRE)
 
     def _montre_couper(self, main, couteau):
-        """Le couteau passe deux fois de haut en bas sur le brin, sur deux
-        bandes."""
+        """Le couteau passe a travers le brin, sur deux traits : un coup vers
+        le bas, un coup vers le haut."""
         if self.fantome is None or self.actuel >= len(self.brins):
             return
         o = self.brins[self.actuel]
         _, cy = self._centre(o)
         t = self._taille()
-        haut, bas = cy + (HAUT_BRIN + 0.12) * t, cy - (HAUT_BRIN + 0.12) * t
-        x0, x1 = self._x_bande(1, o), self._x_bande(3, o)
-        self.fantome.joue(main, [(x0, haut), (x0, bas), (x1, haut),
-                                 (x1, bas)], DUREE_COUPER, objet=couteau)
-
-    # -- les fentes -------------------------------------------------------- #
-    def _dessine(self):
-        """Sur chaque brin, une fente sombre par bande coupee ; sur le brin a
-        couper, un trait pale montre les bandes qui restent."""
-        if self.couche is None:
-            return
-        self.couche.canvas.after.clear()
-        t = self._taille()
-        largeur = max(1.5, t * 0.018)
-        with self.couche.canvas.after:
-            for n, o in enumerate(self.brins):
-                _, cy = self._centre(o)
-                y0, y1 = cy - HAUT_BRIN * t, cy + HAUT_BRIN * t
-                for k in range(BANDES):
-                    x = self._x_bande(k, o)
-                    if k in self.coupes[n]:
-                        Color(*FENTE_LEVRE)
-                        Line(points=[x + largeur, y0, x + largeur, y1],
-                             width=largeur * 0.6)
-                        Color(*FENTE)
-                        Line(points=[x, y0, x, y1], width=largeur)
-                    elif n == self.actuel:
-                        Color(*A_COUPER)
-                        Line(points=[x, y0, x, y1], width=largeur * 0.6)
+        haut, bas = cy + (HAUT_BRIN + 0.15) * t, cy - (HAUT_BRIN + 0.15) * t
+        x0, x1 = self.x_trait(TRAITS[1], o), self.x_trait(TRAITS[3], o)
+        self.fantome.joue(main, [(x0, haut), (x0, bas), (x1, bas),
+                                 (x1, haut)], DUREE_COUPER, objet=couteau)
 
     # -- les consignes ---------------------------------------------------- #
     def _annonce(self):
@@ -463,9 +451,9 @@ class MiniJeuFibre(object):
             texte = "Prends le couteau"
         else:
             o = self.brins[self.actuel]
-            texte = "Coupe %s en %d bandes, de haut en bas (%d/%d)" % (
+            texte = "Coupe %s sur les pointilles (%d/%d)" % (
                 "la feuille" if o["nom"] == "Feuille" else "l'herbe",
-                BANDES, self.actuel + 1, len(self.brins))
+                self.actuel + 1, len(self.brins))
         if texte != self._dit:
             self._dit = texte
             self.consigne(texte)
@@ -474,11 +462,10 @@ class MiniJeuFibre(object):
     def _pas(self, dt):
         if self.fini or not self.brins:
             return
-        self._dessine()
         main = self.main_du_couteau()
         self._annonce()
         if main is None:
-            self._trait = None
+            self._coup = None
             return
         couteau = self.asm.porte(main)
         if not self._vu_couper:
@@ -488,40 +475,59 @@ class MiniJeuFibre(object):
             self._montre_couper(main, couteau)
         o = self.brins[self.actuel]
         x, y = self.asm.ou_est_porte(main)
-        _, cy = self._centre(o)
+        cx, cy = self._centre(o)
         t = self._taille()
-        if self.bande(x, o) is None:
-            self._trait = None       # sorti du brin par le cote
+        if abs(x - cx) > LARGE_COUP * t:
+            self._coup = None        # parti loin du brin, sur le cote
             return
         if y >= cy + HAUT_BRIN * t:
-            self._trait = [0.0, 0]   # au-dessus : un trait peut commencer
+            cote = "haut"
+        elif y <= cy - HAUT_BRIN * t:
+            cote = "bas"
+        else:
+            cote = None
+        if cote is not None:
+            if self._coup is not None and self._coup[0] != cote \
+                    and self._coup[2] > 0:
+                # Traverse de part en part : le coup est donne.
+                xm = self._coup[1] / self._coup[2]
+                self._coup = [cote, 0.0, 0]
+                self.coupe_pres(xm)
+                return
+            self._coup = [cote, 0.0, 0]   # pret a traverser
             return
-        if self._trait is None:
-            return
-        self._trait[0] += x
-        self._trait[1] += 1
-        if y > cy - HAUT_BRIN * t:
-            return                   # encore dans le brin
-        # Passe au-dessous : le trait est fini.
-        xm = self._trait[0] / max(1, self._trait[1])
-        self._trait = None
-        k = self.bande(xm, o)
-        if k is not None:
-            self.coupe(k)
+        if self._coup is not None:
+            self._coup[1] += x
+            self._coup[2] += 1
 
-    def coupe(self, k):
-        """La bande `k` du brin en cours est coupee."""
-        if k in self.coupes[self.actuel]:
+    def coupe_pres(self, x):
+        """Un coup de couteau a travers le brin en cours, a l'abscisse `x` :
+        le trait restant le plus proche est coupe, s'il est assez pres."""
+        o = self.brins[self.actuel]
+        restants = o.get("a_couper", [])
+        if not restants:
             return
-        self.coupes[self.actuel].add(k)
-        if len(self.coupes[self.actuel]) >= BANDES:
+        u = min(restants, key=lambda v: abs(self.x_trait(v, o) - x))
+        if abs(self.x_trait(u, o) - x) > PRISE_TRAIT * self._ecart_traits(o):
+            return
+        self.coupe(u)
+
+    def coupe(self, u):
+        """Le trait `u` du brin en cours est coupe."""
+        o = self.brins[self.actuel]
+        if u not in o.get("a_couper", []):
+            return
+        o["a_couper"] = [v for v in o["a_couper"] if v != u]
+        o["morceaux"] = sorted(o["morceaux"] + [u])
+        if not o["a_couper"]:
             self.actuel += 1
             if self.actuel >= len(self.brins):
                 self.fini = True
-                self._dessine()
+                self.asm._redessine()
                 self.reussi()
                 return
-        self._dessine()
+            self._range()
+        self.asm._redessine()
         self._annonce()
 
 

@@ -313,6 +313,23 @@ def coins_centre():
             (d, CENTRE_LOIN), (g, CENTRE_LOIN))
 
 
+def cadre_image(nom, cote):
+    """(largeur, hauteur) de l'image entiere de `nom` dessinee dans un carre
+    de `cote` (voir dessine_objet), ou None sans image."""
+    tex, couverture, _masse = _item_infos(nom)
+    if tex is None:
+        return None
+    tw, th = tex.size
+    grossi = 1.0
+    if 0.0 < couverture < COUVERTURE_PLEINE:
+        grossi = min(GROSSISSEMENT_MAX,
+                     (COUVERTURE_PLEINE / couverture) ** 0.5)
+    boite = cote * grossi
+    rapport = float(tw) / max(1, th)
+    return (boite, boite / rapport) if rapport >= 1.0 \
+        else (boite * rapport, boite)
+
+
 def dessine_objet(nom, cx, cy, cote, ombre=True, coupe=(0.0, 0.0),
                   alpha=1.0):
     """Un objet centre en (cx, cy), son image entiere dans un carre de

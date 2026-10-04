@@ -68,7 +68,8 @@ from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import (scale_font, ROW_TITLE, ROW_BODY,
                                     ROW_HANDS, ROW_HINT, ROW_BACK)
 from src.widgets.menu_toggle import MenuToggle
-from src.widgets.sol_de_craft import SolDeCraft, coins_carre
+from src.widgets.sol_de_craft import SolDeCraft, coins_rect
+from src.screens.inventory_screen import gabarit_proximite, coins_estimes
 from src.widgets.assemblage import Assemblage, Loupe, DUREE_ZOOM, vue_inverse
 from src.widgets.flou import floute
 from src.widgets.minijeux import MINIJEUX
@@ -90,12 +91,6 @@ from src.widgets.penche import (Penche, adoucir, glissement, HORIZON_PENCHE,
 # PlayerHands.HAND_FX). Sa hauteur, elle, est celle de l'inventaire.
 LARGEUR_RETOUR = 0.20
 
-# LA PROXIMITE, DANS LE CRAFT : un CARRE, son coin haut gauche au coin de
-# l'ecran -- juste sous le titre, qui la couvrirait -- et aussi grand que
-# possible sans passer devant une main (voir sol_de_craft.plus_grand_carre,
-# mesure sur les images des mains). Le haut suit le bas du titre une fois la
-# page mise en place ; avant, on l'estime.
-PROX_HAUT_ESTIME = 0.92
 
 # LE VOILE DE LA VUE D'ASSEMBLAGE : un gris qui laisse deviner le sol sans
 # qu'on confonde ses pierres et ses brindilles avec celles du plan. Il
@@ -171,12 +166,22 @@ class CraftScreen(Penche, Screen):
         self.couche_glisse = Widget(size_hint=(1, 1),
                                     pos_hint={"x": 0, "y": 0})
         self.sol = SolDeCraft(depose=self._depose, couche=self.couche_glisse,
-                              coins_prox=coins_carre(2340.0, 1080.0,
-                                                     PROX_HAUT_ESTIME),
+                              coins_prox=coins_estimes(),
                               size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         self.sol.opacity = 0.0
         self.loupe.add_widget(self.sol)
         self.sol.bind(size=self._cale_proximite)
+        # LA PROXIMITE A LA PLACE QU'ELLE A DANS L'INVENTAIRE, sous le meme
+        # titre : une copie invisible de sa colonne (voir
+        # inventory_screen.gabarit_proximite) donne sa place, au pixel pres.
+        self._gabarit, self.prox_title, self._place_prox = \
+            gabarit_proximite()
+        self._place_prox.bind(pos=self._cale_proximite,
+                              size=self._cale_proximite)
+        # Le titre parait et s'efface avec la grille.
+        self.prox_title.opacity = self.sol.opacity
+        self.sol.bind(opacity=lambda _w, v: setattr(self.prox_title,
+                                                    "opacity", v))
 
         # LE VOILE GRIS de la vue d'assemblage, entre le decor et les objets
         # libres : il zoome avec eux et couvre donc toujours l'ecran.
@@ -267,8 +272,6 @@ class CraftScreen(Penche, Screen):
                                  switch=self.partir)
         self._rang_titre.add_widget(self._titre)
         col.add_widget(self._rang_titre)
-        self._rang_titre.bind(pos=self._cale_proximite,
-                              size=self._cale_proximite)
 
         # Le milieu, vide, avec en bas le rang d'Assembler, de la hauteur de
         # Retour. Il est a part pour que le titre et Retour gardent
@@ -299,6 +302,7 @@ class CraftScreen(Penche, Screen):
         self._garnit(self._rang_retour, self._retour)
         self._garnit(self._rang_bas, None)
         root.add_widget(col)
+        root.add_widget(self._gabarit)
         root.add_widget(self.couche_glisse)
 
         # LA CONSIGNE DU MINI-JEU, a la place du titre.
@@ -322,16 +326,15 @@ class CraftScreen(Penche, Screen):
         self.add_widget(root)
 
     def _cale_proximite(self, *_):
-        """Le haut de la proximite au bas du titre."""
-        sol = self.sol
-        if sol.width <= 0 or sol.height <= 0:
+        """La proximite exactement sur sa place, sous son titre."""
+        w, sol = self._place_prox, self.sol
+        if sol.width <= 0 or sol.height <= 0 or w.height <= 0:
             return
-        haut = PROX_HAUT_ESTIME
-        if self._rang_titre.height > 0:
-            h = (self._rang_titre.y - sol.y) / float(sol.height)
-            if 0.5 < h <= 1.0:
-                haut = h
-        sol.set_coins_proximite(coins_carre(sol.width, sol.height, haut))
+        sol.set_coins_proximite(coins_rect(
+            (w.x - sol.x) / float(sol.width),
+            (w.y - sol.y) / float(sol.height),
+            (w.x + w.width - sol.x) / float(sol.width),
+            (w.y + w.height - sol.y) / float(sol.height)))
 
     # ------------------------------------------------------------------ #
     def on_pre_enter(self):

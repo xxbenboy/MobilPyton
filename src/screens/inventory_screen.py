@@ -165,6 +165,55 @@ def _panel(widget, alpha=0.45):
     return panel(widget, alpha=alpha)
 
 
+# LA PROXIMITE A UN TITRE, comme le sac : au-dessus de sa grille, a la meme
+# hauteur que "Sac a dos", et de la meme taille.
+TITRE_PROXIMITE = "A proximite"
+
+
+def colonne_proximite():
+    """La colonne de gauche de la rangee des panneaux : le titre de la
+    proximite, et dessous la place de sa grille. Rend (colonne, titre,
+    place)."""
+    gauche = BoxLayout(orientation="vertical", spacing=dp(6),
+                       size_hint_x=_PART_SOL)
+    titre = scale_font(Label(text=TITRE_PROXIMITE, bold=True,
+                             size_hint=(1, COL_TITLE)), 0.022)
+    place = Widget(size_hint=(1, COL_LIST))
+    gauche.add_widget(titre)
+    gauche.add_widget(place)
+    return gauche, titre, place
+
+
+def gabarit_proximite():
+    """Une copie INVISIBLE de la colonne de l'inventaire, ou seule la
+    proximite (titre et place) existe. Le craft s'en sert pour poser sa
+    proximite EXACTEMENT ou l'inventaire pose la sienne : memes mesures,
+    meme mise en page par Kivy, rien a recalculer a la main. Rend (colonne,
+    titre, place)."""
+    col = BoxLayout(orientation="vertical", padding=dp(10), spacing=dp(8),
+                    size_hint=(0.96, 0.96),
+                    pos_hint={"center_x": 0.5, "center_y": 0.5})
+    col.add_widget(Widget(size_hint=(1, _POIDS_TITRE)))
+    body = BoxLayout(orientation="horizontal", spacing=dp(10),
+                     size_hint=(1, _POIDS_SECTIONS))
+    gauche, titre, place = colonne_proximite()
+    body.add_widget(gauche)
+    rest = (1.0 - _PART_SOL) / 2.0
+    body.add_widget(Widget(size_hint_x=rest))
+    body.add_widget(Widget(size_hint_x=rest))
+    col.add_widget(body)
+    col.add_widget(Widget(size_hint=(1, _POIDS_VIDE)))
+    col.add_widget(Widget(size_hint=(1, _POIDS_BAS)))
+    return col, titre, place
+
+
+def coins_estimes():
+    """La proximite avant toute mise en page (parts de l'ecran)."""
+    haut = 0.98 - 0.96 * _POIDS_TITRE
+    return coins_rect(PROX_GAUCHE, BAS_SECTIONS, PROX_DROITE,
+                      haut - (haut - BAS_SECTIONS) * COL_TITLE)
+
+
 def _row_font(w, *_):
     """Ligne d'inventaire. `font_scale` ecrit un nom plus gros qu'un detail.
 
@@ -232,9 +281,7 @@ class InventoryScreen(Penche, DragDrop, Screen):
         # LA PROXIMITE EN FACE DES DEUX PANNEAUX : meme haut, meme bas (voir
         # _cale_proximite) ; avant la mise en page, on l'estime.
         self.sol = SolDeCraft(avec_centre=False,
-                              coins_prox=coins_rect(
-                                  PROX_GAUCHE, BAS_SECTIONS, PROX_DROITE,
-                                  0.98 - 0.96 * _POIDS_TITRE),
+                              coins_prox=coins_estimes(),
                               size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         self.sol.opacity = 0.0
         root.add_widget(self.sol)
@@ -272,9 +319,14 @@ class InventoryScreen(Penche, DragDrop, Screen):
         body = BoxLayout(orientation="horizontal", spacing=dp(10),
                          size_hint=(1, _POIDS_SECTIONS))
 
-        # ---- Gauche : la place du sol, EN FACE des deux panneaux ----
-        self._place_sol = Widget(size_hint_x=_PART_SOL)
-        body.add_widget(self._place_sol)
+        # ---- Gauche : la place du sol, EN FACE des deux panneaux, sous
+        # son titre ----
+        gauche, self.prox_title, self._place_sol = colonne_proximite()
+        body.add_widget(gauche)
+        # Le titre parait et s'efface avec la grille.
+        self.prox_title.opacity = self.sol.opacity
+        self.sol.bind(opacity=lambda _w, v: setattr(self.prox_title,
+                                                    "opacity", v))
         self._place_sol.bind(pos=self._cale_proximite,
                              size=self._cale_proximite)
         # Le sol accepte tout ce qu'on y lache, case ou pas : cette zone

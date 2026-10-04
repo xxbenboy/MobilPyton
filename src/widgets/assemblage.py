@@ -44,12 +44,13 @@ import math
 import random
 
 from kivy.clock import Clock
-from kivy.graphics import Color, Line, PushMatrix, PopMatrix, Translate, Scale
+from kivy.graphics import (Color, Line, PushMatrix, PopMatrix, Rectangle,
+                           Translate, Scale)
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
 
-from src.widgets.sol_de_craft import (dessine_objet, TAILLE_OBJET,
-                                      CENTRE_PRES, CENTRE_LOIN)
+from src.widgets.sol_de_craft import (dessine_objet, cadre_image,
+                                      TAILLE_OBJET, CENTRE_PRES, CENTRE_LOIN)
 
 # La part de la largeur que prend le plan de travail une fois rapproche.
 PART_PLAN = 2.0 / 3.0
@@ -114,6 +115,83 @@ def vue_inverse(e, X, Y, l, h, ox=0.0, oy=0.0):
     tx = (CENTRE_VUE[0] - CENTRE_PLAN[0]) * l * e
     ty = (CENTRE_VUE[1] - CENTRE_PLAN[1]) * h * e
     return cx + (X - cx - tx) / s, cy + (Y - cy - ty) / s
+
+
+# CE QUE LES MINI-JEUX DESSINENT SUR UN OBJET, a meme l'objet (sous les
+# mains, comme lui) :
+# - "morceaux" : les traits deja coupes, en parts de la largeur de l'image ;
+#   l'objet est dessine en morceaux, ecartes de ECART_MORCEAU l'un de
+#   l'autre ;
+# - "a_couper" : les traits qui restent a couper, en pointilles ;
+# - "entailles" : [(cote, part)] -- la couche a retirer d'un flanc, de son
+#   bord jusqu'au trait en pointilles.
+ECART_MORCEAU = 0.045
+POINTILLE = 0.035
+TRAIT_A_FAIRE = (1.0, 1.0, 0.95, 0.95)
+OMBRE_TRAIT = (0.10, 0.08, 0.05, 0.75)
+COUCHE_A_RETIRER = (1.0, 0.95, 0.75, 0.28)
+
+
+def decalage_morceau(o, u, cote):
+    """De combien est pousse, a l'ecran, le morceau de `o` qui contient la
+    part `u` de sa largeur (les morceaux s'ecartent depuis le milieu)."""
+    traits = sorted(o.get("morceaux", ()))
+    j = sum(1 for c in traits if c < u)
+    return (j - len(traits) / 2.0) * ECART_MORCEAU * cote
+
+
+def _pointilles(x, y0, y1, largeur, pas):
+    """Un trait vertical en pointilles, souligne d'une ombre."""
+    n = max(1, int(abs(y1 - y0) / pas))
+    for couleur, dx, w in ((OMBRE_TRAIT, largeur * 0.7, largeur * 1.3),
+                           (TRAIT_A_FAIRE, 0.0, largeur)):
+        Color(*couleur)
+        for k in range(0, n, 2):
+            a = y0 + (y1 - y0) * k / float(n)
+            b = y0 + (y1 - y0) * min(n, k + 1) / float(n)
+            Line(points=[x + dx, a, x + dx, b], width=w)
+
+
+def dessine_travail(o, cx, cy, cote, ombre=True):
+    """L'objet `o` centre en (cx, cy), avec ce qu'un mini-jeu y a fait ou
+    montre a faire (voir plus haut). Sans rien de tout cela : dessine_objet.
+    """
+    coupe = tuple(o.get("coupe", (0.0, 0.0)))
+    traits = sorted(o.get("morceaux", ()))
+    if not traits:
+        dessine_objet(o["nom"], cx, cy, cote, ombre=ombre, coupe=coupe)
+    else:
+        bords = [0.0] + traits + [1.0]
+        for j in range(len(bords) - 1):
+            a, b = bords[j], bords[j + 1]
+            dx = (j - len(traits) / 2.0) * ECART_MORCEAU * cote
+            # Un rien de travers, pour qu'on voie le morceau detache.
+            dy = (0.012 if j % 2 else -0.012) * cote
+            dessine_objet(o["nom"], cx + dx, cy + dy, cote, ombre=ombre,
+                          coupe=(a, 1.0 - b))
+    a_couper = o.get("a_couper", ())
+    entailles = o.get("entailles", ())
+    if not a_couper and not entailles:
+        return
+    cadre = cadre_image(o["nom"], cote)
+    if cadre is None:
+        return
+    iw, ih = cadre
+    largeur = max(1.5, cote * 0.016)
+    pas = POINTILLE * cote
+    for u in a_couper:
+        x = cx - iw / 2.0 + u * iw + decalage_morceau(o, u, cote)
+        _pointilles(x, cy - ih * 0.55, cy + ih * 0.55, largeur, pas)
+    for cote_pierre, u in entailles:
+        x = cx - iw / 2.0 + u * iw
+        if cote_pierre == "gauche":
+            bord = cx - iw / 2.0 + coupe[0] * iw
+        else:
+            bord = cx + iw / 2.0 - coupe[1] * iw
+        Color(*COUCHE_A_RETIRER)
+        Rectangle(pos=(min(x, bord), cy - ih * 0.40),
+                  size=(abs(x - bord), ih * 0.80))
+        _pointilles(x, cy - ih * 0.45, cy + ih * 0.45, largeur, pas)
 
 
 class Loupe(FloatLayout):
@@ -239,9 +317,8 @@ class Assemblage(Widget):
             for o in sorted(self.objets, key=lambda o: -o["y"]):
                 if any(o is p for p in portes):
                     continue
-                dessine_objet(o["nom"], self.x + o["x"] * self.width,
-                              self.y + o["y"] * self.height, cote,
-                              coupe=tuple(o.get("coupe", (0.0, 0.0))))
+                dessine_travail(o, self.x + o["x"] * self.width,
+                                self.y + o["y"] * self.height, cote)
         self._dessine_portes()
 
     def _dessine_portes(self):
@@ -254,8 +331,7 @@ class Assemblage(Widget):
                 if self._porte[i] is not None:
                     px, py = self.ou_est_porte(i)
                     o = self._porte[i]
-                    dessine_objet(o["nom"], px, py, cote, ombre=False,
-                                  coupe=tuple(o.get("coupe", (0.0, 0.0))))
+                    dessine_travail(o, px, py, cote, ombre=False)
             # LES GRILLES QUI SE TOUCHENT, tant que l'objet est tenu.
             for i in (0, 1):
                 if self._porte[i] is not None and \
@@ -303,6 +379,19 @@ class Assemblage(Widget):
         souffle = getattr(self.mains, "_shift", None)
         sx, sy = (souffle.x, souffle.y) if souffle is not None else (0, 0)
         return bx + self._decale[i][0] + sx, by + self._decale[i][1] + sy
+
+    def place_a_l_ecran(self, o, px, py):
+        """Pose l'objet `o` pour qu'il paraisse en (px, py) a l'ecran."""
+        x, y = vue_inverse(1.0, px, py, self.width, self.height,
+                           self.x, self.y)
+        o["x"] = (x - self.x) / self.width
+        o["y"] = (y - self.y) / self.height
+        self._redessine()
+
+    def centre_du_plan(self):
+        """Le milieu du plan de travail rapproche, a l'ecran."""
+        return (self.x + CENTRE_VUE[0] * self.width,
+                self.y + CENTRE_VUE[1] * self.height)
 
     def a_l_ecran(self, o):
         return vue(1.0, self.x + o["x"] * self.width,
