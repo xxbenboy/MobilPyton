@@ -43,7 +43,7 @@ ASSEMBLAGES = [
 # quelle piece on fabrique ; les branches, la corde et le couteau se collent
 # ou l'on veut (y vers le haut, X = une feuille, . = une place vide) :
 #
-#   Casque   . X X .     ou    X X X X
+#   Casque   . X X .
 #            X . . X
 #
 #   Plastron . X .       (la veste)
@@ -56,7 +56,7 @@ ASSEMBLAGES = [
 #            X . X       moins une place vide : collees, c'est le pantalon)
 #
 #   Gants    X X . X X   deux paires cote a cote, PEU IMPORTE L'ECART (au
-#                        moins une place vide : collees, c'est le casque)
+#                        moins une place vide)
 FEUILLE = "Feuille"
 
 
@@ -77,8 +77,7 @@ def _deux_paires(f):
 
 
 FORMES_FEUILLE = {
-    "Casque_De_Feuille": ({(1, 1), (2, 1), (0, 0), (3, 0)},
-                          {(0, 0), (1, 0), (2, 0), (3, 0)}),
+    "Casque_De_Feuille": ({(1, 1), (2, 1), (0, 0), (3, 0)},),
     "Veste_De_Feuille": ({(1, 1), (0, 0), (1, 0), (2, 0)},),
     "Pantalon_De_Feuille": ({(0, 0), (1, 0), (0, 1), (1, 1)},),
     "Soulier_De_Feuille": (_deux_colonnes,),

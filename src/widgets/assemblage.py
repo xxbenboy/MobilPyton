@@ -89,6 +89,12 @@ TRAIT_GRILLE = (0.95, 0.94, 0.88, 0.80)
 TRAINEE_GRILLE = (0.95, 0.94, 0.88, 0.28)
 EPAISSEUR_GRILLE = 0.0024
 TREMBLE_CRAIE = 0.10           # en part d'une case
+# LA GRILLE DU PLAN, partout et tout le temps dans la vue d'assemblage : des
+# cases de la taille de celles des objets (un objet en couvre 3 x 3). Tout
+# objet pose s'y cale -- ses cases tombent sur les siennes -- et deux objets
+# poses s'alignent donc toujours l'un sur l'autre.
+TRAIT_PLAN = (0.95, 0.94, 0.88, 0.16)
+EPAISSEUR_PLAN = 0.020          # en part d'une case
 # Doigt pose sans bouger pendant ce temps (s) : l'aimant lache.
 DELAI_AIMANT = 1.0
 # En deca de ce deplacement du doigt (px), il n'a pas bouge.
@@ -347,6 +353,7 @@ class Assemblage(Widget):
         portes = [o for o in self._porte if o is not None]
         cote = TAILLE_OBJET * self.height
         with self.canvas:
+            self._dessine_grille_plan(cote / CASES_OBJET)
             # LES PLACES A REMPLIR d'un mini-jeu, sous les objets : l'objet
             # attendu, en fantome, dans un rond de craie.
             for place in self.emplacements:
@@ -375,6 +382,34 @@ class Assemblage(Widget):
                 Color(*COULEUR_FIL)
                 Line(points=pts, width=max(1.2, cote * 0.020))
         self._dessine_portes()
+
+    def _dessine_grille_plan(self, case):
+        """La grille du plan, sur toute la vue (en coordonnees d'avant le
+        grossissement : la loupe la grossit avec le reste)."""
+        if case <= 0:
+            return
+        ox = self.x + CENTRE_PLAN[0] * self.width
+        oy = self.y + CENTRE_PLAN[1] * self.height
+        Color(*TRAIT_PLAN)
+        largeur = max(1.0, EPAISSEUR_PLAN * case)
+        k0 = int(math.floor((self.x - ox) / case))
+        k1 = int(math.ceil((self.x + self.width - ox) / case))
+        for k in range(k0, k1 + 1):
+            x = ox + k * case
+            Line(points=[x, self.y, x, self.y + self.height], width=largeur)
+        k0 = int(math.floor((self.y - oy) / case))
+        k1 = int(math.ceil((self.y + self.height - oy) / case))
+        for k in range(k0, k1 + 1):
+            y = oy + k * case
+            Line(points=[self.x, y, self.x + self.width, y], width=largeur)
+
+    def sur_grille(self, px, py):
+        """Le point de l'ecran ou se cale un objet lache en (px, py) : ses
+        cases sur celles de la grille du plan."""
+        c = self.case_objet()
+        ox, oy = self.centre_du_plan()
+        return (ox + (round((px - ox) / c - 0.5) + 0.5) * c,
+                oy + (round((py - oy) / c - 0.5) + 0.5) * c)
 
     def _dessine_portes(self):
         if self.couche is None:
@@ -477,6 +512,10 @@ class Assemblage(Widget):
         o = self._porte[i]
         px, py = self.ou_est_porte(i)
         colle = self._aimante[i]
+        if colle is None and self.aimant_permis:
+            # Cale sur la grille du plan (pas pendant un mini-jeu, qui place
+            # les objets a sa facon).
+            px, py = self.sur_grille(px, py)
         if colle is None and self.aimant_permis and \
                 self._chevauche(px, py, o):
             # LACHE PAR-DESSUS UN AUTRE : pousse a la place libre la plus
