@@ -853,9 +853,15 @@ class GameState:
         return self.energy <= SLEEP_ENERGY_PART * self.endurance_max()
 
     def has_water_source(self):
-        """Y a-t-il un ruisseau d'eau potable sur la case actuelle ?"""
-        return (self.current_zone() in world.STREAM_TYPES
-                and world.has_stream(self.seed, self.player_x, self.player_y))
+        """Y a-t-il de l'eau a boire sur la case : un ruisseau, ou le lac
+        au bord duquel on se tient ?"""
+        return self.au_bord_de_l_eau() or (
+            self.current_zone() in world.STREAM_TYPES
+            and world.has_stream(self.seed, self.player_x, self.player_y))
+
+    def au_bord_de_l_eau(self):
+        """Sur la RIVE d'un lac : son eau est a portee de main."""
+        return self.current_zone() == "Rive"
 
     # ------------------------------------------------------------------ #
     # Inventaire (mains / sol) et craft
@@ -1902,16 +1908,18 @@ class GameState:
         return [cell for cell, kind in sorted(self.nature_cells_here().items())
                 if kind == "tree"]
 
-    def chop_tree(self):
-        """Abat l'arbre le plus PROCHE. Renvoie sa cellule, ou None.
+    def chop_tree(self, cell=None):
+        """Abat l'arbre `cell` (le plus PROCHE si None). Renvoie sa cellule,
+        ou None.
 
         La cellule reste marquee pour toujours : l'arbre ne repousse pas et
         disparait donc definitivement du decor."""
         trees = self.trees_here()
-        if not trees:
+        if not trees or (cell is not None and tuple(cell) not in trees):
             return None
         # gy croissant = de plus en plus loin : on coupe le plus proche.
-        cell = min(trees, key=lambda c: (c[1], c[0]))
+        if cell is None:
+            cell = min(trees, key=lambda c: (c[1], c[0]))
         self.chopped.setdefault(self._cell_key(), []).append([cell[0], cell[1]])
         self.gain_xp("couper")
         return cell
@@ -1919,28 +1927,62 @@ class GameState:
     # ------------------------------------------------------------------ #
     # Baies des buissons et trouvailles au couteau
     # ------------------------------------------------------------------ #
-    # Comptees avec les recoltes de la case (`harvested`), sous des cles a
-    # part : la scene ne les connait pas et les ignore.
-    BAIES_CUEILLIES = "buisson:baies"
+    #
+    # TOUS LES BUISSONS NE PORTENT PAS DE BAIES, ET PAS SUR TOUTES LES CASES :
+    # une case sur deux (CASES_A_BAIES) a des buissons a baies, et sur cette
+    # case chaque buisson en porte avec la chance BUISSON_A_BAIES (au moins
+    # un). Tire de la graine de la case : stable d'une visite a l'autre.
+    # Les baies cueillies se comptent PAR BUISSON, dans les recoltes de la
+    # case (`harvested`), sous des cles a part que la scene ignore. Un
+    # buisson depouille de sa derniere baie quitte le decor.
     BAIES_PAR_BUISSON = (2, 4)
+    CASES_A_BAIES = 0.5
+    BUISSON_A_BAIES = 0.6
+
+    @staticmethod
+    def _cle_baies(cell):
+        return "baies:%d,%d" % (cell[0], cell[1])
+
+    def baies_par_buisson(self):
+        """{(gx, gy): baies restantes} des buissons DEBOUT qui en portent."""
+        seed = world.scene_seed(self.player_x, self.player_y)
+        if random.Random("%s:baies:case" % seed).random() >= self.CASES_A_BAIES:
+            return {}
+        buissons = self.bushes_here()
+        porteurs = [c for c in buissons
+                    if random.Random("%s:%d:%d:porte" % (seed, c[0], c[1]))
+                    .random() < self.BUISSON_A_BAIES]
+        if buissons and not porteurs:
+            porteurs = [min(buissons, key=lambda c: (c[1], c[0]))]
+        taken = self.harvested_here()
+        out = {}
+        for c in porteurs:
+            n = random.Random("%s:%d:%d:baies" % (seed, c[0], c[1]))                 .randint(*self.BAIES_PAR_BUISSON)
+            reste = n - taken.get(self._cle_baies(c), 0)
+            if reste > 0:
+                out[c] = reste
+        return out
 
     def berries_left(self):
-        """Baies qu'il reste a cueillir sur les buissons DEBOUT de la case :
-        chacun en porte BAIES_PAR_BUISSON (tire une fois pour toutes)."""
-        seed = world.scene_seed(self.player_x, self.player_y)
-        total = sum(random.Random("%s:%d:%d:baies" % (seed, gx, gy))
-                    .randint(*self.BAIES_PAR_BUISSON)
-                    for gx, gy in self.bushes_here())
-        cueillies = self.harvested_here().get(self.BAIES_CUEILLIES, 0)
-        return max(0, total - cueillies)
+        """Baies qu'il reste a cueillir sur les buissons de la case."""
+        return sum(self.baies_par_buisson().values())
 
-    def pick_berry(self):
-        """Compte une baie cueillie (l'ecran la range ensuite, voir
-        auto_take). Rend False s'il n'y en a plus."""
-        if self.berries_left() <= 0:
+    def pick_berry(self, cell=None):
+        """Compte une baie cueillie sur le buisson `cell` (le plus proche qui
+        en porte si None) ; l'ecran la range ensuite (voir auto_take). Le
+        buisson vide quitte le decor. Rend False s'il n'y en a plus."""
+        baies = self.baies_par_buisson()
+        if cell is None and baies:
+            cell = min(baies, key=lambda c: (c[1], c[0]))
+        if cell is None or baies.get(tuple(cell), 0) <= 0:
             return False
+        cell = tuple(cell)
         taken = self.harvested_here()
-        taken[self.BAIES_CUEILLIES] = taken.get(self.BAIES_CUEILLIES, 0) + 1
+        cle = self._cle_baies(cell)
+        taken[cle] = taken.get(cle, 0) + 1
+        if baies[cell] <= 1:
+            self.chopped.setdefault(self._cell_key(), []).append(
+                [cell[0], cell[1]])
         return True
 
     def knife_finds_left(self):

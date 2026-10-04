@@ -33,9 +33,11 @@ from src.widgets.zone_scenery import ZoneScenery
 
 from src import items
 from src.widgets.player_hands import PlayerHands
+from src.widgets.action_mode import (Approche, Clignote, JeuBaies, JeuEau,
+                                     JeuArbre, DUREE_APPROCHE, doux)
 from src.widgets.insects import InsectLayer, FireflyLayer
 from src.widgets.weather import WeatherLayer, LightningLayer
-from src.widgets.icon_button import IconButton, ICONS
+from src.widgets.icon_button import IconButton
 from src.widgets.lieu_toggle import ouvrir_zone
 from src.widgets.styled_button import StyledButton, TabButton
 from src.widgets.panels import panel
@@ -89,9 +91,18 @@ CHOP_YIELD = (("Buche", 3, 3), ("Long_Stick", 3, 5), ("Feuille", 5, 10))
 # _finish_action) ; tout le reste vient a l'unite.
 TROUVAILLES_PAR_POIGNEE = {"Feuille", "Herbe", "Pierre"}
 
+# MODE ACTION. L'eau du lac, en parts de la hauteur de la scene : du sable de
+# la rive (bas) a la ligne d'eau (haut). L'arbre : son entaille, et la
+# largeur de son tronc, en parts de sa hauteur.
+EAU_BAS = 0.14
+EAU_HAUT = 0.60
+ENTAILLE = 0.10
+LARGEUR_TRONC = 0.035
+
 # Les actions ou les mains FOUILLENT (elles montent et descendent l'une apres
-# l'autre, voir searching.py) : explorer, et chercher des baies.
-FOUILLES = ("Explorer", "Chercher a manger")
+# l'autre, voir searching.py). Les baies, elles, se cueillent a la main
+# dans le mode action.
+FOUILLES = ("Explorer",)
 
 # Ce qu'Explorer ne trouve PAS, meme visible : les baies se cueillent sur les
 # buissons (Chercher a manger).
@@ -117,18 +128,6 @@ ACTIONS = [
      "minutes": 240, "energy": 25, "sleep": 50, "requires_sleep": True},
 ]
 
-# LE SOUS-MENU ACTION DEPEND DE CE QUE L'ON TIENT. Mains vides : chercher a
-# manger, boire. Une hache en main : couper du bois. Un couteau : il sert a
-# EXPLORER (voir le bouton Explorer), il n'a plus d'action a lui. Une section
-# en tete du sous-menu dit lequel on regarde.
-SOUS_MENU = {
-    "vides": ("Chercher a manger", "Boire"),
-    "hache": ("Couper du bois", "Boire"),
-    "couteau": ("Boire",),
-}
-TITRE_SOUS_MENU = {"vides": "Mains vides :", "hache": "Hache :",
-                   "couteau": "Couteau\nen pierre :"}
-
 # LE BOUTON EXPLORER suit ce que l'on tient : a mains nues, ou au couteau
 # (qui trouve davantage, voir items.KNIFE_FINDS).
 EXPLORER = {
@@ -143,7 +142,6 @@ def _couteau_en_main(state):
         if state.hands[i] in items.KNIFE_ITEMS:
             return i
     return None
-LABELS_SOUS_MENU = {l for labels in SOUS_MENU.values() for l in labels}
 
 
 def _action_minutes(action):
@@ -181,9 +179,6 @@ def _action_reason(state, action):
     """
     if action.get("requires_sleep") and not state.can_sleep():
         return "Pas assez fatigue\npour te reposer."
-    if action.get("type") == "drink" and not (state.has_water_source()
-                                               or state.water > 0):
-        return "Pas d'eau ici,\nni dans la gourde."
     if action.get("type") == "fill" and not state.has_water_source():
         return "Aucun ruisseau ici\npour remplir la gourde."
     # Mains pleines : ce qu'on a ramasse se pose de lui-meme au sol en
@@ -192,16 +187,6 @@ def _action_reason(state, action):
     if action.get("type") == "explore" and state.hands_full() \
             and state.main_a_vider() is None:
         return "Mains occupees.\nVide une main pour explorer."
-    if action.get("type") == "berries":
-        if state.berries_left() <= 0:
-            return "Aucun buisson a baies\na cueillir ici."
-        if state.hands_full():
-            return "Mains occupees.\nVide une main pour cueillir."
-    if action.get("need_axe"):
-        if items.AXE_ITEM not in state.hands:
-            return "Il faut une hache\nen main pour couper."
-        if not state.trees_here():
-            return "Aucun arbre a couper\nsur cette case."
     return None
 
 
@@ -337,8 +322,6 @@ class GameScreen(Screen):
         self._rest_fader_clock = None
         self._found_item = None        # objet decouvert a la fin d'une exploration
         self._did_explore = False      # vient-on d'explorer ? (pour le message)
-        self._did_chop = False         # vient-on d'abattre un arbre ?
-        self._did_berries = False      # vient-on de cueillir des baies ?
         self._find_au_couteau = False  # la trouvaille vient-elle du couteau ?
         self._ff_wear = None           # part de solidite que l'outil perdra
         # Panneau lateral escamotable : None (masque), "stats" ou "effects".
@@ -348,24 +331,43 @@ class GameScreen(Screen):
         self._toast_effects = {}
         self._effect_names = None
         self._effect_circles = {}
+        # MODE ACTION (voir widgets/action_mode.py) : None, "choix",
+        # "approche", "jeu" ou "retour".
+        self._mode_action = None
+        self._cible = None
+        self._jeu = None
+        self._approche_horloge = None
+        self._baies_jeu = []
 
         root = FloatLayout()
         self.root_layout = root
         self._toast = None
+        # LE MONDE (ciel, decor, insectes) : il avance d'un bloc vers ce
+        # qu'on touche en mode action. Les mains, le HUD et la meteo n'en
+        # sont pas : ils restent ou ils sont.
+        self.monde = Approche(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.monde)
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
-        root.add_widget(self.background)
+        self.monde.add_widget(self.background)
         self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
-        root.add_widget(self.scenery)
+        self.monde.add_widget(self.scenery)
         # (Les objets INSTALLES ne sont plus une couche au-dessus du decor :
         #  ZoneScenery les dessine A LEUR PROFONDEUR, melanges au decor, sinon
         #  un feu de camp pose au fond recouvrait les buissons du devant.)
         # Insectes animes (papillons / abeilles) qui volent dans la scene.
         self.insects = InsectLayer(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
-        root.add_widget(self.insects)
+        self.monde.add_widget(self.insects)
+        # Ce que dessinent les mini-jeux du mode action : SOUS les mains (les
+        # baies sur le buisson, l'entaille du tronc) et SUR elles (l'eau
+        # dans les paumes, les copeaux).
+        self.couche_sous = Widget(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.couche_sous)
         # Mains du joueur (vue 1re personne), devant le decor.
         self.hands = PlayerHands(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         root.add_widget(self.hands)
+        self.couche_sur = Widget(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.couche_sur)
 
         # METEO (pluie / neige / brouillard / voile) : devant le decor et les
         # mains, mais DERRIERE le voile de nuit -> les precipitations
@@ -401,6 +403,17 @@ class GameScreen(Screen):
                                         pos_hint={"x": 0, "y": 0})
         root.add_widget(self.lightning)
 
+        # Ce qui CLIGNOTE en mode action : par-dessus le voile de nuit, pour
+        # se voir aussi la nuit.
+        self.clignote = Clignote(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.clignote)
+
+        # LE HUD, tout entier dans un seul conteneur : le mode action l'efface
+        # d'un fondu, et le rend de meme.
+        hud = FloatLayout(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        self.hud = hud
+        root.add_widget(hud)
+
         # ---- Section ZONE (haut centre) ----
         zone_box = BoxLayout(orientation="vertical", padding=dp(10), spacing=4,
                              size_hint=(0.20, 0.16),
@@ -419,7 +432,7 @@ class GameScreen(Screen):
         self.zone_desc.bind(size=lambda w, *_: setattr(
             w, "text_size", (w.width, None)))
         zone_box.add_widget(self.zone_desc)
-        root.add_widget(zone_box)
+        hud.add_widget(zone_box)
 
         # ---- Colonne d'ETAT (bord droit, TOUJOURS visible) ----
         # Les cercles de stats sont l'information la plus consultee : ils
@@ -439,7 +452,7 @@ class GameScreen(Screen):
                               self.stat_thirst)
         for circle in self._stat_circles:
             self.status_col.add_widget(circle)
-        root.add_widget(self.status_col)
+        hud.add_widget(self.status_col)
 
         # ---- Bouton EFFET, a GAUCHE de la colonne d'etat ----
         self.panel_btns = BoxLayout(orientation="vertical",
@@ -450,7 +463,7 @@ class GameScreen(Screen):
         self.effect_btn = scale_font(TabButton(text="Effet"), 0.02)
         self.effect_btn.bind(on_release=lambda *_: self._toggle_panel("effects"))
         self.panel_btns.add_widget(self.effect_btn)
-        root.add_widget(self.panel_btns)
+        hud.add_widget(self.panel_btns)
 
         # ---- Panneau des EFFETS (masque par defaut) ----
         # Il s'ouvre ENCORE PLUS A GAUCHE, sans jamais recouvrir l'etat ni son
@@ -460,7 +473,7 @@ class GameScreen(Screen):
                                     size_hint=(0.07, 0.80),
                                     pos_hint={"right": 0.852, "top": 0.99})
         _add_panel(self.side_panel, alpha=0.34)
-        root.add_widget(self.side_panel)
+        hud.add_widget(self.side_panel)
         self.side_panel.opacity = 0
         self.side_panel.disabled = True
 
@@ -469,7 +482,7 @@ class GameScreen(Screen):
                                  color=(0.96, 0.82, 0.45, 1),
                                  size_hint=(0.20, 0.07),
                                  pos_hint={"center_x": 0.5, "top": 0.80}), 0.022)
-        root.add_widget(self.status)
+        hud.add_widget(self.status)
 
         # ---- Boutons d'action (haut gauche) ----
         # Disposition : colonne de gauche = Explorer / Se reposer / Craft, le
@@ -481,18 +494,12 @@ class GameScreen(Screen):
                                pos_hint={"x": 0.004, "top": 0.96})
         self.grid.bind(minimum_width=self.grid.setter("width"))
         self.grid.bind(pos=self._aligne_lieux)
-        root.add_widget(self.grid)
+        hud.add_widget(self.grid)
         self._action_buttons = []   # (bouton, action)
         # Bouton Inv./Craft : il vit dans la grille d'actions, donc il est
         # recree a chaque reconstruction de celle-ci.
         self.inv_btn = None
         self._action_visible = None  # cle des actions visibles (pour rebuild)
-        # Sous-menu "Action" : quand True, "Chercher a manger" et "Boire"
-        # sont affiches en plus dans la grille. Toggle via le bouton Action.
-        self._action_submenu_visible = False
-        # References utilisees par on_touch_down pour detecter "click ailleurs".
-        self._action_btn_widget = None     # bouton Action (toggle)
-        self._action_submenu_btns = []     # boutons Manger / Boire
 
         # ---- Bouton CARTE/ZONE (bas a gauche) ----
         # UN SEUL bouton pour deux ecrans, comme Inv./Craft. La carte et la
@@ -521,7 +528,7 @@ class GameScreen(Screen):
         prox_area.add_widget(self.prox_btn)
         prox_cell.add_widget(prox_area)
         prox_cell.add_widget(_button_label("Carte/Zone"))
-        root.add_widget(prox_cell)
+        hud.add_widget(prox_cell)
 
         # ---- Bouton ATELIER, juste a cote ----
         # Il n'apparait QUE si un atelier est monte sur la case. C'est un
@@ -554,7 +561,7 @@ class GameScreen(Screen):
         # PAS DANS L'ARBRE tant qu'il n'y a pas d'atelier. Le masquer par
         # l'opacite n'aurait pas suffi : un bouton invisible reste sous le
         # doigt et avale le toucher de ce qui se trouve derriere lui.
-        self._atelier_root = root
+        self._atelier_root = hud
 
         # ---- Bouton MENU (bas a droite) ----
         menu_cell = BoxLayout(orientation="vertical", spacing=2, size_hint=(0.06, 0.16),
@@ -571,7 +578,7 @@ class GameScreen(Screen):
         menu_cell.add_widget(menu_area)
         self.menu_label = _button_label("Menu")
         menu_cell.add_widget(self.menu_label)
-        root.add_widget(menu_cell)
+        hud.add_widget(menu_cell)
 
         # ---- Boutons "Deposer" (vis-a-vis de chaque main, au-dessus) ----
         # Permettent de poser l'objet tenu sans passer par le menu Craft. Au-
@@ -596,14 +603,14 @@ class GameScreen(Screen):
             name_lbl = _button_label("")
             name_lbl.size_hint = (0.16, 0.05)
             name_lbl.pos_hint = {"center_x": cx, "y": NAME_Y_LOW}
-            root.add_widget(name_lbl)
+            hud.add_widget(name_lbl)
             self.drop_labels.append(name_lbl)
 
             # Barre de SOLIDITE, juste sous le nom : seulement pour les
             # outils a usage multiple (hache, lance, couteau).
             bar = DurabilityBar(size_hint=(0.13, 0.012),
                                 pos_hint={"center_x": cx, "y": NAME_Y_LOW})
-            root.add_widget(bar)
+            hud.add_widget(bar)
             self.wear_bars.append(bar)
 
             db = scale_font(StyledButton(text="Deposer", size_hint=(0.13, 0.07),
@@ -615,7 +622,7 @@ class GameScreen(Screen):
                            off=(0.12, 0.14, 0.12, 0.30),
                            border=(0.55, 0.85, 0.60, 0.45))
             db.bind(on_release=lambda _w, s=slot: self._drop_hand(s))
-            root.add_widget(db)
+            hud.add_widget(db)
             self.drop_btns.append(db)
 
             ub = scale_font(StyledButton(text="Utiliser", size_hint=(0.13, 0.07),
@@ -626,7 +633,7 @@ class GameScreen(Screen):
                            off=(0.12, 0.12, 0.14, 0.30),
                            border=(0.55, 0.70, 0.90, 0.45))
             ub.bind(on_release=lambda _w, s=slot: self._use_hand(s))
-            root.add_widget(ub)
+            hud.add_widget(ub)
             self.use_btns.append(ub)
 
         # ---- Bouton DEPLACER (bas a droite, a gauche du Menu) ----
@@ -644,9 +651,22 @@ class GameScreen(Screen):
         move_area.add_widget(self.move_btn)
         move_cell.add_widget(move_area)
         move_cell.add_widget(_button_label("Deplacer"))
-        root.add_widget(move_cell)
+        hud.add_widget(move_cell)
         self._move_menu = None      # overlay du menu de deplacement (ou None)
         self._pause_menu = None     # overlay du menu pause (Menu) (ou None)
+
+        # La CONSIGNE et le bouton RETOUR du mode action, hors du HUD (qui
+        # est efface pendant ce temps). Poses a l'ecran a l'entree du mode.
+        self._action_consigne = scale_font(Label(
+            text="", bold=True, halign="center", valign="middle",
+            color=(1, 1, 1, 1), size_hint=(0.46, 0.07),
+            pos_hint={"center_x": 0.5, "top": 0.97}), 0.022)
+        _add_panel(self._action_consigne, alpha=0.5)
+        self._action_retour = scale_font(StyledButton(
+            text="Retour", size_hint=(0.11, 0.08),
+            pos_hint={"x": 0.01, "top": 0.97}), 0.022)
+        self._action_retour.bind(
+            on_release=lambda *_: self._mode_action_quitte())
 
         self.add_widget(root)
 
@@ -674,6 +694,19 @@ class GameScreen(Screen):
         self.hands.start_breathing()
 
     def on_leave(self):
+        if self._approche_horloge is not None:
+            self._approche_horloge.cancel()
+            self._approche_horloge = None
+        self._arrete_jeu()
+        self.clignote.cache()
+        self._ui_action(False)
+        if self._mode_action is not None:
+            self._mode_action = None
+            self.monde.e = 0.0
+            self.monde.regle()
+            self.hud.disabled = False
+            self.hud.opacity = 1.0
+            self.scenery.oublie()
         self.hands.stop_breathing()
         self._close_move_menu()
         self._close_pause_menu()
@@ -726,38 +759,7 @@ class GameScreen(Screen):
     def _action_visible_key(self, state):
         """Cle resumant quels boutons conditionnels sont visibles."""
         return (any(state.has_item(g) for g in items.GOURDE_ITEMS),
-                bool(state.trees_here()),
-                self._action_submenu_visible,
-                self._hands_mode(state),
                 _couteau_en_main(state) is not None)
-
-    @staticmethod
-    def _hands_mode(state):
-        """Quel sous-menu Action montrer : "hache" si une main tient une
-        hache, "couteau" si elle tient un couteau, sinon les mains vides."""
-        if items.AXE_ITEM in state.hands:
-            return "hache"
-        if _couteau_en_main(state) is not None:
-            return "couteau"
-        return "vides"
-
-    def _toggle_action_submenu(self, *_):
-        """Bouton 'Action' : affiche/cache les boutons Manger et Boire."""
-        self._action_submenu_visible = not self._action_submenu_visible
-        state = App.get_running_app().game_state
-        if state is not None:
-            self._action_visible = self._action_visible_key(state)
-            self._build_action_grid(state)
-
-    def _close_action_submenu(self, *_):
-        """Ferme le sous-menu Action (si ouvert) et reconstruit la grille."""
-        if not self._action_submenu_visible:
-            return
-        self._action_submenu_visible = False
-        state = App.get_running_app().game_state
-        if state is not None:
-            self._action_visible = self._action_visible_key(state)
-            self._build_action_grid(state)
 
     @staticmethod
     def _touch_on_widget(widget, touch):
@@ -789,8 +791,6 @@ class GameScreen(Screen):
     def _build_action_grid(self, state):
         self.grid.clear_widgets()
         self._action_buttons = []
-        self._action_btn_widget = None
-        self._action_submenu_btns = []
         cells = []          # (cell, btn, lbl) -> pour egaliser les largeurs
 
         def _fit_cells(*_):
@@ -830,27 +830,11 @@ class GameScreen(Screen):
         # Inv.-Craft (4 lignes), puis actions conditionnelles dans les colonnes
         # suivantes (remplissage haut->bas puis colonne suivante).
         # "ACTION" = bouton sous-menu, "INVENTAIRE" = bouton Inv./Craft.
-        order = ["Explorer", "Se reposer", "ACTION", "INVENTAIRE"]
-        # "Couper du bois" occupe une place de choix TANT QU'IL Y A DES ARBRES
-        # a abattre ici. Ailleurs, elle n'encombre pas la grille : elle se
-        # range dans le sous-menu Action, avec Manger et Boire.
-        mode = self._hands_mode(state)
-        submenu = []
-        if self._action_submenu_visible:
-            submenu += list(SOUS_MENU[mode])
-            # Le sous-menu ouvre SA colonne, coiffee de sa section : on
-            # complete la colonne en cours avec des cases vides.
-            order += ["VIDE"] * (-len(order) % self.grid.rows)
-            order.append("TITRE")
-        order += submenu
-        order.append("Remplir gourde")
+        # ACTION ouvre le mode action : cueillir, boire, abattre se font en
+        # touchant la scene elle-meme (voir _mode_action_entre).
+        order = ["Explorer", "Se reposer", "ACTION", "INVENTAIRE",
+                 "Remplir gourde"]
         for label in order:
-            if label == "VIDE":
-                self.grid.add_widget(Widget(size_hint_x=None, width=0))
-                continue
-            if label == "TITRE":
-                self._add_submenu_title(mode, cells, _fit_cells)
-                continue
             if label == "INVENTAIRE":
                 # Un seul bouton pour les deux ecrans : il ouvre l'inventaire,
                 # dont le titre bascule vers le craft.
@@ -858,12 +842,8 @@ class GameScreen(Screen):
                                         self._go_inventory)
                 continue
             if label == "ACTION":
-                # Bouton special : toggle sous-menu Manger/Boire.
-                self._action_btn_widget = add_cell(
-                    "actions", "Action",
-                    lambda *_: self._toggle_action_submenu())
-                # Allume tant que le sous-menu est deplie.
-                self._action_btn_widget.selected = self._action_submenu_visible
+                add_cell("actions", "Action",
+                         lambda *_: self._mode_action_entre())
                 continue
             action = by_label[label]
             if action.get("need_gourde") and not has_gourde:
@@ -874,42 +854,6 @@ class GameScreen(Screen):
             btn = add_cell(icon, name,
                            lambda _w, a=action: self.do_action(a))
             self._action_buttons.append((btn, action))
-            if action["label"] in submenu:
-                self._action_submenu_btns.append(btn)
-
-    def _add_submenu_title(self, mode, cells, fit):
-        """Section en tete du sous-menu Action : ce que l'on tient (une main
-        ouverte, ou l'objet) et son nom en dore. Ce n'est pas un bouton : les
-        actions possibles avec ce qu'on tient sont rangees dessous."""
-        cell = BoxLayout(orientation="vertical", spacing=2, size_hint_x=None)
-        area = AnchorLayout(size_hint=(1, 0.66))
-        if mode == "couteau":
-            icon = ItemIcon(items.KNIFE_ITEM, show_name=False,
-                            size_hint=(None, None))
-        else:
-            icon = Widget(size_hint=(None, None))
-
-            def _main(w, *_):
-                w.canvas.clear()
-                with w.canvas:
-                    ICONS["hand"](w.center_x, w.center_y,
-                                  min(w.width, w.height) * 0.42)
-            icon.bind(pos=_main, size=_main)
-
-        def _carre(a, *_):
-            s = a.height * 0.94
-            icon.size = (s, s)
-        area.bind(size=_carre)
-        area.add_widget(icon)
-        lbl = _button_label(TITRE_SOUS_MENU[mode])
-        lbl.color = (0.96, 0.82, 0.45, 1)
-        lbl.bold = True
-        cell.add_widget(area)
-        cell.add_widget(lbl)
-        cells.append((cell, icon, lbl))
-        icon.bind(size=fit)
-        lbl.bind(texture_size=fit)
-        self.grid.add_widget(cell)
 
     # ------------------------------------------------------------------ #
     # Panneau lateral (Statut / Effet)
@@ -1052,6 +996,9 @@ class GameScreen(Screen):
 
     def on_touch_down(self, touch):
         """Appuis sur l'ecran de jeu, dans l'ordre de priorite."""
+        # 0. Le MODE ACTION prend tout (voir _touche_action).
+        if self._mode_action is not None:
+            return self._touche_action(touch)
         # 1. Panneau lateral ouvert : un appui AILLEURS le referme.
         if (self._panel_mode is not None and self._pause_menu is None
                 and self._move_menu is None and not self._moving):
@@ -1059,20 +1006,10 @@ class GameScreen(Screen):
                     or self.panel_btns.collide_point(*touch.pos)):
                 self._set_panel(None)
                 return True                # l'appui sert juste a refermer
-        # 2. Sous-menu Action ouvert : un appui AILLEURS que sur Action /
-        #    Manger / Boire le ferme. La fermeture est differee a la frame
-        #    suivante pour laisser le widget vise recevoir le touch avant
-        #    qu'on reconstruise la grille.
-        if self._action_submenu_visible:
-            on_relevant = (self._touch_on_widget(self._action_btn_widget, touch)
-                           or any(self._touch_on_widget(b, touch)
-                                  for b in self._action_submenu_btns))
-            if not on_relevant:
-                Clock.schedule_once(self._close_action_submenu, 0)
-        # 3. Les boutons et panneaux d'abord.
+        # 2. Les boutons et panneaux d'abord.
         if super().on_touch_down(touch):
             return True
-        # 4. Personne n'a pris l'appui : c'est peut-etre un objet de la scene.
+        # 3. Personne n'a pris l'appui : c'est peut-etre un objet de la scene.
         return self._touch_installed(touch)
 
     def _touch_installed(self, touch):
@@ -1122,11 +1059,253 @@ class GameScreen(Screen):
         self.manager.current = "place"
 
     # ------------------------------------------------------------------ #
+    # MODE ACTION (voir widgets/action_mode.py)
+    # ------------------------------------------------------------------ #
+    def _cibles_action(self, state):
+        """Ce avec quoi l'on peut agir ici : (cibles, raison s'il n'y en a
+        aucune)."""
+        sc = self.scenery
+        cibles, raisons = [], []
+        baies = state.baies_par_buisson()
+        if baies:
+            if state.hands_full():
+                raisons.append("Il faut une main libre\npour cueillir des baies.")
+            else:
+                for cell in sorted(baies):
+                    gros = sc.boite_de(cell)
+                    if gros is not None and sc.baies_de(cell):
+                        cibles.append({"kind": "baies", "cell": cell,
+                                       "boite": gros["boite"], "gros": gros})
+        if state.au_bord_de_l_eau():
+            x0, y0, w, h = sc.x, sc.y, sc.width, sc.height
+            cibles.append({"kind": "eau", "cell": None,
+                           "boite": (x0, y0 + EAU_BAS * h,
+                                     x0 + w, y0 + EAU_HAUT * h)})
+        arbres = state.trees_here()
+        if arbres:
+            if items.AXE_ITEM in state.hands:
+                for cell in arbres:
+                    gros = sc.boite_de(cell)
+                    if gros is not None:
+                        cibles.append({"kind": "arbre", "cell": cell,
+                                       "boite": gros["boite"], "gros": gros})
+            else:
+                raisons.append("Il faut une hache en main\npour couper un arbre.")
+        if not cibles and not raisons:
+            raisons.append("Rien a faire ici\npour l'instant.")
+        return cibles, (raisons[0] if raisons else None)
+
+    def _mode_action_entre(self, *_):
+        """Le bouton Action : le HUD s'efface, ce qu'on peut faire clignote."""
+        state = App.get_running_app().game_state
+        if state is None or self._ff_active or self._moving \
+                or self._mode_action is not None:
+            return
+        cibles, raison = self._cibles_action(state)
+        if not cibles:
+            self._show_message(raison)
+            return
+        self._close_move_menu()
+        self._close_pause_menu()
+        self._set_panel(None)
+        self._mode_action = "choix"
+        self._fondu_hud(False)
+        self.clignote.montre(cibles)
+        self._ui_action(True, "Touche ce qui clignote")
+
+    def _fondu_hud(self, visible):
+        Animation.cancel_all(self.hud, "opacity")
+        self.hud.disabled = not visible
+        Animation(opacity=1.0 if visible else 0.0, duration=0.3).start(self.hud)
+
+    def _ui_action(self, visible, texte=None):
+        """La consigne et le Retour du mode action."""
+        for w in (self._action_consigne, self._action_retour):
+            if visible and w.parent is None:
+                self.root_layout.add_widget(w)
+            elif not visible and w.parent is not None:
+                w.parent.remove_widget(w)
+        if texte is not None:
+            self._action_consigne.text = texte
+
+    def _dit_action(self, texte):
+        self._action_consigne.text = texte
+
+    def _touche_action(self, touch):
+        r = self._action_retour
+        if r.parent is not None and r.collide_point(*touch.pos):
+            return r.on_touch_down(touch)
+        if self._mode_action == "choix":
+            cible = self.clignote.cible_sous(touch.x, touch.y)
+            if cible is None:
+                self._mode_action_quitte()
+            else:
+                self._approche(cible)
+        elif self._mode_action == "jeu" and self._jeu is not None:
+            self._jeu.touche(touch)
+        return True
+
+    def on_touch_move(self, touch):
+        if self._mode_action is not None:
+            if self._mode_action == "jeu" and self._jeu is not None:
+                self._jeu.bouge(touch)
+            return True
+        return super().on_touch_move(touch)
+
+    def on_touch_up(self, touch):
+        if self._mode_action is not None:
+            if self._mode_action == "jeu" and self._jeu is not None:
+                self._jeu.leve(touch)
+            return True
+        return super().on_touch_up(touch)
+
+    def _approche(self, cible):
+        """La camera avance vers la cible touchee ; son mini-jeu suit."""
+        self._mode_action = "approche"
+        self._cible = cible
+        self.clignote.cache()
+        self._dit_action("")
+        w, h = self.width, self.height
+        kind = cible["kind"]
+        if kind == "baies":
+            # La place des baies AVANT de les retirer du decor : le mini-jeu
+            # les dessine lui-meme.
+            self._baies_jeu = self.scenery.baies_de(cible["cell"])
+            self.scenery.cache_baies(cible["cell"])
+            x0, y0, x1, y1 = cible["boite"]
+            zoom = max(1.4, min(3.2, 0.50 * h / max(1.0, y1 - y0)))
+            self.monde.vise(((x0 + x1) / 2.0, (y0 + y1) / 2.0),
+                            (0.5 * w, 0.55 * h), zoom)
+        elif kind == "eau":
+            self.monde.vise((0.5 * w, 0.36 * h), (0.5 * w, 0.45 * h), 1.5)
+        else:
+            g = cible["gros"]
+            haut = g["boite"][3] - g["boite"][1]
+            self.monde.vise((g["cx"], g["base"] + ENTAILLE * haut),
+                            (0.5 * w, 0.40 * h), 1.8)
+        self._anime_approche(1.0, self._lance_jeu)
+
+    def _anime_approche(self, vers, ensuite):
+        depart = self.monde.e
+        etat = {"t": 0.0}
+        if self._approche_horloge is not None:
+            self._approche_horloge.cancel()
+
+        def pas(dt):
+            etat["t"] += min(dt, 0.1)
+            p = min(1.0, etat["t"] / DUREE_APPROCHE)
+            self.monde.regle(depart + (vers - depart) * doux(p))
+            if p >= 1.0:
+                self._approche_horloge.cancel()
+                self._approche_horloge = None
+                ensuite()
+        self._approche_horloge = Clock.schedule_interval(pas, 1.0 / 60.0)
+
+    def _lance_jeu(self):
+        state = App.get_running_app().game_state
+        c = self._cible
+        if state is None or c is None:
+            return
+        kind = c["kind"]
+        if kind == "baies":
+            self._jeu = JeuBaies(self, c, self._fin_jeu, self._dit_action,
+                                 self._baies_jeu,
+                                 [i for i in (0, 1) if state.hands[i] is None])
+        elif kind == "eau":
+            sc = self.scenery
+            bas = self.monde.ecran(0, sc.y + EAU_BAS * sc.height)[1]
+            haut = self.monde.ecran(0, sc.y + EAU_HAUT * sc.height)[1]
+            self._jeu = JeuEau(self, c, self._fin_jeu, self._dit_action,
+                               bas, haut)
+        else:
+            if items.AXE_ITEM not in state.hands:
+                self._mode_action_quitte()
+                return
+            g = c["gros"]
+            haut = g["boite"][3] - g["boite"][1]
+            tx, ty = self.monde.ecran(g["cx"], g["base"] + ENTAILLE * haut)
+            self._jeu = JeuArbre(self, c, self._fin_jeu, self._dit_action,
+                                 state.hands.index(items.AXE_ITEM), tx, ty,
+                                 LARGEUR_TRONC * haut * self.monde.echelle())
+        self._mode_action = "jeu"
+        self._jeu.demarre()
+
+    def _arrete_jeu(self):
+        if self._jeu is not None:
+            self._jeu.arrete()
+            self._jeu = None
+
+    def _fin_jeu(self, resultat):
+        """Le mini-jeu est reussi : la partie en recoit le fruit, puis la
+        camera recule et le temps de l'action passe."""
+        state = App.get_running_app().game_state
+        c = self._cible
+        if self._mode_action != "jeu" or state is None or c is None:
+            return
+        self._arrete_jeu()
+        by_label = {a["label"]: a for a in ACTIONS}
+        if "baies" in resultat:
+            n = 0
+            for _ in range(resultat["baies"]):
+                if state.pick_berry(c["cell"]):
+                    state.auto_take("Baie")
+                    n += 1
+            state.add_log("%d baie(s) cueillie(s)" % n)
+            self._show_message("Tu as cueilli %d baie%s." % (n, "s" * (n > 1)))
+            action = by_label["Chercher a manger"]
+        elif "eau" in resultat:
+            action = by_label["Boire"]
+        else:
+            got = []
+            if state.chop_tree(c["cell"]) is not None:
+                for name, lo, hi in CHOP_YIELD:
+                    k = random.randint(lo, hi)
+                    state.add_ground(name, k)
+                    got.append(f"{k} {items.display_name(name).lower()}")
+                state.add_log("Arbre abattu : " + ", ".join(got))
+                self._show_message("Arbre abattu.\n" + ", ".join(got))
+            action = by_label["Couper du bois"]
+        self.scenery.oublie()
+        App.get_running_app().autosave()
+        self._recule(action, items.AXE_ITEM if "arbre" in resultat else None)
+
+    def _recule(self, action=None, outil=None):
+        """La camera recule, le HUD revient ; puis le temps de l'action."""
+        self._mode_action = "retour"
+        self._ui_action(False)
+
+        def fini():
+            self._mode_action = None
+            self._cible = None
+            self.monde.e = 0.0
+            self.monde.regle()
+            self._fondu_hud(True)
+            self.refresh()
+            if action is not None:
+                self._lance_avance(action, outil)
+        self._anime_approche(0.0, fini)
+
+    def _mode_action_quitte(self):
+        """Retour, ou un toucher hors de ce qui clignote : on sort du mode
+        sans rien faire. Des baies montrees par le mini-jeu reviennent sur
+        leur buisson."""
+        if self._mode_action is None or self._mode_action == "retour":
+            return
+        self.clignote.cache()
+        if self._jeu is not None or self._mode_action == "approche":
+            self._arrete_jeu()
+            self.scenery.oublie()
+            self.refresh()
+        if self.monde.e > 0.0:
+            self._recule()
+            return
+        self._mode_action = None
+        self._cible = None
+        self._ui_action(False)
+        self._fondu_hud(True)
+
+    # ------------------------------------------------------------------ #
     def do_action(self, action):
-        # Si l'action vient du sous-menu (Manger ou Boire), on ferme le
-        # sous-menu juste apres le clic (qu'elle reussisse ou non).
-        if action["label"] in LABELS_SOUS_MENU:
-            Clock.schedule_once(self._close_action_submenu, 0)
         state = App.get_running_app().game_state
         if state is None or self._ff_active or self._moving:
             return
@@ -1140,12 +1319,9 @@ class GameScreen(Screen):
         if atype == "explore" and not self._can_find():
             self._show_find_toast(None)
             return
-        # Eau : remplir la gourde au ruisseau ; boire consomme la gourde sauf
-        # si on boit directement a un ruisseau.
+        # Eau : remplir la gourde au ruisseau.
         if atype == "fill":
             state.water += 3
-        elif atype == "drink" and not state.has_water_source():
-            state.water = max(0, state.water - 1)
         elif atype == "explore":
             # MAINS PLEINES : l'objet ramasse d'une main est pose au sol (a
             # proximite) pour faire place a la trouvaille. Un outil, une arme
@@ -1160,13 +1336,18 @@ class GameScreen(Screen):
             # (cf. _finish_action) ; ici on lance juste l'exploration.
             state.reveal_zone(state.player_x, state.player_y)
             self._did_explore = True
-        elif atype == "chop":
-            # L'arbre tombe (et le bois arrive) a la FIN du travail.
-            self._did_chop = True
-        elif atype == "berries":
-            # Les baies arrivent a la FIN de la cueillette.
-            self._did_berries = True
+        outil, usure = None, None
+        if atype == "explore" and _couteau_en_main(state) is not None:
+            # Explorer au couteau l'use aussi (5 %).
+            outil = state.hands[_couteau_en_main(state)]
+            usure = items.KNIFE_WEAR_EXPLORE
+        self._lance_avance(action, outil, usure)
 
+    def _lance_avance(self, action, outil=None, usure=None):
+        """Applique les effets d'une action et fait passer son temps en
+        avance rapide. `outil` (tenu en main) s'usera a la fin, de `usure`
+        (sa part habituelle si None)."""
+        state = App.get_running_app().game_state
         state.health = state.clamp_gauge(state.health
                                          + action.get("health", 0))
         state.change_energy(action.get("energy", 0))
@@ -1192,13 +1373,7 @@ class GameScreen(Screen):
         self._ff_scale = self._ff_total / self._ff_real
         self._ff_label = action["label"]
         # Outil mobilise par l'action : il s'usera a la fin du travail.
-        # Explorer au couteau l'use aussi (5 %).
-        self._ff_tool, self._ff_wear = None, None
-        if action.get("need_axe"):
-            self._ff_tool = items.AXE_ITEM
-        elif atype == "explore" and _couteau_en_main(state) is not None:
-            self._ff_tool = state.hands[_couteau_en_main(state)]
-            self._ff_wear = items.KNIFE_WEAR_EXPLORE
+        self._ff_tool, self._ff_wear = outil, usure
         self._time_accum = 0.0
         self.refresh()
         # Repos : voile noir + horloge + message (comme le deplacement).
@@ -1222,12 +1397,6 @@ class GameScreen(Screen):
             self._end_rest_overlay()
             # Sommeil complet : on reste "bien repose" quelques heures.
             App.get_running_app().game_state.start_effect("Repos")
-        if self._did_chop:
-            self._did_chop = False
-            self._fell_tree()
-        if self._did_berries:
-            self._did_berries = False
-            self._cueille_baies()
         if self._did_explore:
             self._did_explore = False
             # La trouvaille et le RETRAIT de l'objet du decor se font ICI, a la
@@ -1263,37 +1432,6 @@ class GameScreen(Screen):
         if hand is not None and state.use_tool(hand, amount):
             self._show_message(
                 f"{items.display_name(name)} : l'outil s'est brise.")
-
-    def _fell_tree(self):
-        """Abat un arbre : il quitte le decor et laisse son bois AU SOL."""
-        state = App.get_running_app().game_state
-        if state is None or state.chop_tree() is None:
-            return
-        got = []
-        for name, lo, hi in CHOP_YIELD:
-            n = random.randint(lo, hi)
-            state.add_ground(name, n)
-            got.append(f"{n} {items.display_name(name).lower()}")
-        state.add_log("Arbre abattu : " + ", ".join(got))
-        self._show_message("Arbre abattu.\n" + ", ".join(got))
-
-    def _cueille_baies(self):
-        """Fin de la cueillette : une baie d'un buisson. Les baies dessinees
-        dans le decor s'eclaircissent d'autant."""
-        state = App.get_running_app().game_state
-        if state is None:
-            return
-        if not state.pick_berry():
-            self._show_find_toast(None)
-            return
-        # COMME UNE TROUVAILLE D'EXPLORATION : la baie va en main (droite
-        # d'abord), et le message la montre.
-        taken = state.harvested_here()
-        taken["Baie"] = taken.get("Baie", 0) + 1
-        self.scenery.set_taken(taken)
-        dest = state.auto_take("Baie")
-        state.add_log("Baie cueillie")
-        self._show_find_toast("Baie", dest)
 
     def _show_message(self, text):
         """Petit message d'information bref (1.2 s puis fondu), au centre haut.
@@ -1780,7 +1918,8 @@ class GameScreen(Screen):
         self.menu_label.text = "Continuer"
         # Le bouton "Menu" (devenu "Continuer") doit rester AU-DESSUS du panneau
         # pour rester visible et cliquable -> on le replace au sommet.
-        self.root_layout.remove_widget(self.menu_cell)
+        if self.menu_cell.parent is not None:
+            self.menu_cell.parent.remove_widget(self.menu_cell)
         self.root_layout.add_widget(self.menu_cell)
 
     def _rebuild_pause_menu(self):
@@ -1802,6 +1941,10 @@ class GameScreen(Screen):
                 self._pause_menu.parent.remove_widget(self._pause_menu)
             self._pause_menu = None
         self.menu_label.text = "Menu"
+        if self.menu_cell.parent is not self.hud:
+            if self.menu_cell.parent is not None:
+                self.menu_cell.parent.remove_widget(self.menu_cell)
+            self.hud.add_widget(self.menu_cell)
 
     def _go_inventory(self, *_):
         if self._ff_active or self._moving:
@@ -1861,8 +2004,10 @@ class GameScreen(Screen):
         # et le label (animation des mains uniquement, sans distractions).
         exploring = self._ff_active and self._ff_label == "Explorer"
 
-        # Objets tenus -> affiches dans les mains, sauf pendant l'exploration.
-        if exploring:
+        # Objets tenus -> affiches dans les mains, sauf pendant l'exploration,
+        # et quand on puise de l'eau a deux mains (elles sont vides pour ca).
+        puise = self._cible is not None and self._cible["kind"] == "eau"             and self._mode_action in ("approche", "jeu")
+        if exploring or puise:
             self.hands.set_items(None, None)
         else:
             self.hands.set_items(state.hands[0], state.hands[1])

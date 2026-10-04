@@ -758,6 +758,19 @@ TEINTE_BERGE = 0.72
 _RAMPE_EAU = []
 
 
+def dessine_grappe(x, y, d, alpha=1.0):
+    """Une grappe de trois baies rouges, centree en (x, y) ; `d` = diametre
+    d'une baie. Dessine dans le canvas ouvert."""
+    for dx, dy in ((-0.45, -0.25), (0.45, -0.25), (0.0, 0.40)):
+        bx, by = x + dx * d, y + dy * d
+        Color(0.30, 0.03, 0.05, alpha)
+        Ellipse(pos=(bx - d * 0.58, by - d * 0.58), size=(d * 1.16, d * 1.16))
+        Color(0.82, 0.10, 0.16, alpha)
+        Ellipse(pos=(bx - d * 0.5, by - d * 0.5), size=(d, d))
+        Color(1.0, 0.85, 0.85, 0.75 * alpha)
+        Ellipse(pos=(bx - d * 0.22, by + d * 0.05), size=(d * 0.24, d * 0.24))
+
+
 def _rampe_eau():
     """La rampe d'opacite du reflet : 0 au bord (v = 0), OPACITE_EAU_LOIN en
     face (v = 1), avec v qui porte la DISTANCE et non la hauteur a l'ecran.
@@ -919,6 +932,11 @@ class ZoneScenery(Widget):
         self._taken = {}
         self._neighbours = {}
         self._berge = None
+        # Baies des buissons, gros elements dessines (mode action).
+        self._baies = {}
+        self._gros = {}
+        self._pos_baies = {}
+        self._cellule = None
         self._ord = {}
         self._harvest_total = {}
         self._avail = {}            # {nom: nb recoltable} (aleatoire, par case)
@@ -1094,7 +1112,7 @@ class ZoneScenery(Widget):
 
     def set_scene(self, zone_type, seed=0, taken=None, blocked_grid=None,
                   installed=None, removed_grid=None, neighbours=None,
-                  berge=None):
+                  berge=None, baies=None):
         """Vue a l'horizon (sol en bas + ciel).
 
         `taken` = {nom: nombre deja recolte} pour masquer les objets recoltes.
@@ -1115,7 +1133,9 @@ class ZoneScenery(Widget):
         fond de la scene.
         `berge` = le type de zone qu'il y a VRAIMENT de l'autre cote de l'eau
         (voir horizon.zone_den_face). La berge d'en face du lac s'y peuple de
-        ses vrais arbres et de ses vraies plantes."""
+        ses vrais arbres et de ses vraies plantes.
+        `baies` = [((gx, gy), n), ...] : les buissons qui portent encore des
+        baies, et combien (voir GameState.baies_par_buisson)."""
         # Un appel direct ne dit pas de quelle case il s'agit : montre_la_case
         # ne peut plus rien supposer de ce qui est dessine.
         self._cle_case = None
@@ -1144,6 +1164,7 @@ class ZoneScenery(Widget):
         # pour ce qu'on regarde au loin : une rive porte du sable et des
         # roseaux, pas une seconde etendue d'eau.
         self._berge = berge
+        self._baies = {(int(c[0]), int(c[1])): int(n) for c, n in (baies or ())}
         self._redraw()
 
     def montre_la_case(self, state, apercu=None):
@@ -1186,6 +1207,7 @@ class ZoneScenery(Widget):
             # (voir horizon.zone_den_face). Dans la cle, donc : tourner le dos
             # a une foret pour faire face a une montagne redessine la berge.
             "berge": horizon.zone_den_face(state),
+            "baies": tuple(sorted(state.baies_par_buisson().items())),
         }
         cle = tuple((k, tuple(sorted(v.items())) if isinstance(v, dict)
                      else v) for k, v in sorted(decor.items())) + (apercu,)
@@ -1591,6 +1613,8 @@ class ZoneScenery(Widget):
             rang = rangs.get(kind, 0)
             rangs[kind] = rang + 1
             depth = ggy / 4.0
+            # La case de l'element en cours, pour qui le dessine (_note_gros).
+            self._cellule = (ggx, ggy)
             # AUCUN decalage : l'element est pose EXACTEMENT au centre de sa
             # case, comme un objet installe. C'est ce qui permet de retrouver
             # la meme position dans la grille de placement et dans le jeu.
@@ -2793,6 +2817,10 @@ class ZoneScenery(Widget):
         self._apercu_vu = None
         self._eau = []
         self._rive = None
+        # Les GROS elements et les baies, tels que dessines a l'ecran (voir
+        # boite_de / baies_de) : le mode action les fait clignoter.
+        self._gros = {}
+        self._pos_baies = {}
         # Idem pour la brume : seule une scene qui en pose une la recree.
         self._brume_couleur = None
         self._lot = None
@@ -3414,6 +3442,70 @@ class ZoneScenery(Widget):
         k = max(0.35, min(1.60, lum / CLARTE_BUISSON))
         return tuple(k * c for c in TEINTE_BUISSON_RVB)
 
+    # -- gros elements et baies, pour le mode action ---------------------- #
+    def _note_gros(self, kind, cx, base, larg, haut, bas=None):
+        """Retient la boite a l'ecran du gros element en cours de dessin."""
+        bas = base if bas is None else bas
+        self._gros[self._cellule] = {
+            "kind": kind, "cx": cx, "base": base,
+            "boite": (cx - larg / 2.0, bas, cx + larg / 2.0, bas + haut)}
+
+    def _note_buisson(self, cx, cy, r):
+        """Retient un buisson (et la place de ses baies) ; rend sa case."""
+        haut = r * HAUTEUR_BUISSON
+        self._note_gros("bush", cx, cy, r * 2.3, haut, bas=cy - r * 0.35)
+        return self._cellule
+
+    def boite_de(self, cell):
+        """{kind, cx, base, boite} du gros element dessine en `cell`, ou
+        None (abattu, cache, ou jamais dessine)."""
+        return self._gros.get(tuple(cell))
+
+    def gros_elements(self):
+        return dict(self._gros)
+
+    def baies_de(self, cell):
+        """[(x, y, d)] : la place a l'ecran des baies du buisson `cell`."""
+        return list(self._pos_baies.get(tuple(cell), ()))
+
+    def cache_baies(self, cell):
+        """Le buisson `cell` se dessine sans ses baies : un mini-jeu les
+        montre lui-meme, et les retire une a une sans redessiner la scene."""
+        if self._baies.pop(tuple(cell), None) is not None:
+            self._redraw()
+
+    def oublie(self):
+        """Le prochain montre_la_case redessine la case, meme si rien n'a
+        change dans la partie (des baies cachees reviennent ainsi)."""
+        self._cle_case = None
+
+    def places_baies(self, cell, cx, cy, r, n):
+        """La place de `n` grappes de baies sur un buisson : toujours les
+        memes pour un buisson donne (une baie cueillie ne deplace pas les
+        autres)."""
+        rng = random.Random("%s:%d:%d:posbaies" % (self._seed, cell[0], cell[1]))
+        haut = r * HAUTEUR_BUISSON
+        mx, my = cx, cy - r * 0.35 + haut * 0.55
+        places = []
+        for _ in range(8):
+            a = rng.uniform(0.0, 6.283)
+            k = rng.uniform(0.25, 0.95)
+            places.append((mx + math.cos(a) * k * r * 0.80,
+                           my + math.sin(a) * k * haut * 0.28))
+        places.sort(key=lambda p: p[0])
+        d = r * 0.13
+        return [(x, y, d) for x, y in places[:n]]
+
+    def _bush_et_baies(self, cx, cy, r, color, cell):
+        self._bush(cx, cy, r, color, sprite=self._zs("bush"))
+        n = self._baies.get(cell, 0)
+        if n <= 0:
+            return
+        places = self.places_baies(cell, cx, cy, r, n)
+        self._pos_baies[cell] = places
+        for x, y, d in places:
+            dessine_grappe(x, y, d)
+
     def _bush(self, cx, cy, r, color, sprite=None):
         cr, cg, cb, ca = color
         self._shadow(cx, cy - r * 0.1, r * 2.6)           # ombre au sol
@@ -3626,6 +3718,7 @@ class ZoneScenery(Widget):
                 continue
             if kind == "tree":
                 th = (1.00 - 0.58 * depth) * jit.uniform(0.85, 1.10) * h
+                self._note_gros("tree", tx, tb, th * 0.55, th)
                 if jit.random() < 0.5:
                     tw = (0.11 - 0.05 * depth) * jit.uniform(0.85, 1.15) * w
                     items.append((tb, lambda tx=tx, tb=tb, tw=tw, th=th:
@@ -3638,11 +3731,12 @@ class ZoneScenery(Widget):
             else:                                     # buisson de sous-bois
                 g2 = jit.uniform(0.0, 0.06)
                 r = (0.13 - 0.06 * depth) * jit.uniform(0.85, 1.15) * h
+                cell = self._note_buisson(tx, tb, r)
                 items.append((tb - self.DEBORD_BUISSON * r,
-                              lambda bx=tx, by=tb, r=r, g2=g2:
-                              self._bush(bx, by, r,
-                                         (0.06 + g2, 0.16 + g2, 0.09, 1),
-                                         sprite=self._zs("bush"))))
+                              lambda bx=tx, by=tb, r=r, g2=g2, cell=cell:
+                              self._bush_et_baies(bx, by, r,
+                                                  (0.06 + g2, 0.16 + g2, 0.09, 1),
+                                                  cell)))
         # Ligne d'arbres DENSE a l'horizon (lointains et petits) : HORS grille
         # (au-dela de la zone d'installation), purement decorative.
         m = rng.randint(24, 32)
@@ -4758,10 +4852,10 @@ class ZoneScenery(Widget):
             g = jit.uniform(0.0, 0.10)
             r = (0.17 - 0.09 * depth) * jit.uniform(0.85, 1.15) * h
             col = (0.12 + g, 0.30 + g, 0.15, 1)
+            cell = self._note_buisson(bx, by, r)
             items.append((by - self.DEBORD_BUISSON * r,
-                          lambda bx=bx, by=by, r=r, col=col:
-                          self._bush(bx, by, r, col,
-                                     sprite=self._zs("bush"))))
+                          lambda bx=bx, by=by, r=r, col=col, cell=cell:
+                          self._bush_et_baies(bx, by, r, col, cell)))
         for _ in range(525):                           # gazon x5 (etait 105) [Herbe]
             fx = grass_pick() if rng.random() < 0.72 else None  # amas + un peu partout
             gx, gb, sc, t = place(fx=fx, floor=_HARVEST_FLOOR)
