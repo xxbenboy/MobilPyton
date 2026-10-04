@@ -5,7 +5,8 @@ d'assemblage.
 Quand le plan de travail porte la recette de l'equipement en feuille, le
 milieu de la vue montre, l'un apres l'autre et sans fin, la forme de chaque
 piece (voir assemblages.MODELES_FEUILLE) : les feuilles en place, a demi
-transparentes, et une main fantome qui apporte la DERNIERE feuille. La forme
+transparentes, et une main fantome qui apporte la DERNIERE feuille. Une fois
+posee, la PIECE QUE DONNE LA RECETTE parait derriere les feuilles. La forme
 complete reste DELAI secondes, puis vient la piece suivante ; apres la
 derniere, on revient a la premiere. Seules les feuilles sont montrees : les
 autres objets de la recette se posent ou l'on veut.
@@ -19,7 +20,7 @@ from kivy.clock import Clock
 from kivy.graphics import Color, Rectangle
 
 from src import assemblages
-from src.widgets.sol_de_craft import dessine_objet
+from src.widgets.sol_de_craft import dessine_objet, cadre_image
 
 FEUILLE = assemblages.FEUILLE
 ALPHA_FEUILLE = 0.38
@@ -28,6 +29,8 @@ DUREE_MAIN = 2.2            # la main apporte la derniere feuille (s)
 DELAI = 3.0                 # la forme complete reste, avant la suivante (s)
 FONDU = 0.3                 # apparition / effacement d'une forme (s)
 REPRISE = 5.0               # sans objet deplace pendant ce temps : il revient
+ALPHA_RESULTAT = 0.75       # la piece fabriquee, derriere les feuilles
+APPARITION = 0.5            # son apparition, une fois la feuille posee (s)
 # L'espace du modele, en parts de la hauteur : sous le titre, au-dessus des
 # mains.
 BAS_LIBRE = 0.30
@@ -108,6 +111,27 @@ class DemoFeuille(object):
         px, py = self.mains.paume(0)
         return px, py + asm.case_objet() * 3
 
+    def _dessine_resultat(self, nom, places, cote, total):
+        """LA PIECE QUE DONNE LA RECETTE, derriere les feuilles : elle parait
+        des que la derniere feuille est posee, centree sur le modele et a sa
+        taille, et s'efface avec lui."""
+        xs = [x for x, _y in places]
+        ys = [y for _x, y in places]
+        # L'image TIENT DANS le cadre des feuilles (largeur et hauteur), sans
+        # le depasser : elle ne deborde ni sur les cotes ni sur les mains.
+        larg = max(xs) - min(xs) + cote
+        haut = max(ys) - min(ys) + cote
+        cadre = cadre_image(nom, 1.0)
+        if cadre is None:
+            return
+        taille = min(larg / cadre[0], haut / cadre[1])
+        u = self.t - DUREE_MAIN
+        alpha = ALPHA_RESULTAT * min(1.0, u / APPARITION,
+                                     (total - self.t) / FONDU)
+        dessine_objet(nom, (min(xs) + max(xs)) / 2.0,
+                      (min(ys) + max(ys)) / 2.0, taille, ombre=False,
+                      alpha=max(0.0, alpha))
+
     # -- chaque image ------------------------------------------------------- #
     def _pas(self, dt):
         asm = self.asm
@@ -137,12 +161,15 @@ class DemoFeuille(object):
             self.t = 0.0
             self.k = (self.k + 1) % len(assemblages.MODELES_FEUILLE)
             self._annonce()
-        places, cote = self._places(assemblages.MODELES_FEUILLE[self.k][1])
+        nom, cases = assemblages.MODELES_FEUILLE[self.k]
+        places, cote = self._places(cases)
         total = DUREE_MAIN + DELAI
         fondu = min(1.0, self.t / FONDU, (total - self.t) / FONDU)
         a_feuille = ALPHA_FEUILLE * fondu
         self.couche.canvas.clear()
         with self.couche.canvas:
+            if self.t >= DUREE_MAIN:
+                self._dessine_resultat(nom, places, cote, total)
             for x, y in places[:-1]:
                 dessine_objet(FEUILLE, x, y, cote, ombre=False,
                               alpha=a_feuille)
