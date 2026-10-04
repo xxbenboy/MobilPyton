@@ -85,6 +85,9 @@ EFFECT_FLY_SECONDS = 0.75
 # temps). "requires_sleep" => possible seulement si on est assez fatigue.
 # Ce que rapporte un arbre abattu, depose AU SOL : (objet, mini, maxi).
 CHOP_YIELD = (("Buche", 3, 3), ("Long_Stick", 3, 5), ("Feuille", 5, 10))
+# Ce qu'une exploration donne PAR POIGNEE (1 a 3 d'un coup, voir
+# _finish_action) ; tout le reste vient a l'unite.
+TROUVAILLES_PAR_POIGNEE = {"Feuille", "Herbe", "Pierre"}
 
 # Les actions ou les mains FOUILLENT (elles montent et descendent l'une apres
 # l'autre, voir searching.py) : explorer, et chercher des baies.
@@ -1224,8 +1227,18 @@ class GameScreen(Screen):
                 self._use_tool(used_tool, self._ff_wear)
             if item:
                 # En main (droite en priorite) ; au sol si non ramassable.
-                dest = App.get_running_app().game_state.auto_take(item)
-                self._show_find_toast(item, dest)
+                state = App.get_running_app().game_state
+                dest = state.auto_take(item)
+                # UNE POIGNEE : de 1 a 3 feuilles, herbes ou pierres d'un coup.
+                # Une seule est en main, le reste est pose a proximite. Cela
+                # ne compte toujours que pour UNE trouvaille de la case.
+                n = 1
+                if item in TROUVAILLES_PAR_POIGNEE and \
+                        not self._find_au_couteau:
+                    n = random.randint(1, 3)
+                    if n > 1:
+                        state.add_ground(item, n - 1)
+                self._show_find_toast(item, dest, n)
             else:
                 self._show_find_toast(None)
         App.get_running_app().autosave()
@@ -1301,9 +1314,11 @@ class GameScreen(Screen):
         anim.bind(on_complete=_remove)
         anim.start(toast)
 
-    def _show_find_toast(self, item, dest=None):
+    def _show_find_toast(self, item, dest=None, n=1):
         """Message bref (1 s puis fondu). Si `item` est fourni : montre l'objet
-        trouve (en main si `dest` est 0/1, sinon au sol). Si None : case epuisee."""
+        trouve (en main si `dest` est 0/1, sinon au sol), et combien (`n`) :
+        au-dela du premier, le reste est a proximite. Si None : case
+        epuisee."""
         # On enleve un eventuel message precedent.
         if self._toast is not None and self._toast.parent:
             self._toast.parent.remove_widget(self._toast)
@@ -1314,8 +1329,14 @@ class GameScreen(Screen):
         _add_panel(toast, alpha=0.6)
         if item:
             toast.add_widget(ItemIcon(item, size_hint=(1, 0.66)))
-            place = "(au sol)" if dest is None else "(dans la main)"
-            text = "Trouve : " + items.display_name(item) + "\n" + place
+            if n > 1:
+                place = ("(au sol)" if dest is None
+                         else "(1 en main, %d au sol)" % (n - 1))
+                text = "Trouve : %d x %s\n%s" % (n, items.display_name(item),
+                                                 place)
+            else:
+                place = "(au sol)" if dest is None else "(dans la main)"
+                text = "Trouve : " + items.display_name(item) + "\n" + place
         else:
             text = "Tu ne trouves\nplus rien ici."
         msg = scale_font(Label(
