@@ -919,8 +919,8 @@ class GameState:
     def add_ground(self, item, n=1, wear=0.0):
         g = self.ground.setdefault(self._cell_key(), {})
         g[item] = g.get(item, 0) + n
-        if items.is_tool(item):
-            # L'usure suit l'outil au sol : le poser puis le reprendre ne le
+        if items.garde_usure(item):
+            # L'usure suit l'outil (et la longueur, la corde) au sol : le poser puis le reprendre ne le
             # repare pas. Un exemplaire = une valeur dans la liste.
             for _ in range(n):
                 self._push_ground_wear(item, wear)
@@ -1067,6 +1067,12 @@ class GameState:
         cases = {k: [v[0], int(v[1])]
                  for k, v in self.ground_layout.get(cell, {}).items()
                  if (k in CASES_SOL or k in CASES_CENTRE) and int(v[1]) > 0}
+        # 0. Pas de pile plus haute que ne le permet son objet (la corde) :
+        #    le surplus reprendra une case a l'etape 2.
+        for pile in cases.values():
+            haut = items.pile_max(pile[0])
+            if haut is not None and pile[1] > haut:
+                pile[1] = haut
         # 1. Rien de plus que ce que le sol contient.
         ordre_retrait = list(reversed(CASES_SOL)) + list(reversed(CASES_CENTRE))
         for objet in {v[0] for v in cases.values()}:
@@ -1087,18 +1093,22 @@ class GameState:
         for objet in sorted(sol):
             manque = sol[objet] - sum(v[1] for v in cases.values()
                                       if v[0] == objet)
-            if manque <= 0:
-                continue
-            cle = next((k for k in CASES_SOL
-                        if k in cases and cases[k][0] == objet), None)
-            if cle is None:
-                cle = next((k for k in CASES_SOL if k not in cases), None)
-            if cle is None:
-                continue                 # 3. plus de case : reste au sol
-            if cle in cases:
-                cases[cle][1] += manque
-            else:
-                cases[cle] = [objet, manque]
+            haut = items.pile_max(objet)
+            while manque > 0:
+                cle = next((k for k in CASES_SOL
+                            if k in cases and cases[k][0] == objet
+                            and (haut is None or cases[k][1] < haut)), None)
+                if cle is None:
+                    cle = next((k for k in CASES_SOL if k not in cases), None)
+                if cle is None:
+                    break                # 3. plus de case : reste au sol
+                deja = cases[cle][1] if cle in cases else 0
+                pose = manque if haut is None else min(manque, haut - deja)
+                if cle in cases:
+                    cases[cle][1] += pose
+                else:
+                    cases[cle] = [objet, pose]
+                manque -= pose
         if cases:
             self.ground_layout[cell] = cases
         else:
@@ -1139,13 +1149,16 @@ class GameState:
         elif cible[0] == pile[0]:
             if vers_plan and not items.empilable_au_plan(pile[0]):
                 return False
-            if un_a_un:
-                cible[1] += 1
-                pile[1] -= 1
-                if pile[1] <= 0:
-                    del cases[depuis]
-            else:
-                cible[1] += pile[1]
+            haut = items.pile_max(pile[0])
+            place = None if haut is None else haut - cible[1]
+            if place is not None and place <= 0:
+                return False             # la pile d'arrivee est pleine
+            n = 1 if un_a_un else pile[1]
+            if place is not None:
+                n = min(n, place)
+            cible[1] += n
+            pile[1] -= n
+            if pile[1] <= 0:
                 del cases[depuis]
         else:
             if (un_a_un and pile[1] > 1) or \
@@ -1193,6 +1206,9 @@ class GameState:
         if cible is not None and (cible[0] != objet or (
                 case in CASES_CENTRE and not items.empilable_au_plan(objet))):
             return False
+        if cible is not None and items.pile_max(objet) is not None \
+                and cible[1] >= items.pile_max(objet):
+            return False                 # pile pleine (la corde : 25 m)
         if not self.drop_from_hands(main):
             return False
         if cible is None:
@@ -1258,6 +1274,9 @@ class GameState:
         cible = cases.get(case)
         if cible is not None and (cible[0] != objet or (
                 case in CASES_CENTRE and not items.empilable_au_plan(objet))):
+            return None
+        if cible is not None and items.pile_max(objet) is not None \
+                and cible[1] >= items.pile_max(objet):
             return None
         res = action()
         if res is None or res is False:
@@ -1538,6 +1557,24 @@ class GameState:
     # ------------------------------------------------------------------ #
     # Le transfert rapide : un simple toucher (voir drag_drop, craft)
     # ------------------------------------------------------------------ #
+    def metres_des_piles(self):
+        """{case: metres} des piles de corde du sol. Chaque corde a sa
+        longueur (son usure) ; on les repartit sur les piles dans l'ordre
+        des cases, les plus longues d'abord."""
+        cases = self.sol_en_cases()
+        usures = list(self.ground_wear.get(self._cell_key(), {})
+                      .get(items.CORDE, []))
+        n = self.ground_here().get(items.CORDE, 0)
+        usures = sorted(usures + [0.0] * max(0, n - len(usures)))[:n]
+        out = {}
+        for cle in CASES_CENTRE + CASES_SOL:
+            pile = cases.get(cle)
+            if pile is None or pile[0] != items.CORDE:
+                continue
+            part, usures = usures[:pile[1]], usures[pile[1]:]
+            out[cle] = sum(items.metres(items.CORDE, u) for u in part)
+        return out
+
     def range_main(self, main, sac=True):
         """Range l'objet de cette main : dans le SAC s'il est montre (`sac`)
         et qu'il y reste de la place, sinon a PROXIMITE. Rend le message a

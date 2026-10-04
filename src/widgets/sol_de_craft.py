@@ -512,10 +512,12 @@ class SolDeCraft(Widget):
         self.bind(pos=self._redessine, size=self._redessine)
 
     # -- ce que montre le sol ------------------------------------------ #
-    def montre(self, cases, mains, resultat=None):
+    def montre(self, cases, mains, resultat=None, metres=None):
         """{case: [objet, nombre]} (voir GameState.sol_en_cases), ce que
         tiennent les mains (source possible d'un glisser), et ce que montre
-        le carre du resultat (None, "?" ou un nom d'objet)."""
+        le carre du resultat (None, "?" ou un nom d'objet). `metres` :
+        {case: metres} des piles de corde, ecrits a la place du nombre."""
+        self._metres = dict(metres or {})
         self._cases = {k: list(v) for k, v in (cases or {}).items()}
         self._mains = list(mains or [None, None])
         self.resultat = resultat if self.avec_centre else None
@@ -829,9 +831,13 @@ class SolDeCraft(Widget):
         dx, _ = g.point((col + 1) / c, g.vr(rang + 0.5))
         _, bas = g.point((col + 0.5) / c, g.vr(rang))
         dessine_objet(nom, cx, cy, self.height * TAILLE_OBJET)
-        if nombre > 1:
+        metres = getattr(self, "_metres", {}).get(g.case_de(col, rang))
+        if metres is None and items.metres(nom) is not None:
+            metres = nombre * items.METRES_CORDE
+        if nombre > 1 or metres is not None:
             taille = self.height * TAILLE_NOMBRE
-            lbl = Label(text="x%d" % nombre, bold=True,
+            texte = "%dm" % metres if metres is not None else "x%d" % nombre
+            lbl = Label(text=texte, bold=True,
                         color=(1, 1, 1, 0.95), font_size=taille)
             lbl.size = (taille * 2.4, taille * 1.3)
             lbl.pos = (dx - lbl.size[0] - taille * 0.15, bas + taille * 0.1)

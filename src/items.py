@@ -43,6 +43,34 @@ def display_name(name):
 # l'instant : tous les objets sont ramassables. A completer plus tard.)
 GROUND_ONLY = set()
 
+# LA CORDE SE MESURE EN METRES : une corde neuve en fait CINQ, et ce qu'on en
+# coupe se lit sur son usure (1 m = un cinquieme). Une pile en proximite en
+# tient cinq au plus, soit 25 m.
+CORDE = "Corde"
+METRES_CORDE = 5
+PILE_MAX = {CORDE: 5}
+
+
+def pile_max(name):
+    """Combien d'exemplaires une pile de cet objet tient au plus (None =
+    sans limite)."""
+    return PILE_MAX.get(name)
+
+
+def metres(name, wear=0.0):
+    """Les metres d'une corde selon son usure, ou None pour un autre
+    objet."""
+    if name != CORDE:
+        return None
+    return max(0, int(round(METRES_CORDE * (1.0 - float(wear)))))
+
+
+def libelle(name, wear=0.0):
+    """Le nom affiche d'un objet tenu ou range : '5m' pour une corde."""
+    m = metres(name, wear)
+    return display_name(name) if m is None else "%s %dm" % (display_name(name), m)
+
+
 # LE PLAN DE TRAVAIL du craft prend un objet par case, SAUF ces matieres
 # brutes, qui s'y empilent (huit pierres pour un feu, quatre feuilles pour un
 # vetement...).
@@ -107,6 +135,12 @@ def tool_max_uses(name):
 def is_tool(name):
     """Vrai si l'objet s'use a l'usage (et affiche donc une barre)."""
     return name in TOOL_USES
+
+
+def garde_usure(name):
+    """Faut-il retenir l'usure de chaque exemplaire ? Celle des outils, et
+    la longueur de la corde (voir metres)."""
+    return is_tool(name) or name == "Corde"
 
 # --------------------------------------------------------------------- #
 # EQUIPEMENT PORTE
@@ -504,7 +538,8 @@ ITEM_NOTES = {
     "Coquillage": "Un coquillage du rivage.",
     # Matieres travaillees
     "Fibre_Vegetale": "Un tas de fibres tirees de trois herbes ou feuilles.",
-    "Corde": "Un metre de corde tressee. Tout ce qui doit tenir en depend.",
+    "Corde": "Cinq metres de corde tressee. Tout ce qui doit tenir en "
+             "depend.",
     # Outils
     "Couteau_En_Pierre": "Une pierre taillee en lame contre une autre. Elle "
                          "taille plus qu'elle ne tranche.",

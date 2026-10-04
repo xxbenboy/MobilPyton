@@ -131,8 +131,12 @@ def fill_bag(box, title, state):
         cell.item = name
         cell.add_widget(ItemIcon(name, show_name=False) if name
                         else empty_slot(1.0))
-        cell.name_label = cell_label(item_text(state, name),
-                                     LIT if name else DIM)
+        texte = item_text(state, name)
+        m = items.metres(name, state.bag_wear[i]
+                         if i < len(state.bag_wear) else 0.0) if name else None
+        if m is not None:
+            texte += " %dm" % m
+        cell.name_label = cell_label(texte, LIT if name else DIM)
         cell.add_widget(cell.name_label)
         cells.append(cell)
         grid.add_widget(cell)

@@ -474,7 +474,8 @@ class InventoryScreen(Penche, DragDrop, Screen):
         self.hands.set_glove(state.equipment.get("gant"))
         for slot in self.hand_slots:
             slot.item = state.hands[slot.hand]
-        self.sol.montre(state.sol_en_cases(), state.hands)
+        self.sol.montre(state.sol_en_cases(), state.hands,
+                        metres=state.metres_des_piles())
         self._place_cibles()
 
     # ------------------------------------------------------------------ #

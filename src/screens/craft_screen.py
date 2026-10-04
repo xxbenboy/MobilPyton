@@ -390,7 +390,8 @@ class CraftScreen(Penche, Screen):
         self.hands.set_glove(state.equipment.get("gant"))
         plan = state.objets_du_plan()
         resultat = self.resultat_de(state, plan)
-        self.sol.montre(cases, state.hands, resultat)
+        self.sol.montre(cases, state.hands, resultat,
+                        metres=state.metres_des_piles())
         if self._mode == "sol":
             # Assembler va avec le carre de droite : un ? ou un objet connu.
             self._garnit(self._rang_bas,

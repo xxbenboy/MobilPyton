@@ -87,7 +87,8 @@ EQUIPEMENT_FEUILLE = {
     "result": None, "famille": "feuille",
     "objets": {FEUILLE: 4, "Small_Stick": 2, COUTEAU_EN_PIERRE: 1,
                "Corde": 1},
-    "outils": {COUTEAU_EN_PIERRE: 0.10},
+    # La corde y laisse UN METRE (un cinquieme) et revient, plus courte.
+    "outils": {COUTEAU_EN_PIERRE: 0.10, "Corde": 0.20},
     "minijeu": "feuille", "formes": FORMES_FEUILLE,
 }
 ASSEMBLAGES.append(EQUIPEMENT_FEUILLE)

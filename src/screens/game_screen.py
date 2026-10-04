@@ -1852,7 +1852,7 @@ class GameScreen(Screen):
             lbl = self.drop_labels[slot]
             lbl.opacity = 1 if visible else 0
             if visible:
-                lbl.text = items.display_name(item)
+                lbl.text = items.libelle(item, state.tool_wear(slot))
             ub = self.use_btns[slot]
             installable = occupied and item in items.INSTALLABLE_ITEMS
             equipable = occupied and items.equip_slot(item) is not None
