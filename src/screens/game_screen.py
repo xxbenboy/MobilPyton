@@ -87,9 +87,11 @@ EFFECT_FLY_SECONDS = 0.75
 # temps). "requires_sleep" => possible seulement si on est assez fatigue.
 # Ce que rapporte un arbre abattu, depose AU SOL : (objet, mini, maxi).
 CHOP_YIELD = (("Buche", 3, 3), ("Long_Stick", 3, 5), ("Feuille", 5, 10))
-# Ce qu'une exploration donne PAR POIGNEE (1 a 3 d'un coup, voir
-# _finish_action) ; tout le reste vient a l'unite.
-TROUVAILLES_PAR_POIGNEE = {"Feuille", "Herbe", "Pierre"}
+# Ce qu'une exploration donne PAR POIGNEE, (mini, maxi) d'un coup (voir
+# _finish_action) : 3 a 5 feuilles, 1 a 3 petites branches, herbes ou
+# pierres. Tout le reste vient a l'unite.
+TROUVAILLES_PAR_POIGNEE = {"Feuille": (3, 5), "Small_Stick": (1, 3),
+                           "Herbe": (1, 3), "Pierre": (1, 3)}
 
 # MODE ACTION. L'eau du lac, en parts de la hauteur de la scene : du sable de
 # la rive (bas) a la ligne d'eau (haut). L'arbre : son entaille, et la
@@ -1415,13 +1417,13 @@ class GameScreen(Screen):
                 # En main (droite en priorite) ; au sol si non ramassable.
                 state = App.get_running_app().game_state
                 dest = state.auto_take(item)
-                # UNE POIGNEE : de 1 a 3 feuilles, herbes ou pierres d'un coup.
-                # Une seule est en main, le reste est pose a proximite. Cela
-                # ne compte toujours que pour UNE trouvaille de la case.
+                # UNE POIGNEE (voir TROUVAILLES_PAR_POIGNEE) : une seule est
+                # en main, le reste est pose a proximite. Cela ne compte
+                # toujours que pour UNE trouvaille de la case.
                 n = 1
                 if item in TROUVAILLES_PAR_POIGNEE and \
                         not self._find_au_couteau:
-                    n = random.randint(1, 3)
+                    n = random.randint(*TROUVAILLES_PAR_POIGNEE[item])
                     if n > 1:
                         state.add_ground(item, n - 1)
                 self._show_find_toast(item, dest, n)
