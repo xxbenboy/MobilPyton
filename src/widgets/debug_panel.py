@@ -56,6 +56,19 @@ METEOS = (("Clair", "clair", False), ("Nuageux", "nuageux", False),
           ("Pluie", "pluie", False), ("Orage", "orage", False),
           ("Brume", "nuageux", True))
 
+# Le jeu ne limite pas la hauteur des piles (sauf la corde) : une pile
+# "complete" de debug en compte PILE_DEBUG.
+PILE_DEBUG = 20
+KIT_DEBUG = {
+    "Couteau_En_Pierre": 1,
+    "Feuille": PILE_DEBUG,
+    "Fibre_Vegetale": PILE_DEBUG,
+    "Corde": 5,                     # 5 cordes de 5 m = 25 m
+    "Small_Stick": PILE_DEBUG,
+    "Pierre": PILE_DEBUG,
+    "Long_Stick": PILE_DEBUG,
+}
+
 
 def _titre(texte):
     lbl = Label(text=texte, halign="left", valign="middle",
@@ -145,6 +158,12 @@ def debug_section(state, apres):
     box.add_widget(grille)
     box.add_widget(_auto("Meteo auto", not state.weather_locked,
                          lambda: (state.release_debug_weather(), apres())))
+
+    box.add_widget(_titre("Objets"))
+    kit = TabButton(text="Donner le kit", size_hint_y=0.13)
+    fit_text(kit, TEXT_SMALL)
+    kit.bind(on_release=lambda *_: (state.give_debug_kit(KIT_DEBUG), apres()))
+    box.add_widget(kit)
     return box
 
 

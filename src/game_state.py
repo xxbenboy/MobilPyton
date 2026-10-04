@@ -594,6 +594,12 @@ class GameState:
         self.weather_until = 0
         self.update_weather()
 
+    def give_debug_kit(self, kit):
+        """Pose au sol de la case les objets de `kit` ({nom: nombre}) : ils
+        apparaissent en proximite, neufs (usure 0)."""
+        for nom, n in kit.items():
+            self.add_ground(nom, n)
+
     # ------------------------------------------------------------------ #
     # Meteo
     # ------------------------------------------------------------------ #
