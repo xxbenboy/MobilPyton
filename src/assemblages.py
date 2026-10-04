@@ -52,37 +52,59 @@ ASSEMBLAGES = [
 #   Pantalon X X
 #            X X
 #
-#   Bottes   X . X       deux colonnes de deux, PEU IMPORTE L'ECART (au
-#            X . X       moins une place vide : collees, c'est le pantalon)
+#   Gants    X . X       deux groupes de deux feuilles VERTICAUX
+#            X . X
 #
-#   Gants    X X . X X   deux paires cote a cote, PEU IMPORTE L'ECART (au
-#                        moins une place vide)
+#   Bottes   X X         deux groupes de deux feuilles HORIZONTAUX
+#            . .
+#            X X
+#
+# Pour les gants et les bottes, seuls comptent les deux groupes : ils doivent
+# etre SEPARES (aucune feuille de l'un ne touche l'autre, meme en coin), PEU
+# IMPORTE DE COMBIEN DE CASES ni dans quel sens. Colles, c'est le pantalon.
 FEUILLE = "Feuille"
 
 
-def _deux_colonnes(f):
-    """Deux colonnes de deux feuilles, separees d'au moins une place."""
-    xs = sorted({x for x, _y in f})
-    return (len(f) == 4 and len(xs) == 2 and xs[1] - xs[0] >= 2
-            and all({y for x, y in f if x == c} == {0, 1} for c in xs))
+def _deux_groupes(f, vertical):
+    """Deux paires de feuilles (verticales ou horizontales), separees."""
+    if len(f) != 4:
+        return False
+    pts = sorted(f)
+    a = pts[0]
+    for b in pts[1:]:
+        p1 = (a, b)
+        p2 = tuple(p for p in pts if p not in p1)
+        if all(_paire(p, vertical) for p in (p1, p2)) and \
+                min(max(abs(x1 - x2), abs(y1 - y2))
+                    for x1, y1 in p1 for x2, y2 in p2) >= 2:
+            return True
+    return False
 
 
-def _deux_paires(f):
-    """Deux paires de feuilles sur une rangee, separees d'au moins une
-    place."""
-    xs = sorted(x for x, _y in f)
-    return (len(f) == 4 and {y for _x, y in f} == {0}
-            and xs[1] == xs[0] + 1 and xs[3] == xs[2] + 1
-            and xs[2] - xs[1] >= 2)
+def _paire(p, vertical):
+    (x1, y1), (x2, y2) = p
+    if vertical:
+        return x1 == x2 and abs(y1 - y2) == 1
+    return y1 == y2 and abs(x1 - x2) == 1
 
 
 FORMES_FEUILLE = {
     "Casque_De_Feuille": ({(1, 1), (2, 1), (0, 0), (3, 0)},),
     "Veste_De_Feuille": ({(1, 1), (0, 0), (1, 0), (2, 0)},),
     "Pantalon_De_Feuille": ({(0, 0), (1, 0), (0, 1), (1, 1)},),
-    "Soulier_De_Feuille": (_deux_colonnes,),
-    "Gant_De_Feuille": (_deux_paires,),
+    "Soulier_De_Feuille": (lambda f: _deux_groupes(f, vertical=False),),
+    "Gant_De_Feuille": (lambda f: _deux_groupes(f, vertical=True),),
 }
+# LES MODELES montres en fantome dans la vue d'assemblage (voir
+# craft_screen.DemoFeuille), dans l'ordre ou ils defilent. La DERNIERE
+# feuille de chaque modele est celle que pose la main fantome.
+MODELES_FEUILLE = (
+    ("Casque_De_Feuille", ((0, 0), (1, 1), (2, 1), (3, 0))),
+    ("Veste_De_Feuille", ((0, 0), (1, 0), (2, 0), (1, 1))),
+    ("Pantalon_De_Feuille", ((0, 0), (1, 0), (0, 1), (1, 1))),
+    ("Gant_De_Feuille", ((0, 0), (0, 1), (2, 0), (2, 1))),
+    ("Soulier_De_Feuille", ((0, 0), (1, 0), (0, 2), (1, 2))),
+)
 EQUIPEMENT_FEUILLE = {
     "result": None, "famille": "feuille",
     "objets": {FEUILLE: 4, "Small_Stick": 2, COUTEAU_EN_PIERRE: 1,
@@ -183,15 +205,38 @@ def chacun_colle(objets, liens):
     return all(any(a is o or b is o for a, b in liens) for o in objets)
 
 
+def relies_aux_feuilles(objets, liens):
+    """Chaque objet rejoint-il une feuille, de contact en contact ? Les
+    feuilles peuvent former plusieurs groupes (gants, bottes) : un autre
+    objet peut relier ces groupes ou non, il lui suffit de toucher, de pres
+    ou de loin, l'un d'eux."""
+    vus = [o for o in objets if o["nom"] == FEUILLE]
+    a_voir = list(vus)
+    while a_voir:
+        o = a_voir.pop()
+        for a, b in liens:
+            autre = b if a is o else (a if b is o else None)
+            if autre is not None and not any(autre is v for v in vus):
+                vus.append(autre)
+                a_voir.append(autre)
+    return len(vus) == len(objets)
+
+
 def valide(objets, liens, position=None):
     """La recette realisee par ces objets ({"nom": ...}) et leurs contacts
     dans la vue d'assemblage, ou None si l'un d'eux n'est colle a rien.
 
     Pour une FAMILLE (l'equipement en feuille), c'est la forme des feuilles
     qui choisit l'objet : `position(objet)` rend sa place en tailles
-    d'objet. La recette rendue est alors une copie, son objet renseigne."""
+    d'objet. La recette rendue est alors une copie, son objet renseigne.
+    Chaque autre objet doit y rejoindre une feuille (relies_aux_feuilles)."""
     r = selon_objets([o["nom"] for o in objets])
-    if r is None or not chacun_colle(objets, liens):
+    if r is None:
+        return None
+    if r.get("famille"):
+        if not relies_aux_feuilles(objets, liens):
+            return None
+    elif not chacun_colle(objets, liens):
         return None
     if r.get("famille"):
         if position is None:

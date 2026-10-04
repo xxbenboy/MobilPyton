@@ -61,7 +61,7 @@ METEOS = (("Clair", "clair", False), ("Nuageux", "nuageux", False),
 PILE_DEBUG = 20
 KIT_DEBUG = {
     "Couteau_En_Pierre": 1,
-    "Feuille": PILE_DEBUG,
+    "Feuille": 2 * PILE_DEBUG,
     "Fibre_Vegetale": PILE_DEBUG,
     "Corde": 5,                     # 5 cordes de 5 m = 25 m
     "Small_Stick": PILE_DEBUG,

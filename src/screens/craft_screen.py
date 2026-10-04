@@ -73,6 +73,7 @@ from src.screens.inventory_screen import gabarit_proximite, coins_estimes
 from src.widgets.assemblage import Assemblage, Loupe, DUREE_ZOOM, vue_inverse
 from src.widgets.flou import floute
 from src.widgets.minijeux import MINIJEUX
+from src.widgets.demo_feuille import DemoFeuille, etale_sur_les_cotes
 from src.widgets.panels import panel
 from src.widgets.bois import plaque, BoutonGalet, TEXTE_BOIS, TITRE_BOIS
 from src.widgets.carnet import Carnet
@@ -223,6 +224,13 @@ class CraftScreen(Penche, Screen):
         self.couche_fantome = Widget(size_hint=(1, 1),
                                      pos_hint={"x": 0, "y": 0})
         root.add_widget(self.couche_fantome)
+        # LES MODELES D'EQUIPEMENT EN FEUILLE, en fantome au milieu de la vue
+        # d'assemblage (voir demo_feuille.py).
+        self.couche_demo = Widget(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.couche_demo)
+        self._demo = DemoFeuille(self.assemblage, self.couche_demo,
+                                 self.hands, annonce=self._annonce_modele)
+        self._famille_feuille = False
         # Ou en est le rapprochement : "sol" (vue normale), "entre", "zoom"
         # ou "sort" ; son avancement (0 a 1) et son horloge.
         self._mode = "sol"
@@ -487,6 +495,7 @@ class CraftScreen(Penche, Screen):
     def confirme(self):
         """Le joueur assemble pour de bon."""
         self.ferme_alerte(rend_la_main=False)
+        self._arrete_demo()
         state = App.get_running_app().game_state
         if state is None or self._mode != "zoom":
             return
@@ -704,6 +713,12 @@ class CraftScreen(Penche, Screen):
         self.sol.annule()
         self.sol.actif = False
         self.assemblage.charge(objets)
+        # L'EQUIPEMENT EN FEUILLE : les objets vont sur les cotes de l'ecran,
+        # le milieu montre les modeles en fantome (voir demo_feuille.py).
+        r = assemblages.selon_objets([o[0] for o in objets])
+        self._famille_feuille = r is not None and r.get("famille") == "feuille"
+        if self._famille_feuille:
+            etale_sur_les_cotes(self.assemblage)
         self.hands.set_items(None, None)
         # Seuls Assembler, a sa place, et Retour devenu Annuler.
         self._garnit(self._rang_bas, self._assembler)
@@ -719,6 +734,8 @@ class CraftScreen(Penche, Screen):
         qu'elles tenaient. Rien n'a change dans la partie."""
         if self._mode not in ("entre", "zoom", "minijeu"):
             return False
+        self._arrete_demo()
+        self._garnit(self._rang_titre, None)
         self.ferme_alerte(rend_la_main=False)
         self._arrete_minijeu()
         self.assemblage.actif = False
@@ -756,6 +773,9 @@ class CraftScreen(Penche, Screen):
             self._mode = "zoom"
             self.assemblage.actif = True
             self._prepare_flou()
+            if self._famille_feuille:
+                self._garnit(self._rang_titre, self._consigne, 1.0)
+                self._demo.demarre()
             # Le voile vient UNE FOIS LE ZOOM TERMINE.
             self._arrete_voile()
             self._voile_horloge = Clock.schedule_interval(
@@ -830,8 +850,16 @@ class CraftScreen(Penche, Screen):
             self._minijeu.arrete()
             self._minijeu = None
 
+    def _annonce_modele(self, nom):
+        self._consigne.text = "Modele : %s" % items.display_name(nom)
+
+    def _arrete_demo(self):
+        self._demo.arrete()
+
     def _fin_assemblage(self):
         """Retour a la vue normale, tout de suite."""
+        self._arrete_demo()
+        self._famille_feuille = False
         self._arrete_zoom()
         self.ferme_alerte(rend_la_main=False)
         self._ferme_appris()
