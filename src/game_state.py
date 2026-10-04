@@ -1778,22 +1778,24 @@ class GameState:
     BAIES_CUEILLIES = "buisson:baies"
     BAIES_PAR_BUISSON = (2, 4)
 
-    def berry_bushes_left(self):
-        """Buissons debout de la case qu'on n'a pas encore cueillis."""
-        cueillis = self.harvested_here().get(self.BAIES_CUEILLIES, 0)
-        return max(0, len(self.bushes_here()) - cueillis)
+    def berries_left(self):
+        """Baies qu'il reste a cueillir sur les buissons DEBOUT de la case :
+        chacun en porte BAIES_PAR_BUISSON (tire une fois pour toutes)."""
+        seed = world.scene_seed(self.player_x, self.player_y)
+        total = sum(random.Random("%s:%d:%d:baies" % (seed, gx, gy))
+                    .randint(*self.BAIES_PAR_BUISSON)
+                    for gx, gy in self.bushes_here())
+        cueillies = self.harvested_here().get(self.BAIES_CUEILLIES, 0)
+        return max(0, total - cueillies)
 
-    def pick_berries(self, rng=None):
-        """Cueille les baies d'un buisson : elles vont au sol. Rend leur
-        nombre (0 s'il n'y a plus de buisson a cueillir)."""
-        if self.berry_bushes_left() <= 0:
-            return 0
-        rng = rng or random
-        n = rng.randint(*self.BAIES_PAR_BUISSON)
+    def pick_berry(self):
+        """Compte une baie cueillie (l'ecran la range ensuite, voir
+        auto_take). Rend False s'il n'y en a plus."""
+        if self.berries_left() <= 0:
+            return False
         taken = self.harvested_here()
         taken[self.BAIES_CUEILLIES] = taken.get(self.BAIES_CUEILLIES, 0) + 1
-        self.add_ground("Baie", n)
-        return n
+        return True
 
     def knife_finds_left(self):
         """{objet: nombre} que le couteau peut encore trouver sur la case."""
