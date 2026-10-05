@@ -997,6 +997,7 @@ class ZoneScenery(Widget):
         self._cellule = None
         self._dessin_de = None
         self._direction = 0
+        self._sans_sol = False
         self._ord = {}
         self._harvest_total = {}
         self._avail = {}            # {nom: nb recoltable} (aleatoire, par case)
@@ -1172,7 +1173,7 @@ class ZoneScenery(Widget):
 
     def set_scene(self, zone_type, seed=0, taken=None, blocked_grid=None,
                   installed=None, removed_grid=None, neighbours=None,
-                  berge=None, baies=None, direction=0):
+                  berge=None, baies=None, direction=0, sans_sol=False):
         """Vue a l'horizon (sol en bas + ciel).
 
         `taken` = {nom: nombre deja recolte} pour masquer les objets recoltes.
@@ -1196,6 +1197,9 @@ class ZoneScenery(Widget):
         ses vrais arbres et de ses vraies plantes.
         `baies` = [((gx, gy), n), ...] : les buissons qui portent encore des
         baies, et combien (voir GameState.baies_par_buisson).
+        `sans_sol` : la scene ne peint pas son sol ; une seule nappe le fait
+        pour tout le tour, dessous (voir sol.py). Le decor y est pose tel
+        quel.
         `direction` (0 nord ... 3 ouest) : le quart du tour que la scene
         montre (voir panorama.py). La grille centree sur le joueur s'y
         projette par angle, le relief y est la suite de celui des quarts
@@ -1230,9 +1234,11 @@ class ZoneScenery(Widget):
         self._berge = berge
         self._baies = {(int(c[0]), int(c[1])): int(n) for c, n in (baies or ())}
         self._direction = int(direction) % 4
+        self._sans_sol = bool(sans_sol)
         self._redraw()
 
-    def montre_la_case(self, state, apercu=None, direction=None):
+    def montre_la_case(self, state, apercu=None, direction=None,
+                       sans_sol=False):
         """La case ou se tient le joueur, TELLE QU'ELLE EST MAINTENANT.
 
         `apercu` : le nom de l'objet qu'on s'apprete a poser, s'il y en a un.
@@ -1293,6 +1299,7 @@ class ZoneScenery(Widget):
             "berge": berge,
             "baies": tuple(sorted(state.baies_par_buisson().items())),
             "direction": direction % 4,
+            "sans_sol": bool(sans_sol),
         }
         cle = tuple((k, tuple(sorted(v.items())) if isinstance(v, dict)
                      else v) for k, v in sorted(decor.items())) + (apercu,)
@@ -1503,22 +1510,31 @@ class ZoneScenery(Widget):
 
         Son hasard est A PART : la scene ne tire pas un nombre de plus, et
         rien de ce qu'elle montre ne bouge."""
-        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        h = self.height
         prof = self.sous_sol * h
         if self._zone == "Lac":
             self._sous_sol_rive(prof)
             return
         nom, depth = SOL_DU_BAS.get(self._zone, SOL_DU_BAS["Plaine"])
-        tile_px = textures.tile_for(nom)
-        tex = paint(nom)
-        self._bind_pbr(nom)
-        tile_v = tile_px * textures.rapport(tex) if tex is not None \
-            else tile_px
         depth = max(1.0, float(depth))
         a = 1.0 - 1.0 / depth
         # Le haut du sol proche, dont la perspective se prolonge ici. La crete
         # de la zone en est la mesure moyenne.
         haut = max(1.0, self.hauteur_horizon() * h)
+        # La nappe du tour peint le sol sous les pieds (voir sol.py) : il ne
+        # reste ici que ses touffes.
+        if not self._sans_sol:
+            self._sol_sous_l_ecran(nom, a, haut, prof)
+        self._touffes_sous_l_ecran(a, haut, prof)
+
+    def _sol_sous_l_ecran(self, nom, a, haut, prof):
+        """Le sol lui-meme, sous le bas de l'ecran (voir _dessine_sous_sol)."""
+        w, x0, y0 = self.width, self.x, self.y
+        tile_px = textures.tile_for(nom)
+        tex = paint(nom)
+        self._bind_pbr(nom)
+        tile_v = tile_px * textures.rapport(tex) if tex is not None \
+            else tile_px
         # Assez de colonnes pour que le motif polaire tourne sans cassure.
         colonnes = 24 if nom in TEXTURES_POLAIRES else 6
         verts, ks = [], []
@@ -1542,6 +1558,9 @@ class ZoneScenery(Widget):
         Mesh(vertices=verts, indices=idx, mode="triangles", texture=tex)
         self._reset_pbr()
 
+    def _touffes_sous_l_ecran(self, a, haut, prof):
+        """Les touffes du sol sous le bas de l'ecran."""
+        h, x0, y0, w = self.height, self.x, self.y, self.width
         nb = TOUFFES_SOUS_SOL.get(self._zone, 0)
         if not nb:
             return
@@ -1703,6 +1722,20 @@ class ZoneScenery(Widget):
         """La direction (radians, tour complet) d'un point de la scene : le
         relief en depend, et se raccorde donc d'un quart du tour a l'autre."""
         return 2.0 * math.pi * (self._direction + fx - 0.5) / 4.0
+
+    def crete_tour(self, azimut):
+        """La hauteur de la crete a l'ecran (part de la hauteur, tete
+        droite) dans cette DIRECTION (radians) : la meme pour les quatre
+        quarts du tour et pour la nappe du sol, qui la rejoint (voir sol.py).
+        Pour la foret et la plaine ; None ailleurs."""
+        p1, p2 = self.phases(2)
+        if self._zone == "Foret":
+            return (0.42 + 0.05 + 0.03 * math.sin(5 * azimut + p1)
+                    + 0.015 * math.sin(11 * azimut + p2))
+        if self._zone == "Plaine":
+            return (0.55 - 0.06 + 0.035 * math.sin(6 * azimut + p1)
+                    + 0.018 * math.sin(12 * azimut + p2))
+        return None
 
     def phases(self, n):
         """n phases de relief, les memes pour les quatre quarts de la case."""
@@ -3276,7 +3309,7 @@ class ZoneScenery(Widget):
         et rien d'autre n'en depend."""
         horizon.draw(self._neighbours, self.x, self.width, crest,
                      self.height, random.Random(self._graine_voisins()),
-                     plein=True)
+                     plein=True, au_ras=self._sans_sol)
 
     # -- helpers textures (surface plane texturee, sinon couleur de repli) - #
     def _trect(self, name, x, y, w, h, tile_px=None):
@@ -3827,8 +3860,7 @@ class ZoneScenery(Widget):
         a = self.angle
 
         def far_curve(fx):
-            return y0 + (floor + 0.05 + 0.03 * math.sin(5 * a(fx) + p1)
-                         + 0.015 * math.sin(11 * a(fx) + p2)) * h
+            return y0 + self.crete_tour(a(fx)) * h
 
         def floor_curve(fx):
             return y0 + (floor + 0.025 * math.sin(4 * a(fx) + p1 + 1.0)
@@ -4853,6 +4885,12 @@ class ZoneScenery(Widget):
         l'ecume qui derive (voir _surface_eau)."""
         if tile_px is None:
             tile_px = textures.tile_for(tex_name)
+        if self._sans_sol:
+            # La nappe du tour peint le sol (voir sol.py) : on ne rend que le
+            # bord, dont le decor se sert pour s'y poser.
+            n = 40
+            return _BordDuSol(self.x, self.width,
+                              [top_fn(i / float(n)) for i in range(n + 1)])
         if segs is None:
             # Assez de sommets pour que la frange ait du grain : un segment
             # tous les quelques pixels. A quarante segments pour tout l'ecran
@@ -5041,8 +5079,7 @@ class ZoneScenery(Widget):
         a = self.angle
 
         def horizon_curve(fx):
-            return y0 + (edge + 0.035 * math.sin(6 * a(fx) + p1)
-                         + 0.018 * math.sin(12 * a(fx) + p2)) * h
+            return y0 + self.crete_tour(a(fx)) * h
 
         def field_curve(fx):
             return y0 + ((edge - 0.13)

@@ -32,6 +32,7 @@ from src.widgets.animated_background import (AnimatedBackground,
 from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.panorama import Panorama
+from src.widgets.sol import SolPanorama
 
 from src import items
 from src.widgets.player_hands import PlayerHands
@@ -109,6 +110,10 @@ SOUS_SOL_PANORAMA = 2.3
 # assez vite pour etre pret avant qu'on tourne la tete, assez espace pour ne
 # pas faire saccader l'arrivee sur une case.
 PAS_PRECHAUFFE = 0.2
+# LE SOL EN NAPPE (voir widgets/sol.py), et sa matiere, pour les zones ou il
+# remplace le sol que chaque panneau peignait. Ailleurs (montagne, lac),
+# chaque panneau peint encore le sien.
+SOL_CONTINU = {"Foret": "forest_floor", "Plaine": "grass"}
 EAU_BAS = 0.14
 EAU_HAUT = 0.60
 ENTAILLE = 0.10
@@ -365,6 +370,10 @@ class GameScreen(Screen):
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         self.monde.add_widget(self.background)
+        # LE SOL : une seule nappe sous le joueur, pour tout le tour (voir
+        # widgets/sol.py). Les panneaux posent leur decor dessus.
+        self.sol = SolPanorama(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        self.monde.add_widget(self.sol)
         # LE DECOR EST UN TOUR COMPLET de quatre panneaux, un par direction
         # (voir widgets/panorama.py), chacun une scene complete de la case :
         # la grille, centree sur le joueur, s'y repartit par angle.
@@ -1290,11 +1299,14 @@ class GameScreen(Screen):
         self.panorama.regle(self._lacet, self._tangage)
         self._tangage = self.panorama.tangage
         self.background.set_camera(self._lacet, self._tangage)
+        self.sol.set_camera(self._lacet, self._tangage)
         self.insects.set_camera(self._lacet, self._tangage)
         self.fireflies.set_camera(self._lacet, self._tangage)
 
     def _montre_panneau(self, state, plaque):
-        plaque.scene.montre_la_case(state, direction=plaque.direction)
+        plaque.scene.montre_la_case(
+            state, direction=plaque.direction,
+            sans_sol=state.current_zone() in SOL_CONTINU)
         if getattr(plaque, "_sol_de", None) != plaque.scene.texture_du_sol():
             plaque._sol_de = plaque.scene.texture_du_sol()
             plaque.peint_sol()
@@ -2277,6 +2289,7 @@ class GameScreen(Screen):
         # voile toujours bleu marine donnait un crepuscule froid alors que le
         # ciel, lui, flambait.
         self._night_color.rgb = daylight.veil_color(state.time_seconds)
+        self.sol.set_teinte(daylight.light_tint(state.time_seconds))
         self._night_color.a = night_darkness(state.time_seconds)
         # Le decor suit le soleil : couleur de la lumiere et ombres portees.
         # Et son lointain se fond dans le ciel TEL QU'IL EST AFFICHE -- meteo
@@ -2322,11 +2335,22 @@ class GameScreen(Screen):
         case = (state.player_x, state.player_y)
         if case != self._case_vue:
             self._case_vue = case
+            self._regle_sol(state)
             self._a_prechauffer = [p for p in self.panorama.plaques
                                    if p.parent is None]
             if self._prechauffe_ev is None and self._a_prechauffer:
                 self._prechauffe_ev = Clock.schedule_interval(
                     self._prechauffe, PAS_PRECHAUFFE)
+
+    def _regle_sol(self, state):
+        """La nappe du sol sur la case : sa matiere, et la crete qu'elle
+        rejoint au loin -- celle que dessinent les panneaux."""
+        matiere = SOL_CONTINU.get(state.current_zone())
+        if matiere is None:
+            self.sol.cache()
+            return
+        self.sol.regle(matiere, self.scenery.crete_tour,
+                       self.scenery.hauteur_horizon())
 
     def _prechauffe(self, _dt):
         """Dessine un panneau hors de vue (un par image)."""

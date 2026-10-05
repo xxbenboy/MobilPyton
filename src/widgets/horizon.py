@@ -95,7 +95,7 @@ def _hazy(color, dist):
 # On ne cherche pas a dessiner la case voisine, seulement ce qui la rend
 # reconnaissable en une fraction de seconde et de tres loin.
 
-def _foret(x0, x1, base, haut, dist, rng, env=None):
+def _foret(x0, x1, base, haut, dist, rng, env=None, au_ras=False):
     """Une ligne d'arbres : une frange dentelee, jamais des arbres separes.
 
     A un kilometre, on ne distingue plus les troncs : on voit une bande
@@ -117,15 +117,16 @@ def _foret(x0, x1, base, haut, dist, rng, env=None):
             tw = th * rng.uniform(0.55, 0.85)
             if th < 1.0:
                 continue
+            # Le pied plonge sous la crete, que le sol recouvre ; AU RAS
+            # (sol en nappe, dessine dessous), il part de la crete meme.
+            pied = y if au_ras else y - haut * 0.5
             if rng.random() < 0.55:            # conifere : cime pointue
-                Triangle(points=[fx - tw, y - haut * 0.5, fx + tw,
-                                 y - haut * 0.5, fx, y + th])
+                Triangle(points=[fx - tw, pied, fx + tw, pied, fx, y + th])
             else:                              # feuillu : cime ronde
-                Ellipse(pos=(fx - tw, y - haut * 0.5),
-                        size=(tw * 2, th + haut * 0.5))
+                Ellipse(pos=(fx - tw, pied), size=(tw * 2, th + (y - pied)))
 
 
-def _montagne(x0, x1, base, haut, dist, rng, env=None):
+def _montagne(x0, x1, base, haut, dist, rng, env=None, au_ras=False):
     """Deux ou trois cretes qui se recouvrent.
 
     Une montagne se reconnait a sa SILHOUETTE, pas a sa matiere : des pentes
@@ -138,7 +139,7 @@ def _montagne(x0, x1, base, haut, dist, rng, env=None):
         cx = x0 + largeur * (0.30 + 0.42 * ((i * 7 + 3) % 5) / 4.0)
         demi = largeur * part * 0.5
         k = env(cx) if env is not None else 1.0
-        y = base(cx) - haut * 0.10
+        y = base(cx) - (0.0 if au_ras else haut * 0.10)
         Triangle(points=[cx - demi, y, cx + demi, y,
                          cx, y + haut * (0.10 + (ech - 0.10) * k)])
 
@@ -163,7 +164,8 @@ _SIGNATURES = {
 }
 
 
-def draw(neighbours, x0, width, base, height, rng, plein=False):
+def draw(neighbours, x0, width, base, height, rng, plein=False,
+         au_ras=False):
     """Dessine les paysages voisins au fond de la scene.
 
     `neighbours` : {"face": type, "gauche": type, "droite": type}, chaque
@@ -198,7 +200,7 @@ def draw(neighbours, x0, width, base, height, rng, plein=False):
         env = _enveloppe(xa, xb, FONDU_BORD,
                          neighbours.get("voisin_g") != zone,
                          neighbours.get("voisin_d") != zone) if plein else None
-        signature(xa, xb, au_sol, haut, dist, rng, env=env)
+        signature(xa, xb, au_sol, haut, dist, rng, env=env, au_ras=au_ras)
 
 
 # Jusqu'ou chercher la terre ferme de l'autre cote de l'eau. Au-dela, le
