@@ -741,6 +741,18 @@ RAYON_LOIN = 2.0 ** 1.5           # le coin : racine de 8
 # part de quart de tour : vu a cheval sur deux panneaux, il l'est dans les
 # deux, au meme endroit de l'ecran.
 MARGE_PANNEAU = 32.0
+# CE QUI N'EST TIRE QUE POUR UN PANNEAU (les objets a ramasser, la litiere,
+# les plantes...) n'est dessine que par lui : pose trop pres de son bord, il
+# etait coupe net par la decoupe du panneau, sans que le voisin en dessine
+# l'autre moitie. On le garde donc tout entier dans sa tranche : son centre
+# reste a cette part de la largeur du bord (BORD_PANNEAU), davantage pour
+# les touffes et les plantes (BORD_TOUFFE) et les longues branches
+# (BORD_BRANCHE). Pas plus qu'il ne faut : c'est autant de bande vide au
+# raccord, pour ce que le panneau est seul a dessiner. Ce qui est seme pour le tour, lui,
+# est dessine par les deux panneaux et n'en a pas besoin.
+BORD_PANNEAU = 0.03
+BORD_TOUFFE = 0.047
+BORD_BRANCHE = 0.075
 
 # LE VERSANT DE MONTAGNE (voir relief_tour). Les huit cases autour du joueur,
 # par leur direction (dx, dy ; le nord vers les y decroissants) : vers une
@@ -971,6 +983,8 @@ SOUS_SOL_RESSERRE = 1.6
 # (1/k) : prolongee sans limite, elle etirait la texture jusqu'a quatre ou
 # cinq fois, floue et en bandes.
 SOUS_SOL_GROSSI_MAX = 1.8
+# Arbres de la lisiere, a l'horizon de la foret, par quart du tour.
+LISIERE_FORET = 28
 # Arbres decoratifs a mi-distance, par quart du tour, en foret.
 BOIS_MI_DISTANCE = (6, 9)
 
@@ -2808,6 +2822,21 @@ class ZoneScenery(Widget):
         w = max(1.0, self.width)
         return (cx - self.x + self._direction * w) % (4.0 * w)
 
+    def _rentre(self, x, demi):
+        """Ramene un element tire pour CE SEUL panneau tout entier dans sa
+        tranche (voir BORD_PANNEAU) : `demi` est sa demi-largeur a l'ecran.
+        Hors du panorama, rien n'est decoupe : rien ne bouge."""
+        if not self._sans_sol:
+            return x
+        lo, hi = self.x + demi, self.x + self.width - demi
+        if lo > hi:
+            return self.x + self.width / 2.0
+        return min(hi, max(lo, x))
+
+    def _bord(self, marge=BORD_PANNEAU):
+        """La part de la largeur a laisser au bord (voir BORD_PANNEAU)."""
+        return marge if self._sans_sol else 0.001
+
     def semis(self, nb, cle, amas=None, marge=MARGE_SEMIS):
         """Un semis tire pour le TOUR COMPLET : `nb` points par quart du
         tour, depuis une graine propre a la case et a `cle`. Rend
@@ -4074,10 +4103,11 @@ class ZoneScenery(Widget):
             t = (fy / surf) if surf else 0.0
             return (x0 + fx * w, y0 + fy * h, 1.0 - 0.70 * t, t)
 
-        def place(maxt=1.0, fx=None, floor=0.0):
+        def place(maxt=1.0, fx=None, floor=0.0, marge=BORD_PANNEAU):
             if fx is None:
                 fx = rng.uniform(0, 1)
-            fx = min(0.999, max(0.001, fx))
+            m = self._bord(marge)
+            fx = min(1.0 - m, max(m, fx))
             surf = (floor_curve(fx) - y0) / h
             lo = min(floor, surf)              # plancher (jointures des mains)
             hi = surf * maxt
@@ -4134,7 +4164,8 @@ class ZoneScenery(Widget):
                                           depth=t)))
         # Branches au sol. [recoltable: Small_Stick]
         for _ in range(rng.randint(7, 11)):
-            bx, by, sc, t = place(1.0, floor=_HARVEST_FLOOR)
+            bx, by, sc, t = place(1.0, floor=_HARVEST_FLOOR,
+                                  marge=BORD_BRANCHE)
             ln = rng.uniform(0.06, 0.13) * w * sc
             if not self._take_or_skip("Small_Stick") and not self._is_blocked(bx, by):
                 items.append((by - self.DEBORD_BRANCHE * ln,
@@ -4170,7 +4201,8 @@ class ZoneScenery(Widget):
         # sous la hauteur des mains, la ou l'on peut vraiment les atteindre.
         for _ in range(HERBE_RECOLTABLE_FORET):
             fx = grass_pick() if rng.random() < 0.72 else None
-            gx, gb, sc, t = place(fx=fx, floor=_HARVEST_FLOOR)
+            gx, gb, sc, t = place(fx=fx, floor=_HARVEST_FLOOR,
+                                  marge=BORD_TOUFFE)
             gh = rng.uniform(0.06, 0.15) * h * sc
             vert = rng.choice(GREENS) + (1,)      # avant le test : voir plus haut
             if (not self._take_or_skip("Herbe")
@@ -4178,7 +4210,7 @@ class ZoneScenery(Widget):
                 items.append((gb, f_grass(gx, gb, gh, vert, sc)))
         # Fougeres / plantes (bosquets).
         for _ in range(rng.randint(8, 12)):
-            px, py, sc, t = place(fx=fern_pick())
+            px, py, sc, t = place(fx=fern_pick(), marge=BORD_TOUFFE)
             s = rng.uniform(0.05, 0.10) * h * sc
             if self._is_blocked(px, py, py + s * 1.05):
                 continue
@@ -4254,20 +4286,20 @@ class ZoneScenery(Widget):
                 items.append((mb, lambda mx=mx, mb=mb, mh=mh:
                               self._forest_tree(mx, mb, mh, 0.55)))
         # Ligne d'arbres DENSE a l'horizon (lointains et petits) : HORS grille
-        # (au-dela de la zone d'installation), purement decorative.
-        m = rng.randint(24, 32)
-        for i in range(m):
-            fx = min(0.999, max(0.001, i / (m - 1) + rng.uniform(-0.02, 0.02)))
-            tb = floor_curve(fx) - rng.uniform(0.0, 0.03) * h
+        # (au-dela de la zone d'installation), purement decorative. SEMEE
+        # POUR LE TOUR (voir semis) : un arbre au raccord est dessine par les
+        # deux panneaux, et n'est plus coupe en deux.
+        for fx, r, _n in self.semis(LISIERE_FORET, "lisiere", marge=0.08):
+            tb = floor_curve(fx) - r.uniform(0.0, 0.03) * h
             tx = x0 + fx * w
-            if rng.random() < 0.55:
-                tw = rng.uniform(0.03, 0.06) * w
-                th = rng.uniform(0.12, 0.22) * h
+            if r.random() < 0.55:
+                tw = r.uniform(0.03, 0.06) * w
+                th = r.uniform(0.12, 0.22) * h
                 items.append((tb, lambda tx=tx, tb=tb, tw=tw, th=th:
                               self._pine(tx, tb, tw, th, (0.09, 0.17, 0.11, 1),
                                          shadow=False)))
             else:
-                th = rng.uniform(0.12, 0.20) * h
+                th = r.uniform(0.12, 0.20) * h
                 items.append((tb, lambda tx=tx, tb=tb, th=th:
                               self._forest_tree(tx, tb, th, 0.4, shadow=False)))
         # (Les insectes sont desormais une couche ANIMEE separee : InsectLayer.)
@@ -5294,10 +5326,11 @@ class ZoneScenery(Widget):
             t = (fy / surf) if surf else 0.0
             return (x0 + fx * w, y0 + fy * h, 1.0 - 0.70 * t, t)
 
-        def place(maxt=1.0, fx=None, floor=0.0):
+        def place(maxt=1.0, fx=None, floor=0.0, marge=BORD_PANNEAU):
             if fx is None:
                 fx = rng.uniform(0, 1)
-            fx = min(0.999, max(0.001, fx))
+            m = self._bord(marge)
+            fx = min(1.0 - m, max(m, fx))
             surf = (field_curve(fx) - y0) / h         # sommet du sol a cet x
             lo = min(floor, surf)              # plancher (jointures des mains)
             hi = surf * maxt
@@ -5362,7 +5395,8 @@ class ZoneScenery(Widget):
                               self._stone(sx, sy, r, sprite=self._zs("stone"),
                                           depth=t)))
         for _ in range(rng.randint(6, 9)):             # branches [Small_Stick]
-            bx, by, sc, t = place(1.0, floor=_HARVEST_FLOOR)
+            bx, by, sc, t = place(1.0, floor=_HARVEST_FLOOR,
+                                  marge=BORD_BRANCHE)
             ln = rng.uniform(0.06, 0.12) * w * sc
             # Un baton est trie sur son BOIS, ombre comprise. Il l'etait
             # auparavant sur un biais fixe de 12 % de l'ecran, cense le faire
@@ -5431,15 +5465,17 @@ class ZoneScenery(Widget):
             k_champ = 1.0 / (1.0 - t_champ * (1.0 - 1.0 / GROUND_DEPTH))
             return ECHELLE_HERBE_CHAMP * k_champ / k
 
-        def pose_loin(n, recoltable):
-            for i in range(n):
-                fx = (i + rng.uniform(0.0, 1.0)) / n
-                gx = x0 + fx * w + rng.uniform(-0.010, 0.010) * w
+        def pose_loin(n, cle, recoltable):
+            # SEMEE POUR LE TOUR (voir semis), et non plus panneau par
+            # panneau : tiree pour un seul, elle s'arretait net a chaque
+            # raccord, ou la decoupe la tranchait.
+            for fx, r, k in self.semis(n, cle):
+                gx = x0 + fx * w
                 bas = field_curve(fx)
                 haut = horizon_curve(fx)
-                gb = bas + (haut - bas) * rng.random() ** 0.7
+                gb = bas + (haut - bas) * r.random() ** 0.7
                 sc = echelle_loin(gb)
-                gh = rng.uniform(0.05, 0.16) * h * sc
+                gh = r.uniform(0.05, 0.16) * h * sc
                 # SOUS LE BORD REEL DE LA CRETE, a l'endroit ou la touffe est
                 # vraiment posee. La hauteur ci-dessus est prise en fx, AVANT
                 # le petit decalage de gx : la ou la crete descend, la touffe
@@ -5451,8 +5487,8 @@ class ZoneScenery(Widget):
                 # La teinte est TIREE AVANT de savoir si la touffe reste :
                 # sauter ce tirage pour une touffe ramassee decalait tout le
                 # hasard qui suit (gazon, plantes, arbres de l'horizon...).
-                teinte = rng.uniform(0.85, 1.0)
-                if recoltable and self._take_or_skip("Herbe"):
+                teinte = r.uniform(0.85, 1.0)
+                if recoltable and self._take_or_skip("Herbe", cle=k):
                     continue
                 if self._is_blocked(gx, gb, gb + gh):
                     continue
@@ -5462,9 +5498,9 @@ class ZoneScenery(Widget):
         # Recoltables x5 (etait 125) : le nombre affecte l'aspect visuel mais
         # pas la quantite recoltable (harvest_max reste plafonne par _avail_for
         # qui tire 2 a 5).
-        pose_loin(625, True)
+        pose_loin(625, "loin", True)
         # Et de quoi garnir la bande, celles-ci decoratives.
-        pose_loin(HERBE_LOIN_PLAINE, False)
+        pose_loin(HERBE_LOIN_PLAINE, "loin-decor", False)
         # GAZON DE REMPLISSAGE, et il est DECORATIF : aucun appel a
         # _take_or_skip, donc rien de plus a ramasser.
         #
@@ -5480,13 +5516,14 @@ class ZoneScenery(Widget):
         # s'eclaircit, et c'est ce que font les 230 autres.
         for _ in range(HERBE_DECOR_PLAINE):
             fx = grass_pick() if rng.random() < 0.55 else None
-            gx, gb, sc, t = place(fx=fx, floor=_HARVEST_FLOOR)
+            gx, gb, sc, t = place(fx=fx, floor=_HARVEST_FLOOR,
+                                  marge=BORD_TOUFFE)
             gh = rng.uniform(0.04, 0.13) * h * sc
             if self._is_blocked(gx, gb, gb + gh):
                 continue
             items.append((gb, f_grass(gx, gb, gh, green_at(t), sc, None, 0)))
         for _ in range(rng.randint(10, 14)):           # plantes feuillues (bosquets)
-            px, py, sc, t = place(fx=plant_pick())
+            px, py, sc, t = place(fx=plant_pick(), marge=BORD_TOUFFE)
             s = rng.uniform(0.05, 0.09) * h * sc
             if self._is_blocked(px, py, py + s * 1.05):
                 continue
@@ -5534,7 +5571,8 @@ class ZoneScenery(Widget):
         # objets a ramasser restent exactement ou ils etaient.
         for _ in range(HERBE_PIED_PLAINE):
             fx = grass_pick() if rng.random() < 0.55 else rng.uniform(0, 1)
-            fx = min(0.999, max(0.001, fx))
+            m = self._bord()
+            fx = min(1.0 - m, max(m, fx))
             surf = (field_curve(fx) - y0) / h
             fy = rng.uniform(0.0, _HARVEST_FLOOR)
             t = (fy / surf) if surf else 0.0
@@ -5648,7 +5686,7 @@ class ZoneScenery(Widget):
         # LES SAPINS, sous leur limite : nombreux en bas du versant, rares a
         # mi-pente, absents des cretes. Decoratifs, semes pour le tour.
         for fx, r, _n in self.semis(VERSANT_SAPINS, "sapins",
-                                    amas=(3, 0.10, 0.6), marge=0.12):
+                                    amas=(3, 0.10, 0.6), marge=0.22):
             az = azimut(fx)
             d = r.uniform(20.0, 85.0)
             z = releve(az, d)
@@ -5662,7 +5700,7 @@ class ZoneScenery(Widget):
                           self._pine(x, y, th * 0.40, th,
                                      (0.07, 0.15, 0.10, 1), shadow=False)))
         # LES BLOCS, eboules sur tout le versant (decoratifs).
-        for fx, r, _n in self.semis(VERSANT_BLOCS, "blocs", marge=0.10):
+        for fx, r, _n in self.semis(VERSANT_BLOCS, "blocs", marge=0.16):
             az = azimut(fx)
             d = 7.0 * (75.0 / 7.0) ** r.random()
             x, y, _p = self.au_sol(az, d)
@@ -5672,7 +5710,7 @@ class ZoneScenery(Widget):
                           self._bloc(x, y, rr, d)))
         # L'HERBE RASE entre les pierres, surtout pres des pieds.
         for fx, r, _n in self.semis(VERSANT_HERBE, "herbe",
-                                    amas=(5, 0.07, 0.75)):
+                                    amas=(5, 0.07, 0.75), marge=0.13):
             az = azimut(fx)
             d = 1.3 * (30.0 / 1.3) ** (r.random() ** 1.3)
             if releve(az, d) > HERBE_LIMITE:
@@ -5702,6 +5740,9 @@ class ZoneScenery(Widget):
                 continue
             sx, sy, d = pose
             rr = taille(r_m, d)
+            x_dedans = self._rentre(sx, 1.3 * rr)
+            if x_dedans != sx:
+                sx, sy, _p = self.au_sol(azimut((x_dedans - self.x) / w), d)
             if self._is_blocked(sx, sy):
                 continue
             items.append((sy - self.DEBORD_CAILLOU * rr,
@@ -5871,7 +5912,7 @@ class ZoneScenery(Widget):
         lot = self._plantes_de_berge(self._berge)
         poids = [pl[2] for pl in lot]
         for fx, r, _n in self.semis(PIEDS_BERGE_TOUR, "berge",
-                                    amas=(3, 0.08, 0.7), marge=0.06):
+                                    amas=(3, 0.08, 0.7), marge=0.10):
             az = azimut(fx)
             rv = rivage(az)
             t = r.random() ** 0.65
@@ -5892,7 +5933,7 @@ class ZoneScenery(Widget):
                                            nom, self._pick(x, y)))))
         # LA TERRE : les arbres des cases voisines, la ou il n'y a pas d'eau.
         for fx, r, _n in self.semis(ARBRES_TERRE, "terre",
-                                    amas=(3, 0.10, 0.6), marge=0.12):
+                                    amas=(3, 0.10, 0.6), marge=0.30):
             az = azimut(fx)
             d = r.uniform(16.0, 85.0)
             haut_m = r.uniform(8.0, 15.0)
@@ -5917,7 +5958,7 @@ class ZoneScenery(Widget):
                                                 shadow=False)))
         # L'HERBE, la ou le sable rejoint la terre.
         for fx, r, _n in self.semis(HERBE_RIVE, "herbe",
-                                    amas=(5, 0.07, 0.6)):
+                                    amas=(5, 0.07, 0.6), marge=0.13):
             az = azimut(fx)
             d = 3.0 * (45.0 / 3.0) ** r.random()
             garde = r.random()
@@ -5953,6 +5994,9 @@ class ZoneScenery(Widget):
                 continue
             x, y, d = pose
             rr = taille(r_m, d)
+            x_dedans = self._rentre(x, 1.4 * rr)
+            if x_dedans != x:
+                x, y, _p = self.au_sol(azimut((x_dedans - x0) / w), d)
             if self._is_blocked(x, y):
                 continue
             items.append((y - self.DEBORD_CAILLOU * rr,
@@ -5972,6 +6016,7 @@ class ZoneScenery(Widget):
                 # Dans l'eau : le pied est a son niveau, pas sur le fond.
                 y = y_h + nappe.angle_eau(d) * ppd
             gh = taille(haut_m, d)
+            x = self._rentre(x, 0.45 * gh)
             if self._take_or_skip("Roseau") or y < plancher \
                     or self._is_blocked(x, y, y + gh):
                 continue
