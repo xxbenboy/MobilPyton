@@ -741,6 +741,7 @@ class GameScreen(Screen):
             self._mode_action = None
             self.monde.e = 0.0
             self.monde.regle()
+            self._recoupe()
             self.hud.disabled = False
             self.hud.opacity = 1.0
             self._oublie_decor()
@@ -1340,6 +1341,12 @@ class GameScreen(Screen):
                             (0.5 * w, 0.40 * h), 1.8)
         self._anime_approche(1.0, self._lance_jeu)
 
+    def _recoupe(self):
+        """La decoupe des panneaux suit la camera qui avance (voir
+        panorama.Plaque.decale)."""
+        self.panorama.vers_ecran = self.monde.ecran if self.monde.e > 0             else None
+        self.panorama.regle()
+
     def _anime_approche(self, vers, ensuite):
         depart = self.monde.e
         etat = {"t": 0.0}
@@ -1350,6 +1357,7 @@ class GameScreen(Screen):
             etat["t"] += min(dt, 0.1)
             p = min(1.0, etat["t"] / DUREE_APPROCHE)
             self.monde.regle(depart + (vers - depart) * doux(p))
+            self._recoupe()
             if p >= 1.0:
                 self._approche_horloge.cancel()
                 self._approche_horloge = None
@@ -1433,6 +1441,7 @@ class GameScreen(Screen):
             self._cible = None
             self.monde.e = 0.0
             self.monde.regle()
+            self._recoupe()
             self._fondu_hud(True)
             self.refresh()
             if action is not None:

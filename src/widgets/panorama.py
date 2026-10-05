@@ -17,9 +17,19 @@ le sol a ses pieds, prolonge sous chaque panneau.
 Les panneaux ne bougent jamais pour de bon : une scene se redessine des que
 sa position change (des dixiemes de seconde sur un telephone). Ils sont
 deplaces par une TRANSFORMATION d'affichage, gratuite.
+
+CHAQUE PANNEAU EST DECOUPE A SA TRANCHE de l'ecran. Un element proche d'un
+raccord est dessine dans les deux panneaux (voir ZoneScenery.vu) ; sans
+decoupe, le second recouvrait le premier, et un arbre lointain passait
+par-dessus le sol proche de l'autre panneau. Decoupe, chaque tranche montre
+sa propre scene, dans le bon ordre de profondeur.
 """
+import math
+
+from kivy.core.window import Window
 from kivy.graphics import (Color, PushMatrix, PopMatrix, Rectangle,
                            Translate)
+from kivy.graphics.scissor_instructions import ScissorPush, ScissorPop
 from kivy.uix.floatlayout import FloatLayout
 
 from src.widgets import textures
@@ -45,17 +55,33 @@ class Plaque(FloatLayout):
         self.scene = scene
         self.direction = direction
         with self.canvas.before:
+            self._coupe = ScissorPush(x=0, y=0, width=1, height=1)
             PushMatrix()
             self._t = Translate(0, 0, 0)
             self._sol_c = Color(1, 1, 1, 1)
             self._sol = Rectangle()
         with self.canvas.after:
             PopMatrix()
+            ScissorPop()
         self.add_widget(scene)
         self.bind(pos=self._sol_en_place, size=self._sol_en_place)
 
-    def decale(self, dx, dy):
+    def decale(self, dx, dy, vers_ecran=None):
+        """Deplace le panneau et recale sa decoupe. `vers_ecran` (x, y) ->
+        (x, y) : une transformation de plus, celle de la camera qui avance
+        (mode action), que la decoupe doit suivre."""
         self._t.x, self._t.y = dx, dy
+        gauche, droite = self.x + dx, self.x + dx + self.width
+        if vers_ecran is not None:
+            gauche = vers_ecran(gauche, self.y)[0]
+            droite = vers_ecran(droite, self.y)[0]
+        # Arrondi vers l'EXTERIEUR : deux tranches voisines se chevauchent
+        # d'un pixel plutot que de laisser voir le ciel entre elles.
+        g = int(math.floor(gauche))
+        self._coupe.x = g
+        self._coupe.y = 0
+        self._coupe.width = max(1, int(math.ceil(droite)) - g)
+        self._coupe.height = int(Window.height)
 
     def decalage(self):
         return self._t.x, self._t.y
@@ -93,6 +119,7 @@ class Panorama(FloatLayout):
                         for d, sc in enumerate(scenes)]
         self.bind(size=self._taille, pos=self._taille)
         self.sur_attache = None     # appele quand un panneau entre a l'ecran
+        self.vers_ecran = None      # transformation de la camera (mode action)
 
     def _taille(self, *_):
         for p in self.plaques:
@@ -115,7 +142,7 @@ class Panorama(FloatLayout):
         dy = -self.tangage * ppd
         for p in self.plaques:
             dx = ecart(p.direction * FOV - self.lacet) * ppd
-            p.decale(dx, dy)
+            p.decale(dx, dy, self.vers_ecran)
             visible = abs(dx) < self.width
             if visible and p.parent is None:
                 self.add_widget(p)

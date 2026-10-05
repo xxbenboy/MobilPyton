@@ -625,6 +625,7 @@ class JeuArbre(MiniJeu):
         else:
             app.secousse = (0.0, 0.0)
         app.regle()
+        self.ecran._recoupe()
         h = self.ecran.height
         # L'ENTAILLE grandit a chaque coup, sous les mains.
         self.sous.canvas.clear()

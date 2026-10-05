@@ -773,6 +773,21 @@ RAYON_LOIN = 2.0 ** 1.5           # le coin : racine de 8
 MARGE_PANNEAU = 32.0
 
 
+# LE SOL AUTOUR DU JOUEUR. Les textures sans direction marquee (l'herbe, le
+# sol de foret) sont plaquees en coordonnees POLAIRES : leur motif tourne
+# autour du joueur et se raccorde d'un quart du tour a l'autre, sans couture
+# ni point de fuite decale. Le motif fait TOURS_TEXTURE fois le tour, ce qui
+# lui garde la meme echelle qu'avant. Les textures a motif oriente (l'eau, le
+# sable, la roche) gardent leur perspective par panneau : tournees, leurs
+# vagues se seraient dressees a la verticale.
+TEXTURES_POLAIRES = {"grass", "grass_far", "grass_loin", "forest_floor",
+                     "forest_floor_far"}
+TOURS_TEXTURE = 1
+# Sous les pieds, le placage passe du polaire a la perspective du panneau sur
+# cette part de la hauteur d'ecran (voir ZoneScenery._uv_sous_sol).
+PASSAGE_SOUS_SOL = 0.5
+
+
 def ecart(a):
     """Un angle ramene entre -180 et 180 degres."""
     return (a + 180.0) % 360.0 - 180.0
@@ -901,6 +916,12 @@ TOUFFES_SOUS_SOL = {"Foret": 700, "Plaine": 620}
 # repartition se resserre vers le bord de l'ecran (exposant > 1).
 SOUS_SOL_TOUFFES_MAX = 1.4
 SOUS_SOL_RESSERRE = 1.6
+# Sous les pieds, la perspective ne grossit plus le sol au-dela de ce facteur
+# (1/k) : prolongee sans limite, elle etirait la texture jusqu'a quatre ou
+# cinq fois, floue et en bandes.
+SOUS_SOL_GROSSI_MAX = 1.8
+# Arbres decoratifs a mi-distance, par quart du tour, en foret.
+BOIS_MI_DISTANCE = (6, 9)
 # Dans l'image de rive (rive_B), la ligne ou commence le sable SEC, en v
 # compte depuis le haut. Au-dessus, c'est deja l'eau qui lape : sous l'ecran,
 # on ne montre que le sable, en miroir aller-retour (voir _sous_sol_rive).
@@ -1489,8 +1510,8 @@ class ZoneScenery(Widget):
         # Le haut du sol proche, dont la perspective se prolonge ici. La crete
         # de la zone en est la mesure moyenne.
         haut = max(1.0, self.hauteur_horizon() * h)
-        cx = x0 + w / 2.0 - self._direction * w   # raccord d'un quart a l'autre
-        colonnes = 6
+        # Assez de colonnes pour que le motif polaire tourne sans cassure.
+        colonnes = 24 if nom in TEXTURES_POLAIRES else 6
         verts, ks = [], []
         for j in range(SOUS_SOL_RANGEES + 1):
             yy = y0 - prof * (1.0 - j / float(SOUS_SOL_RANGEES))
@@ -1500,8 +1521,8 @@ class ZoneScenery(Widget):
                 x = x0 + w * i / float(colonnes)
                 # LA FORMULE DE _fill_curve : a yy = y0, k = 1 et l'on
                 # retombe exactement sur sa rangee du bas.
-                verts += [x, yy, (x - cx) * k / tile_px,
-                          -(yy - y0) * k / tile_v]
+                verts += [x, yy] + list(self._uv_sous_sol(nom, x, yy, k,
+                                                          tile_px, tile_v))
         idx = []
         n = colonnes + 1
         for j in range(SOUS_SOL_RANGEES):
@@ -1553,7 +1574,7 @@ class ZoneScenery(Widget):
         """Le facteur de distance k au-dessous du bord (1 au bord, moins de 1
         plus pres). Celui de _fill_curve, prolonge : t devient negatif."""
         t = (yy - self.y) / haut
-        return 1.0 / (1.0 - a * t)
+        return max(1.0 / SOUS_SOL_GROSSI_MAX, 1.0 / (1.0 - a * t))
 
     def _sous_sol_rive(self, prof):
         """Sous la rive du lac : son sable sec, prolonge.
@@ -1631,6 +1652,42 @@ class ZoneScenery(Widget):
                                          self.SOL_DE_GRILLE.get(self._zone))
         fx = 0.5 + ecart(azimut - self._direction * FOV) / FOV
         return fx, fy, taille
+
+    def uv_sol(self, nom, x, yy, k, tile_px, tile_v):
+        """Les coordonnees de texture d'un point du sol, a la distance k (voir
+        _fill_curve) : polaires autour du joueur pour les textures sans
+        direction (TEXTURES_POLAIRES), en perspective vers le milieu du
+        panneau pour les autres."""
+        w = self.width
+        if nom in TEXTURES_POLAIRES:
+            theta = TOURS_TEXTURE * self.angle((x - self.x) / w)
+            rho = k * 2.0 * w / (math.pi * TOURS_TEXTURE) / tile_px
+            return rho * math.sin(theta), rho * math.cos(theta)
+        cx = self.x + w / 2.0
+        return (x - cx) * k / tile_px, -(yy - self.y) * k / tile_v
+
+    def _uv_sous_sol(self, nom, x, yy, k, tile_px, tile_v):
+        """Sous le bas de la scene, vers les pieds : le placage polaire s'y
+        resserrerait sur le joueur (a ses pieds, le motif converge en un
+        point), et son echelle plafonnee (SOUS_SOL_GROSSI_MAX) l'y figerait
+        en bandes verticales. On passe donc en douceur a la perspective du
+        panneau, sur les PASSAGE_SOUS_SOL premiers ecrans de hauteur."""
+        u, v = self.uv_sol(nom, x, yy, k, tile_px, tile_v)
+        if nom not in TEXTURES_POLAIRES:
+            return u, v
+        # A plat, sans point de fuite, et raccorde d'un panneau a l'autre :
+        # u suit la direction. Son pas est arrondi pour que le tour complet
+        # fasse un nombre entier de tuiles (pas de couture au nord-ouest).
+        # Plus bas que la limite de grossissement, k ne change plus : ce
+        # placage y est exact, et c'est la qu'il prend le relais.
+        tour = 4.0 * self.width
+        pas = max(1, int(round(tour * k / tile_px))) / tour
+        pu = (x - self.x + self._direction * self.width) * pas
+        pv = -(yy - self.y) * k / tile_v
+        s = max(0.0, min(1.0, (self.y - yy) / (PASSAGE_SOUS_SOL
+                                               * self.height)))
+        s = s * s * (3.0 - 2.0 * s)
+        return u + (pu - u) * s, v + (pv - v) * s
 
     def angle(self, fx):
         """La direction (radians, tour complet) d'un point de la scene : le
@@ -3884,6 +3941,28 @@ class ZoneScenery(Widget):
                               self._bush_et_baies(bx, by, r,
                                                   (0.06 + g2, 0.16 + g2, 0.09, 1),
                                                   cell)))
+        # LE BOIS A MI-DISTANCE, entre la grille et l'horizon : la grille
+        # entoure maintenant le joueur, ses arbres se partagent les quatre
+        # directions, et chacune paraissait clairsemee. Ceux-ci sont
+        # DECORATIFS (on ne les abat pas) et restent loin des bords du quart
+        # du tour : chaque panneau est decoupe a sa tranche (voir panorama),
+        # un arbre a cheval y serait coupe net.
+        for _ in range(rng.randint(*BOIS_MI_DISTANCE)):
+            fx = rng.uniform(0.14, 0.86)
+            mx = x0 + fx * w
+            mb = floor_curve(fx) - rng.uniform(0.0, 0.025) * h
+            mh = rng.uniform(0.26, 0.46) * h
+            pin = rng.random() < 0.5
+            mw = (0.06 + 0.03 * rng.random()) * w
+            if self._is_blocked(mx, mb, mb + mh):
+                continue
+            if pin:
+                items.append((mb, lambda mx=mx, mb=mb, mw=mw, mh=mh:
+                              self._pine(mx, mb, mw, mh,
+                                         (0.07, 0.16, 0.10, 1))))
+            else:
+                items.append((mb, lambda mx=mx, mb=mb, mh=mh:
+                              self._forest_tree(mx, mb, mh, 0.55)))
         # Ligne d'arbres DENSE a l'horizon (lointains et petits) : HORS grille
         # (au-dela de la zone d'installation), purement decorative.
         m = rng.randint(24, 32)
@@ -4722,9 +4801,6 @@ class ZoneScenery(Widget):
             # bord.
             segs = max(40, int(self.width / self.SEGMENT_FRANGE))
         x0, y0, w = self.x, self.y, self.width
-        # Point de fuite : le milieu. Decale d'un ecran par quart du tour,
-        # pour que la texture se raccorde d'un panneau a l'autre.
-        cx = x0 + w / 2.0 - self._direction * w
         tex = paint(tex_name)
         self._bind_pbr(tex_name)
 
@@ -4775,8 +4851,8 @@ class ZoneScenery(Widget):
                 # (span*(k-1) vaut exactement (y-y0)*k), mais seule celle-ci
                 # garde un sens quand il n'y en a pas.
                 yy = y0 + t * (top - y0)
-                verts += [x, yy, (x - cx) * k / tile_px,
-                          -(yy - y0) * k / tile_v]
+                verts += [x, yy] + list(self.uv_sol(tex_name, x, yy, k,
+                                                    tile_px, tile_v))
                 # LA RAMPE LIT LA DISTANCE, pas la hauteur a l'ecran : c'est
                 # l'epaisseur d'eau traversee qui l'opacifie (voir
                 # _rampe_eau). Sans perspective il n'y a pas de distance a
@@ -4858,8 +4934,7 @@ class ZoneScenery(Widget):
         if ampl <= 0.5 or n <= 0:
             return
         haut = ampl * self.ESTOMPE_HAUTEUR
-        x0, y0, w = self.x, self.y, self.width
-        cx = x0 + w / 2.0 - self._direction * w   # raccord d'un quart a l'autre
+        x0, w = self.x, self.width
         k = max(1.0, float(depth))
         rng = random.Random("%s:%s:estompe" % (self._seed, tex_name))
         bas = list(frange)
@@ -4874,7 +4949,8 @@ class ZoneScenery(Widget):
                 fx = i / segs
                 x = x0 + fx * w
                 for yy in (top_fn(fx) + bas[i], top_fn(fx) + dessus[i]):
-                    verts += [x, yy, (x - cx) * k / tile_px, -(yy - y0) / tile_px]
+                    verts += [x, yy] + list(self.uv_sol(
+                        tex_name, x, yy, k, tile_px, tile_px))
                 if i:
                     p = (i - 1) * 2
                     idx += [p, p + 1, p + 2, p + 1, p + 3, p + 2]

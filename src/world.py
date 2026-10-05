@@ -197,14 +197,14 @@ def plus_proche_praticable(grid, x, y):
 # remplit et il ne reste plus ou s'installer. La foret en porte le double --
 # c'est ce qui fait qu'on y est a l'etroit, et c'est voulu.
 PROXIMITE_MAX = 5
-PROXIMITE_MAX_ZONE = {"Foret": 10}
+PROXIMITE_MAX_ZONE = {"Foret": 18}
 
 # Ce qui pousse dans chaque zone A COTE des pepites, et en quel nombre. Les
 # types sont tires au hasard AVEC REPETITION : "tree" trois fois = 75 %
 # d'arbres en foret. Le lac et sa rive n'ont rien de gros a eux -- ni meme de
 # pepites (voir SANS_PEPITES).
 NATURE_BIG = {
-    "Foret": ((6, 9), ("tree", "tree", "tree", "bush")),
+    "Foret": ((14, 18), ("tree", "tree", "tree", "bush")),
     "Plaine": ((3, 5), ("bush",)),
     "Montagne": ((3, 5), ("rock",)),
 }
