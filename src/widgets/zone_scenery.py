@@ -33,6 +33,7 @@ from src.widgets import textures, pbr, foliage, daylight
 from src.widgets import horizon
 from src.widgets import animated_background
 from src.widgets import rive
+from src.widgets import sol as nappe
 from src.widgets.gl_textures import texture_depuis_octets
 from src.widgets.textures import paint, paint_color, tiled_coords
 from src.widgets.installed_layer import grid_to_screen
@@ -772,6 +773,35 @@ RAYON_LOIN = 2.0 ** 1.5           # le coin : racine de 8
 # deux, au meme endroit de l'ecran.
 MARGE_PANNEAU = 32.0
 
+# LE VERSANT DE MONTAGNE (voir relief_tour). Les huit cases autour du joueur,
+# par leur direction (dx, dy ; le nord vers les y decroissants) : vers une
+# case de montagne le sol MONTE, vers une autre il DESCEND.
+HUIT_VOISINS = ((0, -1), (1, -1), (1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0),
+                (-1, -1))
+# Comme ces directions se melangent : plus c'est grand, plus chaque case
+# voisine ne commande que sa propre direction.
+VERSANT_FOCALE = 1.6
+# La pente sous les pieds, au plus (tangente : 0,36 = 20 degres).
+VERSANT_PENTE = 0.36
+# Le bord du sol (degres au-dessus de l'horizon de l'oeil) : a plat, un
+# epaulement (VERSANT_EPAULE) ; vers la montagne la crete monte de
+# VERSANT_MONTE ; a l'oppose, le rebord descend de VERSANT_DESCEND, et la
+# vallee apparait au-dela.
+VERSANT_EPAULE = 3.0
+VERSANT_MONTE = 21.0
+VERSANT_DESCEND = 15.0
+# Une case de la grille 5x5, en metres sur le versant (une case de distance :
+# le pied du joueur ; le coin : une douzaine de metres).
+METRES_PAR_CASE = 4.5
+# Le decor du versant (voir _montagne) : par quart du tour, et les limites
+# (altitude en metres au-dessus du joueur) des sapins et de l'herbe.
+VERSANT_SAPINS = 24
+VERSANT_BLOCS = 12
+VERSANT_HERBE = 170
+PIERRES_VERSANT = 30
+SAPINS_LIMITE = 8.0
+HERBE_LIMITE = 16.0
+
 
 # LE SOL AUTOUR DU JOUEUR. Les textures sans direction marquee (l'herbe, le
 # sol de foret) sont plaquees en coordonnees POLAIRES : leur motif tourne
@@ -796,6 +826,14 @@ PASSAGE_SOUS_SOL = 0.5
 def ecart(a):
     """Un angle ramene entre -180 et 180 degres."""
     return (a + 180.0) % 360.0 - 180.0
+
+
+def _case_autour(state, dx, dy):
+    """Le type de la case a (dx, dy) du joueur, None hors de la carte."""
+    nx, ny = state.player_x + dx, state.player_y + dy
+    if 0 <= nx < world.GRID_W and 0 <= ny < world.GRID_H:
+        return state.grid[ny][nx]
+    return None
 
 
 def polaire(gx, gy):
@@ -992,6 +1030,7 @@ class ZoneScenery(Widget):
         self._berge = None
         # Baies des buissons, gros elements dessines (mode action).
         self._baies = {}
+        self._versant = None
         self._gros = {}
         self._pos_baies = {}
         self._cellule = None
@@ -1173,7 +1212,8 @@ class ZoneScenery(Widget):
 
     def set_scene(self, zone_type, seed=0, taken=None, blocked_grid=None,
                   installed=None, removed_grid=None, neighbours=None,
-                  berge=None, baies=None, direction=0, sans_sol=False):
+                  berge=None, baies=None, direction=0, sans_sol=False,
+                  relief=None):
         """Vue a l'horizon (sol en bas + ciel).
 
         `taken` = {nom: nombre deja recolte} pour masquer les objets recoltes.
@@ -1203,7 +1243,9 @@ class ZoneScenery(Widget):
         `direction` (0 nord ... 3 ouest) : le quart du tour que la scene
         montre (voir panorama.py). La grille centree sur le joueur s'y
         projette par angle, le relief y est la suite de celui des quarts
-        voisins, et le voisin de cette direction occupe tout l'horizon."""
+        voisins, et le voisin de cette direction occupe tout l'horizon.
+        `relief` : en montagne, le type des huit cases autour (dans l'ordre
+        de HUIT_VOISINS, None hors de la carte) : il dessine le versant."""
         # Un appel direct ne dit pas de quelle case il s'agit : montre_la_case
         # ne peut plus rien supposer de ce qui est dessine.
         self._cle_case = None
@@ -1235,6 +1277,7 @@ class ZoneScenery(Widget):
         self._baies = {(int(c[0]), int(c[1])): int(n) for c, n in (baies or ())}
         self._direction = int(direction) % 4
         self._sans_sol = bool(sans_sol)
+        self._regle_versant(relief)
         self._redraw()
 
     def montre_la_case(self, state, apercu=None, direction=None,
@@ -1300,6 +1343,10 @@ class ZoneScenery(Widget):
             "baies": tuple(sorted(state.baies_par_buisson().items())),
             "direction": direction % 4,
             "sans_sol": bool(sans_sol),
+            # Le versant : les huit cases autour, en montagne seulement.
+            "relief": (tuple(_case_autour(state, dx, dy)
+                             for dx, dy in HUIT_VOISINS)
+                       if zone == "Montagne" else None),
         }
         cle = tuple((k, tuple(sorted(v.items())) if isinstance(v, dict)
                      else v) for k, v in sorted(decor.items())) + (apercu,)
@@ -1486,7 +1533,10 @@ class ZoneScenery(Widget):
     CRETE = {
         "Foret": 0.42 + 0.05,       # voir horizon_curve dans _foret
         "Plaine": 0.55 - 0.06,      # voir edge / horizon_curve dans _plaine
-        "Montagne": 0.60,           # surf(0.0) : le pied de la pente
+        # LA MONTAGNE N'A PLUS UNE CRETE MAIS UN VERSANT (voir relief_tour) :
+        # sa ligne d'horizon est celle de l'oeil, la crete monte et descend
+        # autour.
+        "Montagne": 0.47,
         # LE LAC, C'EST 0,75 ET NON 0,70. On avait pris 0,70, qui est la
         # hauteur ou _lac appelle _horizon -- mais _horizon dessine les
         # silhouettes LOINTAINES, derriere la scene. Le sol, lui, ce sont les
@@ -1680,6 +1730,11 @@ class ZoneScenery(Widget):
         fx0, fy, taille = grid_to_screen(2, prof * 4.0,
                                          self.SOL_DE_GRILLE.get(self._zone))
         fx = 0.5 + ecart(azimut - self._direction * FOV) / FOV
+        if self._zone == "Montagne" and self.width > 0 and self.height > 0:
+            # SUR LE VERSANT : la case est posee sur la nappe, a sa vraie
+            # place -- plus haut vers la montagne, plus bas vers la vallee.
+            _x, y, _ppd = self.au_sol(azimut, distance * METRES_PAR_CASE)
+            fy = (y - self.y) / self.height
         return fx, fy, taille
 
     def uv_sol(self, nom, x, yy, k, tile_px, tile_v):
@@ -1723,11 +1778,79 @@ class ZoneScenery(Widget):
         relief en depend, et se raccorde donc d'un quart du tour a l'autre."""
         return 2.0 * math.pi * (self._direction + fx - 0.5) / 4.0
 
+    def _regle_versant(self, relief):
+        """Les directions des huit cases autour, et leur signe : +1 pour une
+        montagne (le sol y monte), -1 pour le reste (il y descend), 0 hors de
+        la carte."""
+        self._versant = None
+        if self._zone != "Montagne" or not relief:
+            return
+        signes = []
+        for (dx, dy), z in zip(HUIT_VOISINS, relief):
+            az = math.atan2(dx, -dy)
+            signe = 0.0 if z is None else (1.0 if z == "Montagne" else -1.0)
+            signes.append((az, signe))
+        self._versant = signes
+
+    def versant(self, azimut):
+        """De -1 (vers la vallee) a +1 (vers la montagne) : le sens du
+        terrain dans cette direction (radians). Chaque case voisine pese
+        d'autant plus qu'on regarde vers elle."""
+        if not self._versant:
+            # Sans voisins connus : un versant tire de la case, pour qu'une
+            # scene dessinee seule ait quand meme son relief.
+            p = self.phases(3)[2]
+            return 0.6 * math.cos(azimut - p)
+        num = den = 0.0
+        for az, signe in self._versant:
+            k = math.exp(VERSANT_FOCALE * math.cos(azimut - az))
+            num += signe * k
+            den += k
+        return num / den if den else 0.0
+
+    def relief_tour(self, azimut):
+        """(pente, crete en degres) du sol dans cette direction (radians),
+        en montagne (voir sol.altitude) ; None ailleurs. La meme pour les
+        quatre quarts du tour et pour la nappe du sol."""
+        if self._zone != "Montagne":
+            return None
+        f = self.versant(azimut)
+        p1, p2, p3 = self.phases(3)
+        if f >= 0.0:
+            crete = VERSANT_EPAULE + VERSANT_MONTE * f
+        else:
+            crete = VERSANT_EPAULE + (VERSANT_EPAULE + VERSANT_DESCEND) * f
+        # La crete est rocheuse : dentelee, d'autant plus qu'elle est haute
+        # -- vers la montagne, ses grands massifs et ses pics.
+        haut = max(0.0, f)
+        crete += 3.5 * haut * math.sin(3 * azimut + p3) + (0.8 + 3.0 * haut) * (
+            0.6 * abs(math.sin(4.5 * azimut + p1)) - 0.3
+            + 0.35 * math.sin(11 * azimut + p2)
+            + 0.18 * math.sin(23 * azimut + p3))
+        return VERSANT_PENTE * f, crete
+
+    def au_sol(self, azimut, d):
+        """(x, y, pixels par degre) a l'ecran du sol de montagne dans la
+        direction `azimut` (degres) a `d` metres : le meme point que la nappe
+        (voir sol.py)."""
+        w, h = self.width, self.height
+        ppd = w / FOV
+        fx = 0.5 + ecart(azimut - self._direction * FOV) / FOV
+        pente, crete = self.relief_tour(math.radians(azimut))
+        a = nappe.angle_au_sol(pente, crete, d)
+        return (self.x + fx * w, self.y + self.hauteur_horizon() * h
+                + a * ppd, ppd)
+
     def crete_tour(self, azimut):
         """La hauteur de la crete a l'ecran (part de la hauteur, tete
         droite) dans cette DIRECTION (radians) : la meme pour les quatre
         quarts du tour et pour la nappe du sol, qui la rejoint (voir sol.py).
-        Pour la foret et la plaine ; None ailleurs."""
+        Pour la foret, la plaine et la montagne ; None ailleurs."""
+        if self._zone == "Montagne":
+            _pente, crete = self.relief_tour(azimut)
+            ppd = max(1.0, self.width) / FOV
+            return self.hauteur_horizon() + crete * ppd / max(1.0,
+                                                              self.height)
         p1, p2 = self.phases(2)
         if self._zone == "Foret":
             return (0.42 + 0.05 + 0.03 * math.sin(5 * azimut + p1)
@@ -2612,7 +2735,7 @@ class ZoneScenery(Widget):
         w = max(1.0, self.width)
         return (cx - self.x + self._direction * w) % (4.0 * w)
 
-    def semis(self, nb, cle, amas=None):
+    def semis(self, nb, cle, amas=None, marge=MARGE_SEMIS):
         """Un semis tire pour le TOUR COMPLET : `nb` points par quart du
         tour, depuis une graine propre a la case et a `cle`. Rend
         (fx, rng, n) pour ceux qui tombent dans ce quart, marge comprise
@@ -2634,7 +2757,7 @@ class ZoneScenery(Widget):
                 u = rng.uniform(0.0, 4.0)
             graine = rng.getrandbits(32)
             fx = (u - milieu + 2.0) % 4.0 - 2.0 + 0.5
-            if -MARGE_SEMIS <= fx <= 1.0 + MARGE_SEMIS:
+            if -marge <= fx <= 1.0 + marge:
                 yield fx, random.Random(graine), n
 
     def _pick_ecran(self, cx, base):
@@ -5405,85 +5528,138 @@ class ZoneScenery(Widget):
         self._applique_brume()
 
     def _montagne(self, rng):
-        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        """LE VERSANT (voir relief_tour) : le sol monte vers les cases de
+        montagne, descend vers la vallee a l'oppose. La nappe du sol le peint
+        (sol.py) ; on y pose ici le decor, CHAQUE ELEMENT A SA PLACE DANS LE
+        MONDE -- sa direction et sa distance en metres -- et donc a la
+        hauteur du versant a cet endroit (voir au_sol). Sa taille a l'ecran
+        vient de sa taille vraie et de sa distance.
 
-        def surf(fx):                      # hauteur de la pente a la position fx
-            return y0 + (0.60 + 0.36 * fx) * h
+        En haut, la rocaille nue ; en bas, l'herbe et les sapins, qui ne
+        montent pas au-dessus de leur limite."""
+        w, h, y0 = self.width, self.height, self.y
+        ppd = w / FOV
+        a = self.angle
+        y_vallee = y0 + self.hauteur_horizon() * h + nappe.VALLEE_HAUT * ppd
 
-        # Paysages voisins : poses au POINT LE PLUS BAS de la pente, pas sur
-        # la pente elle-meme. Une ligne d'arbres qui grimperait le long du
-        # versant se lirait comme une foret accrochee a la montagne ; posee a
-        # plat, elle reste ce qu'elle est -- le fond de vallee, que la pente
-        # (dessinee juste apres) vient masquer a mesure qu'elle monte.
-        self._horizon(lambda fx: surf(0.0))
+        def crete(fx):
+            return y0 + self.crete_tour(a(fx)) * h
 
-        # Pente principale (remplit le cadre, monte vers la droite). Elle
-        # passe par _fill_curve et non par un quadrilatere : sa crete est le
-        # bord du SOL contre le ciel, et elle etait dessinee ici comme un
-        # trait parfaitement droit -- une regle posee sur le paysage. Elle y
-        # gagne la meme frange que les autres sols.
-        #
-        # depth=1.0 : la pente monte, elle ne s'enfonce pas vers un horizon.
-        # Sa tuile ne doit donc pas se resserrer.
-        self._fill_curve(lambda fx: surf(fx), "rock", depth=1.0)
-        # Bas plus sombre (profondeur).
-        self._tquad("rock_dark",
-                    [x0, y0, x0 + w, y0, x0 + w, y0 + 0.22 * h, x0, y0 + 0.14 * h])
-        # Rochers disperses sur la pente (vers le haut). [recoltable: Pierre]
-        for _ in range(42):
-            fx = rng.uniform(0, 1)
-            sx = x0 + fx * w
-            top = (surf(fx) - y0) / h
-            lo = min(_HARVEST_FLOOR, top - 0.05)   # plancher (jointures)
-            hi = max(lo + 0.02, top - 0.05)
-            sy = y0 + rng.uniform(lo, hi) * h
-            rr = rng.uniform(0.015, 0.05) * h
-            s = rng.uniform(-0.06, 0.06)
-            if not self._take_or_skip("Pierre") and not self._is_blocked(sx, sy):
-                # Une petite pierre comme les autres (voir _caillou) : la
-                # pente monte vers le fond, sa hauteur dit donc sa distance.
-                propre = self._zs("stone")
-                if (not (propre and foliage.variants(propre))
-                        and self._caillou(sx, sy, rr,
-                                          min(1.0, (sy - y0) / h))):
-                    continue
-                if not self._sprite(propre, sx, sy, rr * 1.5):
-                    Color(0.45 + s, 0.44 + s, 0.49 + s, 1)
-                    Ellipse(pos=(sx - rr, sy), size=(rr * 2.2, rr * 1.5))
-        # Plaques de neige en haut de la pente.
-        for _ in range(8):
-            fx = rng.uniform(0.4, 1.0)
-            sx = x0 + fx * w
-            sy = surf(fx) - rng.uniform(0.02, 0.10) * h
-            rr = rng.uniform(0.02, 0.05) * h
-            if self._is_blocked(sx, sy, sy + rr * 1.2):
+        def azimut(fx):
+            return (self._direction + fx - 0.5) * FOV
+
+        def releve(az, d):
+            """L'altitude du sol (metres, 0 sous les pieds)."""
+            pente, bord = self.relief_tour(math.radians(az))
+            return nappe.altitude(pente, bord, d)
+
+        def taille(metres, d, ppd_=ppd):
+            return math.degrees(math.atan2(metres, d)) * ppd_
+
+        # Les paysages voisins, au fond de la vallee qu'ils peuplent. PAS LA
+        # MONTAGNE VOISINE : vers elle, c'est le versant lui-meme qui monte
+        # et fait la montagne, sa crete dentelee contre le ciel. Une
+        # silhouette posee dessus flottait au-dessus de ses creux.
+        voisins = self._neighbours
+        self._neighbours = {c: (None if z == "Montagne" else z)
+                            for c, z in voisins.items()}
+        try:
+            self._horizon(lambda fx: max(crete(fx), y_vallee))
+        finally:
+            self._neighbours = voisins
+
+        items = []
+        # LES SAPINS, sous leur limite : nombreux en bas du versant, rares a
+        # mi-pente, absents des cretes. Decoratifs, semes pour le tour.
+        for fx, r, _n in self.semis(VERSANT_SAPINS, "sapins",
+                                    amas=(3, 0.10, 0.6), marge=0.12):
+            az = azimut(fx)
+            d = r.uniform(20.0, 85.0)
+            z = releve(az, d)
+            haut_m = r.uniform(7.0, 13.0)
+            garde = r.random()
+            if garde > max(0.0, min(1.0, (SAPINS_LIMITE - z) / 14.0)):
                 continue
-            if not self._sprite("snow_patch", sx, sy, rr * 1.2):
-                Color(0.92, 0.95, 1.0, 1)
-                Ellipse(pos=(sx - rr, sy), size=(rr * 2.4, rr * 1.2))
-        # GROS rochers : elements FIXES positionnes sur la GRILLE 5x5 (cases
-        # interdites a l'installation d'un objet). Non recoltables : la Pierre
-        # se recolte sur les petits rochers de la pente. Ils sont tries AVEC
-        # les objets installes : un feu de camp pose derriere un rocher passe
-        # donc derriere lui.
-        items = self._installed_items() + self._edge_items()
-        # Touffes sur la pente basse : x5 (etait 8), pour qu'elles couvrent
-        # bien le sol de montagne au lieu d'y flotter.
-        for _ in range(40):
-            sx = x0 + rng.uniform(0, 1) * w
-            sy = y0 + rng.uniform(0.03, 0.18) * h
-            gh = rng.uniform(0.03, 0.06) * h
-            if self._is_blocked(sx, sy, sy + gh):
+            x, y, _p = self.au_sol(az, d)
+            th = taille(haut_m, d)
+            items.append((y, lambda x=x, y=y, th=th:
+                          self._pine(x, y, th * 0.40, th,
+                                     (0.07, 0.15, 0.10, 1), shadow=False)))
+        # LES BLOCS, eboules sur tout le versant (decoratifs).
+        for fx, r, _n in self.semis(VERSANT_BLOCS, "blocs", marge=0.10):
+            az = azimut(fx)
+            d = 7.0 * (75.0 / 7.0) ** r.random()
+            x, y, _p = self.au_sol(az, d)
+            rr = taille(r.uniform(0.35, 1.1), d)
+            items.append((y - self.DEBORD_CAILLOU * rr,
+                          lambda x=x, y=y, rr=rr, d=d:
+                          self._bloc(x, y, rr, d)))
+        # L'HERBE RASE entre les pierres, surtout pres des pieds.
+        for fx, r, _n in self.semis(VERSANT_HERBE, "herbe",
+                                    amas=(5, 0.07, 0.75)):
+            az = azimut(fx)
+            d = 1.3 * (30.0 / 1.3) ** (r.random() ** 1.3)
+            if releve(az, d) > HERBE_LIMITE:
                 continue
-            items.append((sy, self._touffe(sx, sy, gh, (0.22, 0.34, 0.16, 1))))
+            x, y, _p = self.au_sol(az, d)
+            gh = taille(r.uniform(0.16, 0.30), d)
+            if gh < 2.0 or self._is_blocked(x, y, y + gh):
+                continue
+            items.append((y, self._touffe(x, y, gh, (0.22, 0.34, 0.16, 1),
+                                          max(0.3, min(1.0, 3.0 / d)))))
+        # LES PIERRES A RAMASSER, a portee de main : pres des pieds, mais
+        # jamais sous la hauteur des mains, tete droite. [recoltable: Pierre]
+        plancher = y0 + _HARVEST_FLOOR * h
+        for _ in range(PIERRES_VERSANT):
+            fx = rng.uniform(0.04, 0.96)
+            az = azimut(fx)
+            u = rng.random()
+            r_m = rng.uniform(0.10, 0.22)
+            s_ = rng.uniform(-0.06, 0.06)
+            pose = None
+            for d in (2.0 + 9.0 * u, 6.0 + 9.0 * u, 12.0 + 10.0 * u):
+                x, y, _p = self.au_sol(az, d)
+                if y >= plancher:
+                    pose = (x, y, d)
+                    break
+            if self._take_or_skip("Pierre") or pose is None:
+                continue
+            sx, sy, d = pose
+            rr = taille(r_m, d)
+            if self._is_blocked(sx, sy):
+                continue
+            items.append((sy - self.DEBORD_CAILLOU * rr,
+                          lambda sx=sx, sy=sy, rr=rr, d=d, s_=s_:
+                          self._pierre_versant(sx, sy, rr, d, s_)))
+        # Les GROS rochers de la grille (non recoltables), et les pepites :
+        # poses sur le versant par projette.
         for kind, rang, depth, rx, ry, jit in self._iter_nature_big():
             if kind == "nugget":
                 items.extend(self._pepite_de_grille(rang, depth, rx, ry, jit))
                 continue
-            rr = (0.085 - 0.045 * depth) * jit.uniform(0.85, 1.15) * h
-            items.append((ry, lambda rx=rx, ry=ry, rr=rr:
-                          self._big_rock(rx, ry, rr)))
+            d = (RAYON_PROCHE + depth * (RAYON_LOIN - RAYON_PROCHE)) \
+                * METRES_PAR_CASE
+            rr = taille(0.32, d) * jit.uniform(0.85, 1.15)
+            items.append((ry - self.DEBORD_CAILLOU * rr,
+                          lambda rx=rx, ry=ry, rr=rr, d=d:
+                          self._bloc(rx, ry, rr, d)))
+        items += self._installed_items()
         self._dessine(items)
+
+    def _pierre_versant(self, sx, sy, rr, d, s_):
+        """Une pierre a ramasser sur le versant (voir _montagne)."""
+        propre = self._zs("stone")
+        if (not (propre and foliage.variants(propre))
+                and self._caillou(sx, sy, rr, min(1.0, d / 15.0))):
+            return
+        if not self._sprite(propre, sx, sy, rr * 1.5):
+            Color(0.45 + s_, 0.44 + s_, 0.49 + s_, 1)
+            Ellipse(pos=(sx - rr, sy), size=(rr * 2.2, rr * 1.5))
+
+    def _bloc(self, x, y, rr, d):
+        """Un bloc de roche du versant : la photo des pierres, en grand."""
+        if not self._caillou(x, y, rr, min(1.0, d / 30.0)):
+            self._big_rock(x, y, rr)
 
     def _big_rock(self, rx, ry, rr):
         self._shadow(rx, ry + rr * 0.15, rr * 2.4)

@@ -90,7 +90,11 @@ class Plaque(FloatLayout):
         self.peint_sol()
 
     def peint_sol(self):
-        """Le sol sous la scene, de la matiere de sa zone."""
+        """Le sol sous la scene, de la matiere de sa zone. Aucun quand la
+        nappe du tour le peint (voir sol.py) : il la recouvrirait."""
+        if getattr(self.scene, "_sans_sol", False):
+            self._sol.size = (0, 0)
+            return
         w, h = self.width, self.height
         haut = h * SOL_PROLONGE
         nom = self.scene.texture_du_sol()

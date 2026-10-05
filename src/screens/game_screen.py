@@ -111,15 +111,20 @@ SOUS_SOL_PANORAMA = 2.3
 # pas faire saccader l'arrivee sur une case.
 PAS_PRECHAUFFE = 0.2
 # LE SOL EN NAPPE (voir widgets/sol.py), et sa matiere, pour les zones ou il
-# remplace le sol que chaque panneau peignait. Ailleurs (montagne, lac),
-# chaque panneau peint encore le sien.
-SOL_CONTINU = {"Foret": "forest_floor", "Plaine": "grass"}
+# remplace le sol que chaque panneau peignait. Ailleurs (le lac), chaque
+# panneau peint encore le sien.
+SOL_CONTINU = {"Foret": "forest_floor", "Plaine": "grass",
+               "Montagne": "mountain"}
 # ...et ce qui la remplace AU LOIN, recolore : en foret, la terre brune n'est
 # vraie qu'aux pieds ; plus loin, l'oeil ne voit plus que l'herbe qui la
 # couvre. C'est l'herbe de la plaine, ramenee au vert des touffes de la foret
 # (MESURE : touffe de foret a l'ecran ~ 0,14 0,20 0,056 ; moyenne de la
 # texture d'herbe 0,33 0,42 0,10 -- le rapport donne la teinte).
-SOL_LOIN = {"Foret": ("grass", (0.42, 0.49, 0.54))}
+# En montagne, c'est la meme rocaille, mais en bien plus grand : de loin,
+# le versant y gagne ses grandes taches de pierre et d'herbe.
+# (matiere, teinte, echelle)
+SOL_LOIN = {"Foret": ("grass", (0.42, 0.49, 0.54), 1.0),
+            "Montagne": ("mountain", (1.0, 1.0, 1.0), 0.14)}
 EAU_BAS = 0.14
 EAU_HAUT = 0.60
 ENTAILLE = 0.10
@@ -1313,8 +1318,9 @@ class GameScreen(Screen):
         plaque.scene.montre_la_case(
             state, direction=plaque.direction,
             sans_sol=state.current_zone() in SOL_CONTINU)
-        if getattr(plaque, "_sol_de", None) != plaque.scene.texture_du_sol():
-            plaque._sol_de = plaque.scene.texture_du_sol()
+        sol = (plaque.scene.texture_du_sol(), plaque.scene._sans_sol)
+        if getattr(plaque, "_sol_de", None) != sol:
+            plaque._sol_de = sol
             plaque.peint_sol()
 
     def _panneau_a_l_ecran(self, plaque):
@@ -2296,6 +2302,8 @@ class GameScreen(Screen):
         # ciel, lui, flambait.
         self._night_color.rgb = daylight.veil_color(state.time_seconds)
         self.sol.set_teinte(daylight.light_tint(state.time_seconds))
+        self.sol.set_brume(self.background.couleur_ciel(
+            self.scenery.hauteur_horizon()))
         self._night_color.a = night_darkness(state.time_seconds)
         # Le decor suit le soleil : couleur de la lumiere et ombres portees.
         # Et son lointain se fond dans le ciel TEL QU'IL EST AFFICHE -- meteo
@@ -2355,11 +2363,16 @@ class GameScreen(Screen):
         if matiere is None:
             self.sol.cache()
             return
-        loin, teinte = SOL_LOIN.get(state.current_zone(),
-                                    (None, (1.0, 1.0, 1.0)))
+        loin, teinte, echelle = SOL_LOIN.get(state.current_zone(),
+                                             (None, (1.0, 1.0, 1.0), 1.0))
+        # En montagne, un VERSANT : la pente et la crete de chaque direction,
+        # et la vallee au-dela des rebords (voir ZoneScenery.relief_tour).
+        montagne = state.current_zone() == "Montagne"
         self.sol.regle(matiere, self.scenery.crete_tour,
                        self.scenery.hauteur_horizon(), loin=loin,
-                       teinte_loin=teinte)
+                       teinte_loin=teinte,
+                       relief=self.scenery.relief_tour if montagne else None,
+                       vallee=montagne, echelle_loin=echelle)
 
     def _prechauffe(self, _dt):
         """Dessine un panneau hors de vue (un par image)."""
