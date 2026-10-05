@@ -44,9 +44,24 @@ SPANS = {
     "droite": (0.66, 1.02),
 }
 # EN PANORAMA, chaque panneau couvre un quart du tour (voir panorama.py) : le
-# voisin de sa direction en occupe TOUTE la largeur, un peu au-dela des bords
-# pour rejoindre celui du panneau d'a cote.
-SPAN_PLEIN = (-0.06, 1.06)
+# voisin de sa direction en occupe TOUTE la largeur. Vers un bord ou le
+# panneau d'a cote montre un AUTRE paysage ("voisin_g" / "voisin_d"), sa
+# silhouette S'ABAISSE jusqu'a rien (sur FONDU_BORD de la largeur) : pas de
+# coupure verticale. Entre deux voisins pareils, elle continue d'un bloc.
+SPAN_PLEIN = (0.0, 1.0)
+FONDU_BORD = 0.22
+
+
+def _enveloppe(x0, x1, part, gauche=True, droite=True):
+    """1 au milieu de [x0, x1], descendant doucement a 0 vers les bords
+    demandes."""
+    marge = max(1.0, (x1 - x0) * part)
+
+    def env(x):
+        d = min(x - x0 if gauche else marge, x1 - x if droite else marge)
+        t = max(0.0, min(1.0, d / marge))
+        return t * t * (3.0 - 2.0 * t)
+    return env
 
 # Eloignement de chaque voisin. 1.0 = la case de devant (un kilometre) ; les
 # cotes commencent au bord de la case actuelle, donc bien plus pres.
@@ -80,7 +95,7 @@ def _hazy(color, dist):
 # On ne cherche pas a dessiner la case voisine, seulement ce qui la rend
 # reconnaissable en une fraction de seconde et de tres loin.
 
-def _foret(x0, x1, base, haut, dist, rng):
+def _foret(x0, x1, base, haut, dist, rng, env=None):
     """Une ligne d'arbres : une frange dentelee, jamais des arbres separes.
 
     A un kilometre, on ne distingue plus les troncs : on voit une bande
@@ -96,9 +111,12 @@ def _foret(x0, x1, base, haut, dist, rng):
         n = max(8, int(largeur / (haut * 0.42)))
         for i in range(n + 1):
             fx = x0 + largeur * i / n
-            y = base(fx) + dy * haut
-            th = haut * ech * rng.uniform(0.62, 1.0)
+            k = env(fx) if env is not None else 1.0
+            y = base(fx) + dy * haut * k
+            th = haut * ech * rng.uniform(0.62, 1.0) * k
             tw = th * rng.uniform(0.55, 0.85)
+            if th < 1.0:
+                continue
             if rng.random() < 0.55:            # conifere : cime pointue
                 Triangle(points=[fx - tw, y - haut * 0.5, fx + tw,
                                  y - haut * 0.5, fx, y + th])
@@ -107,7 +125,7 @@ def _foret(x0, x1, base, haut, dist, rng):
                         size=(tw * 2, th + haut * 0.5))
 
 
-def _montagne(x0, x1, base, haut, dist, rng):
+def _montagne(x0, x1, base, haut, dist, rng, env=None):
     """Deux ou trois cretes qui se recouvrent.
 
     Une montagne se reconnait a sa SILHOUETTE, pas a sa matiere : des pentes
@@ -119,8 +137,10 @@ def _montagne(x0, x1, base, haut, dist, rng):
         Color(*col, 1)
         cx = x0 + largeur * (0.30 + 0.42 * ((i * 7 + 3) % 5) / 4.0)
         demi = largeur * part * 0.5
+        k = env(cx) if env is not None else 1.0
         y = base(cx) - haut * 0.10
-        Triangle(points=[cx - demi, y, cx + demi, y, cx, y + haut * ech])
+        Triangle(points=[cx - demi, y, cx + demi, y,
+                         cx, y + haut * (0.10 + (ech - 0.10) * k)])
 
 
 # NI LE LAC NI LA PLAINE N'APPARAISSENT A L'HORIZON, et c'est voulu.
@@ -174,7 +194,11 @@ def draw(neighbours, x0, width, base, height, rng, plein=False):
         def au_sol(x, _a=a, _b=b):
             return base(min(1.0, max(0.0, (x - x0) / max(1.0, width))))
 
-        signature(x0 + a * width, x0 + b * width, au_sol, haut, dist, rng)
+        xa, xb = x0 + a * width, x0 + b * width
+        env = _enveloppe(xa, xb, FONDU_BORD,
+                         neighbours.get("voisin_g") != zone,
+                         neighbours.get("voisin_d") != zone) if plein else None
+        signature(xa, xb, au_sol, haut, dist, rng, env=env)
 
 
 # Jusqu'ou chercher la terre ferme de l'autre cote de l'eau. Au-dela, le

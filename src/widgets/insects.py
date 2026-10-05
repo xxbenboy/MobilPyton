@@ -32,6 +32,33 @@ _COLORS = [(0.85, 0.80, 0.40, 1), (0.70, 0.50, 0.30, 1),
 _MIN_VISIBLE = 0.02
 
 
+# AUTOUR DU JOUEUR (voir panorama.py) : chaque insecte vit dans un quart du
+# tour, a sa direction. Il y en a donc QUATRE FOIS plus, pour garder la meme
+# densite a l'ecran, et ils glissent avec le decor quand on tourne la tete.
+FOV = 90.0
+
+
+def _ecart(a):
+    return (a + 180.0) % 360.0 - 180.0
+
+
+def _place(widget, cam, quart, fx, fy):
+    """(x, y) a l'ecran d'une bestiole posee en (fx, fy) dans son quart du
+    tour, ou None si elle est hors de l'ecran. Sans camera (menus), seul le
+    premier quart est montre, comme avant."""
+    w, h, x0, y0 = widget.width, widget.height, widget.x, widget.y
+    if cam is None:
+        if quart:
+            return None
+        return x0 + fx * w, y0 + fy * h
+    lacet, tangage = cam
+    azimut = quart * FOV + (fx - 0.5) * FOV
+    x = x0 + w / 2.0 + _ecart(azimut - lacet) / FOV * w
+    if not (x0 - 0.2 * w <= x <= x0 + 1.2 * w):
+        return None
+    return x, y0 + fy * h - tangage * w / FOV
+
+
 def _ell(ex, ey, ww, hh):
     """Ellipse CENTREE sur (ex, ey)."""
     Ellipse(pos=(ex - ww / 2, ey - hh / 2), size=(ww, hh))
@@ -48,8 +75,14 @@ class InsectLayer(Widget):
         self._fade = 1.0          # visibilite globale (1 le jour, 0 la nuit)
         self._blank = False       # canvas deja vide : rien a refaire
         self._rng = random.Random()
+        self._cam = None
         self._spawn()
         self._event = Clock.schedule_interval(self._tick, 1 / 60.0)
+
+    def set_camera(self, lacet, tangage):
+        """Ou regarde le joueur (degres) : les insectes restent a leur place
+        dans le monde."""
+        self._cam = (float(lacet), float(tangage))
 
     def set_night(self, night):
         """0 = plein jour (insectes visibles), 1 = pleine nuit (disparus)."""
@@ -58,10 +91,11 @@ class InsectLayer(Widget):
     def _spawn(self):
         rng = self._rng
         self._insects = []
-        for _ in range(self._count):
+        for i in range(self._count * 4):
             ax = rng.uniform(0.06, 0.16)
             ay = rng.uniform(0.04, 0.10)
             self._insects.append({
+                "quart": i % 4,
                 "butterfly": rng.random() < 0.55,
                 "fx": rng.uniform(0.05 + ax, 0.95 - ax),   # position de base
                 "fy": rng.uniform(0.20 + ay, 0.72 - ay),
@@ -79,7 +113,7 @@ class InsectLayer(Widget):
         self._redraw()
 
     def _redraw(self):
-        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        w, h = self.width, self.height
         # Nuit tombee : plus aucun insecte de jour a dessiner.
         if self._fade <= _MIN_VISIBLE or w <= 0 or h <= 0:
             if not self._blank:
@@ -91,10 +125,14 @@ class InsectLayer(Widget):
         t = self._t
         with self.canvas:
             for ins in self._insects:
-                cx = x0 + (ins["fx"] + ins["ax"]
-                           * math.sin(t * ins["sx"] + ins["phase"])) * w
-                cy = y0 + (ins["fy"] + ins["ay"]
-                           * math.sin(t * ins["sy"] + ins["phase"] * 1.7)) * h
+                pos = _place(self, self._cam, ins["quart"],
+                             ins["fx"] + ins["ax"]
+                             * math.sin(t * ins["sx"] + ins["phase"]),
+                             ins["fy"] + ins["ay"]
+                             * math.sin(t * ins["sy"] + ins["phase"] * 1.7))
+                if pos is None:
+                    continue
+                cx, cy = pos
                 size = ins["size"] * h
                 flap = 0.5 + 0.5 * abs(math.sin(t * ins["flap"] + ins["phase"]))
                 if ins["butterfly"]:
@@ -157,8 +195,14 @@ class FireflyLayer(Widget):
         self._alpha = 0.0         # visibilite globale (0 le jour, 1 la nuit)
         self._blank = False
         self._rng = random.Random()
+        self._cam = None
         self._spawn()
         self._event = Clock.schedule_interval(self._tick, 1 / 60.0)
+
+    def set_camera(self, lacet, tangage):
+        """Ou regarde le joueur (degres) : les lucioles restent a leur place
+        dans le monde."""
+        self._cam = (float(lacet), float(tangage))
 
     def set_night(self, night):
         """0 = plein jour (aucune luciole), 1 = pleine nuit (bien visibles)."""
@@ -167,10 +211,11 @@ class FireflyLayer(Widget):
     def _spawn(self):
         rng = self._rng
         self._flies = []
-        for _ in range(self._count):
+        for i in range(self._count * 4):
             ax = rng.uniform(0.05, 0.14)
             ay = rng.uniform(0.04, 0.11)
             self._flies.append({
+                "quart": i % 4,
                 "fx": rng.uniform(0.05 + ax, 0.95 - ax),
                 "fy": rng.uniform(0.16 + ay, 0.62 - ay),
                 "ax": ax, "ay": ay,
@@ -186,7 +231,7 @@ class FireflyLayer(Widget):
         self._redraw()
 
     def _redraw(self):
-        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        w, h = self.width, self.height
         # Plein jour : aucune luciole.
         if self._alpha <= _MIN_VISIBLE or w <= 0 or h <= 0:
             if not self._blank:
@@ -201,14 +246,17 @@ class FireflyLayer(Widget):
                 ph = f["phase"]
                 # Vol errant : deux sinus de periodes differentes -> trajectoire
                 # irreguliere (moins mecanique qu'un simple va-et-vient).
-                cx = x0 + (f["fx"]
-                           + f["ax"] * math.sin(t * f["sx"] + ph)
-                           + f["ax"] * 0.3 * math.sin(t * f["sx"] * 2.7
-                                                      + ph * 1.4)) * w
-                cy = y0 + (f["fy"]
-                           + f["ay"] * math.sin(t * f["sy"] + ph * 1.7)
-                           + f["ay"] * 0.3 * math.sin(t * f["sy"] * 3.1
-                                                      + ph)) * h
+                pos = _place(self, self._cam, f["quart"],
+                             f["fx"] + f["ax"] * math.sin(t * f["sx"] + ph)
+                             + f["ax"] * 0.3 * math.sin(t * f["sx"] * 2.7
+                                                        + ph * 1.4),
+                             f["fy"] + f["ay"] * math.sin(t * f["sy"]
+                                                          + ph * 1.7)
+                             + f["ay"] * 0.3 * math.sin(t * f["sy"] * 3.1
+                                                        + ph))
+                if pos is None:
+                    continue
+                cx, cy = pos
                 # Clignotement : pulsation adoucie puis accentuee (au carre)
                 # -> longs temps faibles, breves montees lumineuses.
                 p = 0.5 + 0.5 * math.sin(t * f["blink"] + ph)

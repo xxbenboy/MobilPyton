@@ -268,10 +268,11 @@ def nature_blocked_cells(zone_type, cell_seed):
     dans ce sens-la que le plafond agit, et non l'inverse -- sinon une case
     "riche" ne se distinguerait plus d'une autre.
 
-    La case du joueur (2, 0) reste toujours libre : c'est la qu'il se tient."""
+    La case du joueur (2, 2), au CENTRE, reste toujours libre : c'est la qu'il
+    se tient (voir zone_scenery.polaire)."""
     plafond = proximite_max(zone_type)
     cells = [(gx, gy) for gy in range(5) for gx in range(5)
-             if (gx, gy) != (2, 0)]
+             if (gx, gy) != (2, 2)]
     plafond = min(plafond, len(cells))
 
     pepites = min(nugget_count(cell_seed, zone_type), plafond)

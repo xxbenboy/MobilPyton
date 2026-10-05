@@ -758,6 +758,34 @@ TEINTE_BERGE = 0.72
 _RAMPE_EAU = []
 
 
+# LA SCENE EST UN QUART DU TOUR (voir panorama.py) : FOV degres sur sa
+# largeur, centres sur la direction qu'elle regarde (0 nord ... 3 ouest).
+FOV = 90.0
+# LA GRILLE 5x5 EST CENTREE SUR LE JOUEUR (case (2, 2)). Un gros element est
+# place par sa DIRECTION et sa DISTANCE (en cases) ; sa profondeur va de 0 a
+# une case de distance a 1 au coin de la grille.
+CASE_JOUEUR = (2, 2)
+RAYON_PROCHE = 1.0
+RAYON_LOIN = 2.0 ** 1.5           # le coin : racine de 8
+# Un element est encore dessine s'il deborde d'un panneau voisin de cette
+# part de quart de tour : vu a cheval sur deux panneaux, il l'est dans les
+# deux, au meme endroit de l'ecran.
+MARGE_PANNEAU = 32.0
+
+
+def ecart(a):
+    """Un angle ramene entre -180 et 180 degres."""
+    return (a + 180.0) % 360.0 - 180.0
+
+
+def polaire(gx, gy):
+    """(azimut en degres, distance en cases) d'une case de la grille, vue du
+    joueur au centre. Le nord est vers les gy croissants."""
+    e = gx - CASE_JOUEUR[0]
+    n = gy - CASE_JOUEUR[1]
+    return math.degrees(math.atan2(e, n)) % 360.0, math.hypot(e, n)
+
+
 def dessine_grappe(x, y, d, alpha=1.0):
     """Une grappe de trois baies rouges, centree en (x, y) ; `d` = diametre
     d'une baie. Dessine dans le canvas ouvert."""
@@ -869,6 +897,10 @@ SOUS_SOL_RANGEES = 16
 # lirait comme un trait tire en travers. Elles sont DECORATIVES (rien de plus
 # a ramasser) et grandissent a mesure qu'on s'approche.
 TOUFFES_SOUS_SOL = {"Foret": 700, "Plaine": 620}
+# Au plus ce multiple de touffes, quelle que soit la profondeur ; et leur
+# repartition se resserre vers le bord de l'ecran (exposant > 1).
+SOUS_SOL_TOUFFES_MAX = 1.4
+SOUS_SOL_RESSERRE = 1.6
 # Dans l'image de rive (rive_B), la ligne ou commence le sable SEC, en v
 # compte depuis le haut. Au-dessus, c'est deja l'eau qui lape : sous l'ecran,
 # on ne montre que le sable, en miroir aller-retour (voir _sous_sol_rive).
@@ -938,8 +970,7 @@ class ZoneScenery(Widget):
         self._pos_baies = {}
         self._cellule = None
         self._dessin_de = None
-        self._decor_seul = False
-        self._panorama = False
+        self._direction = 0
         self._ord = {}
         self._harvest_total = {}
         self._avail = {}            # {nom: nb recoltable} (aleatoire, par case)
@@ -1115,7 +1146,7 @@ class ZoneScenery(Widget):
 
     def set_scene(self, zone_type, seed=0, taken=None, blocked_grid=None,
                   installed=None, removed_grid=None, neighbours=None,
-                  berge=None, baies=None, decor_seul=False, panorama=False):
+                  berge=None, baies=None, direction=0):
         """Vue a l'horizon (sol en bas + ciel).
 
         `taken` = {nom: nombre deja recolte} pour masquer les objets recoltes.
@@ -1139,11 +1170,10 @@ class ZoneScenery(Widget):
         ses vrais arbres et de ses vraies plantes.
         `baies` = [((gx, gy), n), ...] : les buissons qui portent encore des
         baies, et combien (voir GameState.baies_par_buisson).
-        `decor_seul` : un panneau du panorama qui n'est pas celui de la
-        proximite -- le paysage de la zone, sans gros elements ni objets a
-        recolter (voir montre_direction).
-        `panorama` : la scene est un quart du tour (voir panorama.py) ; le
-        voisin de sa direction occupe toute la largeur de l'horizon."""
+        `direction` (0 nord ... 3 ouest) : le quart du tour que la scene
+        montre (voir panorama.py). La grille centree sur le joueur s'y
+        projette par angle, le relief y est la suite de celui des quarts
+        voisins, et le voisin de cette direction occupe tout l'horizon."""
         # Un appel direct ne dit pas de quelle case il s'agit : montre_la_case
         # ne peut plus rien supposer de ce qui est dessine.
         self._cle_case = None
@@ -1173,8 +1203,7 @@ class ZoneScenery(Widget):
         # roseaux, pas une seconde etendue d'eau.
         self._berge = berge
         self._baies = {(int(c[0]), int(c[1])): int(n) for c, n in (baies or ())}
-        self._decor_seul = bool(decor_seul)
-        self._panorama = bool(panorama)
+        self._direction = int(direction) % 4
         self._redraw()
 
     def montre_la_case(self, state, apercu=None, direction=None):
@@ -1204,13 +1233,22 @@ class ZoneScenery(Widget):
         cette direction, et lui seul (voir panorama.py)."""
         taken = state.harvested_here()
         if direction is None:
-            voisins = horizon.neighbours_of(state)
-            berge = horizon.zone_den_face(state)
-        else:
-            voisins = {"face": horizon.voisin_dans(state, direction)}
-            berge = horizon.zone_den_face(state, direction=direction)
+            direction = state.facing
+        # Le voisin de cette direction, et ceux des quarts d'a cote (a
+        # gauche, a droite) : sa silhouette ne s'efface qu'au bord ou le
+        # paysage change (voir horizon.draw).
+        voisins = {"face": horizon.voisin_dans(state, direction),
+                   "voisin_g": horizon.voisin_dans(state, direction - 1),
+                   "voisin_d": horizon.voisin_dans(state, direction + 1)}
+        berge = horizon.zone_den_face(state, direction=direction)
+        zone = state.current_zone()
+        # Sur une RIVE, on ne voit le lac que du cote de l'eau : vers la
+        # terre, c'est le paysage du voisin.
+        if zone == "Rive" and voisins["face"] and \
+                voisins["face"] not in ("Lac", "Rive"):
+            zone = voisins["face"]
         decor = {
-            "zone_type": state.current_zone(),
+            "zone_type": zone,
             "seed": world.scene_seed(state.player_x, state.player_y),
             # L'EMPRISE de chaque objet, pas seulement son ancrage : un plan
             # de construction couvre quatre cases, et le decor doit s'ecarter
@@ -1228,7 +1266,7 @@ class ZoneScenery(Widget):
             # a une foret pour faire face a une montagne redessine la berge.
             "berge": berge,
             "baies": tuple(sorted(state.baies_par_buisson().items())),
-            "panorama": direction is not None,
+            "direction": direction % 4,
         }
         cle = tuple((k, tuple(sorted(v.items())) if isinstance(v, dict)
                      else v) for k, v in sorted(decor.items())) + (apercu,)
@@ -1237,35 +1275,6 @@ class ZoneScenery(Widget):
             return
         self._apercu_nom = apercu
         self.set_scene(taken=taken, **decor)
-        self._cle_case = cle
-
-    def montre_direction(self, state, direction):
-        """Un panneau du PANORAMA qui n'est pas celui de la proximite : le
-        paysage de la case vu dans la direction ABSOLUE `direction`, son
-        voisin a l'horizon, sans gros elements ni objets a recolter.
-
-        Sur une RIVE, on ne voit le lac que du cote de l'eau : vers la terre,
-        le panneau montre le paysage du voisin. Le decor de remplissage est
-        tire d'une graine propre a la direction : les quatre cotes ne se
-        repetent pas."""
-        zone = state.current_zone()
-        voisin = horizon.voisin_dans(state, direction)
-        if zone == "Rive" and voisin and voisin not in ("Lac", "Rive"):
-            zone = voisin
-        graine = world.scene_seed(state.player_x, state.player_y) \
-            ^ ((direction + 1) * 7919)
-        decor = {
-            "zone_type": zone, "seed": graine,
-            "neighbours": {"face": voisin},
-            "berge": horizon.zone_den_face(state, direction=direction),
-            "decor_seul": True, "panorama": True,
-        }
-        cle = tuple(sorted(
-            (k, tuple(sorted(v.items())) if isinstance(v, dict) else v)
-            for k, v in decor.items()))
-        if self._mode == "scene" and cle == self._cle_case:
-            return
-        self.set_scene(**decor)
         self._cle_case = cle
 
     # Le sol qu'on voit a ses pieds, en baissant la tete (voir panorama.py).
@@ -1397,8 +1406,6 @@ class ZoneScenery(Widget):
 
         Chaque recolte retire une PART EGALE des objets visibles : avec `avail`
         recoltes possibles, la k-ieme recolte a masque ~k/avail des objets."""
-        if self._decor_seul:
-            return True                 # un panneau de paysage : rien a prendre
         i = self._ord.get(name, 0)
         self._ord[name] = i + 1
         self._harvest_total[name] = self._ord[name]
@@ -1482,7 +1489,7 @@ class ZoneScenery(Widget):
         # Le haut du sol proche, dont la perspective se prolonge ici. La crete
         # de la zone en est la mesure moyenne.
         haut = max(1.0, self.hauteur_horizon() * h)
-        cx = x0 + w / 2.0
+        cx = x0 + w / 2.0 - self._direction * w   # raccord d'un quart a l'autre
         colonnes = 6
         verts, ks = [], []
         for j in range(SOUS_SOL_RANGEES + 1):
@@ -1510,7 +1517,10 @@ class ZoneScenery(Widget):
             return
         # Le nombre suit la profondeur demandee : la densite reste celle du
         # bas de la scene.
-        nb = int(nb * self.sous_sol)
+        # PLAFONNE, et resserre pres du bord : sous les pieds (panorama, tete
+        # baissee), les touffes sont si grandes que quelques-unes couvrent le
+        # sol, et des milliers couteraient cher a chaque image.
+        nb = int(nb * min(self.sous_sol, SOUS_SOL_TOUFFES_MAX))
         rng = random.Random("%s:%s:sous-sol" % (self._seed, self._zone))
         if self._zone == "Foret":
             teintes = [(0.10, 0.20, 0.12, 1), (0.08, 0.17, 0.10, 1),
@@ -1520,8 +1530,11 @@ class ZoneScenery(Widget):
             teintes = [HERBE_PLAINE + (1,)]
             hauteurs = (0.03, 0.08)
         items = []
+        # Un sol peu profond (l'ecran penche du craft) garde sa repartition
+        # egale ; seul le sol des pieds se resserre.
+        expo = SOUS_SOL_RESSERRE if self.sous_sol > 1.0 else 1.0
         for _ in range(nb):
-            gb = y0 - prof + rng.random() * prof
+            gb = y0 - prof * rng.random() ** expo
             # Plus pres, plus grand : 1/k, comme la tuile du sol.
             proche = 1.0 / self._k_sous_sol(gb, a, haut)
             gx = x0 + rng.uniform(-0.02, 1.02) * w
@@ -1605,7 +1618,35 @@ class ZoneScenery(Widget):
         les objets installes, leur emprise, les cases bloquees et le toucher
         dans game_screen. Si deux d'entre eux projetaient differemment, un feu
         de camp ne serait plus la ou le doigt le cherche."""
-        return grid_to_screen(gx, gy, self.SOL_DE_GRILLE.get(self._zone))
+        return self.projette(*polaire(gx, gy))
+
+    def projette(self, azimut, distance):
+        """(fx, fy, taille) a l'ecran d'un point vu du joueur par sa
+        direction (degres) et sa distance (cases). fx sort de [0, 1] pour un
+        point hors de ce quart du tour. Meme rangees que l'ancienne grille :
+        a une case, le pied du joueur ; au coin, le fond du sol."""
+        prof = max(0.0, min(1.0, (distance - RAYON_PROCHE)
+                            / (RAYON_LOIN - RAYON_PROCHE)))
+        fx0, fy, taille = grid_to_screen(2, prof * 4.0,
+                                         self.SOL_DE_GRILLE.get(self._zone))
+        fx = 0.5 + ecart(azimut - self._direction * FOV) / FOV
+        return fx, fy, taille
+
+    def angle(self, fx):
+        """La direction (radians, tour complet) d'un point de la scene : le
+        relief en depend, et se raccorde donc d'un quart du tour a l'autre."""
+        return 2.0 * math.pi * (self._direction + fx - 0.5) / 4.0
+
+    def phases(self, n):
+        """n phases de relief, les memes pour les quatre quarts de la case."""
+        rng = random.Random("%s:%s:relief" % (self._seed, self._zone))
+        return [rng.uniform(0.0, 6.283) for _ in range(n)]
+
+    def vu(self, azimut):
+        """Un element dans cette direction est-il (meme en partie) dans ce
+        quart du tour ?"""
+        return abs(ecart(azimut - self._direction * FOV)) \
+            <= FOV / 2.0 + MARGE_PANNEAU
 
     def _compute_blocked_bboxes(self):
         """Reconstruit les rectangles d'ecran couverts par les objets installes
@@ -1656,24 +1697,28 @@ class ZoneScenery(Widget):
         d'ordinaire son image d'apres la position, ce qui peut donner cinq
         fois la meme pierre sur une case qui n'en porte que cinq ; avec le
         rang, on distribue les modeles en rond."""
-        if self._decor_seul:
-            return
         rangs = {}
         w, h, x0, y0 = self.width, self.height, self.x, self.y
-        # Trie du plus LOINTAIN au plus proche (gy decroissant) : les zones qui
-        # dessinent directement (sans liste triee) obtiennent ainsi le bon
-        # ordre de recouvrement.
+        # Trie du plus LOINTAIN au plus proche (distance decroissante) : les
+        # zones qui dessinent directement (sans liste triee) obtiennent ainsi
+        # le bon ordre de recouvrement. Le RANG se compte sur TOUTE la grille,
+        # avant de garder ce que ce quart du tour voit : un element garde
+        # ainsi sa variante d'un panneau a l'autre.
         for (ggx, ggy), kind in sorted(
                 world.nature_blocked_cells(self._zone, self._seed).items(),
-                key=lambda kv: (-kv[0][1], kv[0][0])):
+                key=lambda kv: (-polaire(*kv[0])[1], kv[0])):
+            rang = rangs.get(kind, 0)
+            rangs[kind] = rang + 1
             if ((ggx, ggy) in self._blocked_grid
                     or (ggx, ggy) in self._removed_grid):
                 continue
+            azimut, distance = polaire(ggx, ggy)
+            if not self.vu(azimut):
+                continue
             gfx, gfy, _gs = self.grille(ggx, ggy)
             jit = random.Random(f"{self._seed}:{ggx}:{ggy}:big")
-            rang = rangs.get(kind, 0)
-            rangs[kind] = rang + 1
-            depth = ggy / 4.0
+            depth = max(0.0, min(1.0, (distance - RAYON_PROCHE)
+                                 / (RAYON_LOIN - RAYON_PROCHE)))
             # La case de l'element en cours, pour qui le dessine (_note_gros).
             self._cellule = (ggx, ggy)
             # AUCUN decalage : l'element est pose EXACTEMENT au centre de sa
@@ -1691,6 +1736,8 @@ class ZoneScenery(Widget):
         (ce qui est plus PROCHE est dessine par-dessus)."""
         out = []
         for name, gx, gy, lit, level in self._installed:
+            if not self.vu(polaire(gx, gy)[0]):
+                continue
             objet = self._objet_pose(name, gx, gy, lit, level)
             if objet is not None:
                 out.append(objet)
@@ -2450,7 +2497,7 @@ class ZoneScenery(Widget):
 
     # -- image du decor (si elle a ete fournie) -------------------------- #
     @staticmethod
-    def _pick(cx, base):
+    def _pick_ecran(cx, base):
         """Le tirage de variante d'un element, deduit de sa POSITION.
 
         Deux voisins ne prennent donc pas la meme image, et un element garde
@@ -2458,6 +2505,17 @@ class ZoneScenery(Widget):
         _pine a besoin de la MEME valeur avant de dessiner, pour connaitre la
         largeur de l'image et y poser son ombre."""
         return int(abs(cx) * 7.13 + abs(base) * 3.71)
+
+    def _pick(self, cx, base):
+        """Le tirage de variante. Un GROS element (voir _dessine_gros) le tire
+        de sa CASE : vu depuis deux quarts du tour, il est a deux endroits de
+        l'ecran mais reste le meme arbre."""
+        cell = self._dessin_de
+        if cell is not None:
+            return int(random.Random("%s:%d:%d:image" % (self._seed, cell[0],
+                                                        cell[1]))
+                       .randrange(1 << 20))
+        return self._pick_ecran(cx, base)
 
     def _zs(self, key):
         """Nom de l'image de cet element pour la ZONE en cours.
@@ -2901,7 +2959,8 @@ class ZoneScenery(Widget):
         # Recalcule les bboxes des cases bloquees (objets installes) au cas ou
         # la taille du widget a change depuis le dernier set_scene.
         self._compute_blocked_bboxes()
-        rng = random.Random(_ZONE_SEED.get(self._zone, 0) * 100000 + self._seed)
+        rng = random.Random(_ZONE_SEED.get(self._zone, 0) * 100000 + self._seed
+                            + self._direction * 7919)
         with self.canvas:
             self._reset_pbr()        # cartes neutres par defaut (unites 1 et 2)
             if self._mode == "ground":
@@ -3109,7 +3168,7 @@ class ZoneScenery(Widget):
         et rien d'autre n'en depend."""
         horizon.draw(self._neighbours, self.x, self.width, crest,
                      self.height, random.Random(self._graine_voisins()),
-                     plein=self._panorama)
+                     plein=True)
 
     # -- helpers textures (surface plane texturee, sinon couleur de repli) - #
     def _trect(self, name, x, y, w, h, tile_px=None):
@@ -3653,16 +3712,18 @@ class ZoneScenery(Widget):
         w, h, x0, y0 = self.width, self.height, self.x, self.y
         floor = 0.42                      # hauteur moyenne du sol forestier
 
-        p1 = rng.uniform(0, 6.28)
-        p2 = rng.uniform(0, 6.28)
+        # Le relief suit la DIRECTION (voir angle) : il boucle sur le tour
+        # et se raccorde d'un panneau a l'autre.
+        p1, p2 = self.phases(2)
+        a = self.angle
 
         def far_curve(fx):
-            return y0 + (floor + 0.05 + 0.03 * math.sin(fx * 6.28 * 1.3 + p1)
-                         + 0.015 * math.sin(fx * 6.28 * 2.7 + p2)) * h
+            return y0 + (floor + 0.05 + 0.03 * math.sin(5 * a(fx) + p1)
+                         + 0.015 * math.sin(11 * a(fx) + p2)) * h
 
         def floor_curve(fx):
-            return y0 + (floor + 0.025 * math.sin(fx * 6.28 * 1.1 + p1 + 1.0)
-                         + 0.012 * math.sin(fx * 6.28 * 2.4 + p2)) * h
+            return y0 + (floor + 0.025 * math.sin(4 * a(fx) + p1 + 1.0)
+                         + 0.012 * math.sin(10 * a(fx) + p2)) * h
 
         def place(maxt=1.0, fx=None, floor=0.0):
             if fx is None:
@@ -4661,7 +4722,9 @@ class ZoneScenery(Widget):
             # bord.
             segs = max(40, int(self.width / self.SEGMENT_FRANGE))
         x0, y0, w = self.x, self.y, self.width
-        cx = x0 + w / 2.0                      # point de fuite : le milieu
+        # Point de fuite : le milieu. Decale d'un ecran par quart du tour,
+        # pour que la texture se raccorde d'un panneau a l'autre.
+        cx = x0 + w / 2.0 - self._direction * w
         tex = paint(tex_name)
         self._bind_pbr(tex_name)
 
@@ -4796,7 +4859,7 @@ class ZoneScenery(Widget):
             return
         haut = ampl * self.ESTOMPE_HAUTEUR
         x0, y0, w = self.x, self.y, self.width
-        cx = x0 + w / 2.0
+        cx = x0 + w / 2.0 - self._direction * w   # raccord d'un quart a l'autre
         k = max(1.0, float(depth))
         rng = random.Random("%s:%s:estompe" % (self._seed, tex_name))
         bas = list(frange)
@@ -4837,17 +4900,18 @@ class ZoneScenery(Widget):
         # Terrain ONDULE : deux courbes (sommes de sinus) pour un relief
         # naturel. horizon_curve = crete lointaine (l'horizon) ; field_curve =
         # surface du champ proche, ou reposent tous les elements.
-        p1 = rng.uniform(0, 6.28)
-        p2 = rng.uniform(0, 6.28)
+        # Le relief suit la DIRECTION (voir angle) : il boucle sur le tour.
+        p1, p2 = self.phases(2)
+        a = self.angle
 
         def horizon_curve(fx):
-            return y0 + (edge + 0.035 * math.sin(fx * 6.28 * 1.4 + p1)
-                         + 0.018 * math.sin(fx * 6.28 * 3.1 + p2)) * h
+            return y0 + (edge + 0.035 * math.sin(6 * a(fx) + p1)
+                         + 0.018 * math.sin(12 * a(fx) + p2)) * h
 
         def field_curve(fx):
             return y0 + ((edge - 0.13)
-                         + 0.030 * math.sin(fx * 6.28 * 1.1 + p1 + 1.0)
-                         + 0.014 * math.sin(fx * 6.28 * 2.5 + p2)) * h
+                         + 0.030 * math.sin(4 * a(fx) + p1 + 1.0)
+                         + 0.014 * math.sin(10 * a(fx) + p2)) * h
 
         def place(maxt=1.0, fx=None, floor=0.0):
             if fx is None:

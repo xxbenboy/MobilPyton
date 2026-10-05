@@ -20,7 +20,6 @@ deplaces par une TRANSFORMATION d'affichage, gratuite.
 """
 from kivy.graphics import (Color, PushMatrix, PopMatrix, Rectangle,
                            Translate)
-from kivy.graphics.texture import Texture
 from kivy.uix.floatlayout import FloatLayout
 
 from src.widgets import textures
@@ -30,31 +29,6 @@ TANGAGE_MAX = 90.0
 # Hauteur du sol prolonge sous un panneau, en hauteurs d'ecran : de quoi
 # baisser la tete jusqu'a regarder ses pieds.
 SOL_PROLONGE = 3.0
-
-
-# Le raccord scene / sol prolonge, en hauteurs d'ecran, au-dessus et
-# au-dessous de la ligne, et son opacite sur la ligne.
-RACCORD_DESSUS = 0.07
-RACCORD_DESSOUS = 0.10
-RACCORD_ALPHA = 0.85
-
-_RAMPE = []
-
-
-def _rampe():
-    """Une colonne blanche, opaque en bas (RACCORD_ALPHA) et transparente
-    en haut."""
-    if not _RAMPE:
-        n = 64
-        buf = bytearray()
-        for i in range(n):
-            a = RACCORD_ALPHA * (1.0 - i / float(n - 1)) ** 1.6
-            buf += bytes((255, 255, 255, int(a * 255)))
-        tex = Texture.create(size=(1, n), colorfmt="rgba")
-        tex.blit_buffer(bytes(buf), colorfmt="rgba", bufferfmt="ubyte")
-        tex.wrap = "clamp_to_edge"
-        _RAMPE.append(tex)
-    return _RAMPE[0]
 
 
 def ecart(a):
@@ -76,12 +50,6 @@ class Plaque(FloatLayout):
             self._sol_c = Color(1, 1, 1, 1)
             self._sol = Rectangle()
         with self.canvas.after:
-            # LE RACCORD entre le bas de la scene et le sol prolonge : une
-            # ombre douce, plus forte sur la ligne, qui s'efface des deux
-            # cotes. Sans elle, une coupure droite traversait l'ecran.
-            self._raccord_c = Color(1, 1, 1, 1)
-            self._raccord_haut = Rectangle(texture=_rampe())
-            self._raccord_bas = Rectangle(texture=_rampe())
             PopMatrix()
         self.add_widget(scene)
         self.bind(pos=self._sol_en_place, size=self._sol_en_place)
@@ -112,15 +80,6 @@ class Plaque(FloatLayout):
                 w, haut, textures.tile_for(nom))
         self._sol.pos = (self.x, self.y - haut)
         self._sol.size = (w, haut)
-        r, g, b, _a = textures.fallback(nom)
-        self._raccord_c.rgba = (r * 0.8, g * 0.8, b * 0.8, 1.0)
-        dessus, dessous = h * RACCORD_DESSUS, h * RACCORD_DESSOUS
-        # La rampe est opaque en BAS de sa texture : le haut monte du sol
-        # vers la scene en s'effacant, le bas descend en s'effacant aussi.
-        self._raccord_haut.pos = (self.x, self.y)
-        self._raccord_haut.size = (w, dessus)
-        self._raccord_bas.pos = (self.x, self.y)
-        self._raccord_bas.size = (w, -dessous)
 
 
 class Panorama(FloatLayout):

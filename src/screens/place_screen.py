@@ -1,8 +1,8 @@
 """Ecran PLACEMENT : grille 5x5, vue de dessus, posee sur la SCENE de la case
 courante, pour choisir ou installer un objet (feu de camp, ...).
 
-Le joueur est fixe au centre-bas de la grille (gx=2, gy=0), regardant vers le
-haut (gy croissant).
+Le joueur est fixe au CENTRE de la grille (gx=2, gy=2) ; le haut de la grille
+est le NORD (gy croissant), et une fleche dit ou il regarde.
 
 ON POSE EN GLISSANT. L'objet a poser s'affiche sur une carte a DROITE de la
 grille ; on le prend du doigt et on le lache sur la grille. Tant qu'il est
@@ -38,6 +38,7 @@ from kivy.metrics import dp
 import math
 
 from src import items
+from src.game_state import GameState, CARDINALS
 from src.widgets.animated_background import AnimatedBackground, night_darkness
 from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
@@ -474,7 +475,7 @@ class _ActionPanel(BoxLayout):
 
 
 class _GridOverlay(Widget):
-    """Grille 5x5 avec joueur en (gx=2, gy=0). Cellules cliquables (sauf
+    """Grille 5x5 avec joueur au centre (gx=2, gy=2). Cellules cliquables (sauf
     la case joueur et les cases deja prises)."""
 
     def __init__(self, on_cell_pick, **kwargs):
@@ -525,9 +526,11 @@ class _GridOverlay(Widget):
                              ox + i * cs, oy + 5 * cs], width=1.2)
                 Line(points=[ox, oy + i * cs,
                              ox + 5 * cs, oy + i * cs], width=1.2)
-            # Case joueur (gx=2, gy=0) : surlignee bleu, non cliquable.
-            px = ox + 2 * cs
-            py = oy + 0 * cs
+            # Case joueur, AU CENTRE de la grille : surlignee bleu, non
+            # cliquable. Le haut de la grille est le NORD.
+            pgx, pgy = GameState.PLAYER_CELL
+            px = ox + pgx * cs
+            py = oy + pgy * cs
             Color(*CELL_PLAYER)
             Rectangle(pos=(px, py), size=(cs, cs))
             # Point du joueur (petit disque bleu au centre de sa case).
@@ -535,15 +538,22 @@ class _GridOverlay(Widget):
             Color(0.30, 0.70, 1.00, 1.0)
             Ellipse(pos=(px + cs / 2 - r, py + cs / 2 - r),
                     size=(r * 2, r * 2))
-            # Fleche de direction (le joueur regarde vers le haut de la grille).
+            # Fleche : la direction que le joueur REGARDE.
+            state = App.get_running_app().game_state
+            facing = state.facing if state is not None else 0
+            dx, dy = CARDINALS[facing]
+            dy = -dy                     # nord = vers le haut de l'ecran
             Color(1, 1, 1, 0.95)
-            aw, ah = cs * 0.28, cs * 0.28
-            acx = px + cs / 2
-            ay0 = py + cs * 0.55
-            ay1 = py + cs * 0.90
-            Line(points=[acx, ay0, acx, ay1], width=2.2)
-            Line(points=[acx - aw / 2, ay1 - aw * 0.55, acx, ay1,
-                         acx + aw / 2, ay1 - aw * 0.55], width=2.2)
+            aw = cs * 0.28
+            cx0, cy0 = px + cs / 2, py + cs / 2
+            x1, y1 = cx0 + dx * cs * 0.40, cy0 + dy * cs * 0.40
+            Line(points=[cx0 + dx * cs * 0.05, cy0 + dy * cs * 0.05, x1, y1],
+                 width=2.2)
+            # Les deux branches de la pointe, a 135 degres de part et d'autre.
+            Line(points=[x1 - dx * aw * 0.55 + dy * aw * 0.5,
+                         y1 - dy * aw * 0.55 - dx * aw * 0.5, x1, y1,
+                         x1 - dx * aw * 0.55 - dy * aw * 0.5,
+                         y1 - dy * aw * 0.55 + dx * aw * 0.5], width=2.2)
             # Cases occupees par la NATURE (arbre, buisson, gros rocher) :
             # surlignees vertes et marquees du pictogramme de l'obstacle,
             # non cliquables.

@@ -11,6 +11,7 @@ L'heure n'est pas affichee. Une action lance une AVANCE RAPIDE pendant sa
 duree (boutons verrouilles). "Se reposer" est interdit si l'energie est trop
 haute (pas assez fatigue pour dormir).
 """
+import math
 import random
 
 from kivy.app import App
@@ -31,7 +32,6 @@ from src.widgets.animated_background import (AnimatedBackground,
 from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.panorama import Panorama
-from src.widgets import horizon
 
 from src import items
 from src.widgets.player_hands import PlayerHands
@@ -101,6 +101,10 @@ TROUVAILLES_PAR_POIGNEE = {"Feuille": (3, 5), "Small_Stick": (1, 3),
 # LE REGARD (voir widgets/panorama.py). En deca de ce deplacement du doigt
 # (pixels), un appui est un toucher et non un regard qui tourne.
 SEUIL_REGARD = 14.0
+# Le sol prolonge sous le bas de chaque panneau, en hauteurs d'ecran (voir
+# ZoneScenery.sous_sol) : de quoi baisser la tete jusqu'a ses pieds, avec son
+# herbe.
+SOUS_SOL_PANORAMA = 2.3
 # Un panneau hors de vue se dessine toutes les PAS_PRECHAUFFE secondes :
 # assez vite pour etre pret avant qu'on tourne la tete, assez espace pour ne
 # pas faire saccader l'arrivee sur une case.
@@ -362,16 +366,18 @@ class GameScreen(Screen):
                                              pos_hint={"x": 0, "y": 0})
         self.monde.add_widget(self.background)
         # LE DECOR EST UN TOUR COMPLET de quatre panneaux, un par direction
-        # (voir widgets/panorama.py). `self.scenery` est celui de la
-        # PROXIMITE (les gros elements, les objets a recolter, ce qu'on a
-        # pose) ; les trois autres montrent le paysage.
+        # (voir widgets/panorama.py), chacun une scene complete de la case :
+        # la grille, centree sur le joueur, s'y repartit par angle.
+        # `self.scenery` est le panneau nord, toujours dessine : c'est lui
+        # qui sait ce qu'il reste a trouver (voir _remaining_harvest).
         scenes = [ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
                   for _ in range(4)]
+        for sc in scenes:
+            sc.sous_sol = SOUS_SOL_PANORAMA
         self.panorama = Panorama(scenes, size_hint=(1, 1),
                                  pos_hint={"x": 0, "y": 0})
         self.panorama.sur_attache = self._panneau_a_l_ecran
         self.monde.add_widget(self.panorama)
-        self._dir_proximite = 0
         self.scenery = scenes[0]
         self._lacet = 0.0
         self._tangage = 0.0
@@ -737,7 +743,7 @@ class GameScreen(Screen):
             self.monde.regle()
             self.hud.disabled = False
             self.hud.opacity = 1.0
-            self.scenery.oublie()
+            self._oublie_decor()
         self.hands.stop_breathing()
         self._close_move_menu()
         self._close_pause_menu()
@@ -1058,10 +1064,6 @@ class GameScreen(Screen):
                 or self._pause_menu is not None or self._move_menu is not None
                 or self._panel_mode is not None):
             return False
-        w, h = self.scenery.width, self.scenery.height
-        x0, y0 = self.scenery.x, self.scenery.y
-        if w <= 0 or h <= 0:
-            return False
         best = None
         for obj in state.installed_objects_here():
             if obj[0] not in items.INTERACTIVE_ITEMS:
@@ -1070,20 +1072,24 @@ class GameScreen(Screen):
             # LA MEME PROJECTION QUE LA SCENE, sans quoi le doigt chercherait
             # le foyer la ou il n'est pas : la grille se resserre sur le sol
             # de la zone, et ce sol n'est pas le meme partout (voir
-            # ZoneScenery.grille).
-            fx, fy, size = self.scenery.grille(gx, gy)
-            ecran = self._vers_monde(x0 + fx * w, y0 + fy * h)
-            if ecran is None:
-                continue                    # son panneau n'est pas a l'ecran
-            (cx, cy), pw = ecran, size * w
-            # Boite genereuse : le foyer ET ses flammes, qui montent au-dessus.
-            if (abs(touch.x - cx) <= pw * 0.60
-                    and cy - pw * 0.35 <= touch.y <= cy + pw * 0.85):
-                if best is None or gy < best[1]:   # le plus PROCHE l'emporte
-                    best = (gx, gy)
+            # ZoneScenery.grille). Dans le panneau ou il est a l'ecran.
+            for plaque in self.panorama.visibles():
+                sc = plaque.scene
+                fx, fy, size = sc.grille(gx, gy)
+                if not -0.2 <= fx <= 1.2:
+                    continue
+                dx, dy = plaque.decalage()
+                cx, cy = sc.x + fx * sc.width + dx, sc.y + fy * sc.height + dy
+                pw = size * sc.width
+                # Boite genereuse : le foyer ET ses flammes, qui montent.
+                if (abs(touch.x - cx) <= pw * 0.60
+                        and cy - pw * 0.35 <= touch.y <= cy + pw * 0.85):
+                    dist = math.hypot(gx - 2, gy - 2)
+                    if best is None or dist < best[2]:  # le plus PROCHE
+                        best = (gx, gy, dist)
         if best is None:
             return False
-        self._open_object_menu(*best)
+        self._open_object_menu(best[0], best[1])
         return True
 
     def _open_object_menu(self, gx, gy):
@@ -1111,8 +1117,7 @@ class GameScreen(Screen):
                 raisons.append("Il faut une main libre\npour cueillir des baies.")
             else:
                 for cell in sorted(baies):
-                    gros = self._gros_a_l_ecran(sc.boite_de(cell))
-                    places = self._baies_a_l_ecran(sc.baies_de(cell))
+                    gros, places = self._gros_a_l_ecran(cell)
                     if gros is not None and places:
                         cibles.append({"kind": "baies", "cell": cell,
                                        "boite": gros["boite"], "gros": gros,
@@ -1139,7 +1144,7 @@ class GameScreen(Screen):
         if arbres:
             if items.AXE_ITEM in state.hands:
                 for cell in arbres:
-                    gros = self._gros_a_l_ecran(sc.boite_de(cell))
+                    gros, _places = self._gros_a_l_ecran(cell)
                     if gros is not None:
                         cibles.append({"kind": "arbre", "cell": cell,
                                        "boite": gros["boite"], "gros": gros,
@@ -1150,30 +1155,34 @@ class GameScreen(Screen):
             raisons.append("Rien a faire ici\npour l'instant.")
         return cibles, (raisons[0] if raisons else None)
 
-    def _gros_a_l_ecran(self, gros):
-        """Un gros element de la proximite, ses positions passees a l'ecran
-        (voir _vers_monde) ; None s'il n'est pas a l'ecran."""
-        if gros is None:
-            return None
-        o = self._vers_monde(0.0, 0.0)
-        if o is None:
-            return None
-        dx, dy = o
-        x0, y0, x1, y1 = gros["boite"]
-        out = dict(gros, cx=gros["cx"] + dx, base=gros["base"] + dy,
-                   boite=(x0 + dx, y0 + dy, x1 + dx, y1 + dy))
-        if gros.get("image") is not None:
-            tex, x, y, w, h, teinte = gros["image"]
-            out["image"] = (tex, x + dx, y + dy, w, h, teinte)
-        if out["boite"][2] < 0 or out["boite"][0] > self.width:
-            return None                 # hors de l'ecran
-        return out
-
-    def _baies_a_l_ecran(self, places):
-        o = self._vers_monde(0.0, 0.0)
-        if o is None:
-            return []
-        return [(x + o[0], y + o[1], d) for x, y, d in places]
+    def _gros_a_l_ecran(self, cell):
+        """(element, baies) : le gros element `cell` et ses baies, positions
+        passees a l'ecran, pris dans le panneau visible ou il est le plus au
+        centre ; (None, []) s'il n'est pas a l'ecran."""
+        meilleur = None
+        for plaque in self.panorama.visibles():
+            gros = plaque.scene.boite_de(cell)
+            if gros is None:
+                continue
+            dx, dy = plaque.decalage()
+            x0, y0, x1, y1 = gros["boite"]
+            boite = (x0 + dx, y0 + dy, x1 + dx, y1 + dy)
+            if boite[2] < 0 or boite[0] > self.width:
+                continue                # hors de l'ecran
+            centre = abs((boite[0] + boite[2]) / 2.0 - self.width / 2.0)
+            if meilleur is not None and centre >= meilleur[0]:
+                continue
+            out = dict(gros, cx=gros["cx"] + dx, base=gros["base"] + dy,
+                       boite=boite)
+            if gros.get("image") is not None:
+                tex, x, y, w, h, teinte = gros["image"]
+                out["image"] = (tex, x + dx, y + dy, w, h, teinte)
+            places = [(x + dx, y + dy, d)
+                      for x, y, d in plaque.scene.baies_de(cell)]
+            meilleur = (centre, out, places)
+        if meilleur is None:
+            return None, []
+        return meilleur[1], meilleur[2]
 
     def _mode_action_entre(self, *_):
         """Le bouton Action : le HUD s'efface, ce qu'on peut faire clignote."""
@@ -1277,22 +1286,11 @@ class GameScreen(Screen):
         self.panorama.regle(self._lacet, self._tangage)
         self._tangage = self.panorama.tangage
         self.background.set_camera(self._lacet, self._tangage)
-
-    @staticmethod
-    def _direction_proximite(state):
-        """Ou se trouve la proximite (la grille 5x5) : au NORD, fixe dans le
-        monde ; sur une rive, du cote du lac."""
-        if state.current_zone() == "Rive":
-            for d in range(4):
-                if horizon.voisin_dans(state, d) == "Lac":
-                    return d
-        return 0
+        self.insects.set_camera(self._lacet, self._tangage)
+        self.fireflies.set_camera(self._lacet, self._tangage)
 
     def _montre_panneau(self, state, plaque):
-        if plaque.direction == self._dir_proximite:
-            plaque.scene.montre_la_case(state, direction=plaque.direction)
-        else:
-            plaque.scene.montre_direction(state, plaque.direction)
+        plaque.scene.montre_la_case(state, direction=plaque.direction)
         if getattr(plaque, "_sol_de", None) != plaque.scene.texture_du_sol():
             plaque._sol_de = plaque.scene.texture_du_sol()
             plaque.peint_sol()
@@ -1308,10 +1306,12 @@ class GameScreen(Screen):
         scene.set_brume(self.background.couleur_ciel(scene.hauteur_horizon()))
         scene.set_wind(state.effective_weather())
 
-    def _vers_monde(self, x, y):
-        """Un point de la scene de la proximite, a l'ecran ; None si son
-        panneau n'est pas a l'ecran."""
-        return self.panorama.vers_monde(self._dir_proximite, x, y)
+    def _oublie_decor(self):
+        """Tous les panneaux se redessineront depuis la partie (des baies
+        cachees par un mini-jeu reviennent), ceux hors de vue d'avance."""
+        for plaque in self.panorama.plaques:
+            plaque.scene.oublie()
+        self._case_vue = None
 
     def _approche(self, cible):
         """La camera avance vers la cible touchee ; son mini-jeu suit."""
@@ -1325,7 +1325,8 @@ class GameScreen(Screen):
             # La place des baies AVANT de les retirer du decor : le mini-jeu
             # les dessine lui-meme.
             self._baies_jeu = list(cible["baies"])
-            self.scenery.cache_baies(cible["cell"])
+            for plaque in self.panorama.visibles():
+                plaque.scene.cache_baies(cible["cell"])
             x0, y0, x1, y1 = cible["boite"]
             zoom = max(1.4, min(3.2, 0.50 * h / max(1.0, y1 - y0)))
             self.monde.vise(((x0 + x1) / 2.0, (y0 + y1) / 2.0),
@@ -1418,7 +1419,7 @@ class GameScreen(Screen):
                 state.add_log("Arbre abattu : " + ", ".join(got))
                 self._show_message("Arbre abattu.\n" + ", ".join(got))
             action = by_label["Couper du bois"]
-        self.scenery.oublie()
+        self._oublie_decor()
         App.get_running_app().autosave()
         self._recule(action, items.AXE_ITEM if "arbre" in resultat else None)
 
@@ -1447,7 +1448,7 @@ class GameScreen(Screen):
         self.clignote.cache()
         if self._jeu is not None or self._mode_action == "approche":
             self._arrete_jeu()
-            self.scenery.oublie()
+            self._oublie_decor()
             self.refresh()
         if self.monde.e > 0.0:
             self._recule()
@@ -2254,11 +2255,6 @@ class GameScreen(Screen):
             self._facing_vu = state.facing
             self._lacet = state.facing * 90.0
             self._applique_regard()
-        proximite = self._direction_proximite(state)
-        if proximite != self._dir_proximite or \
-                self.scenery is not self.panorama.plaque(proximite).scene:
-            self._dir_proximite = proximite
-            self.scenery = self.panorama.plaque(proximite).scene
         self.background.set_seconds(state.time_seconds)
         # OU LE SOL RENCONTRE LE CIEL. Le fond en a besoin pour y faire
         # converger ses nuages, et la hauteur change beaucoup d'une zone a
@@ -2304,14 +2300,14 @@ class GameScreen(Screen):
         # objets poses (et leur feu), voisins a l'horizon. La fenetre du foyer
         # passe par la MEME methode -- elle en gardait sa propre copie, qui
         # avait oublie les arbres abattus.
-        # La PROXIMITE est toujours a jour, meme hors de l'ecran : c'est
-        # elle qui sait ce qu'il reste a trouver (voir _remaining_harvest).
-        # Les autres panneaux, seulement quand on les regarde.
-        self._montre_panneau(state, self.panorama.plaque(self._dir_proximite))
+        # Le panneau NORD est toujours a jour, meme hors de l'ecran : c'est
+        # lui qui sait ce qu'il reste a trouver (voir _remaining_harvest).
+        # Les autres, quand on les regarde ; les autres encore, d'avance.
+        self._montre_panneau(state, self.panorama.plaque(0))
         for plaque in self.panorama.visibles():
-            if plaque.direction != self._dir_proximite:
+            if plaque.direction != 0:
                 self._montre_panneau(state, plaque)
-        case = (state.player_x, state.player_y, self._dir_proximite)
+        case = (state.player_x, state.player_y)
         if case != self._case_vue:
             self._case_vue = case
             self._a_prechauffer = [p for p in self.panorama.plaques

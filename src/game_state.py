@@ -2045,7 +2045,7 @@ class GameState:
             if cell not in gone}
 
     # Case ou se tient le joueur dans la grille 5x5 : rien ne s'y pose.
-    PLAYER_CELL = (2, 0)
+    PLAYER_CELL = (2, 2)
 
     def installed_cells_here(self):
         """{case: objet} pour TOUTES les cases occupees par un objet pose.
