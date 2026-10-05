@@ -4,6 +4,10 @@ Ecran CARTE : visualiser la carte et les infos de la zone.
 Le DEPLACEMENT se fait depuis l'ecran de jeu (bouton "Deplacer"), plus ici.
 On NE montre PAS l'heure. Le temps continue de s'ecouler normalement pendant
 qu'on consulte la carte.
+
+DERRIERE LA CARTE, LA CASE A 360 DEGRES (voir widgets/vue360.py) : le meme
+tour que le jeu, qu'on fait tourner en glissant le doigt hors de la carte et
+des boutons. On regarde ainsi autour de soi en lisant la carte.
 """
 from kivy.app import App
 from kivy.clock import Clock
@@ -15,9 +19,9 @@ from kivy.uix.widget import Widget
 from kivy.graphics import Color, Rectangle
 
 from src import world
-from src.widgets.animated_background import AnimatedBackground, night_darkness
+from src.widgets.animated_background import night_darkness
 from src.widgets import daylight
-from src.widgets.zone_scenery import ZoneScenery
+from src.widgets.vue360 import Vue360
 from src.widgets.minimap import MiniMap
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font
@@ -35,12 +39,10 @@ class MapScreen(Screen):
         self._time_accum = 0.0
 
         root = FloatLayout()
-        self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
-                                             pos_hint={"x": 0, "y": 0})
-        root.add_widget(self.background)
-        # La scene de la case en fond, comme dans le jeu (voir refresh_hud).
-        self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
-        root.add_widget(self.scenery)
+        # La case en fond, sur tout le tour, comme dans le jeu (voir
+        # refresh_hud) : elle tourne au doigt.
+        self.vue = Vue360(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.vue)
 
         # Voile de NUIT : assombrit le ciel + le sol selon l'heure (comme
         # dans l'ecran de jeu). Ajoute APRES decor, AVANT le HUD : le HUD
@@ -88,6 +90,11 @@ class MapScreen(Screen):
 
     # ------------------------------------------------------------------ #
     def on_pre_enter(self):
+        # On regarde d'abord ou l'on regardait dans le jeu.
+        state = App.get_running_app().game_state
+        if state is not None:
+            self.vue.regarde(state.facing * 90.0, 0.0)
+        self.minimap.regard = self.vue.lacet
         self.refresh_hud()
         self.minimap.refresh()
         self.toggle.refresh()
@@ -103,6 +110,24 @@ class MapScreen(Screen):
             if event is not None:
                 event.cancel()
                 setattr(self, ev, None)
+
+    # -- le doigt qui fait tourner la vue -------------------------------- #
+    def on_touch_down(self, touch):
+        if super().on_touch_down(touch):
+            return True                 # un bouton, le volet...
+        return self.vue.commence(touch)
+
+    def on_touch_move(self, touch):
+        if self.vue.glisse(touch):
+            # La fleche de la carte suit le regard.
+            self.minimap.set_regard(self.vue.lacet)
+            return True
+        return super().on_touch_move(touch)
+
+    def on_touch_up(self, touch):
+        if self.vue.leve(touch):
+            return True
+        return super().on_touch_up(touch)
 
     def _tick(self, dt):
         state = App.get_running_app().game_state
@@ -127,24 +152,14 @@ class MapScreen(Screen):
             f"[b]{zone}[/b]\n{world.zone_desc(zone)}\n"
             f"Case ({state.player_x},{state.player_y}) - 1x1 km"
         )
-        self.background.set_seconds(state.time_seconds)
-        self.background.set_weather(state.effective_weather())
-        self.scenery.set_wind(state.effective_weather())
-        # Le voile de nuit prend AUSSI la teinte de l'heure, et le decor
-        # suit le soleil (couleur de la lumiere, ombres portees).
+        # Le voile de nuit prend AUSSI la teinte de l'heure.
         self._night_color.rgb = daylight.veil_color(state.time_seconds)
         self._night_color.a = night_darkness(state.time_seconds)
-        self.scenery.set_daylight(state.time_seconds)
-        # FOND : LA SCENE DE LA CASE, telle qu'elle est -- la meme que le jeu
-        # et que l'autre volet (ZONE), par la meme methode. C'etait la vue du
-        # sol en plongee, alors que la fenetre du foyer, qu'on ouvre depuis
-        # la ZONE, montrait deja la scene : le fond changeait en chemin. Rien
-        # n'est redessine d'une image a l'autre tant que la case ne change
-        # pas (voir montre_la_case).
-        self.scenery.montre_la_case(state)
-        self.background.set_horizon(self.scenery.hauteur_horizon())
-        self.scenery.set_brume(self.background.couleur_ciel(
-            self.scenery.hauteur_horizon()))
+        # FOND : LA CASE, telle qu'elle est -- la meme que le jeu, par la
+        # meme methode, a l'heure et au temps qu'il fait. Rien n'est
+        # redessine d'une image a l'autre tant que la case ne change pas
+        # (voir montre_la_case).
+        self.vue.montre(state)
 
     def _periodic_autosave(self, _dt):
         App.get_running_app().autosave()

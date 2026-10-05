@@ -14,6 +14,8 @@ En mode debug, TOUTE la carte est visible : pas de brouillard sur les cases
 encore inexplorees. C'est un affichage seulement -- les cases revelees de la
 partie ne changent pas.
 """
+import math
+
 from kivy.app import App
 from kivy.uix.widget import Widget
 from kivy.graphics import Color, Rectangle, Line, Triangle
@@ -25,7 +27,17 @@ from src.game_state import CARDINALS
 class MiniMap(Widget):
     def __init__(self, **kwargs):
         super().__init__(**kwargs)
+        # LE REGARD (degres, 0 au nord, sens horaire), quand un ecran fait
+        # tourner la vue derriere la carte : la fleche le suit en continu.
+        # None : l'orientation du joueur, par quart de tour.
+        self.regard = None
+        self._case_joueur = None
         self.bind(pos=self.refresh, size=self.refresh)
+
+    def set_regard(self, lacet):
+        """La fleche suit ce regard ; seule elle est redessinee."""
+        self.regard = None if lacet is None else float(lacet)
+        self._dessine_fleche()
 
     def refresh(self, *_):
         self.canvas.clear()
@@ -70,18 +82,38 @@ class MiniMap(Widget):
             Color(0, 0, 0, 0.9)
             Line(rectangle=(mx, my, cell - 1, cell - 1), width=1.2)
 
-            # Orientation du joueur (flechee rouge), si on peut se reperer.
-            if state.debug or state.has_item(items.COMPASS_ITEM):
-                self._facing_arrow(mx, my, cell, state.facing)
+        # Orientation du joueur (flechee rouge), si on peut se reperer.
+        self._case_joueur = (mx, my, cell)
+        self._dessine_fleche()
 
-    def _facing_arrow(self, mx, my, cell, facing):
+    def _dessine_fleche(self):
+        self.canvas.after.clear()
+        state = App.get_running_app().game_state
+        if state is None or self._case_joueur is None:
+            return
+        if not (state.debug or state.has_item(items.COMPASS_ITEM)):
+            return
+        mx, my, cell = self._case_joueur
+        with self.canvas.after:
+            if self.regard is None:
+                self._facing_arrow(mx, my, cell, state.facing)
+            else:
+                a = math.radians(self.regard)
+                self._facing_arrow(mx, my, cell, None,
+                                   (math.sin(a), math.cos(a)))
+
+    def _facing_arrow(self, mx, my, cell, facing, vers=None):
         """Fleche ROUGE centree dans la case du joueur, pointant vers la
-        direction regardee."""
+        direction regardee (`vers` : le vecteur a l'ecran, sinon celui de
+        `facing`)."""
         # CARDINALS est en coordonnees GRILLE (y croissant vers le sud) ; sur
         # la mini-carte, l'ecran a son y croissant vers le HAUT (le nord). On
         # inverse donc dy pour obtenir la direction a l'ecran.
-        dx, dy = CARDINALS[facing % len(CARDINALS)]
-        ux, uy = dx, -dy
+        if vers is None:
+            dx, dy = CARDINALS[facing % len(CARDINALS)]
+            ux, uy = dx, -dy
+        else:
+            ux, uy = vers
         px, py = -uy, ux                      # perpendiculaire (base du triangle)
 
         cx = mx + (cell - 1) / 2.0
