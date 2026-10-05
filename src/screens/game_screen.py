@@ -114,6 +114,12 @@ PAS_PRECHAUFFE = 0.2
 # remplace le sol que chaque panneau peignait. Ailleurs (montagne, lac),
 # chaque panneau peint encore le sien.
 SOL_CONTINU = {"Foret": "forest_floor", "Plaine": "grass"}
+# ...et ce qui la remplace AU LOIN, recolore : en foret, la terre brune n'est
+# vraie qu'aux pieds ; plus loin, l'oeil ne voit plus que l'herbe qui la
+# couvre. C'est l'herbe de la plaine, ramenee au vert des touffes de la foret
+# (MESURE : touffe de foret a l'ecran ~ 0,14 0,20 0,056 ; moyenne de la
+# texture d'herbe 0,33 0,42 0,10 -- le rapport donne la teinte).
+SOL_LOIN = {"Foret": ("grass", (0.42, 0.49, 0.54))}
 EAU_BAS = 0.14
 EAU_HAUT = 0.60
 ENTAILLE = 0.10
@@ -2349,8 +2355,11 @@ class GameScreen(Screen):
         if matiere is None:
             self.sol.cache()
             return
+        loin, teinte = SOL_LOIN.get(state.current_zone(),
+                                    (None, (1.0, 1.0, 1.0)))
         self.sol.regle(matiere, self.scenery.crete_tour,
-                       self.scenery.hauteur_horizon())
+                       self.scenery.hauteur_horizon(), loin=loin,
+                       teinte_loin=teinte)
 
     def _prechauffe(self, _dt):
         """Dessine un panneau hors de vue (un par image)."""

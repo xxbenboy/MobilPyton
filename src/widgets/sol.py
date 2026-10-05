@@ -16,12 +16,19 @@ sous l'horizon donne y).
 
 Ne sont recalcules, a chaque mouvement du regard, que les x et y des sommets
 des secteurs a l'ecran : quelques centaines d'additions.
+
+DEUX MATIERES, PRES ET LOIN. En foret, la terre brune n'est vraie qu'aux
+pieds : au loin, ce que l'oeil voit du sol, c'est l'herbe qui le couvre. La
+nappe passe donc, avec la distance, de la matiere proche a une matiere
+lointaine (l'herbe de la plaine, recoloree au vert des touffes de la foret).
+Le fondu se fait dans le shader, d'apres la distance que porte deja la
+coordonnee de texture : aucune couture, aucun anneau.
 """
 import math
 import os
 
 from kivy.core.image import Image as CoreImage
-from kivy.graphics import Color, Mesh
+from kivy.graphics import BindTexture, Color, Mesh, RenderContext
 from kivy.uix.widget import Widget
 
 from src.widgets import textures
@@ -48,6 +55,30 @@ MARGE_SECTEURS = 2
 TUILE = 2.2
 DISTANCE_TEXTURE = 12.0
 TEXTURE_LOIN = 0.45
+# Le fondu de la matiere proche vers la lointaine : entiere jusqu'a PRES_PLEIN,
+# disparue a PRES_FIN (distances de texture, en metres : au-dela de
+# DISTANCE_TEXTURE elles sont resserrees, voir plus haut ; PRES_FIN vaut
+# ainsi une quinzaine de metres reels).
+PRES_PLEIN = 4.0
+PRES_FIN = 14.0
+
+# La nappe, avec sa matiere proche (texture0) et sa matiere lointaine
+# (sol_loin, recoloree par sol_teinte_loin). La coordonnee de texture est la
+# position au sol en tuiles : sa longueur donne la distance.
+FS = """
+$HEADER$
+uniform sampler2D sol_loin;
+uniform vec3 sol_teinte_loin;
+uniform vec2 sol_fondu;
+void main(void) {
+    vec4 pres = texture2D(texture0, tex_coord0);
+    vec4 loin = texture2D(sol_loin, tex_coord0);
+    loin.rgb *= sol_teinte_loin;
+    float d = length(tex_coord0) * %(tuile)f;
+    float k = 1.0 - smoothstep(sol_fondu.x, sol_fondu.y, d);
+    gl_FragColor = frag_color * mix(loin, pres, k);
+}
+""" % {"tuile": TUILE}
 
 _TEXTURES = {}
 
@@ -89,16 +120,37 @@ class SolPanorama(Widget):
         self._horizon = 0.47
         self._angles = None          # [secteur][anneau] : angle sous l'horizon
         self._uv = None              # [secteur][anneau] : (u, v)
+        # Le shader du fondu ; sans lui (pilote trop ancien), la seule
+        # matiere proche, comme avant.
+        ctx = RenderContext(use_parent_projection=True,
+                            use_parent_modelview=True,
+                            use_parent_frag_modelview=True)
+        ctx.shader.fs = FS
+        self._ctx = ctx if ctx.shader.success else None
         with self.canvas:
+            if self._ctx is not None:
+                self.canvas.add(ctx)
+        cible = self._ctx if self._ctx is not None else self.canvas
+        with cible:
             self._couleur = Color(1, 1, 1, 1)
+            self._loin = BindTexture(index=1) if self._ctx is not None \
+                else None
             self._mesh = Mesh(mode="triangles")
+        if self._ctx is not None:
+            ctx["sol_loin"] = 1
+            ctx["sol_teinte_loin"] = [1.0, 1.0, 1.0]
+            ctx["sol_fondu"] = [PRES_PLEIN, PRES_FIN]
         self.bind(size=self._recalcule, pos=self._recalcule)
 
     # -- la case ----------------------------------------------------------- #
-    def regle(self, nom_texture, crete, horizon):
+    def regle(self, nom_texture, crete, horizon, loin=None,
+              teinte_loin=(1.0, 1.0, 1.0)):
         """`nom_texture` : la matiere du sol ; `crete(azimut_rad)` -> hauteur
         de la crete a l'ecran (part de la hauteur, tete droite) dans cette
-        direction ; `horizon` : la hauteur de l'horizon du ciel."""
+        direction ; `horizon` : la hauteur de l'horizon du ciel.
+
+        `loin` : la matiere qui la remplace au loin (None : la meme), que
+        `teinte_loin` recolore."""
         self._nom = nom_texture
         self._crete = crete
         self._horizon = float(horizon)
@@ -106,6 +158,12 @@ class SolPanorama(Widget):
         self._mesh.texture = tex
         if tex is None:
             self._couleur.rgb = textures.fallback(nom_texture)[:3]
+        if self._ctx is not None:
+            tex_loin = _texture(loin) if loin else None
+            if tex_loin is None or tex is None:
+                tex_loin, teinte_loin = tex, (1.0, 1.0, 1.0)
+            self._loin.texture = tex_loin
+            self._ctx["sol_teinte_loin"] = [float(c) for c in teinte_loin[:3]]
         self._recalcule()
 
     def _recalcule(self, *_):
