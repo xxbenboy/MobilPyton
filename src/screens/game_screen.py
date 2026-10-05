@@ -33,6 +33,8 @@ from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.panorama import Panorama
 from src.widgets.sol import SolPanorama
+from src.widgets.route import ZonesVoisines
+from src.game_state import CARDINALS
 
 from src import items
 from src.widgets.player_hands import PlayerHands
@@ -454,6 +456,11 @@ class GameScreen(Screen):
         root.add_widget(self.lightning)
 
 
+        # LES ZONES VOISINES du mode deplacement (voir widgets/route.py) :
+        # par-dessus tout le decor, nuit comprise -- il faut les voir.
+        self.route = ZonesVoisines(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.route)
+
         # LE HUD, tout entier dans un seul conteneur : le mode action l'efface
         # d'un fondu, et le rend de meme.
         hud = FloatLayout(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
@@ -693,7 +700,7 @@ class GameScreen(Screen):
             s = a.height * 0.94
             self.move_btn.size = (s, s)
         move_area.bind(size=_move_square)
-        self.move_btn.bind(on_release=self._open_move_menu)
+        self.move_btn.bind(on_release=self._route_entre)
         move_area.add_widget(self.move_btn)
         move_cell.add_widget(move_area)
         move_cell.add_widget(_button_label("Deplacer"))
@@ -745,6 +752,7 @@ class GameScreen(Screen):
             self._approche_horloge = None
         self._arrete_jeu()
         self.clignote.cache()
+        self.route.cache()
         self._ui_action(False)
         if self._mode_action is not None:
             self._mode_action = None
@@ -1046,6 +1054,15 @@ class GameScreen(Screen):
 
     def on_touch_down(self, touch):
         """Appuis sur l'ecran de jeu, dans l'ordre de priorite."""
+        # 0. Le MODE DEPLACEMENT : Retour, ou le doigt qui regarde et
+        #    touche une zone (voir _route_touche).
+        if self._mode_action == "route":
+            r = self._action_retour
+            if r.parent is not None and r.collide_point(*touch.pos):
+                return r.on_touch_down(touch)
+            if self._regard is None and not self._moving:
+                self._regard = [touch, touch.x, touch.y, False]
+            return True
         # 0. Le MODE ACTION prend tout (voir _touche_action).
         if self._mode_action is not None:
             return self._touche_action(touch)
@@ -1238,7 +1255,7 @@ class GameScreen(Screen):
         return True
 
     def on_touch_move(self, touch):
-        if self._mode_action is not None:
+        if self._mode_action not in (None, "route"):
             if self._mode_action == "jeu" and self._jeu is not None:
                 self._jeu.bouge(touch)
             return True
@@ -1257,7 +1274,7 @@ class GameScreen(Screen):
         return super().on_touch_move(touch)
 
     def on_touch_up(self, touch):
-        if self._mode_action is not None:
+        if self._mode_action not in (None, "route"):
             if self._mode_action == "jeu" and self._jeu is not None:
                 self._jeu.leve(touch)
             return True
@@ -1265,7 +1282,12 @@ class GameScreen(Screen):
         if r is not None and touch is r[0]:
             self._regard = None
             if not r[3]:
-                self._touch_installed(touch)
+                if self._mode_action == "route":
+                    self._route_touche(touch)
+                else:
+                    self._touch_installed(touch)
+            return True
+        if self._mode_action == "route":
             return True
         return super().on_touch_up(touch)
 
@@ -1290,6 +1312,7 @@ class GameScreen(Screen):
         self._tangage = self.panorama.tangage
         self.background.set_camera(self._lacet, self._tangage)
         self.sol.set_camera(self._lacet, self._tangage)
+        self.route.set_camera(self._lacet, self._tangage)
         self.insects.set_camera(self._lacet, self._tangage)
         self.fireflies.set_camera(self._lacet, self._tangage)
 
@@ -1463,6 +1486,12 @@ class GameScreen(Screen):
         sans rien faire. Des baies montrees par le mini-jeu reviennent sur
         leur buisson."""
         if self._mode_action is None or self._mode_action == "retour":
+            return
+        if self._mode_action == "route":
+            self.route.cache()
+            self._mode_action = None
+            self._ui_action(False)
+            self._fondu_hud(True)
             return
         self.clignote.cache()
         if self._jeu is not None or self._mode_action == "approche":
@@ -1809,63 +1838,59 @@ class GameScreen(Screen):
     # ------------------------------------------------------------------ #
     # Deplacement (depuis l'ecran de jeu)
     # ------------------------------------------------------------------ #
-    def _open_move_menu(self, *_):
-        """Affiche le choix de direction (relatif, ou cardinal avec boussole)."""
+    # ------------------------------------------------------------------ #
+    # LE MODE DEPLACEMENT (voir widgets/route.py) : les cases voisines
+    # clignotent dans le paysage ; on tourne la tete pour les chercher, et
+    # on touche celle ou l'on veut aller.
+    # ------------------------------------------------------------------ #
+    NOMS_CARDINAUX = ("Nord", "Est", "Sud", "Ouest")
+
+    def _route_entre(self, *_):
+        """Le bouton Deplacer : le HUD s'efface, les zones voisines
+        clignotent."""
         self._set_panel(None)
         state = App.get_running_app().game_state
-        if state is None or self._ff_active or self._moving:
+        if state is None or self._ff_active or self._moving \
+                or self._mode_action is not None:
+            return
+        boussole = state.has_item(items.COMPASS_ITEM)
+        zones = []
+        for d, (dx, dy) in enumerate(CARDINALS):
+            vers = state.zone_vers(dx, dy)
+            if vers is None:
+                continue                    # le bord de la carte
+            va = state.can_move(dx, dy)
+            titre = vers
+            # Avec une boussole, on sait ou est le nord.
+            if boussole:
+                titre += "\n" + self.NOMS_CARDINAUX[d]
+            if not va:
+                titre += "\n(on n'y entre pas)"
+            zones.append({"direction": d, "titre": titre, "va": va,
+                          "dx": dx, "dy": dy})
+        if not any(z["va"] for z in zones):
+            self._show_message("Aucun chemin d'ici.")
             return
         self._close_move_menu()
+        self._close_pause_menu()
+        self._mode_action = "route"
+        self._fondu_hud(False)
+        self.route.montre(zones, self.scenery.crete_tour,
+                          self.scenery.hauteur_horizon())
+        self.route.set_camera(self._lacet, self._tangage)
+        self._ui_action(True, "Touche la zone ou aller")
 
-        # Slots de la croix : (libelle, vecteur absolu). Avec boussole = points
-        # cardinaux fixes ; sinon RELATIFS a l'orientation du joueur (en face =
-        # direction regardee) -> apres le deplacement, l'origine est derriere.
-        if state.has_item(items.COMPASS_ITEM):
-            top, bottom = ("Nord", (0, -1)), ("Sud", (0, 1))
-            left, right = ("Ouest", (-1, 0)), ("Est", (1, 0))
-        else:
-            top = ("En face", state.dir_vector(0))
-            right = ("A droite", state.dir_vector(1))
-            bottom = ("Derriere", state.dir_vector(2))
-            left = ("A gauche", state.dir_vector(3))
-
-        overlay = FloatLayout(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
-        panel = BoxLayout(orientation="vertical", padding=dp(16), spacing=dp(10),
-                          size_hint=(0.5, 0.52),
-                          pos_hint={"center_x": 0.5, "center_y": 0.5})
-        _add_panel(panel, alpha=0.9)
-        panel.add_widget(scale_font(Label(text="Se deplacer", bold=True,
-                         color=(0.96, 0.82, 0.45, 1), size_hint=(1, 0.16)), 0.03))
-
-        cross = GridLayout(cols=3, spacing=dp(8), size_hint=(1, 0.62))
-
-        def mk(slot):
-            label, (dx, dy) = slot
-            # Vers un LAC, le bouton dit pourquoi il est eteint : on longe
-            # l'eau par sa rive, on n'y entre pas. (Au bord de la carte, il
-            # n'y a rien a nommer.)
-            vers = state.zone_vers(dx, dy)
-            if vers is not None and not state.can_move(dx, dy):
-                label += "\n(%s)" % vers.lower()
-            b = scale_font(StyledButton(text=label, halign="center"), 0.024)
-            b.disabled = not state.can_move(dx, dy)
-            b.bind(on_release=lambda _w, ddx=dx, ddy=dy: self._do_move(ddx, ddy))
-            return b
-
-        for w in (Widget(), mk(top), Widget(),
-                  mk(left), Widget(), mk(right),
-                  Widget(), mk(bottom), Widget()):
-            cross.add_widget(w)
-        panel.add_widget(cross)
-
-        close = scale_font(StyledButton(text="Rester ici", size_hint=(1, 0.18)),
-                           0.022)
-        close.bind(on_release=lambda *_: self._close_move_menu())
-        panel.add_widget(close)
-
-        overlay.add_widget(panel)
-        self.root_layout.add_widget(overlay)
-        self._move_menu = overlay
+    def _route_touche(self, touch):
+        """Un toucher (sans glisser) en mode deplacement."""
+        z = self.route.zone_sous(touch.x, touch.y)
+        if z is None:
+            self._dit_action("Touche une zone qui clignote")
+            return
+        if not z["va"]:
+            self._dit_action("On longe le lac, on n'y entre pas")
+            return
+        self._mode_action_quitte()
+        self._do_move(z["dx"], z["dy"])
 
     def _close_move_menu(self, *_):
         if self._move_menu is not None:
