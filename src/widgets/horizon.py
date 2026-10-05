@@ -43,6 +43,10 @@ SPANS = {
     "gauche": (-0.02, 0.34),
     "droite": (0.66, 1.02),
 }
+# EN PANORAMA, chaque panneau couvre un quart du tour (voir panorama.py) : le
+# voisin de sa direction en occupe TOUTE la largeur, un peu au-dela des bords
+# pour rejoindre celui du panneau d'a cote.
+SPAN_PLEIN = (-0.06, 1.06)
 
 # Eloignement de chaque voisin. 1.0 = la case de devant (un kilometre) ; les
 # cotes commencent au bord de la case actuelle, donc bien plus pres.
@@ -139,7 +143,7 @@ _SIGNATURES = {
 }
 
 
-def draw(neighbours, x0, width, base, height, rng):
+def draw(neighbours, x0, width, base, height, rng, plein=False):
     """Dessine les paysages voisins au fond de la scene.
 
     `neighbours` : {"face": type, "gauche": type, "droite": type}, chaque
@@ -162,7 +166,7 @@ def draw(neighbours, x0, width, base, height, rng):
         if signature is None:
             continue
         dist = DIST[cote]
-        a, b = SPANS[cote]
+        a, b = SPAN_PLEIN if plein else SPANS[cote]
         # Un voisin proche est PLUS GRAND : la taille est ce qui dit la
         # distance, avant meme la couleur.
         haut = HEIGHTS[zone] * height / max(0.4, dist)
@@ -183,7 +187,7 @@ PORTEE_BERGE = 6
 _TRAVERSABLE = ("Lac", "Rive")
 
 
-def zone_den_face(state, portee=PORTEE_BERGE):
+def zone_den_face(state, portee=PORTEE_BERGE, direction=None):
     """Le premier paysage SOLIDE droit devant, par-dela l'eau -- ou None.
 
     C'est ce qu'il y a VRAIMENT sur l'autre berge. Depuis une rive, la case
@@ -196,7 +200,11 @@ def zone_den_face(state, portee=PORTEE_BERGE):
     la berge d'en face prend alors sa vegetation par defaut, faute de mieux
     -- mentir sur ce qui s'y trouve serait pire que de rester neutre."""
     from src import world
-    dx, dy = state.dir_vector(0)
+    from src.game_state import CARDINALS
+    if direction is None:
+        dx, dy = state.dir_vector(0)
+    else:
+        dx, dy = CARDINALS[direction % 4]
     for pas in range(1, portee + 1):
         nx, ny = state.player_x + dx * pas, state.player_y + dy * pas
         if not (0 <= nx < world.GRID_W and 0 <= ny < world.GRID_H):
@@ -235,3 +243,15 @@ def neighbours_of(state):
         else:
             out[cote] = None
     return out
+
+
+def voisin_dans(state, direction):
+    """Le type de la case voisine dans la direction ABSOLUE `direction`
+    (0 nord, 1 est, 2 sud, 3 ouest), ou None au bord de la carte."""
+    from src import world
+    from src.game_state import CARDINALS
+    dx, dy = CARDINALS[direction % 4]
+    nx, ny = state.player_x + dx, state.player_y + dy
+    if 0 <= nx < world.GRID_W and 0 <= ny < world.GRID_H:
+        return state.grid[ny][nx]
+    return None

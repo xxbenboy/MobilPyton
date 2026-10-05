@@ -543,6 +543,22 @@ def night_factor(seconds):
     return _astro_darkness(seconds, 1.0)
 
 
+# LE CIEL EN SPHERE (voir set_camera). Le champ de vision horizontal est de
+# FOV degres sur la largeur de l'ecran ; un degre vaut donc largeur / FOV
+# pixels, dans les deux sens.
+FOV = 90.0
+# La course des astres, en degres. Le soleil se leve a l'EST (90), passe au
+# SUD (180) a midi et se couche a l'OUEST (270) ; la lune de meme la nuit.
+SOLEIL_HAUT = 58.0          # hauteur a midi
+LUNE_HAUTE = 50.0           # hauteur a minuit
+SOUS_HORIZON = 4.0          # aux extremites, un peu sous l'horizon
+
+
+def ecart(a):
+    """Un angle ramene entre -180 et 180 degres."""
+    return (a + 180.0) % 360.0 - 180.0
+
+
 class AnimatedBackground(Widget):
     def __init__(self, start_seconds=6 * 3600, time_scale=0.0, stars=120,
                  **kwargs):
@@ -568,6 +584,9 @@ class AnimatedBackground(Widget):
         self._last_hour = None
         self._shoot_left = 0.0
         self._shoot_path = None
+        # La CAMERA (voir set_camera) : None, le ciel est un tableau plat
+        # comme avant (menus, ecrans penches) ; sinon (lacet, tangage).
+        self._cam = None
 
         # Le degrade est une colonne d'un pixel de large, etiree sur tout le
         # cadre. Sa HAUTEUR est celle de la LUT : on recopie ses etages tels
@@ -585,6 +604,13 @@ class AnimatedBackground(Widget):
             Color(1, 1, 1, 1)
             self._rect = Rectangle(texture=self._grad_tex,
                                    pos=self.pos, size=self.size)
+            # Quand on leve ou baisse la tete, le degrade glisse : sa
+            # derniere couleur continue au-dessus (le zenith), sa premiere
+            # au-dessous.
+            self._haut_c = Color(0, 0, 0, 0)
+            self._haut = Rectangle()
+            self._bas_c = Color(0, 0, 0, 0)
+            self._bas = Rectangle()
 
             # 1b. LUEUR SOLAIRE : juste au-dessus du ciel, donc DERRIERE tout
             #     le reste. Elle doit passer sous les etoiles (une etoile ne
@@ -781,9 +807,41 @@ class AnimatedBackground(Widget):
         valeur unique les aurait fait flotter au-dessus de la ligne d'eau."""
         self._horizon = max(0.0, min(1.0, float(fraction)))
 
+    def set_camera(self, lacet, tangage):
+        """Le ciel devient une SPHERE autour du joueur : `lacet` (degres,
+        0 nord, 90 est, 180 sud, 270 ouest) dit ou il regarde, `tangage`
+        (degres, + vers le haut) s'il leve ou baisse la tete. Le soleil, la
+        lune, les etoiles et les nuages se placent alors par leur direction
+        et leur hauteur reelles."""
+        self._cam = (float(lacet), float(tangage))
+        self._update_layout()
+
+    def _ppd(self):
+        return self.width / FOV
+
+    def _y_horizon(self):
+        """Ou tombe l'horizon (hauteur 0) a l'ecran, tete levee comprise."""
+        tangage = self._cam[1] if self._cam else 0.0
+        return self.y + self._horizon * self.height - tangage * self._ppd()
+
+    def _vers_ecran(self, azimut, hauteur):
+        """(x, y) a l'ecran d'un point du ciel (degres)."""
+        ppd = self._ppd()
+        x = self.center_x + ecart(azimut - self._cam[0]) * ppd
+        return x, self._y_horizon() + hauteur * ppd
+
     def _update_layout(self, *_):
-        self._rect.pos = self.pos
+        decale = self._cam[1] * self._ppd() if self._cam else 0.0
+        self._rect.pos = (self.x, self.y - decale)
         self._rect.size = self.size
+        haut = self.y - decale + self.height
+        grand = self.height * 4
+        self._haut.pos = (self.x, haut)
+        self._haut.size = (self.width, grand)
+        self._bas.pos = (self.x, self.y - decale - grand)
+        self._bas.size = (self.width, grand)
+        if self._cam is not None:
+            return                       # les etoiles suivent la camera (_tick)
         for s in self._stars:
             cx = self.x + s["fx"] * self.width
             cy = self.y + s["fy"] * self.height
@@ -827,6 +885,9 @@ class AnimatedBackground(Widget):
         self._colonne_vue = vue
         self._grad_tex.blit_buffer(bytes(buf), colorfmt="rgba",
                                    bufferfmt="ubyte")
+        if vue:
+            self._haut_c.rgba = tuple(vue[-1]) + (1.0,)
+            self._bas_c.rgba = tuple(vue[0]) + (1.0,)
 
     def couleur_ciel(self, part):
         """Couleur du ciel AFFICHEE a cette hauteur d'ecran (0 en bas),
@@ -983,6 +1044,16 @@ class AnimatedBackground(Widget):
         # Le clair de lune efface une partie des etoiles (comme en vrai) :
         # seule une lune bien pleine les fait vraiment palir.
         wash = 1.0 - 0.40 * moon_light(self._abs_seconds)
+        if self._cam is not None and night * astro > 0.0:
+            for s in self._stars:
+                cx, cy = self._vers_ecran(s["fx"] * 360.0,
+                                          6.0 + (s["fy"] - 0.40) / 0.58 * 78.0)
+                sz = s["size"]
+                s["e"].size = (sz, sz)
+                s["e"].pos = (cx - sz / 2, cy - sz / 2)
+                gz = sz * s["halo"]
+                s["ge"].size = (gz, gz)
+                s["ge"].pos = (cx - gz / 2, cy - gz / 2)
         for s in self._stars:
             twinkle = 0.35 + 0.65 * abs(math.sin(self._t * s["tw"] + s["phase"]))
             a = s["base"] * twinkle * night * astro * wash
@@ -1019,8 +1090,13 @@ class AnimatedBackground(Widget):
 
         # Soleil : arc de 5h a 19h (gauche -> droite).
         sp = _clamp01((hour - 5.0) / 14.0)
-        sx = x0 + w * (0.12 + 0.76 * sp)
-        sy = y0 + h * (0.45 + 0.42 * math.sin(math.pi * sp))
+        if self._cam is not None:
+            sx, sy = self._vers_ecran(
+                90.0 + 180.0 * sp,
+                SOLEIL_HAUT * math.sin(math.pi * sp) - SOUS_HORIZON)
+        else:
+            sx = x0 + w * (0.12 + 0.76 * sp)
+            sy = y0 + h * (0.45 + 0.42 * math.sin(math.pi * sp))
         # LUEUR : large embrasement du ciel autour du soleil. Elle est forte
         # quand le soleil rase l'horizon, presque nulle au zenith, eteinte la
         # nuit (sun_a) et effacee par une couverture nuageuse (astro).
@@ -1049,8 +1125,13 @@ class AnimatedBackground(Widget):
         # Lune : arc de 19h a 5h (la nuit).
         nh = (hour - 19.0) % 24.0
         mp = _clamp01(nh / 10.0)
-        mx = x0 + w * (0.12 + 0.76 * mp)
-        my = y0 + h * (0.45 + 0.42 * math.sin(math.pi * mp))
+        if self._cam is not None:
+            mx, my = self._vers_ecran(
+                90.0 + 180.0 * mp,
+                LUNE_HAUTE * math.sin(math.pi * mp) - SOUS_HORIZON)
+        else:
+            mx = x0 + w * (0.12 + 0.76 * mp)
+            my = y0 + h * (0.45 + 0.42 * math.sin(math.pi * mp))
         self._place_moon(mx, my, radius * 0.85, night * astro)
 
         # Nuages (cumulus) : halo doux, dessous ombre, bouffees blanches,
@@ -1084,8 +1165,14 @@ class AnimatedBackground(Widget):
                 % (1.0 + 2 * MARGE_NUAGE) - MARGE_NUAGE
             ciel_libre = 1.0 - self._horizon
             part = self._horizon + NUAGE_ALTITUDE * ciel_libre * k
-            cx = x0 + ang * w
-            cy = y0 + part * h
+            if self._cam is not None:
+                # Repartis TOUT AUTOUR du ciel ; meme hauteur au-dessus de
+                # l'horizon qu'avant, qui suit la tete.
+                cx = self._vers_ecran(ang * 360.0, 0.0)[0]
+                cy = self._y_horizon() + NUAGE_ALTITUDE * ciel_libre * k * h
+            else:
+                cx = x0 + ang * w
+                cy = y0 + part * h
             s = w * NUAGE_ECHELLE * k
             # BRUME : le nuage se fond dans le ciel DE SA PROPRE HAUTEUR.
             brume = BRUME_NUAGE * cl["brume"]

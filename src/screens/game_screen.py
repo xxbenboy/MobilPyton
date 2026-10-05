@@ -30,6 +30,8 @@ from src.widgets.animated_background import (AnimatedBackground,
                                             night_darkness, night_factor)
 from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
+from src.widgets.panorama import Panorama
+from src.widgets import horizon
 
 from src import items
 from src.widgets.player_hands import PlayerHands
@@ -96,6 +98,13 @@ TROUVAILLES_PAR_POIGNEE = {"Feuille": (3, 5), "Small_Stick": (1, 3),
 # MODE ACTION. L'eau du lac, en parts de la hauteur de la scene : du sable de
 # la rive (bas) a la ligne d'eau (haut). L'arbre : son entaille, et la
 # largeur de son tronc, en parts de sa hauteur.
+# LE REGARD (voir widgets/panorama.py). En deca de ce deplacement du doigt
+# (pixels), un appui est un toucher et non un regard qui tourne.
+SEUIL_REGARD = 14.0
+# Un panneau hors de vue se dessine toutes les PAS_PRECHAUFFE secondes :
+# assez vite pour etre pret avant qu'on tourne la tete, assez espace pour ne
+# pas faire saccader l'arrivee sur une case.
+PAS_PRECHAUFFE = 0.2
 EAU_BAS = 0.14
 EAU_HAUT = 0.60
 ENTAILLE = 0.10
@@ -352,8 +361,27 @@ class GameScreen(Screen):
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         self.monde.add_widget(self.background)
-        self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
-        self.monde.add_widget(self.scenery)
+        # LE DECOR EST UN TOUR COMPLET de quatre panneaux, un par direction
+        # (voir widgets/panorama.py). `self.scenery` est celui de la
+        # PROXIMITE (les gros elements, les objets a recolter, ce qu'on a
+        # pose) ; les trois autres montrent le paysage.
+        scenes = [ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+                  for _ in range(4)]
+        self.panorama = Panorama(scenes, size_hint=(1, 1),
+                                 pos_hint={"x": 0, "y": 0})
+        self.panorama.sur_attache = self._panneau_a_l_ecran
+        self.monde.add_widget(self.panorama)
+        self._dir_proximite = 0
+        self.scenery = scenes[0]
+        self._lacet = 0.0
+        self._tangage = 0.0
+        self._facing_vu = None
+        self._regard = None             # [touch, x0, y0, a bouge]
+        # Les panneaux hors de vue se dessinent D'AVANCE, un par image, a
+        # l'arrivee sur une case : tourner la tete ne saccade pas.
+        self._case_vue = None
+        self._a_prechauffer = []
+        self._prechauffe_ev = None
         # (Les objets INSTALLES ne sont plus une couche au-dessus du decor :
         #  ZoneScenery les dessine A LEUR PROFONDEUR, melanges au decor, sinon
         #  un feu de camp pose au fond recouvrait les buissons du devant.)
@@ -1012,8 +1040,13 @@ class GameScreen(Screen):
         # 2. Les boutons et panneaux d'abord.
         if super().on_touch_down(touch):
             return True
-        # 3. Personne n'a pris l'appui : c'est peut-etre un objet de la scene.
-        return self._touch_installed(touch)
+        # 3. Personne n'a pris l'appui : le doigt GLISSE pour regarder
+        #    autour de soi, ou TOUCHE un objet de la scene (au lever, s'il
+        #    n'a pas bouge).
+        if self._moving or self._regard is not None:
+            return False
+        self._regard = [touch, touch.x, touch.y, False]
+        return True
 
     def _touch_installed(self, touch):
         """Ouvre le menu d'un objet pose si l'appui tombe dessus.
@@ -1039,7 +1072,10 @@ class GameScreen(Screen):
             # de la zone, et ce sol n'est pas le meme partout (voir
             # ZoneScenery.grille).
             fx, fy, size = self.scenery.grille(gx, gy)
-            cx, cy, pw = x0 + fx * w, y0 + fy * h, size * w
+            ecran = self._vers_monde(x0 + fx * w, y0 + fy * h)
+            if ecran is None:
+                continue                    # son panneau n'est pas a l'ecran
+            (cx, cy), pw = ecran, size * w
             # Boite genereuse : le foyer ET ses flammes, qui montent au-dessus.
             if (abs(touch.x - cx) <= pw * 0.60
                     and cy - pw * 0.35 <= touch.y <= cy + pw * 0.85):
@@ -1075,22 +1111,35 @@ class GameScreen(Screen):
                 raisons.append("Il faut une main libre\npour cueillir des baies.")
             else:
                 for cell in sorted(baies):
-                    gros = sc.boite_de(cell)
-                    if gros is not None and sc.baies_de(cell):
+                    gros = self._gros_a_l_ecran(sc.boite_de(cell))
+                    places = self._baies_a_l_ecran(sc.baies_de(cell))
+                    if gros is not None and places:
                         cibles.append({"kind": "baies", "cell": cell,
                                        "boite": gros["boite"], "gros": gros,
                                        "image": gros.get("image"),
-                                       "baies": sc.baies_de(cell)})
+                                       "baies": places})
         if state.au_bord_de_l_eau():
-            x0, y0, w, h = sc.x, sc.y, sc.width, sc.height
-            cibles.append({"kind": "eau", "cell": None,
-                           "boite": (x0, y0 + EAU_BAS * h,
-                                     x0 + w, y0 + EAU_HAUT * h)})
+            # L'EAU QU'ON VOIT, dans le panneau a l'ecran qui montre le lac
+            # (le plus centre s'il y en a deux).
+            meilleure = None
+            for plaque in self.panorama.visibles():
+                if plaque.scene.texture_du_sol() != "sand":
+                    continue                # ce panneau regarde la terre
+                dx, dy = plaque.decalage()
+                x0, y0 = sc.x + dx, sc.y + dy
+                w, h = sc.width, sc.height
+                boite = (max(0.0, x0), y0 + EAU_BAS * h,
+                         min(float(self.width), x0 + w), y0 + EAU_HAUT * h)
+                if meilleure is None or abs(dx) < meilleure[0]:
+                    meilleure = (abs(dx), boite)
+            if meilleure is not None:
+                cibles.append({"kind": "eau", "cell": None,
+                               "boite": meilleure[1]})
         arbres = state.trees_here()
         if arbres:
             if items.AXE_ITEM in state.hands:
                 for cell in arbres:
-                    gros = sc.boite_de(cell)
+                    gros = self._gros_a_l_ecran(sc.boite_de(cell))
                     if gros is not None:
                         cibles.append({"kind": "arbre", "cell": cell,
                                        "boite": gros["boite"], "gros": gros,
@@ -1100,6 +1149,31 @@ class GameScreen(Screen):
         if not cibles and not raisons:
             raisons.append("Rien a faire ici\npour l'instant.")
         return cibles, (raisons[0] if raisons else None)
+
+    def _gros_a_l_ecran(self, gros):
+        """Un gros element de la proximite, ses positions passees a l'ecran
+        (voir _vers_monde) ; None s'il n'est pas a l'ecran."""
+        if gros is None:
+            return None
+        o = self._vers_monde(0.0, 0.0)
+        if o is None:
+            return None
+        dx, dy = o
+        x0, y0, x1, y1 = gros["boite"]
+        out = dict(gros, cx=gros["cx"] + dx, base=gros["base"] + dy,
+                   boite=(x0 + dx, y0 + dy, x1 + dx, y1 + dy))
+        if gros.get("image") is not None:
+            tex, x, y, w, h, teinte = gros["image"]
+            out["image"] = (tex, x + dx, y + dy, w, h, teinte)
+        if out["boite"][2] < 0 or out["boite"][0] > self.width:
+            return None                 # hors de l'ecran
+        return out
+
+    def _baies_a_l_ecran(self, places):
+        o = self._vers_monde(0.0, 0.0)
+        if o is None:
+            return []
+        return [(x + o[0], y + o[1], d) for x, y, d in places]
 
     def _mode_action_entre(self, *_):
         """Le bouton Action : le HUD s'efface, ce qu'on peut faire clignote."""
@@ -1156,6 +1230,18 @@ class GameScreen(Screen):
             if self._mode_action == "jeu" and self._jeu is not None:
                 self._jeu.bouge(touch)
             return True
+        r = self._regard
+        if r is not None and touch is r[0]:
+            if not r[3] and abs(touch.x - r[1]) + abs(touch.y - r[2]) \
+                    > SEUIL_REGARD:
+                r[3] = True
+            if r[3]:
+                # LE DECOR SUIT LE DOIGT : glisser vers la droite tourne le
+                # regard vers la gauche, glisser vers le haut baisse la tete.
+                ppd = self.panorama.ppd()
+                self._regarde(self._lacet - touch.dx / ppd,
+                              self._tangage - touch.dy / ppd)
+            return True
         return super().on_touch_move(touch)
 
     def on_touch_up(self, touch):
@@ -1163,7 +1249,69 @@ class GameScreen(Screen):
             if self._mode_action == "jeu" and self._jeu is not None:
                 self._jeu.leve(touch)
             return True
+        r = self._regard
+        if r is not None and touch is r[0]:
+            self._regard = None
+            if not r[3]:
+                self._touch_installed(touch)
+            return True
         return super().on_touch_up(touch)
+
+    # ------------------------------------------------------------------ #
+    # LE REGARD (voir widgets/panorama.py)
+    # ------------------------------------------------------------------ #
+    def _regarde(self, lacet, tangage):
+        """Tourne le regard (degres). La direction cardinale la plus proche
+        devient l'orientation du joueur : les deplacements relatifs (en
+        face, a gauche...) la suivent."""
+        self._lacet = lacet % 360.0
+        self._tangage = tangage
+        self._applique_regard()
+        state = App.get_running_app().game_state
+        vue = self.panorama.direction_vue()
+        if state is not None and state.facing != vue:
+            state.facing = vue
+            self._facing_vu = vue
+
+    def _applique_regard(self):
+        self.panorama.regle(self._lacet, self._tangage)
+        self._tangage = self.panorama.tangage
+        self.background.set_camera(self._lacet, self._tangage)
+
+    @staticmethod
+    def _direction_proximite(state):
+        """Ou se trouve la proximite (la grille 5x5) : au NORD, fixe dans le
+        monde ; sur une rive, du cote du lac."""
+        if state.current_zone() == "Rive":
+            for d in range(4):
+                if horizon.voisin_dans(state, d) == "Lac":
+                    return d
+        return 0
+
+    def _montre_panneau(self, state, plaque):
+        if plaque.direction == self._dir_proximite:
+            plaque.scene.montre_la_case(state, direction=plaque.direction)
+        else:
+            plaque.scene.montre_direction(state, plaque.direction)
+        if getattr(plaque, "_sol_de", None) != plaque.scene.texture_du_sol():
+            plaque._sol_de = plaque.scene.texture_du_sol()
+            plaque.peint_sol()
+
+    def _panneau_a_l_ecran(self, plaque):
+        state = App.get_running_app().game_state
+        if state is not None:
+            self._montre_panneau(state, plaque)
+            self._eclaire_panneau(state, plaque.scene)
+
+    def _eclaire_panneau(self, state, scene):
+        scene.set_daylight(state.time_seconds)
+        scene.set_brume(self.background.couleur_ciel(scene.hauteur_horizon()))
+        scene.set_wind(state.effective_weather())
+
+    def _vers_monde(self, x, y):
+        """Un point de la scene de la proximite, a l'ecran ; None si son
+        panneau n'est pas a l'ecran."""
+        return self.panorama.vers_monde(self._dir_proximite, x, y)
 
     def _approche(self, cible):
         """La camera avance vers la cible touchee ; son mini-jeu suit."""
@@ -1176,7 +1324,7 @@ class GameScreen(Screen):
         if kind == "baies":
             # La place des baies AVANT de les retirer du decor : le mini-jeu
             # les dessine lui-meme.
-            self._baies_jeu = self.scenery.baies_de(cible["cell"])
+            self._baies_jeu = list(cible["baies"])
             self.scenery.cache_baies(cible["cell"])
             x0, y0, x1, y1 = cible["boite"]
             zoom = max(1.4, min(3.2, 0.50 * h / max(1.0, y1 - y0)))
@@ -1218,9 +1366,8 @@ class GameScreen(Screen):
                                  self._baies_jeu,
                                  [i for i in (0, 1) if state.hands[i] is None])
         elif kind == "eau":
-            sc = self.scenery
-            bas = self.monde.ecran(0, sc.y + EAU_BAS * sc.height)[1]
-            haut = self.monde.ecran(0, sc.y + EAU_HAUT * sc.height)[1]
+            bas = self.monde.ecran(0, c["boite"][1])[1]
+            haut = self.monde.ecran(0, c["boite"][3])[1]
             self._jeu = JeuEau(self, c, self._fin_jeu, self._dit_action,
                                bas, haut)
         else:
@@ -2101,6 +2248,17 @@ class GameScreen(Screen):
         if self.inv_btn is not None:
             self.inv_btn.disabled = self._ff_active
 
+        # LE REGARD : il suit l'orientation quand elle change ailleurs (un
+        # deplacement fait face a la case d'arrivee).
+        if state.facing != self._facing_vu:
+            self._facing_vu = state.facing
+            self._lacet = state.facing * 90.0
+            self._applique_regard()
+        proximite = self._direction_proximite(state)
+        if proximite != self._dir_proximite or \
+                self.scenery is not self.panorama.plaque(proximite).scene:
+            self._dir_proximite = proximite
+            self.scenery = self.panorama.plaque(proximite).scene
         self.background.set_seconds(state.time_seconds)
         # OU LE SOL RENCONTRE LE CIEL. Le fond en a besoin pour y faire
         # converger ses nuages, et la hauteur change beaucoup d'une zone a
@@ -2113,11 +2271,12 @@ class GameScreen(Screen):
         self._night_color.rgb = daylight.veil_color(state.time_seconds)
         self._night_color.a = night_darkness(state.time_seconds)
         # Le decor suit le soleil : couleur de la lumiere et ombres portees.
-        self.scenery.set_daylight(state.time_seconds)
         # Et son lointain se fond dans le ciel TEL QU'IL EST AFFICHE -- meteo
         # comprise : un ciel qui se couvre grise aussi les collines du fond.
-        self.scenery.set_brume(self.background.couleur_ciel(
-            self.scenery.hauteur_horizon()))
+        for plaque in self.panorama.visibles():
+            plaque.scene.set_daylight(state.time_seconds)
+            plaque.scene.set_brume(self.background.couleur_ciel(
+                plaque.scene.hauteur_horizon()))
         # Releve jour/nuit de la petite faune : les insectes de jour s'effacent
         # a mesure que la nuit tombe, les lucioles apparaissent (et l'inverse
         # au lever du jour).
@@ -2136,7 +2295,8 @@ class GameScreen(Screen):
         self.weather_layer.set_weather(weather, state.fog_level())
         self.lightning.set_weather(weather)
         # Le vent de la meteo courbe la vegetation du decor.
-        self.scenery.set_wind(weather)
+        for plaque in self.panorama.visibles():
+            plaque.scene.set_wind(weather)
         # Le CIEL aussi : nuages, grisaille, disparition du soleil (le fond
         # gere lui-meme la transition progressive).
         self.background.set_weather(weather)
@@ -2144,7 +2304,32 @@ class GameScreen(Screen):
         # objets poses (et leur feu), voisins a l'horizon. La fenetre du foyer
         # passe par la MEME methode -- elle en gardait sa propre copie, qui
         # avait oublie les arbres abattus.
-        self.scenery.montre_la_case(state)
+        # La PROXIMITE est toujours a jour, meme hors de l'ecran : c'est
+        # elle qui sait ce qu'il reste a trouver (voir _remaining_harvest).
+        # Les autres panneaux, seulement quand on les regarde.
+        self._montre_panneau(state, self.panorama.plaque(self._dir_proximite))
+        for plaque in self.panorama.visibles():
+            if plaque.direction != self._dir_proximite:
+                self._montre_panneau(state, plaque)
+        case = (state.player_x, state.player_y, self._dir_proximite)
+        if case != self._case_vue:
+            self._case_vue = case
+            self._a_prechauffer = [p for p in self.panorama.plaques
+                                   if p.parent is None]
+            if self._prechauffe_ev is None and self._a_prechauffer:
+                self._prechauffe_ev = Clock.schedule_interval(
+                    self._prechauffe, PAS_PRECHAUFFE)
+
+    def _prechauffe(self, _dt):
+        """Dessine un panneau hors de vue (un par image)."""
+        state = App.get_running_app().game_state
+        while self._a_prechauffer:
+            plaque = self._a_prechauffer.pop(0)
+            if plaque.parent is None and state is not None:
+                self._montre_panneau(state, plaque)
+                return
+        self._prechauffe_ev.cancel()
+        self._prechauffe_ev = None
 
     def _periodic_autosave(self, _dt):
         if not self._ff_active:

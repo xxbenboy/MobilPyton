@@ -938,6 +938,8 @@ class ZoneScenery(Widget):
         self._pos_baies = {}
         self._cellule = None
         self._dessin_de = None
+        self._decor_seul = False
+        self._panorama = False
         self._ord = {}
         self._harvest_total = {}
         self._avail = {}            # {nom: nb recoltable} (aleatoire, par case)
@@ -1113,7 +1115,7 @@ class ZoneScenery(Widget):
 
     def set_scene(self, zone_type, seed=0, taken=None, blocked_grid=None,
                   installed=None, removed_grid=None, neighbours=None,
-                  berge=None, baies=None):
+                  berge=None, baies=None, decor_seul=False, panorama=False):
         """Vue a l'horizon (sol en bas + ciel).
 
         `taken` = {nom: nombre deja recolte} pour masquer les objets recoltes.
@@ -1136,7 +1138,12 @@ class ZoneScenery(Widget):
         (voir horizon.zone_den_face). La berge d'en face du lac s'y peuple de
         ses vrais arbres et de ses vraies plantes.
         `baies` = [((gx, gy), n), ...] : les buissons qui portent encore des
-        baies, et combien (voir GameState.baies_par_buisson)."""
+        baies, et combien (voir GameState.baies_par_buisson).
+        `decor_seul` : un panneau du panorama qui n'est pas celui de la
+        proximite -- le paysage de la zone, sans gros elements ni objets a
+        recolter (voir montre_direction).
+        `panorama` : la scene est un quart du tour (voir panorama.py) ; le
+        voisin de sa direction occupe toute la largeur de l'horizon."""
         # Un appel direct ne dit pas de quelle case il s'agit : montre_la_case
         # ne peut plus rien supposer de ce qui est dessine.
         self._cle_case = None
@@ -1166,9 +1173,11 @@ class ZoneScenery(Widget):
         # roseaux, pas une seconde etendue d'eau.
         self._berge = berge
         self._baies = {(int(c[0]), int(c[1])): int(n) for c, n in (baies or ())}
+        self._decor_seul = bool(decor_seul)
+        self._panorama = bool(panorama)
         self._redraw()
 
-    def montre_la_case(self, state, apercu=None):
+    def montre_la_case(self, state, apercu=None, direction=None):
         """La case ou se tient le joueur, TELLE QU'ELLE EST MAINTENANT.
 
         `apercu` : le nom de l'objet qu'on s'apprete a poser, s'il y en a un.
@@ -1188,8 +1197,18 @@ class ZoneScenery(Widget):
         Ne redessine que si quelque chose a change depuis le dernier appel.
         Les recoltes se comparent a ce qui est DESSINE (self._taken), et non a
         une cle : set_taken peut les avoir deja appliquees, et la scene ne
-        doit pas se refaire une seconde fois pour rien."""
+        doit pas se refaire une seconde fois pour rien.
+
+        `direction` (0 nord ... 3 ouest) : la scene est le panneau de cette
+        direction ABSOLUE dans le panorama -- son horizon montre le voisin de
+        cette direction, et lui seul (voir panorama.py)."""
         taken = state.harvested_here()
+        if direction is None:
+            voisins = horizon.neighbours_of(state)
+            berge = horizon.zone_den_face(state)
+        else:
+            voisins = {"face": horizon.voisin_dans(state, direction)}
+            berge = horizon.zone_den_face(state, direction=direction)
         decor = {
             "zone_type": state.current_zone(),
             "seed": world.scene_seed(state.player_x, state.player_y),
@@ -1203,12 +1222,13 @@ class ZoneScenery(Widget):
             "removed_grid": tuple(sorted(state.chopped_here())),
             # Les cases VOISINES dependent de l'orientation : tourner sur
             # place doit redessiner le fond.
-            "neighbours": horizon.neighbours_of(state),
+            "neighbours": voisins,
             # Ce qu'il y a VRAIMENT de l'autre cote de l'eau, par-dela le lac
             # (voir horizon.zone_den_face). Dans la cle, donc : tourner le dos
             # a une foret pour faire face a une montagne redessine la berge.
-            "berge": horizon.zone_den_face(state),
+            "berge": berge,
             "baies": tuple(sorted(state.baies_par_buisson().items())),
+            "panorama": direction is not None,
         }
         cle = tuple((k, tuple(sorted(v.items())) if isinstance(v, dict)
                      else v) for k, v in sorted(decor.items())) + (apercu,)
@@ -1218,6 +1238,42 @@ class ZoneScenery(Widget):
         self._apercu_nom = apercu
         self.set_scene(taken=taken, **decor)
         self._cle_case = cle
+
+    def montre_direction(self, state, direction):
+        """Un panneau du PANORAMA qui n'est pas celui de la proximite : le
+        paysage de la case vu dans la direction ABSOLUE `direction`, son
+        voisin a l'horizon, sans gros elements ni objets a recolter.
+
+        Sur une RIVE, on ne voit le lac que du cote de l'eau : vers la terre,
+        le panneau montre le paysage du voisin. Le decor de remplissage est
+        tire d'une graine propre a la direction : les quatre cotes ne se
+        repetent pas."""
+        zone = state.current_zone()
+        voisin = horizon.voisin_dans(state, direction)
+        if zone == "Rive" and voisin and voisin not in ("Lac", "Rive"):
+            zone = voisin
+        graine = world.scene_seed(state.player_x, state.player_y) \
+            ^ ((direction + 1) * 7919)
+        decor = {
+            "zone_type": zone, "seed": graine,
+            "neighbours": {"face": voisin},
+            "berge": horizon.zone_den_face(state, direction=direction),
+            "decor_seul": True, "panorama": True,
+        }
+        cle = tuple(sorted(
+            (k, tuple(sorted(v.items())) if isinstance(v, dict) else v)
+            for k, v in decor.items()))
+        if self._mode == "scene" and cle == self._cle_case:
+            return
+        self.set_scene(**decor)
+        self._cle_case = cle
+
+    # Le sol qu'on voit a ses pieds, en baissant la tete (voir panorama.py).
+    SOL_AUX_PIEDS = {"Foret": "forest_floor", "Plaine": "grass",
+                     "Montagne": "rock_dark", "Lac": "sand"}
+
+    def texture_du_sol(self):
+        return self.SOL_AUX_PIEDS.get(self._zone, "grass")
 
     # -- apercu de pose -------------------------------------------------- #
     #
@@ -1341,6 +1397,8 @@ class ZoneScenery(Widget):
 
         Chaque recolte retire une PART EGALE des objets visibles : avec `avail`
         recoltes possibles, la k-ieme recolte a masque ~k/avail des objets."""
+        if self._decor_seul:
+            return True                 # un panneau de paysage : rien a prendre
         i = self._ord.get(name, 0)
         self._ord[name] = i + 1
         self._harvest_total[name] = self._ord[name]
@@ -1598,6 +1656,8 @@ class ZoneScenery(Widget):
         d'ordinaire son image d'apres la position, ce qui peut donner cinq
         fois la meme pierre sur une case qui n'en porte que cinq ; avec le
         rang, on distribue les modeles en rond."""
+        if self._decor_seul:
+            return
         rangs = {}
         w, h, x0, y0 = self.width, self.height, self.x, self.y
         # Trie du plus LOINTAIN au plus proche (gy decroissant) : les zones qui
@@ -3048,7 +3108,8 @@ class ZoneScenery(Widget):
         tournant sur lui-meme. Ici, la ligne d'horizon depend des voisins,
         et rien d'autre n'en depend."""
         horizon.draw(self._neighbours, self.x, self.width, crest,
-                     self.height, random.Random(self._graine_voisins()))
+                     self.height, random.Random(self._graine_voisins()),
+                     plein=self._panorama)
 
     # -- helpers textures (surface plane texturee, sinon couleur de repli) - #
     def _trect(self, name, x, y, w, h, tile_px=None):
