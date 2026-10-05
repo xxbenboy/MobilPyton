@@ -956,6 +956,10 @@ class ZoneScenery(Widget):
         # Baies des buissons, gros elements dessines (mode action).
         self._baies = {}
         self._versant = None
+        # LE FOND (voir panorama.FondHorizon) : la ou ce panneau pose ses
+        # silhouettes d'horizon, derriere le terrain. None : dans son propre
+        # dessin, comme une scene vue seule.
+        self.fond = None
         self._autour = None
         self._nappe = None
         self._gros = {}
@@ -1035,6 +1039,8 @@ class ZoneScenery(Widget):
         self._seconds = float(seconds)
         self._apply_light()
         self._applique_brume()
+        if self.fond is not None:
+            self.fond.teinte(daylight.light_tint(self._seconds))
         if self._nappe is not None:
             self._nappe.set_teinte(daylight.light_tint(self._seconds))
         off, length, alpha = daylight.shadow(self._seconds)
@@ -3442,10 +3448,24 @@ class ZoneScenery(Widget):
         # TOUT AU FOND, les silhouettes (la frange de la foret, les cretes
         # de la montagne) ; DEVANT ELLES, les vrais arbres de la foret
         # voisine (voir _foret_voisine).
-        horizon.draw(self._neighbours, self.x, self.width, crest,
-                     self.height, random.Random(self._graine_voisins()),
-                     plein=True,
-                     au_ras=self._sans_sol or self._nappe is not None)
+        #
+        # DANS LE PANORAMA, ELLES PASSENT DERRIERE LE TERRAIN : dessinees
+        # dans le fond du panneau (voir panorama.FondHorizon), sous la nappe
+        # du sol, qui leur cache le pied. Les vrais arbres, eux, restent
+        # devant le terrain.
+        if self.fond is not None:
+            self.fond.vide()
+            with self.fond.ctx:
+                horizon.draw(self._neighbours, self.x, self.width, crest,
+                             self.height,
+                             random.Random(self._graine_voisins()),
+                             plein=True, au_ras=False)
+            self.fond.teinte(daylight.light_tint(self._seconds))
+        else:
+            horizon.draw(self._neighbours, self.x, self.width, crest,
+                         self.height, random.Random(self._graine_voisins()),
+                         plein=True,
+                         au_ras=self._sans_sol or self._nappe is not None)
         self._foret_voisine()
 
     def part_de(self, azimut, zone):

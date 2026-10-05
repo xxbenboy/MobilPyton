@@ -228,7 +228,13 @@ NOMBRE_DOR = 0.6180339887
 NUAGE_ALTITUDE = 0.85
 NUAGE_ECHELLE = 0.20
 
-NUAGE_VENT = 0.020
+NUAGE_VENT = 0.012
+# EN PANORAMA, la place d'un nuage se compte en TOURS de ciel, et non plus en
+# largeurs d'ecran : un tour en fait quatre. Garder NUAGE_VENT les faisait
+# filer quatre fois trop vite (sept degres par seconde pour le plus proche).
+# Celui-ci les ramene a une derive lente -- une dizaine de pixels par seconde
+# pour le plus proche, beaucoup moins pour les lointains.
+NUAGE_VENT_TOUR = 0.0022
 
 # De combien ils depassent de l'ecran avant de reapparaitre de l'autre cote.
 # Il faut au moins la DEMI-LARGEUR VISIBLE du plus gros, sinon on le verrait
@@ -1161,7 +1167,8 @@ class AnimatedBackground(Widget):
             # non accumulee : a vitesse constante, une formule ne derive pas,
             # la ou une integration image par image finit par le faire.
             k = cl["k"]
-            ang = (cl["ang"] + self._t * NUAGE_VENT * k) \
+            vent = NUAGE_VENT if self._cam is None else NUAGE_VENT_TOUR
+            ang = (cl["ang"] + self._t * vent * k) \
                 % (1.0 + 2 * MARGE_NUAGE) - MARGE_NUAGE
             ciel_libre = 1.0 - self._horizon
             part = self._horizon + NUAGE_ALTITUDE * ciel_libre * k

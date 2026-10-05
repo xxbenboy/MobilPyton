@@ -11,7 +11,7 @@ from kivy.uix.floatlayout import FloatLayout
 
 from src.widgets import daylight
 from src.widgets.animated_background import AnimatedBackground
-from src.widgets.panorama import Panorama
+from src.widgets.panorama import Panorama, FondHorizon
 from src.widgets.sol import SolPanorama
 from src.widgets.zone_scenery import ZoneScenery, NAPPES, SCENE_DE_ZONE
 
@@ -30,12 +30,20 @@ class Vue360(FloatLayout):
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         self.add_widget(self.background)
+        # Les silhouettes de l'horizon, derriere le terrain (voir
+        # panorama.FondHorizon).
+        fonds = [FondHorizon(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+                 for _ in range(4)]
+        self.fond = Panorama(fonds, size_hint=(1, 1),
+                             pos_hint={"x": 0, "y": 0})
+        self.add_widget(self.fond)
         self.sol = SolPanorama(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
         self.add_widget(self.sol)
         scenes = [ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
                   for _ in range(4)]
-        for sc in scenes:
+        for sc, fond in zip(scenes, fonds):
             sc.sous_sol = SOUS_SOL
+            sc.fond = fond
         self.panorama = Panorama(scenes, size_hint=(1, 1),
                                  pos_hint={"x": 0, "y": 0})
         self.panorama.sur_attache = self._attache
@@ -109,6 +117,7 @@ class Vue360(FloatLayout):
             self.tangage = tangage
         self.panorama.regle(self.lacet, self.tangage)
         self.tangage = self.panorama.tangage
+        self.fond.regle(self.lacet, self.tangage)
         self.background.set_camera(self.lacet, self.tangage)
         self.sol.set_camera(self.lacet, self.tangage)
 

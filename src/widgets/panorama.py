@@ -28,9 +28,10 @@ import math
 
 from kivy.core.window import Window
 from kivy.graphics import (Color, PushMatrix, PopMatrix, Rectangle,
-                           Translate)
+                           RenderContext, Translate)
 from kivy.graphics.scissor_instructions import ScissorPush, ScissorPop
 from kivy.uix.floatlayout import FloatLayout
+from kivy.uix.widget import Widget
 
 from src.widgets import textures
 
@@ -112,6 +113,57 @@ class Plaque(FloatLayout):
         self._sol.size = (w, haut)
 
 
+# Le fond d'un panneau : ses formes, multipliees par la lumiere du jour.
+FS_FOND = """
+$HEADER$
+uniform vec3 fond_teinte;
+void main(void) {
+    gl_FragColor = frag_color * texture2D(texture0, tex_coord0)
+                   * vec4(fond_teinte, 1.0);
+}
+"""
+
+
+class FondHorizon(Widget):
+    """LE TOUT DERNIER PLAN d'un panneau : les silhouettes de l'horizon (la
+    frange de la foret voisine, les cretes de la montagne).
+
+    Elles etaient dessinees par le panneau lui-meme, donc PAR-DESSUS le
+    terrain, que la nappe du sol peint dessous (voir sol.py). Dans un second
+    tour de panneaux, pose ENTRE LE CIEL ET LE SOL, le terrain les recouvre :
+    leur pied disparait derriere la crete, comme celui d'une vraie foret au
+    loin. La scene de la direction y dessine (voir ZoneScenery.fond).
+
+    La lumiere du jour les teinte par un seul reglage (voir teinte)."""
+
+    _sans_sol = True                # (voir Plaque.peint_sol)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        ctx = RenderContext(use_parent_projection=True,
+                            use_parent_modelview=True,
+                            use_parent_frag_modelview=True)
+        ctx.shader.fs = FS_FOND
+        if ctx.shader.success:
+            ctx["fond_teinte"] = [1.0, 1.0, 1.0]
+            self.canvas.add(ctx)
+            self.ctx = ctx
+            self._shader = True
+        else:
+            self.ctx = self.canvas
+            self._shader = False
+
+    def texture_du_sol(self):
+        return "grass"
+
+    def vide(self):
+        self.ctx.clear()
+
+    def teinte(self, rgb):
+        if self._shader:
+            self.ctx["fond_teinte"] = [float(c) for c in rgb[:3]]
+
+
 class Panorama(FloatLayout):
     """Les quatre panneaux du tour, places selon le regard."""
 
@@ -176,4 +228,5 @@ class Panorama(FloatLayout):
         return int(round(self.lacet / FOV)) % 4
 
 
-__all__ = ["Panorama", "Plaque", "FOV", "TANGAGE_MAX", "ecart"]
+__all__ = ["Panorama", "Plaque", "FondHorizon", "FOV", "TANGAGE_MAX",
+           "ecart"]

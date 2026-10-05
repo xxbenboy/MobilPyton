@@ -31,7 +31,7 @@ from src.widgets.animated_background import (AnimatedBackground,
                                             night_darkness, night_factor)
 from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
-from src.widgets.panorama import Panorama
+from src.widgets.panorama import Panorama, FondHorizon
 from src.widgets.sol import SolPanorama
 from src.widgets.route import ZonesVoisines
 from src.game_state import CARDINALS
@@ -372,6 +372,14 @@ class GameScreen(Screen):
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         self.monde.add_widget(self.background)
+        # LE FOND DU TOUR : les silhouettes de l'horizon, ENTRE LE CIEL ET LE
+        # SOL, que le terrain recouvre (voir panorama.FondHorizon). Chaque
+        # panneau du decor y dessine les siennes.
+        fonds = [FondHorizon(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+                 for _ in range(4)]
+        self.fond = Panorama(fonds, size_hint=(1, 1),
+                             pos_hint={"x": 0, "y": 0})
+        self.monde.add_widget(self.fond)
         # LE SOL : une seule nappe sous le joueur, pour tout le tour (voir
         # widgets/sol.py). Les panneaux posent leur decor dessus.
         self.sol = SolPanorama(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
@@ -383,8 +391,9 @@ class GameScreen(Screen):
         # qui sait ce qu'il reste a trouver (voir _remaining_harvest).
         scenes = [ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
                   for _ in range(4)]
-        for sc in scenes:
+        for sc, fond in zip(scenes, fonds):
             sc.sous_sol = SOUS_SOL_PANORAMA
+            sc.fond = fond
         self.panorama = Panorama(scenes, size_hint=(1, 1),
                                  pos_hint={"x": 0, "y": 0})
         self.panorama.sur_attache = self._panneau_a_l_ecran
@@ -1310,6 +1319,7 @@ class GameScreen(Screen):
     def _applique_regard(self):
         self.panorama.regle(self._lacet, self._tangage)
         self._tangage = self.panorama.tangage
+        self.fond.regle(self._lacet, self._tangage)
         self.background.set_camera(self._lacet, self._tangage)
         self.sol.set_camera(self._lacet, self._tangage)
         self.route.set_camera(self._lacet, self._tangage)
@@ -1377,8 +1387,11 @@ class GameScreen(Screen):
     def _recoupe(self):
         """La decoupe des panneaux suit la camera qui avance (voir
         panorama.Plaque.decale)."""
-        self.panorama.vers_ecran = self.monde.ecran if self.monde.e > 0             else None
+        self.panorama.vers_ecran = (self.monde.ecran if self.monde.e > 0
+                                    else None)
         self.panorama.regle()
+        self.fond.vers_ecran = self.panorama.vers_ecran
+        self.fond.regle()
 
     def _anime_approche(self, vers, ensuite):
         depart = self.monde.e
