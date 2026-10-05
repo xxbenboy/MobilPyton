@@ -39,9 +39,9 @@ import math
 
 from src import items, world
 from src.game_state import GameState, CARDINALS
-from src.widgets.animated_background import AnimatedBackground, night_darkness
+from src.widgets.animated_background import night_darkness
 from src.widgets import daylight
-from src.widgets.zone_scenery import ZoneScenery
+from src.widgets.vue360 import Vue360
 from src.widgets.styled_button import StyledButton
 from src.widgets.responsive import scale_font, dh
 from src.widgets.lieu_toggle import lieu_toggle
@@ -645,13 +645,12 @@ class PlaceScreen(Screen):
         self.mode = "place"
 
         root = FloatLayout()
-        self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
-                                             pos_hint={"x": 0, "y": 0})
-        root.add_widget(self.background)
-        # Fond = la SCENE de la case courante, comme dans le jeu (voir
-        # on_pre_enter).
-        self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
-        root.add_widget(self.scenery)
+        # FOND : LA CASE A 360 DEGRES, comme la carte et le jeu (voir
+        # widgets/vue360.py). Glisser le doigt hors de la grille et des
+        # boutons tourne la tete ; le regard est celui de la partie, et il y
+        # reste en sortant (GameState.regard).
+        self.vue = Vue360(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.vue)
 
         # Voile de nuit (comme dans la carte et le craft).
         self.night = Widget(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
@@ -806,18 +805,32 @@ class PlaceScreen(Screen):
             if name is not None:
                 self._start_drag(name, touch)
                 return True
-        return super().on_touch_down(touch)
+        if super().on_touch_down(touch):
+            return True                 # la grille, un bouton, le volet...
+        # Ailleurs, le doigt fait tourner la tete (comme sur la carte).
+        return self.vue.commence(touch)
 
     def on_touch_move(self, touch):
         if self._drag is not None:
             self._drag["ghost"].center = touch.pos
             self._aim(touch)
             return True
+        if self.vue.glisse(touch):
+            state = App.get_running_app().game_state
+            if state is not None:
+                avant = state.facing
+                state.tourne_regard(self.vue.lacet, self.vue.tangage)
+                if state.facing != avant:
+                    # La fleche du joueur, sur la grille, suit le regard.
+                    self.grid_overlay._redraw()
+            return True
         return super().on_touch_move(touch)
 
     def on_touch_up(self, touch):
         if self._drag is not None:
             self._drop(touch)
+            return True
+        if self.vue.leve(touch):
             return True
         return super().on_touch_up(touch)
 
@@ -862,10 +875,10 @@ class PlaceScreen(Screen):
         if vise != self._drag.get("vise"):
             self._drag["vise"] = vise
             if ancre is None:
-                self.scenery.montre_apercu(None)
+                self.vue.montre_apercu(None)
             else:
-                self.scenery.montre_apercu(ancre[0], ancre[1],
-                                           self.grid_overlay.preview_ok)
+                self.vue.montre_apercu(ancre[0], ancre[1],
+                                       self.grid_overlay.preview_ok)
 
     def _clear_drag(self, garder_apercu=False):
         """Fin du geste. `garder_apercu` laisse l'objet dans la scene : il
@@ -879,7 +892,7 @@ class PlaceScreen(Screen):
         self.grid_overlay._redraw()
         self.item_card.opacity = 1.0
         if not garder_apercu:
-            self.scenery.montre_apercu(None)
+            self.vue.montre_apercu(None)
 
     def _drop(self, touch):
         """Lache l'objet : il se pose si l'emprise entiere convient."""
@@ -924,14 +937,9 @@ class PlaceScreen(Screen):
         state = App.get_running_app().game_state
         if state is None:
             return
-        self.background.set_seconds(state.time_seconds)
-        self.background.set_weather(state.effective_weather())
-        self.scenery.set_wind(state.effective_weather())
-        # Le voile de nuit prend AUSSI la teinte de l'heure, et le decor
-        # suit le soleil (couleur de la lumiere, ombres portees).
+        # Le voile de nuit prend AUSSI la teinte de l'heure.
         self._night_color.rgb = daylight.veil_color(state.time_seconds)
         self._night_color.a = night_darkness(state.time_seconds)
-        self.scenery.set_daylight(state.time_seconds)
         objs = state.scene_installed()
         # FOND : LA SCENE DU JEU, dans tous les modes -- la grille, la pose et
         # la fenetre du foyer. Et la meme que l'ecran de jeu, par la meme
@@ -942,12 +950,11 @@ class PlaceScreen(Screen):
         # (voir _aim), et l'on voit ce qu'on s'apprete a faire la ou on le
         # fera. La scene lui reserve alors sa place a chaque profondeur.
         tenu = self._held_item() if self.mode == "place" else None
-        self.scenery.montre_la_case(state, apercu=tenu)
-        # Le fond suit le meme ciel que dans le jeu : nuages qui convergent
-        # vers SON horizon, lointain fondu dans le ciel affiche.
-        self.background.set_horizon(self.scenery.hauteur_horizon())
-        self.scenery.set_brume(self.background.couleur_ciel(
-            self.scenery.hauteur_horizon()))
+        self.vue.apercu = tenu
+        # On regarde EXACTEMENT ou l'on regardait (GameState.regard) ; la vue
+        # montre la case a l'heure et au temps qu'il fait, ciel compris.
+        self.vue.regarde(*state.regard)
+        self.vue.montre(state)
         # Marque les positions deja installees comme non cliquables, et les
         # cases occupees par un GROS element du decor (arbre, buisson, rocher).
         # L'EMPRISE de chaque objet : un plan de construction en couvre quatre.

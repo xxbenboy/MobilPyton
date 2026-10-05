@@ -281,6 +281,7 @@ class GameState:
                  wood=0, food=0, water=0, action_count=0,
                  hands=None, ground=None, explores=None, harvested=None,
                  log=None, player_x=None, player_y=None, revealed=None,
+                 regard=None,
                  facing=0, installed=None, built=None,
                  build_stages=None, pending_install=None, stations=None,
                  debug=False,
@@ -452,6 +453,15 @@ class GameState:
 
         # Orientation du joueur (indice dans CARDINALS) : Nord par defaut.
         self.facing = facing % 4
+        # LE REGARD EXACT (degres) : le lacet (0 au nord, sens horaire) et le
+        # tangage (tete levee > 0). Tous les ecrans qui montrent la case a
+        # 360 degres -- le jeu, la carte, la zone -- le lisent en entrant et
+        # l'ecrivent quand on tourne la tete : la vue reste ou on l'a laissee
+        # d'un ecran a l'autre.
+        if regard is not None:
+            self.regard = (float(regard[0]) % 360.0, float(regard[1]))
+        else:
+            self.regard = (self.facing * 90.0, 0.0)
 
         # Mode DEBUG (partie "Partie D" lancee depuis le bouton du menu) :
         # carte toujours utilisable, craft illimite sans ingredients.
@@ -560,9 +570,17 @@ class GameState:
 
     def face(self, dx, dy):
         """Oriente le joueur dans la direction du deplacement -> la case
-        d'origine se retrouve DERRIERE lui."""
+        d'origine se retrouve DERRIERE lui. Le regard se tourne avec lui."""
         if (dx, dy) in CARDINALS:
             self.facing = CARDINALS.index((dx, dy))
+            self.regard = (self.facing * 90.0, self.regard[1])
+
+    def tourne_regard(self, lacet, tangage):
+        """Le joueur tourne la tete (degres). La direction cardinale la plus
+        proche devient son orientation : les deplacements relatifs (en face,
+        a gauche...) la suivent."""
+        self.regard = (float(lacet) % 360.0, float(tangage))
+        self.facing = int(round(self.regard[0] / 90.0)) % 4
 
     # ------------------------------------------------------------------ #
     # Temps
@@ -3040,6 +3058,7 @@ class GameState:
             "harvested": self.harvested,
             "facing": self.facing,
             "revealed": list(self.revealed),
+            "regard": list(self.regard),
             "action_count": self.action_count,
             "log": self.log,
             "player_x": self.player_x,
@@ -3105,6 +3124,7 @@ class GameState:
             harvested=data.get("harvested"),
             facing=data.get("facing", 0),
             revealed=data.get("revealed", []),
+            regard=data.get("regard"),
             action_count=data.get("action_count", 0),
             log=data.get("log", []),
             player_x=data.get("player_x"),

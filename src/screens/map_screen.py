@@ -90,10 +90,11 @@ class MapScreen(Screen):
 
     # ------------------------------------------------------------------ #
     def on_pre_enter(self):
-        # On regarde d'abord ou l'on regardait dans le jeu.
+        # On regarde EXACTEMENT ou l'on regardait (le regard de la partie,
+        # voir GameState.regard).
         state = App.get_running_app().game_state
         if state is not None:
-            self.vue.regarde(state.facing * 90.0, 0.0)
+            self.vue.regarde(*state.regard)
         self.minimap.regard = self.vue.lacet
         self.refresh_hud()
         self.minimap.refresh()
@@ -119,8 +120,11 @@ class MapScreen(Screen):
 
     def on_touch_move(self, touch):
         if self.vue.glisse(touch):
-            # La fleche de la carte suit le regard.
+            # La fleche de la carte suit le regard, et la partie le retient.
             self.minimap.set_regard(self.vue.lacet)
+            state = App.get_running_app().game_state
+            if state is not None:
+                state.tourne_regard(self.vue.lacet, self.vue.tangage)
             return True
         return super().on_touch_move(touch)
 

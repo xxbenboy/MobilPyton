@@ -55,6 +55,9 @@ class Vue360(FloatLayout):
         self.tangage = 0.0
         self._state = None
         self._case = None
+        # L'objet qu'un ecran s'apprete a poser (voir ZoneScenery.
+        # montre_apercu) : chaque panneau lui reserve sa place.
+        self.apercu = None
         self._glisse = None             # [touch, x0, y0, a bouge]
 
     # -- la case --------------------------------------------------------- #
@@ -91,7 +94,7 @@ class Vue360(FloatLayout):
             return
         zone = state.current_zone()
         plaque.scene.montre_la_case(
-            state, direction=plaque.direction,
+            state, apercu=self.apercu, direction=plaque.direction,
             sans_sol=SCENE_DE_ZONE.get(zone, zone) in NAPPES)
         sol = (plaque.scene.texture_du_sol(), plaque.scene._sans_sol)
         if getattr(plaque, "_sol_de", None) != sol:
@@ -109,6 +112,12 @@ class Vue360(FloatLayout):
         if self._state is not None:
             self._montre_panneau(plaque)
             self._eclaire(plaque.scene)
+
+    def montre_apercu(self, gx=None, gy=None, ok=True):
+        """L'objet a poser, en direct, dans chaque panneau (voir
+        ZoneScenery.montre_apercu) ; gx None l'efface."""
+        for plaque in self.panorama.plaques:
+            plaque.scene.montre_apercu(gx, gy, ok)
 
     # -- le regard ------------------------------------------------------- #
     def regarde(self, lacet, tangage=None):

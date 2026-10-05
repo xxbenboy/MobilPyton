@@ -401,7 +401,6 @@ class GameScreen(Screen):
         self.scenery = scenes[0]
         self._lacet = 0.0
         self._tangage = 0.0
-        self._facing_vu = None
         self._regard = None             # [touch, x0, y0, a bouge]
         # Les panneaux hors de vue se dessinent D'AVANCE, un par image, a
         # l'arrivee sur une case : tourner la tete ne saccade pas.
@@ -1312,10 +1311,10 @@ class GameScreen(Screen):
         self._tangage = tangage
         self._applique_regard()
         state = App.get_running_app().game_state
-        vue = self.panorama.direction_vue()
-        if state is not None and state.facing != vue:
-            state.facing = vue
-            self._facing_vu = vue
+        if state is not None:
+            # Retenu dans la partie : la carte et la zone reprennent ce
+            # regard, et le jeu le retrouve au retour (voir refresh).
+            state.tourne_regard(self._lacet, self._tangage)
 
     def _applique_regard(self):
         self.panorama.regle(self._lacet, self._tangage)
@@ -2307,12 +2306,15 @@ class GameScreen(Screen):
         if self.inv_btn is not None:
             self.inv_btn.disabled = self._ff_active
 
-        # LE REGARD : il suit l'orientation quand elle change ailleurs (un
-        # deplacement fait face a la case d'arrivee).
-        if state.facing != self._facing_vu:
-            self._facing_vu = state.facing
-            self._lacet = state.facing * 90.0
+        # LE REGARD : celui de la partie, qu'un autre ecran (la carte, la
+        # zone) a pu tourner, ou qu'un deplacement a tourne vers la case
+        # d'arrivee. Jamais remis a une ancienne valeur.
+        if tuple(state.regard) != (self._lacet, self._tangage):
+            self._lacet, self._tangage = state.regard
             self._applique_regard()
+            if (self._lacet, self._tangage) != tuple(state.regard):
+                # Le tangage a pu etre borne par le panorama.
+                state.tourne_regard(self._lacet, self._tangage)
         self.background.set_seconds(state.time_seconds)
         # OU LE SOL RENCONTRE LE CIEL. Le fond en a besoin pour y faire
         # converger ses nuages, et la hauteur change beaucoup d'une zone a
