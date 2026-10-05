@@ -486,9 +486,7 @@ TEINTE_HERBE_RVB = (1.00, 0.95, 0.66)
 #
 # LA MEME PARTOUT DANS LA PLAINE, du premier plan a la crete. L'herbe du fond
 # etait autrefois eclaircie a la main (jusqu'a 1,24 fois l'image) pour faire
-# la distance ; c'est desormais la BRUME qui s'en charge (voir _brume), et un
-# vert qui palit tout seul par-dessus aurait fait la distance deux fois --
-# d'ou les touffes vert vif sur le fond.
+# la distance ; il ne l'est plus : de pres comme de loin, la meme herbe.
 HERBE_PLAINE = (0.25, 0.37, 0.10)
 
 # TEINTE DES PLANTES FEUILLUES (le trefle). La photo livree est d'un vert plus
@@ -506,42 +504,6 @@ TEINTE_PLANTE = (0.86, 0.84, 0.66)
 # sommets sur 16 bits, soit 65 535 au plus : 4 000 touffes de 4 sommets
 # restent tres en dessous.
 LOT_HERBE_MAX = 4000
-
-# --- LA BRUME DU LOINTAIN -------------------------------------------------- #
-# Entre l'oeil et une colline eloignee il y a de l'air, et l'air diffuse la
-# lumiere du ciel : ce qui est loin se rapproche de la couleur du CIEL A
-# L'HORIZON. Il palit, bleuit, perd son contraste -- il ne fonce jamais. C'est
-# la perspective aerienne, et c'est la regle que suit l'oeil pour juger d'une
-# distance.
-#
-# Le fond de la plaine faisait l'inverse : il etait ASSOMBRI (x 0,82) pour se
-# detacher du champ. L'oeil le lisait comme une zone d'ombre, et la crete se
-# decoupait en vert sombre sur un ciel clair -- le plus fort contraste de
-# l'image, la ou il aurait du etre le plus faible.
-#
-# Part de brume a la crete (0 = aucune, 1 = le ciel lui-meme). Par temps
-# clair, une colline a un kilometre reste verte : elle palit et bleuit, elle
-# ne disparait pas. Au-dela de 0,45 elle virait au gris-bleu d'un jour de
-# brouillard.
-BRUME_CRETE = 0.46
-# Hauteur, au-dessus de la crete, que couvre encore le voile. LES TOUFFES DE
-# LA CRETE depassent du sol sur le ciel : un voile qui s'arretait au ras de la
-# crete laissait leur sommet net, et la ligne d'horizon se herissait de petits
-# buissons vert sombre. Le voile garde donc sa pleine force sur une hauteur de
-# touffe, puis s'efface dans le ciel -- ou il se voit a peine, puisqu'il est
-# de la couleur du ciel.
-BRUME_AU_DESSUS = 0.036
-# Part de cette hauteur ou le voile reste a pleine force avant de s'effacer.
-BRUME_PALIER = 0.55
-# Comment la brume monte entre le champ proche et la crete : AU-DESSUS DE 1,
-# elle reste legere sur la premiere moitie de la bande et s'epaissit vers le
-# fond -- la distance, elle, croit de plus en plus vite a mesure qu'on
-# approche de l'horizon.
-BRUME_COURBE = 1.5
-# La brume est plus BLANCHE que le ciel a l'horizon : pres du sol, l'air
-# porte de la vapeur et des poussieres qui diffusent toutes les couleurs a peu
-# pres autant. Sans cela les collines viraient au bleu franc.
-BRUME_BLANCHE = 0.45
 
 class _BordDuSol(object):
     """Le bord REEL d'un sol dessine par _fill_curve.
@@ -580,75 +542,6 @@ class _BordDuSol(object):
         return bas
 
 
-_RAMPE_BRUME = []
-
-
-def _rampe_brume():
-    """La rampe d'opacite de la brume : une petite texture, blanche.
-
-    Lue de bas en haut (v = 0 au bord du champ proche) : l'opacite monte
-    jusqu'a BRUME_CRETE a mi-hauteur (v = 0,5 : la crete), tient ce palier
-    sur la hauteur des touffes de crete, puis retombe a zero en haut (v = 1).
-    C'est la Color du voile qui lui donne sa couleur."""
-    if _RAMPE_BRUME:
-        return _RAMPE_BRUME[0]
-    n, larg = 64, 4
-    octets = bytearray()
-    for j in range(n):
-        v = (j + 0.5) / n
-        if v <= 0.5:
-            a = BRUME_CRETE * (v / 0.5) ** BRUME_COURBE
-        else:
-            s = (v - 0.5) / 0.5
-            s = max(0.0, (s - BRUME_PALIER) / (1.0 - BRUME_PALIER))
-            a = BRUME_CRETE * (1.0 - s * s * (3.0 - 2.0 * s))
-        octets += bytes((255, 255, 255, int(max(0.0, min(1.0, a)) * 255
-                                             + 0.5))) * larg
-    try:
-        tex = texture_depuis_octets((larg, n), octets, wrap="clamp_to_edge",
-                                    mag_filter="linear", min_filter="linear")
-    except Exception:
-        tex = None
-    _RAMPE_BRUME.append(tex)
-    return tex
-
-# --- L'EAU DU LAC ------------------------------------------------------ #
-# Trois couches, sur la meme surface :
-#
-#   1. LE FOND (water_B) : des cailloux sous une eau claire. IMMOBILE -- un
-#      lit de riviere ne bouge pas, c'est l'eau qui passe dessus.
-#   2. LE REFLET DU CIEL, nul au bord et de plus en plus fort vers la rive
-#      d'en face. Vue de pres, une eau claire laisse voir son fond ; vue de
-#      loin et de biais, elle renvoie le ciel. C'est la couleur du ciel
-#      AFFICHE (voir _applique_brume) : bleue a midi, orange au couchant,
-#      noire la nuit.
-#   3. L'ECUME (water_E), en DEUX COUCHES qui derivent de gauche a droite,
-#      pas a la meme vitesse ni a la meme echelle -- la seconde est aussi
-#      retournee. Une seule couche glisserait d'un bloc, comme un tapis
-#      roulant ; deux qui se croisent font des motifs qui se defont et se
-#      refont, comme sur une vraie eau qui coule.
-#
-# LES VIGNETTES ANIMEES LIVREES AVEC L'EAU NE SERVENT PAS. Mesure faite sur
-# les deux planches, elles ne s'enchainent pas : d'une vignette a la
-# suivante, l'ecume change de place sans direction -- et sur la seconde, les
-# cailloux eux-memes ne sont plus les memes. Jouees a la suite, elles
-# clignoteraient. L'ecume tiree de la grande image, elle, derive dans UN
-# sens.
-#
-# Le decalage de l'ecume se fait dans l'espace de la TEXTURE : sur l'eau en
-# perspective, elle avance donc moins vite au loin a l'ecran, comme il se
-# doit.
-#
-# LA VITESSE SE JUGE SUR LE TELEPHONE. La tuile fait 900 px quel que soit
-# l'ecran : a 0,030 tuile par seconde, l'ecume avancait de 27 px/s, soit
-# moins de 2 mm par seconde sur un ecran de 2340 px -- une eau qu'on croyait
-# figee. Au double, elle derive encore calmement (il faut une quarantaine de
-# secondes pour traverser l'ecran), mais on la VOIT couler.
-#
-# 30 images par seconde, comme les flammes : le ciel redessine deja l'ecran
-# soixante fois par seconde, et deplacer l'ecume coute 0,02 ms.
-#
-# (echelle de la tuile, vitesse en tuiles par seconde, opacite, retournee)
 ECUME_COUCHES = ((1.00, 0.060, 0.85, False),
                  (1.45, 0.048, 0.50, True))
 ECUME_FPS = 30.0
@@ -741,6 +634,20 @@ RAYON_LOIN = 2.0 ** 1.5           # le coin : racine de 8
 # part de quart de tour : vu a cheval sur deux panneaux, il l'est dans les
 # deux, au meme endroit de l'ecran.
 MARGE_PANNEAU = 32.0
+
+# LA FORET VOISINE (voir _foret_voisine) : candidats par quart du tour, leur
+# distance derriere la crete (metres), leur hauteur vraie ; au fond d'une
+# vallee (vue d'un versant), leur nombre et leur distance ; et leur teinte --
+# presque celle de leur image de pres, a peine plus froide au loin.
+FORET_VOISINE = 120
+FORET_VOISINE_PRES = 95.0
+FORET_VOISINE_LOIN = 320.0
+FORET_VOISINE_TAILLE = (13.0, 24.0)
+FORET_VALLEE = 360
+FORET_VALLEE_PRES = 260.0
+FORET_VALLEE_LOIN = 1100.0
+FORET_VOISINE_TEINTE = (0.92, 0.94, 0.92)
+FORET_VOISINE_FROID = (0.80, 0.86, 0.90)
 # CE QUI N'EST TIRE QUE POUR UN PANNEAU (les objets a ramasser, la litiere,
 # les plantes...) n'est dessine que par lui : pose trop pres de son bord, il
 # etait coupe net par la decoupe du panneau, sans que le voisin en dessine
@@ -1371,10 +1278,9 @@ class ZoneScenery(Widget):
             "baies": tuple(sorted(state.baies_par_buisson().items())),
             "direction": direction % 4,
             "sans_sol": bool(sans_sol),
-            # Le versant ou la rive : les huit cases autour.
-            "relief": (tuple(_case_autour(state, dx, dy)
-                             for dx, dy in HUIT_VOISINS)
-                       if zone in ("Montagne", "Rive") else None),
+            # Les huit cases autour : le versant, la rive, la foret voisine.
+            "relief": tuple(_case_autour(state, dx, dy)
+                            for dx, dy in HUIT_VOISINS),
         }
         cle = tuple((k, tuple(sorted(v.items())) if isinstance(v, dict)
                      else v) for k, v in sorted(decor.items())) + (apercu,)
@@ -1762,7 +1668,7 @@ class ZoneScenery(Widget):
         la carte."""
         self._versant = None
         self._autour = None
-        if self._zone not in ("Montagne", "Lac") or not relief:
+        if not relief:
             return
         self._autour = [(math.atan2(dx, -dy), z)
                         for (dx, dy), z in zip(HUIT_VOISINS, relief)]
@@ -3533,40 +3439,128 @@ class ZoneScenery(Widget):
         recolter. Le joueur verrait sa case se reconstruire rien qu'en
         tournant sur lui-meme. Ici, la ligne d'horizon depend des voisins,
         et rien d'autre n'en depend."""
-        horizon.draw(self._neighbours, self.x, self.width, crest,
+        # Les silhouettes ne servent plus qu'a la montagne ; la foret
+        # voisine, ce sont de vrais arbres (voir _foret_voisine).
+        voisins = {c: (None if z == "Foret" else z)
+                   for c, z in self._neighbours.items()}
+        horizon.draw(voisins, self.x, self.width, crest,
                      self.height, random.Random(self._graine_voisins()),
                      plein=True,
-                     au_ras=self._sans_sol or self._nappe is not None,
-                     arbre=self._arbre_lointain)
+                     au_ras=self._sans_sol or self._nappe is not None)
+        self._foret_voisine()
 
-    # Les arbres lointains sont un peu assombris avant d'etre voiles : vus de
-    # loin et de biais, on y voit surtout leurs faces a l'ombre.
-    TEINTE_LOINTAIN = (0.80, 0.84, 0.82)
+    def part_de(self, azimut, zone):
+        """La part (0 a 1) de ce type de case autour du joueur dans cette
+        direction (radians) : chaque case voisine pese d'autant plus qu'on
+        regarde vers elle."""
+        num = den = 0.0
+        for az, z in self._autour_ou_voisins():
+            k = math.exp(RIVE_FOCALE * math.cos(azimut - az))
+            den += k
+            if z == zone:
+                num += k
+        return num / den if den else 0.0
 
-    def _arbre_lointain(self, nom, x, pied, hauteur, brume):
-        """Un arbre de l'horizon (voir horizon._foret) : l'image du jeu,
-        puis sa silhouette par-dessus, de la couleur du ciel, d'autant plus
-        opaque qu'il est loin. Faux s'il n'y a pas d'image."""
-        if hauteur < 2.0:
-            return True                     # trop petit pour se voir
-        pick = foliage.variante_droite(nom, self._pick(x, pied))
-        if not self._sprite(nom, x, pied, hauteur, pick=pick,
-                            teinte=self.TEINTE_LOINTAIN):
-            return False
-        sil = foliage.silhouette(nom, pick)
-        tex = foliage.sprite(nom, pick)
-        if sil is None or tex is None or brume <= 0.0:
-            return True
-        w, h = foliage.size_for(tex, hauteur)
-        # La couleur suit le ciel, a toute heure et par tout temps (voir
-        # _applique_brume) ; seule son opacite est la notre.
-        voile = Color(1, 1, 1, brume)
-        if self._brume_couleur is None:
-            self._brume_couleur = []
-        self._brume_couleur.append((voile, 0.0))
-        Rectangle(pos=(x - w / 2.0, pied), size=(w, h), texture=sil)
-        self._applique_brume()
-        return True
+    def _autour_ou_voisins(self):
+        """Les huit cases autour ; a defaut (scene dessinee seule), les trois
+        voisins que connait ce panneau."""
+        if self._autour:
+            return self._autour
+        d = self._direction
+        return [(math.radians(((d + k) % 4) * FOV), self._neighbours.get(c))
+                for k, c in ((0, "face"), (-1, "voisin_g"), (1, "voisin_d"))]
+
+    def _foret_voisine(self):
+        """LA FORET D'A COTE, en vrais arbres.
+
+        Elle etait une frange de triangles et de ronds d'un vert uni, voilee
+        de bleu : une decoration plaquee sur l'horizon. Ce sont maintenant les
+        images d'arbres du jeu, posees comme le seraient de vrais arbres :
+        chacun a sa direction et sa distance (de FORET_VOISINE_PRES a
+        FORET_VOISINE_LOIN metres), donc sa taille a l'ecran ; ils sortent de
+        DERRIERE la crete, le pied cache par le terrain, et les plus proches
+        passent devant les plus lointains. Depuis un versant de montagne, la
+        foret de la vallee est vue d'en haut, posee sur le fond de vallee.
+
+        La ou il y a du lac, rien : c'est la berge d'en face qui se montre.
+
+        Semee pour le tour (voir semis) : un arbre a cheval sur deux panneaux
+        est dessine par les deux, au meme endroit. Rien n'est voile : l'air
+        est clair ; les plus lointains sont juste un peu plus froids."""
+        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        if w <= 0 or h <= 0:
+            return
+        ppd = w / FOV
+        y_h = y0 + self.hauteur_horizon() * h
+        arbres = []
+        vallees = self._zone == "Montagne"
+
+        def crete_de(az):
+            return (self.crete_tour(az) - self.hauteur_horizon()) * h / ppd
+
+        def en_vallee(crete):
+            return vallees and crete < nappe.VALLEE_HAUT - 0.5
+
+        def tirage(r):
+            return (r.random(), r.random(), r.random(),
+                    r.uniform(*FORET_VOISINE_TAILLE), r.random() < 0.55,
+                    r.uniform(0.6, 1.0))
+
+        def densite(az):
+            p = self.part_de(az, "Foret")
+            return max(0.0, min(1.0, (p - 0.10) / 0.30))
+
+        # DERRIERE LA CRETE : le pied cache, d'autant plus que l'arbre est
+        # loin.
+        for fx, r, _n in self.semis(FORET_VOISINE, "foret-voisine",
+                                    marge=0.12):
+            az = math.radians((self._direction + fx - 0.5) * FOV)
+            garde, u, v, haut_m, pin, cache = tirage(r)
+            if garde >= densite(az) or self.rivage(az) is not None:
+                continue
+            if en_vallee(crete_de(az)):
+                continue
+            d = FORET_VOISINE_PRES + (FORET_VOISINE_LOIN
+                                      - FORET_VOISINE_PRES) * u ** 0.8
+            loin = (d - FORET_VOISINE_PRES) / (FORET_VOISINE_LOIN
+                                                - FORET_VOISINE_PRES)
+            pied = y0 + self.crete_tour(az) * h
+            coupe = (0.08 + 0.30 * loin) * cache
+            th = math.degrees(math.atan2(haut_m, d)) * ppd
+            if th >= 3.0:
+                arbres.append((d, x0 + fx * w, pied, th, coupe, pin, v))
+        # AU FOND DE LA VALLEE, vue d'un versant : posee sur le sol de la
+        # vallee (voir sol.PROFONDEUR_VALLEE), plus serree -- de si haut, une
+        # foret est une etendue de cimes.
+        if vallees:
+            for fx, r, _n in self.semis(FORET_VALLEE, "foret-vallee",
+                                        marge=0.06):
+                az = math.radians((self._direction + fx - 0.5) * FOV)
+                garde, u, v, haut_m, pin, cache = tirage(r)
+                crete = crete_de(az)
+                if garde >= densite(az) or not en_vallee(crete):
+                    continue
+                d = FORET_VALLEE_PRES * (FORET_VALLEE_LOIN
+                                         / FORET_VALLEE_PRES) ** u
+                a = -math.degrees(math.atan2(nappe.PROFONDEUR_VALLEE, d))
+                if a < crete + 0.2:
+                    continue                  # cache par le versant
+                th = math.degrees(math.atan2(haut_m, d)) * ppd
+                if th >= 3.0:
+                    arbres.append((d, x0 + fx * w, y_h + a * ppd, th, 0.0,
+                                   pin, v))
+        # Du plus loin au plus proche.
+        for d, x, pied, th, coupe, pin, v in sorted(arbres, reverse=True):
+            loin = min(1.0, d / FORET_VALLEE_LOIN)
+            teinte = tuple(a + (b - a) * loin for a, b in
+                           zip(FORET_VOISINE_TEINTE, FORET_VOISINE_FROID))
+            nom = "pine_tree" if pin else "forest_tree"
+            pick = foliage.variante_droite(nom, int(v * 9973))
+            if not self._sprite(nom, x, pied, th, pick=pick, teinte=teinte,
+                                coupe_bas=coupe):
+                Color(*(teinte + (1,)))
+                Triangle(points=[x - th * 0.3, pied, x + th * 0.3, pied,
+                                 x, pied + th * (1.0 - coupe)])
 
     # -- helpers textures (surface plane texturee, sinon couleur de repli) - #
     def _trect(self, name, x, y, w, h, tile_px=None):
@@ -5613,62 +5607,15 @@ class ZoneScenery(Widget):
                 continue
             items.append((gb, f_grass(gx, gb, gh, green_at(t), sc, None, 0)))
 
-        # LA BRUME DU LOINTAIN, posee DANS le tri et non par-dessus la scene :
-        # tout ce qui est plus loin que le bord du champ proche -- la bande
-        # lointaine, son herbe, ce qu'on y a installe -- est dessine AVANT
-        # elle, donc voile ; le champ proche, dessine apres, reste net. Un
-        # buisson du premier plan qui monte jusque dans la bande lointaine ne
-        # prend donc pas le voile du fond. Une seule forme pour toute la scene.
-        bas_champ = min(field_curve(i / 64.0) for i in range(65))
-        items.append((bas_champ - 0.5,
-                      lambda: self._brume(field_curve, horizon_curve)))
+        # (PLUS DE BRUME DU LOINTAIN : ce voile de la couleur du ciel posait
+        # un flou laiteux sur tout le fond du champ, qu'on prenait pour du
+        # brouillard. Par temps clair, l'air ne fait pas cela a quelques
+        # centaines de metres.)
 
         # Rendu trie : plus loin (base haute) d'abord, plus proche par-dessus.
         items += self._installed_items()     # feu de camp... a leur profondeur
         items += self._edge_items()          # la case d'a cote, qui deborde
         self._dessine(items)
-
-    def _brume(self, bas_fn, crete_fn):
-        """Le voile d'air entre l'oeil et le lointain (voir BRUME_CRETE).
-
-        Une bande qui suit le terrain : nulle au bord du champ proche, elle
-        s'epaissit jusqu'a la crete puis s'efface juste au-dessus. Sa couleur
-        est celle du ciel a l'horizon (voir _applique_brume) : a la crete, la
-        colline se fond a moitie dans le ciel, et la ligne d'horizon cesse
-        d'etre une decoupe.
-
-        UNE TEXTURE PORTE LE DEGRADE, parce qu'un maillage Kivy ne sait pas
-        donner une opacite par sommet : le voile est une couleur unie dont
-        l'alpha est lu, rangee par rangee, dans une rampe (voir _rampe_brume).
-
-        DEUX BANDES, DEUX COULEURS. Sur le TERRAIN, la brume est blanchie
-        (BRUME_BLANCHE). AU-DESSUS DE LA CRETE, elle recouvre surtout du ciel
-        -- elle n'est la que pour voiler le sommet des touffes de crete -- et
-        prend donc la couleur exacte du ciel : blanchie, elle y dessinait un
-        halo pale qui suivait le contour des collines."""
-        rampe = _rampe_brume()
-        if rampe is None:
-            return
-        x0, w, h = self.x, self.width, self.height
-        segs = max(24, int(w / 36.0))
-        dessus = BRUME_AU_DESSUS * h
-        terrain, ciel, idx = [], [], []
-        for i in range(segs + 1):
-            fx = i / float(segs)
-            x = x0 + fx * w
-            bas = bas_fn(fx)
-            crete = max(bas + 1.0, crete_fn(fx))
-            terrain += [x, bas, 0.5, 0.0, x, crete, 0.5, 0.5]
-            ciel += [x, crete, 0.5, 0.5, x, crete + dessus, 0.5, 1.0]
-            if i:
-                p, q = (i - 1) * 2, i * 2
-                idx += [p, q, q + 1, p, q + 1, p + 1]
-        self._brume_couleur = []
-        for sommets, blanche in ((terrain, BRUME_BLANCHE), (ciel, 0.0)):
-            self._brume_couleur.append((Color(1, 1, 1, 1), blanche))
-            Mesh(vertices=sommets, indices=idx, mode="triangles",
-                 texture=rampe)
-        self._applique_brume()
 
     def _montagne(self, rng):
         """LE VERSANT (voir relief_tour) : le sol monte vers les cases de

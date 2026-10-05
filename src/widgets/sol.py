@@ -84,14 +84,21 @@ PRES_FIN = 14.0
 # LA VALLEE, vue d'un rebord : de VALLEE_HAUT (juste sous l'horizon, le plus
 # lointain) jusque sous le rebord, que la nappe recouvre. En bandes, du plus
 # loin au plus pres (VALLEE_BANDES, en degres) : la plus lointaine est la
-# plus noyee dans le ciel (BRUME_VALLEE), et de l'une a l'autre la brume ne
-# baisse que d'un cran, sans ligne visible. La derniere descend jusque sous
+# plus bleuie par l'air (BRUME_VALLEE, a peine : par temps clair on voit
+# loin), et de l'une a l'autre la teinte ne change que d'un cran, sans ligne
+# visible. La derniere descend jusque sous
 # le rebord.
 VALLEE_BANDES = (-0.6, -1.2, -2.0, -3.2, -5.0)
 VALLEE_HAUT = VALLEE_BANDES[0]
 VALLEE_SOUS_REBORD = 4.0
 VERT_VALLEE = (0.17, 0.27, 0.11)
-BRUME_VALLEE = (0.50, 0.42, 0.34, 0.26, 0.18)
+# LE FOND DE VALLEE est un vrai sol, vu d'en haut : de l'herbe, a cette
+# profondeur sous l'oeil (metres), en tuiles de ce cote (metres), et un peu
+# assombrie (TEINTE_VALLEE). Il n'etait qu'un aplat vert.
+PROFONDEUR_VALLEE = 70.0
+TUILE_VALLEE = 9.0
+TEINTE_VALLEE = (0.78, 0.82, 0.78)
+BRUME_VALLEE = (0.24, 0.20, 0.16, 0.12, 0.08)
 
 # L'EAU : son niveau sous les pieds (metres), la berge d'en face (metres),
 # les rangees de son maillage, sa tuile (metres) et sa matiere (le fond du
@@ -105,7 +112,7 @@ MATIERE_EAU = "water"
 # couleur, a moitie noyee dans le ciel. Elle part un peu sous l'eau (que
 # l'eau recouvre) pour qu'aucun jour ne reste entre les deux.
 VERT_BERGE = (0.20, 0.30, 0.12)
-BRUME_BERGE = 0.38
+BRUME_BERGE = 0.16
 BERGE_SOUS_EAU = 0.4
 # LE SABLE MOUILLE, le long de l'eau : une bande sombre, a demi
 # transparente, sur les SABLE_MOUILLE derniers metres de la plage. Le
@@ -172,11 +179,47 @@ def _texture(nom):
                     tex = CoreImage(chemin, mipmap=True).texture
                     tex.wrap = "repeat"
                     tex.min_filter = "linear_mipmap_linear"
+                    _anisotrope(tex)
                 except Exception:
                     tex = None
                 break
         _TEXTURES[nom] = tex
     return _TEXTURES[nom]
+
+
+_ANISOTROPIE = []
+
+
+def _anisotrope(tex):
+    """LE SOL RESTE NET AU LOIN. Vu en enfilade, il est lu dans ses
+    reductions (mipmaps), qui le brouillent d'autant plus qu'on le regarde a
+    plat : au loin, il devenait un flou qu'on prenait pour de la brume. Le
+    filtrage anisotrope y lit les details dans le bon sens. C'est une
+    extension d'OpenGL presque partout presente ; absente, rien ne change."""
+    if not _ANISOTROPIE:
+        niveau = 0.0
+        try:
+            from kivy.graphics import opengl as gl
+            ext = gl.glGetString(gl.GL_EXTENSIONS) or b""
+            if b"texture_filter_anisotropic" in ext:
+                niveau = 8.0
+                try:
+                    maxi = gl.glGetFloatv(0x84FF)      # ..._MAX_ANISOTROPY
+                    maxi = maxi[0] if isinstance(maxi, (list, tuple)) \
+                        else maxi
+                    niveau = max(1.0, min(niveau, float(maxi)))
+                except Exception:
+                    niveau = 4.0
+        except Exception:
+            niveau = 0.0
+        _ANISOTROPIE.append(niveau)
+    if _ANISOTROPIE[0] > 1.0:
+        try:
+            from kivy.graphics import opengl as gl
+            tex.bind()
+            gl.glTexParameterf(gl.GL_TEXTURE_2D, 0x84FE, _ANISOTROPIE[0])
+        except Exception:
+            pass
 
 
 def altitude(pente, crete, d):
@@ -338,6 +381,9 @@ class Nappe(object):
             self._ctx["sol_fondu"] = [float(fondu[0]), float(fondu[1])]
         self._mesh_eau.texture = _texture(MATIERE_EAU)
         self._mesh_berge.texture = _texture("grass")
+        tex_vallee = _texture("grass") if self._vallee else None
+        for m in self._meshes_vallee:
+            m.texture = tex_vallee
         self._vide(self._meshes_vallee + [self._mesh_berge, self._mesh_eau,
                                           self._mesh_mouille])
         self._applique_couleurs()
@@ -439,9 +485,20 @@ class Nappe(object):
     def _applique_couleurs(self):
         if self._mesh.texture is not None:
             self._couleur.rgb = self._jour
-        vert = tuple(v * j for v, j in zip(VERT_VALLEE, self._jour))
+        herbe = textures.average_color("grass") or (0.33, 0.42, 0.10)
+        texturee = bool(self._meshes_vallee) and \
+            self._meshes_vallee[0].texture is not None
+        if texturee:
+            # La texture porte la couleur : la teinte ne fait que l'assombrir
+            # un peu, et la ramener vers le ciel d'un soupcon.
+            vert = tuple(t * j for t, j in zip(TEINTE_VALLEE, self._jour))
+            ciel = tuple(c / max(0.05, m) for c, m in
+                         zip(self._ciel, herbe[:3]))
+        else:
+            vert = tuple(v * j for v, j in zip(VERT_VALLEE, self._jour))
+            ciel = self._ciel
         for couleur, brume in zip(self._couleurs_vallee, BRUME_VALLEE):
-            couleur.rgb = _melange(vert, self._ciel, brume)
+            couleur.rgb = _melange(vert, ciel, brume)
         # La berge : l'herbe, dont la texture lointaine n'est plus que sa
         # couleur moyenne -- la teinte la ramene a ce vert, puis au ciel.
         herbe = textures.average_color("grass") or (0.33, 0.42, 0.10)
@@ -492,9 +549,19 @@ class Nappe(object):
                 bas = min(self._bords[s % SECTEURS], VALLEE_BANDES[-1]) \
                     - VALLEE_SOUS_REBORD
                 bords = VALLEE_BANDES + (bas,)
+                sa = math.sin(math.radians(az))
+                ca = math.cos(math.radians(az))
+                uv = []
+                for a in bords:
+                    # Le point du fond de vallee vu sous cet angle.
+                    d = PROFONDEUR_VALLEE / math.tan(math.radians(
+                        -min(a, -0.05)))
+                    uv.append((d * sa / TUILE_VALLEE, d * ca / TUILE_VALLEE))
                 for i, bande in enumerate(bandes):
-                    bande += [x, y_horizon + bords[i] * ppd, 0.0, 0.0,
-                              x, y_horizon + bords[i + 1] * ppd, 0.0, 0.0]
+                    bande += [x, y_horizon + bords[i] * ppd,
+                              uv[i][0], uv[i][1],
+                              x, y_horizon + bords[i + 1] * ppd,
+                              uv[i + 1][0], uv[i + 1][1]]
             if self._eau is not None:
                 for a, u, v in self._eau[s % SECTEURS]:
                     eau += [x, y_horizon + a * ppd, u, v]
