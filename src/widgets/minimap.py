@@ -1,5 +1,10 @@
 """
-Mini-carte : affiche toute la carte 25x25 et la position du joueur.
+Mini-carte : une fenetre de 25 x 25 cases du monde (sans fin), le joueur
+TOUJOURS AU MILIEU.
+
+Le joueur ne se deplace pas sur la carte : c'est la carte qui glisse sous
+lui. Un pas vers le nord fait disparaitre la rangee du bas et apparaitre une
+nouvelle rangee en haut, calculee a la demande (voir world.Monde).
 
 Chaque case est un petit rectangle colore selon le type de zone. La case du
 joueur est marquee par un carre dore. On redessine seulement quand c'est utile
@@ -46,6 +51,8 @@ class MiniMap(Widget):
             return
 
         n_w, n_h = world.GRID_W, world.GRID_H
+        rx0 = state.player_x - n_w // 2      # la colonne de gauche
+        ry0 = state.player_y - n_h // 2      # la rangee du haut (le nord)
         cell = min(self.width / n_w, self.height / n_h)
         # On centre la grille dans le widget.
         ox = self.x + (self.width - cell * n_w) / 2
@@ -63,20 +70,21 @@ class MiniMap(Widget):
             
             # Ensuite, dessiner les zones revelees avec leur vraie couleur
             # (toutes, en mode debug).
-            for ry in range(n_h):
-                draw_y = oy + (n_h - 1 - ry) * cell
+            for j in range(n_h):
+                ry = ry0 + j
+                draw_y = oy + (n_h - 1 - j) * cell
                 row = state.grid[ry]
-                for rx in range(n_w):
+                for i in range(n_w):
+                    rx = rx0 + i
                     key = f"{rx},{ry}"
                     if state.debug or key in state.revealed:
                         Color(*world.zone_color(row[rx]))
-                        Rectangle(pos=(ox + rx * cell, draw_y),
+                        Rectangle(pos=(ox + i * cell, draw_y),
                                   size=(cell - 1, cell - 1))
 
-            # Marqueur du joueur (carre dore).
-            px, py = state.player_x, state.player_y
-            mx = ox + px * cell
-            my = oy + (n_h - 1 - py) * cell
+            # Marqueur du joueur (carre dore), TOUJOURS au milieu.
+            mx = ox + (n_w // 2) * cell
+            my = oy + (n_h - 1 - n_h // 2) * cell
             Color(1.0, 0.85, 0.25, 1)
             Rectangle(pos=(mx, my), size=(cell - 1, cell - 1))
             Color(0, 0, 0, 0.9)

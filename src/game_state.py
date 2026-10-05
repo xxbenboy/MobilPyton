@@ -532,7 +532,7 @@ class GameState:
         """Type de la case voisine dans cette direction (absolue), ou None
         au-dela du bord de la carte."""
         nx, ny = self.player_x + dx, self.player_y + dy
-        if 0 <= nx < world.GRID_W and 0 <= ny < world.GRID_H:
+        if world.dans_le_monde(nx, ny):
             return self.grid[ny][nx]
         return None
 
@@ -951,7 +951,7 @@ class GameState:
         for dx in (-1, 0, 1):
             for dy in (-1, 0, 1):
                 nx, ny = x + dx, y + dy
-                if 0 <= nx < world.GRID_W and 0 <= ny < world.GRID_H:
+                if world.dans_le_monde(nx, ny):
                     self.revealed.add(f"{nx},{ny}")
 
     def hands_full(self):

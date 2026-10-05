@@ -242,7 +242,7 @@ def zone_den_face(state, portee=PORTEE_BERGE, direction=None):
         dx, dy = CARDINALS[direction % 4]
     for pas in range(1, portee + 1):
         nx, ny = state.player_x + dx * pas, state.player_y + dy * pas
-        if not (0 <= nx < world.GRID_W and 0 <= ny < world.GRID_H):
+        if not (world.dans_le_monde(nx, ny)):
             return None
         zone = state.grid[ny][nx]
         if zone not in _TRAVERSABLE:
@@ -262,7 +262,7 @@ def neighbours_of(state):
     for cote, turn in (("face", 0), ("droite", 1), ("gauche", 3)):
         dx, dy = state.dir_vector(turn)
         nx, ny = state.player_x + dx, state.player_y + dy
-        if 0 <= nx < world.GRID_W and 0 <= ny < world.GRID_H:
+        if world.dans_le_monde(nx, ny):
             # UNE CASE DU MEME TYPE COMPTE AUTANT QU'UNE AUTRE. Elle etait
             # ecartee ici, au motif que "le decor la montre deja" ; mais ce
             # qu'on voyait alors, dans une foret entouree de foret, c'etait le
@@ -287,6 +287,6 @@ def voisin_dans(state, direction):
     from src.game_state import CARDINALS
     dx, dy = CARDINALS[direction % 4]
     nx, ny = state.player_x + dx, state.player_y + dy
-    if 0 <= nx < world.GRID_W and 0 <= ny < world.GRID_H:
+    if world.dans_le_monde(nx, ny):
         return state.grid[ny][nx]
     return None

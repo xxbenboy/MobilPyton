@@ -1,31 +1,34 @@
 """
-Le MONDE : carte generative en zones.
+Le MONDE : carte generative en zones, SANS FIN.
 
-La carte est une grille de GRID_W x GRID_H zones (625 = 25x25 pour commencer).
-Chaque zone fait 1 km x 1 km et a un TYPE (foret, plaine, montagne, lac, rive).
-Le type determine sa couleur sur la mini-carte et, plus tard, ce qu'on peut y
-faire.
+Chaque zone fait 1 km x 1 km et a un TYPE (foret, plaine, montagne, lac,
+rive). Le type determine sa couleur sur la carte et ce qu'on peut y faire.
+
+LE MONDE N'A PAS DE BORD : chaque case se calcule a la demande, d'apres la
+graine de la partie et ses coordonnees (qui peuvent etre negatives), et
+seulement quand on la regarde (voir Monde). Memes graine => meme monde,
+partout : on n'a donc rien a sauvegarder, et marcher dans une direction en
+fait apparaitre de nouvelles a l'infini.
 
 LE LAC NE SE VISITE PAS : on le longe par sa RIVE, une bande de cases de sable
-posee tout autour de chaque lac (voir _pose_les_rives). La rive est la seule
-case d'un lac ou l'on puisse aller.
+posee tout autour de chaque lac. La rive est la seule case d'un lac ou l'on
+puisse aller.
 
-La carte est GENERATIVE : entierement deduite de la graine (seed) de la
-partie. Memes graine => meme monde. On n'a donc pas besoin de la sauvegarder :
-on la regenere au chargement.
-
-Generation : on remplit d'abord chaque case au hasard, puis on lisse plusieurs
-fois (chaque case prend le type majoritaire de son voisinage). Ca cree des
-REGIONS coherentes (forets, massifs, lacs) plutot qu'un bruit aleatoire.
+Generation, case par case : un type tire au hasard (d'apres la case), puis
+trois LISSAGES (chaque case prend le type majoritaire de son voisinage 3x3),
+ce qui cree des REGIONS coherentes (forets, massifs, lacs) plutot qu'un
+bruit ; enfin les rives. Une case ne depend que de ses voisines a quatre pas :
+elle se calcule seule, sans connaitre le reste du monde.
 """
 import random
 
-# Taille de la carte (25 x 25 = 625 zones).
+# LA FENETRE DE LA CARTE : combien de cases elle montre de cote, le joueur
+# toujours au milieu (voir MiniMap). Le monde, lui, n'a pas de taille.
 GRID_W = 25
 GRID_H = 25
 
-# Zone de DEPART : une case prise au hasard dans le carre central.
-CENTER_RADIUS = 2          # 5x5 cases autour du centre
+# Zone de DEPART : une case prise au hasard pres de l'origine (0, 0).
+CENTER_RADIUS = 2
 
 # Types de zones (on commence avec 4). 'weight' = frequence relative a la
 # generation. 'color' = couleur sur la mini-carte. 'desc' = a quoi ca sert.
@@ -85,81 +88,122 @@ def zone_desc(zone_type):
     return ZONE_TYPES.get(zone_type, ZONE_TYPES[DEFAULT_TYPE])["desc"]
 
 
-def _smooth(grid, rng):
-    """Une passe de lissage : chaque case prend le type majoritaire autour."""
-    new = [[None] * GRID_W for _ in range(GRID_H)]
-    for y in range(GRID_H):
-        for x in range(GRID_W):
-            counts = {}
+def _hache(seed, x, y, sel):
+    """Un entier pseudo-aleatoire STABLE pour (graine, x, y, sel)."""
+    h = (int(seed) * 0x9E3779B1 + x * 0x85EBCA77 + y * 0xC2B2AE3D
+         + sel * 0x27D4EB2F) & 0xFFFFFFFFFFFF
+    h ^= h >> 23
+    h = (h * 0x2127599BF4325C37) & 0xFFFFFFFFFFFFFFFF
+    h ^= h >> 47
+    return h
+
+
+class Monde(object):
+    """Le monde sans fin d'une graine : `monde[y][x]` est le type de la case
+    (x, y), pour tous x et y entiers. Chaque case n'est calculee qu'une fois,
+    quand on la demande ; le monde ne s'etend qu'aux endroits qu'on regarde.
+
+    Les cases d'origine se tirent dans la meme reserve ponderee qu'avant
+    (ZONE_TYPES, 'weight'), puis passent par LISSAGES lissages et les rives :
+    le paysage a le meme caractere que l'ancienne carte de 25 x 25."""
+
+    LISSAGES = 3
+    # Au-dela de tant de cases retenues, on oublie tout : elles se
+    # recalculeront a l'identique si on y revient.
+    MEMOIRE_MAX = 200000
+
+    def __init__(self, seed):
+        self.seed = seed
+        self._reserve = []
+        for name, info in ZONE_TYPES.items():
+            self._reserve += [name] * info["weight"]
+        self._niveaux = [{} for _ in range(self.LISSAGES + 1)]
+        self._final = {}
+
+    def __getitem__(self, y):
+        return _Rangee(self, int(y))
+
+    def zone(self, x, y):
+        """Le type de la case (x, y)."""
+        cle = (x, y)
+        z = self._final.get(cle)
+        if z is None:
+            if len(self._final) > self.MEMOIRE_MAX:
+                self._oublie()
+            z = self._niveau(self.LISSAGES, x, y)
+            if z != "Lac" and any(
+                    self._niveau(self.LISSAGES, x + dx, y + dy) == "Lac"
+                    for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0))):
+                # PAR UN COTE, ET PAS PAR UN COIN : deux cases qui ne se
+                # touchent que par l'angle n'ont aucune frontiere commune, on
+                # ne voit pas l'eau de l'une depuis l'autre. Le lac garde
+                # toutes ses cases ; ce sont les terres autour qui cedent la
+                # bande de sable.
+                z = "Rive"
+            self._final[cle] = z
+        return z
+
+    def _niveau(self, k, x, y):
+        """Le type de (x, y) apres k lissages."""
+        cache = self._niveaux[k]
+        cle = (x, y)
+        z = cache.get(cle)
+        if z is not None:
+            return z
+        if k == 0:
+            z = self._reserve[_hache(self.seed, x, y, 0) % len(self._reserve)]
+        else:
+            comptes = {}
             for dy in (-1, 0, 1):
                 for dx in (-1, 0, 1):
-                    nx, ny = x + dx, y + dy
-                    if 0 <= nx < GRID_W and 0 <= ny < GRID_H:
-                        t = grid[ny][nx]
-                        counts[t] = counts.get(t, 0) + 1
-            best = max(counts.values())
-            winners = [t for t, c in counts.items() if c == best]
-            new[y][x] = rng.choice(winners) if len(winners) > 1 else winners[0]
-    return new
+                    t = self._niveau(k - 1, x + dx, y + dy)
+                    comptes[t] = comptes.get(t, 0) + 1
+            haut = max(comptes.values())
+            gagnants = sorted(t for t, c in comptes.items() if c == haut)
+            z = gagnants[_hache(self.seed, x, y, k) % len(gagnants)]
+        cache[cle] = z
+        return z
+
+    def _oublie(self):
+        self._final.clear()
+        for cache in self._niveaux:
+            cache.clear()
+
+
+class _Rangee(object):
+    """Une rangee du monde : `rangee[x]` est le type de la case (x, y)."""
+
+    __slots__ = ("monde", "y")
+
+    def __init__(self, monde, y):
+        self.monde = monde
+        self.y = y
+
+    def __getitem__(self, x):
+        return self.monde.zone(int(x), self.y)
+
+
+def dans_le_monde(x, y):
+    """Toute case existe : le monde n'a pas de bord."""
+    return True
 
 
 def generate_map(seed):
-    """Carte 2D grid[y][x] de types de zones, deduite de la graine."""
-    rng = random.Random(seed)
-    pool = []
-    for name, info in ZONE_TYPES.items():
-        pool += [name] * info["weight"]
-
-    grid = [[rng.choice(pool) for _ in range(GRID_W)] for _ in range(GRID_H)]
-    for _ in range(3):                 # 3 passes => regions bien dessinees
-        grid = _smooth(grid, rng)
-    return _pose_les_rives(grid)
-
-
-def _pose_les_rives(grid):
-    """Chaque case qui touche un lac PAR UN COTE devient sa RIVE.
-
-    PAR UN COTE, ET PAS PAR UN COIN. Deux cases qui ne se touchent que par
-    l'angle n'ont aucune frontiere commune : on ne passe pas de l'une a
-    l'autre, et depuis l'une on ne voit pas l'eau de l'autre -- on voit la
-    case d'a cote, qui est de la terre. En faire une rive posait sur la carte
-    des bandes de sable en escalier autour des lacs, et dans le jeu une plage
-    d'ou l'on ne rejoignait l'eau par aucun deplacement.
-
-    (La version d'avant prenait les huit voisins, pour "un contour complet,
-    sans trou aux angles". Le trou aux angles n'en est pas un : la ou deux
-    rives se rencontrent en diagonale, chacune touche le lac par son propre
-    cote, et le contour se ferme de lui-meme le long des cotes.)
-
-    LE LAC GARDE TOUTES SES CASES ; ce sont les terres autour qui cedent la
-    bande de sable. L'inverse -- border le lac avec ses propres cases -- ne
-    laisserait plus une goutte d'eau aux petits lacs, qui ne font souvent
-    qu'une ou deux cases.
-
-    Aucun tirage ici : le reste du monde est exactement celui qu'on aurait eu
-    sans les rives, a la bande de sable pres."""
-    rives = [(x, y) for y in range(GRID_H) for x in range(GRID_W)
-             if grid[y][x] != "Lac"
-             and any(0 <= x + dx < GRID_W and 0 <= y + dy < GRID_H
-                     and grid[y + dy][x + dx] == "Lac"
-                     for dx, dy in ((0, -1), (0, 1), (-1, 0), (1, 0)))]
-    for x, y in rives:
-        grid[y][x] = "Rive"
-    return grid
+    """Le monde sans fin de cette graine (voir Monde)."""
+    return Monde(seed)
 
 
 def random_center_cell(seed):
-    """Case de depart au hasard dans le carre central (x, y)."""
+    """Case de depart au hasard pres de l'origine (x, y)."""
     rng = random.Random(seed + 99991)  # graine derivee, independante
-    cx, cy = GRID_W // 2, GRID_H // 2
-    x = cx + rng.randint(-CENTER_RADIUS, CENTER_RADIUS)
-    y = cy + rng.randint(-CENTER_RADIUS, CENTER_RADIUS)
+    x = rng.randint(-CENTER_RADIUS, CENTER_RADIUS)
+    y = rng.randint(-CENTER_RADIUS, CENTER_RADIUS)
     return x, y
 
 
 def case_de_depart(seed, grid):
-    """La case de depart : au hasard dans le carre central, ou -- si elle
-    tombe dans un lac -- la case praticable la plus proche."""
+    """La case de depart : au hasard pres de l'origine, ou -- si elle tombe
+    dans un lac -- la case praticable la plus proche."""
     x, y = random_center_cell(seed)
     return plus_proche_praticable(grid, x, y)
 
@@ -173,12 +217,11 @@ def plus_proche_praticable(grid, x, y):
     parcours qui decide, toujours le meme."""
     if praticable(grid[y][x]):
         return x, y
-    for r in range(1, max(GRID_W, GRID_H)):
+    for r in range(1, 200):
         for dy in range(-r, r + 1):
             for dx in range(-r, r + 1):
                 nx, ny = x + dx, y + dy
                 if (max(abs(dx), abs(dy)) == r
-                        and 0 <= nx < GRID_W and 0 <= ny < GRID_H
                         and praticable(grid[ny][nx])):
                     return nx, ny
     return x, y

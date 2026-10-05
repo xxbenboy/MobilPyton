@@ -765,7 +765,7 @@ def ecart(a):
 def _case_autour(state, dx, dy):
     """Le type de la case a (dx, dy) du joueur, None hors de la carte."""
     nx, ny = state.player_x + dx, state.player_y + dy
-    if 0 <= nx < world.GRID_W and 0 <= ny < world.GRID_H:
+    if world.dans_le_monde(nx, ny):
         return state.grid[ny][nx]
     return None
 
