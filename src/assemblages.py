@@ -59,6 +59,10 @@ ASSEMBLAGES = [
 #            . .
 #            X X
 #
+#   Sac      . X .       un losange : les quatre feuilles se touchent toutes
+#            X . X       par les COINS, aucune par un bord
+#            . X .
+#
 # Pour les gants et les bottes, seuls comptent les deux groupes : ils doivent
 # etre SEPARES (aucune feuille de l'un ne touche l'autre, meme en coin), PEU
 # IMPORTE DE COMBIEN DE CASES ni dans quel sens. Colles, c'est le pantalon.
@@ -94,6 +98,7 @@ FORMES_FEUILLE = {
     "Pantalon_De_Feuille": ({(0, 0), (1, 0), (0, 1), (1, 1)},),
     "Soulier_De_Feuille": (lambda f: _deux_groupes(f, vertical=False),),
     "Gant_De_Feuille": (lambda f: _deux_groupes(f, vertical=True),),
+    "Sac_De_Feuille": ({(1, 2), (0, 1), (2, 1), (1, 0)},),
 }
 # LES MODELES montres en fantome dans la vue d'assemblage (voir
 # craft_screen.DemoFeuille), dans l'ordre ou ils defilent. La DERNIERE
@@ -104,6 +109,7 @@ MODELES_FEUILLE = (
     ("Pantalon_De_Feuille", ((0, 0), (1, 0), (0, 1), (1, 1))),
     ("Gant_De_Feuille", ((0, 0), (0, 1), (2, 0), (2, 1))),
     ("Soulier_De_Feuille", ((0, 0), (1, 0), (0, 2), (1, 2))),
+    ("Sac_De_Feuille", ((1, 0), (0, 1), (2, 1), (1, 2))),
 )
 EQUIPEMENT_FEUILLE = {
     "result": None, "famille": "feuille",

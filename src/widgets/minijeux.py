@@ -755,12 +755,18 @@ _TIGE = ((-0.6, 0.9), (-0.6, 0.45), (-0.6, 0), (-0.15, -0.15), (0.3, -0.15))
 _SEMELLE = ((-1.1, 0.25), (-0.55, -0.1), (0, -0.25), (0.55, -0.1),
             (1.1, 0.25))
 _POINTE = ((-1.1, 0.25), (-0.55, 0.15), (0, 0), (0.55, -0.15), (1.1, -0.3))
+# Sac : une bretelle en arc, la poche en U, le rabat qui descend en marche.
+_BRETELLE = ((-0.6, -0.8), (-0.75, -0.25), (-0.6, 0.3), (-0.2, 0.7),
+             (0.3, 0.8))
+_POCHE = ((-0.6, 0.6), (-0.6, 0.0), (0.0, -0.45), (0.6, 0.0), (0.6, 0.6))
+_RABAT = ((-1.0, 0.6), (-0.5, 0.6), (0.0, 0.15), (0.5, -0.3), (1.0, -0.3))
 PATRONS_FEUILLE = {
     "Casque_De_Feuille": (_MONTE, _DOME, _DESCEND_CASQUE),  # bord, sommet, bord
     "Veste_De_Feuille": (_MANCHE_G, _ENCOLURE, _MANCHE_D),  # manche, corps, manche
     "Pantalon_De_Feuille": (_JAMBE_G, _CEINTURE, _JAMBE_D),  # jambe, ceinture, jambe
     "Gant_De_Feuille": (_POUCE, _PAUME, _DOIGTS),          # pouce, paume, doigts
     "Soulier_De_Feuille": (_TIGE, _SEMELLE, _POINTE),      # tige, pied, pointe
+    "Sac_De_Feuille": (_BRETELLE, _POCHE, _RABAT),         # bretelle, poche, rabat
 }
 TIERS = 3
 HAUSSE_FEUILLES = 0.05
