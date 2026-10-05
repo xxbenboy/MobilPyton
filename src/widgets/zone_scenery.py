@@ -783,6 +783,11 @@ MARGE_PANNEAU = 32.0
 TEXTURES_POLAIRES = {"grass", "grass_far", "grass_loin", "forest_floor",
                      "forest_floor_far"}
 TOURS_TEXTURE = 1
+# L'HERBE EST SEMEE POUR LE TOUR COMPLET (voir ZoneScenery.semis) : chaque
+# panneau dessine celle de sa tranche, plus cette marge (en part de quart du
+# tour) de chaque cote. Une touffe pres d'un raccord est donc la MEME vue des
+# deux panneaux, et la decoupe ne coupe plus deux herbes differentes.
+MARGE_SEMIS = 0.08
 # Sous les pieds, le placage passe du polaire a la perspective du panneau sur
 # cette part de la hauteur d'ecran (voir ZoneScenery._uv_sous_sol).
 PASSAGE_SOUS_SOL = 0.5
@@ -1421,7 +1426,7 @@ class ZoneScenery(Widget):
             self._avail[name] = rng.randint(_AVAIL_MIN, _AVAIL_MAX)
         return self._avail[name]
 
-    def _take_or_skip(self, name):
+    def _take_or_skip(self, name, cle=None):
         """Compte un objet recoltable et dit s'il faut le MASQUER (deja recolte).
         A appeler pour CHAQUE objet recoltable lors de la construction.
 
@@ -1431,7 +1436,11 @@ class ZoneScenery(Widget):
         self._ord[name] = i + 1
         self._harvest_total[name] = self._ord[name]
         taken = self._taken.get(name, 0)
-        return (i % self._avail_for(name)) < taken
+        # `cle` : le numero du point dans un semis du tour (voir semis). La
+        # decision ne depend plus de l'ordre de ce panneau : un brin pres d'un
+        # raccord est masque, ou non, dans les deux panneaux a la fois.
+        rang = i if cle is None else cle
+        return (rang % self._avail_for(name)) < taken
 
     # OU S'ARRETE LE SOL DE CHAQUE ZONE, en part de la hauteur de l'ecran :
     # le point le plus BAS de sa surface proche, celle ou reposent les
@@ -1542,7 +1551,6 @@ class ZoneScenery(Widget):
         # baissee), les touffes sont si grandes que quelques-unes couvrent le
         # sol, et des milliers couteraient cher a chaque image.
         nb = int(nb * min(self.sous_sol, SOUS_SOL_TOUFFES_MAX))
-        rng = random.Random("%s:%s:sous-sol" % (self._seed, self._zone))
         if self._zone == "Foret":
             teintes = [(0.10, 0.20, 0.12, 1), (0.08, 0.17, 0.10, 1),
                        (0.12, 0.24, 0.14, 1)]
@@ -1554,13 +1562,15 @@ class ZoneScenery(Widget):
         # Un sol peu profond (l'ecran penche du craft) garde sa repartition
         # egale ; seul le sol des pieds se resserre.
         expo = SOUS_SOL_RESSERRE if self.sous_sol > 1.0 else 1.0
-        for _ in range(nb):
-            gb = y0 - prof * rng.random() ** expo
+        # SEMEES POUR LE TOUR (voir semis) : pres d'un raccord, les memes
+        # des deux cotes.
+        for fx, r, _n in self.semis(nb, "sous-sol"):
+            gb = y0 - prof * r.random() ** expo
             # Plus pres, plus grand : 1/k, comme la tuile du sol.
             proche = 1.0 / self._k_sous_sol(gb, a, haut)
-            gx = x0 + rng.uniform(-0.02, 1.02) * w
-            gh = rng.uniform(*hauteurs) * h * proche
-            items.append((gb, self._touffe(gx, gb, gh, rng.choice(teintes),
+            gx = x0 + fx * w
+            gh = r.uniform(*hauteurs) * h * proche
+            items.append((gb, self._touffe(gx, gb, gh, r.choice(teintes),
                                            proche)))
         # L'apercu de pose ne concerne pas ce sol : il n'est jamais sur la
         # grille. On le met de cote le temps de ce tri.
@@ -2468,7 +2478,11 @@ class ZoneScenery(Widget):
         # de faire onduler l'herbe des quatre autres, que personne ne voit.
         if self.get_root_window() is None:
             return
-        self._sway_t += dt
+        # UNE SEULE HORLOGE pour tous les decors : les quatre panneaux du
+        # tour (et leurs elements dessines deux fois, a cheval sur un raccord)
+        # ondulent au meme instant du vent. Chacun comptait son propre temps,
+        # arrete quand il etait hors de l'ecran.
+        self._sway_t = Clock.get_boottime()
         push = _SWAY_AMPLITUDE * self._wind
         force = self.force_du_vent()
         n = RANGEES_HERBE
@@ -2553,15 +2567,51 @@ class ZoneScenery(Widget):
         bl["grille"].vertices = v
 
     # -- image du decor (si elle a ete fournie) -------------------------- #
-    @staticmethod
-    def _pick_ecran(cx, base):
+    def _x_absolu(self, cx):
+        """La place d'un point dans le TOUR COMPLET (pixels, de 0 a quatre
+        largeurs d'ecran), et non dans ce panneau.
+
+        Un element proche d'un raccord est dessine par deux panneaux, a deux
+        x d'ecran differents. Tout ce qu'on tire de sa position -- sa
+        variante d'image, son inclinaison, la phase de son vent -- doit donc
+        venir de CETTE valeur : sinon ses deux moities penchaient et
+        ondulaient chacune a sa facon, et l'arbre paraissait dedouble."""
+        w = max(1.0, self.width)
+        return (cx - self.x + self._direction * w) % (4.0 * w)
+
+    def semis(self, nb, cle, amas=None):
+        """Un semis tire pour le TOUR COMPLET : `nb` points par quart du
+        tour, depuis une graine propre a la case et a `cle`. Rend
+        (fx, rng, n) pour ceux qui tombent dans ce quart, marge comprise
+        (MARGE_SEMIS) : fx peut deborder de [0, 1], `rng` est propre au
+        point (memes tirages vus de tout panneau), `n` son numero dans le
+        tour.
+
+        `amas` = (foyers par quart, etalement, part) : cette part des points
+        pousse autour de foyers, le reste partout."""
+        rng = random.Random("%s:%s:%s:semis" % (self._seed, self._zone, cle))
+        foyers = []
+        if amas is not None:
+            foyers = [rng.uniform(0.0, 4.0) for _ in range(4 * amas[0])]
+        milieu = self._direction + 0.5
+        for n in range(4 * nb):
+            if foyers and rng.random() < amas[2]:
+                u = rng.choice(foyers) + rng.gauss(0.0, amas[1])
+            else:
+                u = rng.uniform(0.0, 4.0)
+            graine = rng.getrandbits(32)
+            fx = (u - milieu + 2.0) % 4.0 - 2.0 + 0.5
+            if -MARGE_SEMIS <= fx <= 1.0 + MARGE_SEMIS:
+                yield fx, random.Random(graine), n
+
+    def _pick_ecran(self, cx, base):
         """Le tirage de variante d'un element, deduit de sa POSITION.
 
         Deux voisins ne prennent donc pas la meme image, et un element garde
         la sienne quand la scene est redessinee. Sorti de _sprite parce que
         _pine a besoin de la MEME valeur avant de dessiner, pour connaitre la
         largeur de l'image et y poser son ombre."""
-        return int(abs(cx) * 7.13 + abs(base) * 3.71)
+        return int(self._x_absolu(cx) * 7.13 + abs(base) * 3.71)
 
     def _pick(self, cx, base):
         """Le tirage de variante. Un GROS element (voir _dessine_gros) le tire
@@ -2738,8 +2788,8 @@ class ZoneScenery(Widget):
             # ensemble fait carton-pate.
             self._sway.append({
                 "mesh": m, "repos": tuple(verts), "h": h, "sorte": "herbe",
-                "speed": 1.35 + 0.0007 * (abs(cx) % 400),
-                "phase": (cx * 0.11 + base * 0.07) % 6.28})
+                "speed": 1.35 + 0.0007 * (self._x_absolu(cx) % 400),
+                "phase": (self._x_absolu(cx) * 0.11 + base * 0.07) % 6.28})
 
     def _touffe_pliee(self, planche, teinte, cx, base, w, h, uv):
         """Une touffe OMBREE posee seule, en rangees, pour qu'elle ondule.
@@ -2762,8 +2812,8 @@ class ZoneScenery(Widget):
         if SWAY:
             self._sway.append({
                 "mesh": m, "repos": tuple(verts), "h": h, "sorte": "herbe",
-                "speed": 1.35 + 0.0007 * (abs(cx) % 400),
-                "phase": (cx * 0.11 + base * 0.07) % 6.28})
+                "speed": 1.35 + 0.0007 * (self._x_absolu(cx) % 400),
+                "phase": (self._x_absolu(cx) * 0.11 + base * 0.07) % 6.28})
 
     # Les deux especes d'arbre et le buisson, et tout ce qui les separe au
     # vent. Les ranger ici plutot que dans le corps du code evite des boucles
@@ -2837,7 +2887,7 @@ class ZoneScenery(Widget):
             # ou-exclusif ne touche que les bits de poids faible de cx. Sur
             # la grille reelle du jeu, la moyenne des tirages tombe de 1,5 a
             # 0,4 ecart-type de zero.
-            u = random.Random("%d:%d" % (int(cx * 8.0),
+            u = random.Random("%d:%d" % (int(self._x_absolu(cx) * 8.0),
                                          int(base * 4.0))).uniform(-1.0, 1.0)
             penche = (u ** 3) * PENCHE_ARBRE
             penche -= REDRESSE_ARBRE * foliage.inclinaison(nom, pick)
@@ -2882,7 +2932,7 @@ class ZoneScenery(Widget):
             # position : une allee ou tout bruisse ensemble fait carton-pate.
             # L'ecart reste petit (+/- 6 %), les deux frequences restent donc
             # dans la plage voulue.
-            ecart = 1.0 + 0.12 * ((abs(cx) % 37) / 37.0 - 0.5)
+            ecart = 1.0 + 0.12 * ((self._x_absolu(cx) % 37) / 37.0 - 0.5)
             bl = {k: reg[k] for k in ("nc", "nr", "tronc", "courbe", "amp",
                                       "bond", "montee", "melange", "biais",
                                       "traverse")}
@@ -2891,7 +2941,8 @@ class ZoneScenery(Widget):
                 "tronc": tronc,
                 "w1": 6.2832 * reg["hz"][0] * ecart,
                 "w2": 6.2832 * reg["hz"][1] * ecart,
-                "phase": (cx * 0.017 + base * 0.011) % 6.2832})
+                "phase": (self._x_absolu(cx) * 0.017 + base * 0.011)
+                % 6.2832})
             self._sway.append(bl)
 
     def _sprite_enfoui(self, tex, cx, base, w, h, f, crans, uv=None):
@@ -3616,7 +3667,8 @@ class ZoneScenery(Widget):
                     "tri": tri, "x0": bx - bw, "x1": bx + bw, "y": base,
                     "tipx": tipx, "tipy": tipy, "h": height * hsc,
                     "speed": 1.5 + 0.55 * hsc + 0.3 * off,
-                    "phase": (cx * 0.11 + base * 0.07 + off * 1.9) % 6.28})
+                    "phase": (self._x_absolu(cx) * 0.11 + base * 0.07
+                              + off * 1.9) % 6.28})
 
     def _teinte_buisson(self, color):
         """La teinte qui donne a l'image du buisson la CLARTE de `color`.
@@ -3782,6 +3834,16 @@ class ZoneScenery(Widget):
             return y0 + (floor + 0.025 * math.sin(4 * a(fx) + p1 + 1.0)
                          + 0.012 * math.sin(10 * a(fx) + p2)) * h
 
+        def place_semis(fx, r, maxt=1.0, floor=0.0):
+            """Comme place, pour un point d'un semis du tour : fx peut
+            deborder du panneau, et le hasard est celui du point."""
+            surf = (floor_curve(fx) - y0) / h
+            lo = min(floor, surf)
+            hi = max(lo, surf * maxt)
+            fy = lo + (hi - lo) * r.random()
+            t = (fy / surf) if surf else 0.0
+            return (x0 + fx * w, y0 + fy * h, 1.0 - 0.70 * t, t)
+
         def place(maxt=1.0, fx=None, floor=0.0):
             if fx is None:
                 fx = rng.uniform(0, 1)
@@ -3852,15 +3914,13 @@ class ZoneScenery(Widget):
         # Herbe de sous-bois (sombre), en touffes (dense). DECORATIVE : elle
         # couvre tout le sol, jusqu'au fond, et la faire disparaitre a chaque
         # recolte deshabillerait la foret.
-        for _ in range(HERBE_FORET):
-            fx = grass_pick() if rng.random() < 0.72 else None
-            gx, gb, sc, t = place(fx=fx)
-            gh = rng.uniform(0.05, 0.13) * h * sc
-            # La couleur est TIREE AVANT de savoir si la touffe est dessinee :
-            # sauter un tirage decalerait tout le hasard qui suit, et les
-            # arbres de l'horizon changeaient de place des qu'on posait un
-            # objet ou ramassait de l'herbe.
-            vert = rng.choice(GREENS) + (1,)
+        # SEMEE POUR LE TOUR (voir semis) : pres d'un raccord, la meme herbe
+        # des deux cotes. Chaque touffe a son propre hasard : en sauter une
+        # ne decale plus rien.
+        for fx, r, _n in self.semis(HERBE_FORET, "herbe", amas=(4, 0.12, 0.72)):
+            gx, gb, sc, t = place_semis(fx, r)
+            gh = r.uniform(0.05, 0.13) * h * sc
+            vert = r.choice(GREENS) + (1,)
             if self._is_blocked(gx, gb, gb + gh):
                 continue
             items.append((gb, f_grass(gx, gb, gh, vert, sc)))
@@ -4989,6 +5049,16 @@ class ZoneScenery(Widget):
                          + 0.030 * math.sin(4 * a(fx) + p1 + 1.0)
                          + 0.014 * math.sin(10 * a(fx) + p2)) * h
 
+        def place_semis(fx, r, maxt=1.0, floor=0.0):
+            """Comme place, pour un point d'un semis du tour : fx peut
+            deborder du panneau, et le hasard est celui du point."""
+            surf = (field_curve(fx) - y0) / h
+            lo = min(floor, surf)
+            hi = max(lo, surf * maxt)
+            fy = lo + (hi - lo) * r.random()
+            t = (fy / surf) if surf else 0.0
+            return (x0 + fx * w, y0 + fy * h, 1.0 - 0.70 * t, t)
+
         def place(maxt=1.0, fx=None, floor=0.0):
             if fx is None:
                 fx = rng.uniform(0, 1)
@@ -5082,18 +5152,19 @@ class ZoneScenery(Widget):
             items.append((by - self.DEBORD_BUISSON * r,
                           lambda bx=bx, by=by, r=r, col=col, cell=cell:
                           self._bush_et_baies(bx, by, r, col, cell)))
-        for _ in range(525):                           # gazon x5 (etait 105) [Herbe]
-            fx = grass_pick() if rng.random() < 0.72 else None  # amas + un peu partout
-            gx, gb, sc, t = place(fx=fx, floor=_HARVEST_FLOOR)
-            gh = rng.uniform(0.05, 0.16) * h * sc
+        # Gazon [Herbe], SEME POUR LE TOUR (voir semis) : pres d'un raccord,
+        # le meme des deux cotes, recolte comprise.
+        for fx, r, n in self.semis(525, "gazon", amas=(5, 0.13, 0.72)):
+            gx, gb, sc, t = place_semis(fx, r, floor=_HARVEST_FLOOR)
+            gh = r.uniform(0.05, 0.16) * h * sc
             # UNE FLEUR POUR CINQUANTE TOUFFES, et non pour dix : les touffes
             # ont ete multipliees par cinq, pas les fleurs. A une sur dix, le
             # champ s'etait couvert de fleurs du jour au lendemain -- une
             # quarantaine au lieu d'une dizaine, chacune dessinee petale par
             # petale (une soixantaine d'instructions la fleur).
-            fcol = rng.choice(_FLOWERS) if rng.random() < 0.02 else None
+            fcol = r.choice(_FLOWERS) if r.random() < 0.02 else None
             fr = max(1.5, w * 0.004 * sc)
-            if (not self._take_or_skip("Herbe")
+            if (not self._take_or_skip("Herbe", cle=n)
                     and not self._is_blocked(gx, gb, gb + gh)):
                 items.append((gb, f_grass(gx, gb, gh, green_at(t), sc, fcol, fr)))
         # HERBE DE LA BANDE LOINTAINE -- entre le haut du champ proche et la
@@ -5468,7 +5539,7 @@ class ZoneScenery(Widget):
         # Seul l'ecran affiche fait couler son eau.
         if self.get_root_window() is None:
             return
-        self._eau_t += dt
+        self._eau_t = Clock.get_boottime()      # meme horloge partout
         self._place_ecume()
         if self._rive is not None:
             rive.place(self._rive, self._eau_t)
