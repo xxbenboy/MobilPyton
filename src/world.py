@@ -189,14 +189,14 @@ def plus_proche_praticable(grid, x, y):
 # --------------------------------------------------------------------- #
 # Chaque case du monde a une GRILLE de GRILLE x GRILLE cellules, le joueur
 # au CENTRE (voir PlaceScreen et zone_scenery.polaire). Les GROS elements du
-# decor y occupent une EMPRISE : un arbre une cellule, un rocher ou un
-# buisson un carre de deux sur deux. Le decor les dessine A CES POSITIONS, et
-# on ne peut PAS y installer d'objet (feu de camp...). Stable par case
-# (deduit de la graine de scene).
+# decor y occupent une EMPRISE : un arbre une cellule ; un rocher, un
+# buisson ou une pepite un carre de deux sur deux. Le decor les dessine A CES
+# POSITIONS, et on ne peut PAS y installer d'objet (feu de camp...). Stable
+# par case (deduit de la graine de scene).
 GRILLE = 11
 CENTRE_GRILLE = GRILLE // 2              # la cellule du joueur : (5, 5)
 EMPRISE_NATURE = {"tree": (1, 1), "rock": (2, 2), "bush": (2, 2),
-                  "nugget": (1, 1)}
+                  "nugget": (2, 2)}
 
 
 def emprise_nature(kind, ancre):
