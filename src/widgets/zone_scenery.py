@@ -3439,11 +3439,10 @@ class ZoneScenery(Widget):
         recolter. Le joueur verrait sa case se reconstruire rien qu'en
         tournant sur lui-meme. Ici, la ligne d'horizon depend des voisins,
         et rien d'autre n'en depend."""
-        # Les silhouettes ne servent plus qu'a la montagne ; la foret
-        # voisine, ce sont de vrais arbres (voir _foret_voisine).
-        voisins = {c: (None if z == "Foret" else z)
-                   for c, z in self._neighbours.items()}
-        horizon.draw(voisins, self.x, self.width, crest,
+        # TOUT AU FOND, les silhouettes (la frange de la foret, les cretes
+        # de la montagne) ; DEVANT ELLES, les vrais arbres de la foret
+        # voisine (voir _foret_voisine).
+        horizon.draw(self._neighbours, self.x, self.width, crest,
                      self.height, random.Random(self._graine_voisins()),
                      plein=True,
                      au_ras=self._sans_sol or self._nappe is not None)
