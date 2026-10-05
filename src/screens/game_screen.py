@@ -110,23 +110,12 @@ SOUS_SOL_PANORAMA = 2.3
 # assez vite pour etre pret avant qu'on tourne la tete, assez espace pour ne
 # pas faire saccader l'arrivee sur une case.
 PAS_PRECHAUFFE = 0.2
-# LE SOL EN NAPPE (voir widgets/sol.py), et sa matiere, pour les zones ou il
-# remplace le sol que chaque panneau peignait. Ailleurs (le lac), chaque
-# panneau peint encore le sien.
-SOL_CONTINU = {"Foret": "forest_floor", "Plaine": "grass",
-               "Montagne": "mountain"}
-# ...et ce qui la remplace AU LOIN, recolore : en foret, la terre brune n'est
-# vraie qu'aux pieds ; plus loin, l'oeil ne voit plus que l'herbe qui la
-# couvre. C'est l'herbe de la plaine, ramenee au vert des touffes de la foret
-# (MESURE : touffe de foret a l'ecran ~ 0,14 0,20 0,056 ; moyenne de la
-# texture d'herbe 0,33 0,42 0,10 -- le rapport donne la teinte).
-# En montagne, c'est la meme rocaille, mais en bien plus grand : de loin,
-# le versant y gagne ses grandes taches de pierre et d'herbe.
-# (matiere, teinte, echelle)
-SOL_LOIN = {"Foret": ("grass", (0.42, 0.49, 0.54), 1.0),
-            "Montagne": ("mountain", (1.0, 1.0, 1.0), 0.14)}
+# LE SOL EN NAPPE (voir widgets/sol.py) : une seule nappe sous les quatre
+# panneaux, dans ces zones (toutes celles ou l'on se tient). Ses reglages --
+# sa matiere, son relief, son eau -- viennent de la scene (voir
+# ZoneScenery.reglages_nappe).
+SOL_CONTINU = {"Foret", "Plaine", "Montagne", "Rive"}
 EAU_BAS = 0.14
-EAU_HAUT = 0.60
 ENTAILLE = 0.10
 LARGEUR_TRONC = 0.035
 
@@ -1133,7 +1122,6 @@ class GameScreen(Screen):
     def _cibles_action(self, state):
         """Ce avec quoi l'on peut agir ici : (cibles, raison s'il n'y en a
         aucune)."""
-        sc = self.scenery
         cibles, raisons = [], []
         baies = state.baies_par_buisson()
         if baies:
@@ -1148,22 +1136,13 @@ class GameScreen(Screen):
                                        "image": gros.get("image"),
                                        "baies": places})
         if state.au_bord_de_l_eau():
-            # L'EAU QU'ON VOIT, dans le panneau a l'ecran qui montre le lac
-            # (le plus centre s'il y en a deux).
-            meilleure = None
-            for plaque in self.panorama.visibles():
-                if plaque.scene.texture_du_sol() != "sand":
-                    continue                # ce panneau regarde la terre
-                dx, dy = plaque.decalage()
-                x0, y0 = sc.x + dx, sc.y + dy
-                w, h = sc.width, sc.height
-                boite = (max(0.0, x0), y0 + EAU_BAS * h,
-                         min(float(self.width), x0 + w), y0 + EAU_HAUT * h)
-                if meilleure is None or abs(dx) < meilleure[0]:
-                    meilleure = (abs(dx), boite)
-            if meilleure is not None:
-                cibles.append({"kind": "eau", "cell": None,
-                               "boite": meilleure[1]})
+            # L'EAU QU'ON VOIT : celle que la nappe montre pour ce regard,
+            # de son bord le plus proche (jamais sous les mains) a la berge
+            # d'en face. Rien si l'on regarde la terre.
+            boite = self.sol.boite_eau(bas_min=self.sol.y
+                                       + EAU_BAS * self.sol.height)
+            if boite is not None:
+                cibles.append({"kind": "eau", "cell": None, "boite": boite})
         arbres = state.trees_here()
         if arbres:
             if items.AXE_ITEM in state.hands:
@@ -1360,7 +1339,11 @@ class GameScreen(Screen):
             self.monde.vise(((x0 + x1) / 2.0, (y0 + y1) / 2.0),
                             (0.5 * w, 0.55 * h), zoom)
         elif kind == "eau":
-            self.monde.vise((0.5 * w, 0.36 * h), (0.5 * w, 0.45 * h), 1.5)
+            # Vers l'eau visee, pres de son bord.
+            x0, y0, x1, y1 = cible["boite"]
+            cx = max(0.25 * w, min(0.75 * w, (x0 + x1) / 2.0))
+            self.monde.vise((cx, y0 + 0.30 * (y1 - y0)), (0.5 * w, 0.45 * h),
+                            1.5)
         else:
             g = cible["gros"]
             haut = g["boite"][3] - g["boite"][1]
@@ -2358,21 +2341,16 @@ class GameScreen(Screen):
 
     def _regle_sol(self, state):
         """La nappe du sol sur la case : sa matiere, et la crete qu'elle
-        rejoint au loin -- celle que dessinent les panneaux."""
-        matiere = SOL_CONTINU.get(state.current_zone())
-        if matiere is None:
+        rejoint au loin -- celle que dessinent les panneaux ; en montagne
+        son versant, sur la rive son eau (voir ZoneScenery.reglages_nappe).
+        C'est le panneau nord, toujours a jour, qui les donne."""
+        reglages = None
+        if state.current_zone() in SOL_CONTINU:
+            reglages = self.scenery.reglages_nappe()
+        if reglages is None:
             self.sol.cache()
             return
-        loin, teinte, echelle = SOL_LOIN.get(state.current_zone(),
-                                             (None, (1.0, 1.0, 1.0), 1.0))
-        # En montagne, un VERSANT : la pente et la crete de chaque direction,
-        # et la vallee au-dela des rebords (voir ZoneScenery.relief_tour).
-        montagne = state.current_zone() == "Montagne"
-        self.sol.regle(matiere, self.scenery.crete_tour,
-                       self.scenery.hauteur_horizon(), loin=loin,
-                       teinte_loin=teinte,
-                       relief=self.scenery.relief_tour if montagne else None,
-                       vallee=montagne, echelle_loin=echelle)
+        self.sol.regle(**reglages)
 
     def _prechauffe(self, _dt):
         """Dessine un panneau hors de vue (un par image)."""

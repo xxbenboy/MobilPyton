@@ -701,32 +701,10 @@ PLANTES_DE_BERGE = {
 # on met de l'herbe : neutre, et vrai a peu pres partout.
 PLANTES_DE_BERGE_DEFAUT = (("grass_tuft", 0.022, 3), ("bush_plain", 0.030, 1))
 
-# COMMENT LA VEGETATION SE REPARTIT SUR LA BERGE.
-#
-# Elle etait posee en DEUX RANGS, chacun a pas regulier le long de sa crete
-# (un pied par tranche de largeur, plus un petit jeu). Trois defauts qui se
-# voyaient tous les trois :
-#
-#   - un pas regulier donne une LIGNE D'ARBRES, et l'oeil la lit
-#     immediatement comme une haie plantee par un jardinier ;
-#   - deux rangs donnent deux lignes, donc un decor en couches ;
-#   - tous les pieds d'une meme espece avaient EXACTEMENT la meme taille.
-#
-# On les repartit maintenant en PROFONDEUR, d'un seul tenant : chaque pied
-# tire sa distance entre le bord de l'eau et la crete du fond, et tout en
-# decoule -- sa hauteur a l'ecran, sa teinte, l'ordre ou on le dessine. C'est
-# la meme idee que la perspective du sol, appliquee a des sprites.
-PIEDS_DE_BERGE = 60
-
-# LE GROUPEMENT. Une position tiree uniformement donne une repartition
-# reguliere a l'oeil (c'est le paradoxe du hasard : l'uniforme ne fait pas de
-# paquets). On tire donc d'abord des BOSQUETS, puis les arbres autour d'eux.
-BOSQUETS_DE_BERGE = 9
-# Etalement d'un bosquet, en fraction de la largeur d'ecran.
-ETALEMENT_BOSQUET = 0.085
-# Part des pieds poses hors bosquet, pour ne pas laisser de trou net.
-ISOLES_DE_BERGE = 0.30
-
+# LA VEGETATION DE LA BERGE D'EN FACE (voir _la_rive) : chaque pied tire sa
+# distance entre le bord de l'eau et le haut de la berge, et tout en
+# decoule -- sa hauteur a l'ecran, sa teinte, l'ordre ou on le dessine. Elle
+# pousse en bosquets (semis a foyers), pas en haie.
 # De combien un pied rapetisse entre le bord de l'eau et la crete du fond.
 RETRAIT_BERGE = 0.55
 # Et de combien sa taille varie d'un pied a l'autre, a distance egale. Sans
@@ -741,15 +719,6 @@ TAILLE_BERGE = (0.60, 1.55)
 # ils sont toujours une minorite.
 EMERGENTS_DE_BERGE = 0.14
 EMERGENT_FACTEUR = (1.5, 2.2)
-
-# Epaisseur de la plage de sable de la berge, en part de la hauteur d'ecran.
-#
-# LA PLAGE A ETE EPAISSIE APRES COUP. A 0,012 elle existait -- cinq pixels sur
-# un apercu de 400 -- mais on ne la voyait pas : l'eau touchait l'herbe, et
-# c'est precisement ce qu'on voulait corriger. A 0,026 elle fait cinquante
-# pixels sur un ecran de 1920, assez pour se lire comme une greve sans devenir
-# une dune.
-SABLE_DEN_FACE = 0.026
 
 # La vegetation de la berge est plus SOMBRE que celle du premier plan, avant
 # meme la brume : elle est vue de loin et de biais, on y voit surtout les
@@ -801,6 +770,45 @@ VERSANT_HERBE = 170
 PIERRES_VERSANT = 30
 SAPINS_LIMITE = 8.0
 HERBE_LIMITE = 16.0
+
+# LA RIVE (voir rivage). Les cases de lac autour du joueur dessinent l'eau :
+# vers elles, l'eau commence a RIVE_PLAGE metres (au plus pres RIVE_MIN), et
+# s'eloigne sur les cotes jusqu'a se refermer sur la terre. RIVE_FOCALE dit
+# combien chaque case ne commande que sa direction ; l'eau existe la ou la
+# part du lac depasse RIVE_SEUIL, et touche la plage la ou elle atteint
+# RIVE_PLEIN.
+RIVE_FOCALE = 3.0
+RIVE_SEUIL = 0.12
+RIVE_PLEIN = 0.50
+RIVE_PLAGE = 7.0
+RIVE_MIN = 4.5
+# Plus loin que RIVE_FERME, l'eau n'est plus qu'un filet : la nappe se
+# releve doucement par-dessus, et le rivage se referme sans cassure. Plus
+# pres, la nappe passe SOUS l'eau (NAPPE_SOUS_EAU, degres) des le rivage.
+RIVE_FERME = 120.0
+NAPPE_SOUS_EAU = -1.6
+# Le decor de la rive : par panneau (recoltables) ou par quart du tour.
+GALETS_RIVE = 14
+ROSEAUX_RIVE = 30
+HERBE_RIVE = 150
+ARBRES_TERRE = 34
+PIEDS_BERGE_TOUR = 60
+
+# LA NAPPE DU SOL DE CHAQUE ZONE (voir sol.py) : sa matiere, et ce qui la
+# remplace au loin. En foret, l'herbe de la plaine ramenee au vert des
+# touffes du sous-bois (MESURE : touffe de foret a l'ecran ~ 0,14 0,20
+# 0,056 ; moyenne de la texture d'herbe 0,33 0,42 0,10 -- le rapport donne
+# la teinte). En montagne, la meme rocaille, bien plus grande : de loin, le
+# versant y gagne ses grandes taches. Sur la rive, le sable de la plage,
+# puis l'herbe de la terre.
+NAPPES = {
+    "Foret": {"nom_texture": "forest_floor", "loin": "grass",
+              "teinte_loin": (0.42, 0.49, 0.54)},
+    "Plaine": {"nom_texture": "grass"},
+    "Montagne": {"nom_texture": "mountain", "loin": "mountain",
+                 "echelle_loin": 0.14, "vallee": True},
+    "Lac": {"nom_texture": "sand", "loin": "grass", "fondu": (6.0, 16.0)},
+}
 
 
 # LE SOL AUTOUR DU JOUEUR. Les textures sans direction marquee (l'herbe, le
@@ -940,8 +948,8 @@ GROUND_ROWS = 14
 # echelle.
 #
 # Le sol qui touche le bas de l'ecran, par scene : (surface, perspective).
-# La montagne finit sur sa bande sombre, sans image (voir _montagne) ; le lac
-# sur la bande de rive, traitee a part (voir _sous_sol_rive).
+# (La montagne et la rive n'en ont plus besoin : la nappe du sol les peint
+# jusque sous les pieds, voir sol.py.)
 SOL_DU_BAS = {
     "Foret": ("forest_floor", GROUND_DEPTH),
     "Plaine": ("grass", GROUND_DEPTH),
@@ -965,10 +973,6 @@ SOUS_SOL_RESSERRE = 1.6
 SOUS_SOL_GROSSI_MAX = 1.8
 # Arbres decoratifs a mi-distance, par quart du tour, en foret.
 BOIS_MI_DISTANCE = (6, 9)
-# Dans l'image de rive (rive_B), la ligne ou commence le sable SEC, en v
-# compte depuis le haut. Au-dessus, c'est deja l'eau qui lape : sous l'ecran,
-# on ne montre que le sable, en miroir aller-retour (voir _sous_sol_rive).
-V_SABLE_SEC = 0.62
 
 # Fleurs de plaine : couleur de repli ET image correspondante. On tire la
 # PAIRE d'un coup : sans cela, une fleur tiree "jaune" pouvait se voir poser
@@ -1031,6 +1035,8 @@ class ZoneScenery(Widget):
         # Baies des buissons, gros elements dessines (mode action).
         self._baies = {}
         self._versant = None
+        self._autour = None
+        self._nappe = None
         self._gros = {}
         self._pos_baies = {}
         self._cellule = None
@@ -1108,6 +1114,8 @@ class ZoneScenery(Widget):
         self._seconds = float(seconds)
         self._apply_light()
         self._applique_brume()
+        if self._nappe is not None:
+            self._nappe.set_teinte(daylight.light_tint(self._seconds))
         off, length, alpha = daylight.shadow(self._seconds)
         for sh in self._shadows:
             self._place_shadow(sh, off, length, alpha)
@@ -1123,6 +1131,8 @@ class ZoneScenery(Widget):
         Comme set_daylight, cela ne redessine rien : une seule couleur change."""
         self._brume_ciel = tuple(float(v) for v in ciel[:3])
         self._applique_brume()
+        if self._nappe is not None:
+            self._nappe.set_brume(self._brume_ciel)
 
     def _ciel_horizon(self):
         """Couleur du ciel a la hauteur de la crete (voir set_brume)."""
@@ -1317,11 +1327,15 @@ class ZoneScenery(Widget):
                    "voisin_d": horizon.voisin_dans(state, direction + 1)}
         berge = horizon.zone_den_face(state, direction=direction)
         zone = state.current_zone()
-        # Sur une RIVE, on ne voit le lac que du cote de l'eau : vers la
-        # terre, c'est le paysage du voisin.
-        if zone == "Rive" and voisins["face"] and \
-                voisins["face"] not in ("Lac", "Rive"):
-            zone = voisins["face"]
+        # SUR UNE RIVE, la berge d'en face est la meme pour tout le tour :
+        # celle qu'on voit par-dela l'eau dans la premiere direction du lac.
+        # (Chaque quart en tirait la sienne, et deux especes d'arbres se
+        # rencontraient au raccord.)
+        if zone == "Rive":
+            for d in range(4):
+                if horizon.voisin_dans(state, d) == "Lac":
+                    berge = horizon.zone_den_face(state, direction=d)
+                    break
         decor = {
             "zone_type": zone,
             "seed": world.scene_seed(state.player_x, state.player_y),
@@ -1343,10 +1357,10 @@ class ZoneScenery(Widget):
             "baies": tuple(sorted(state.baies_par_buisson().items())),
             "direction": direction % 4,
             "sans_sol": bool(sans_sol),
-            # Le versant : les huit cases autour, en montagne seulement.
+            # Le versant ou la rive : les huit cases autour.
             "relief": (tuple(_case_autour(state, dx, dy)
                              for dx, dy in HUIT_VOISINS)
-                       if zone == "Montagne" else None),
+                       if zone in ("Montagne", "Rive") else None),
         }
         cle = tuple((k, tuple(sorted(v.items())) if isinstance(v, dict)
                      else v) for k, v in sorted(decor.items())) + (apercu,)
@@ -1542,7 +1556,9 @@ class ZoneScenery(Widget):
         # silhouettes LOINTAINES, derriere la scene. Le sol, lui, ce sont les
         # collines d'herbe, dont la mesure donne un profil de 0,711 a 0,760.
         # A 0,70 les nuages auraient converge SOUS le sol.
-        "Lac": 0.75,                # voir colline() dans _lac
+        # LA RIVE AUSSI : sa berge d'en face est posee sur l'horizon de
+        # l'oeil (voir berge_tour).
+        "Lac": 0.47,
     }
 
     # Pour les ecrans SANS scene (menu, inventaire, atelier...) : il n'y a pas
@@ -1563,8 +1579,7 @@ class ZoneScenery(Widget):
         h = self.height
         prof = self.sous_sol * h
         if self._zone == "Lac":
-            self._sous_sol_rive(prof)
-            return
+            return                      # la nappe (voir _la_rive)
         nom, depth = SOL_DU_BAS.get(self._zone, SOL_DU_BAS["Plaine"])
         depth = max(1.0, float(depth))
         a = 1.0 - 1.0 / depth
@@ -1655,58 +1670,6 @@ class ZoneScenery(Widget):
         t = (yy - self.y) / haut
         return max(1.0 / SOUS_SOL_GROSSI_MAX, 1.0 / (1.0 - a * t))
 
-    def _sous_sol_rive(self, prof):
-        """Sous la rive du lac : son sable sec, prolonge.
-
-        LA BANDE DE RIVE N'EST PAS UN MOTIF : c'est un bord, avec l'eau en
-        haut et le sable sec en bas (voir rive.py). On ne peut donc pas la
-        repeter vers le bas -- on retomberait dans l'eau. On lit sa partie
-        SECHE en miroir, aller et retour, a partir de sa rangee du bas : au
-        bord la texture est exactement la sienne, et elle ne remonte jamais
-        jusqu'a l'eau.
-
-        Sans shader ou sans image, la scene a pose un aplat de sable : on le
-        prolonge tel quel."""
-        w, h, x0, y0 = self.width, self.height, self.x, self.y
-        fond = textures.base_texture(rive.NOM)
-        if self._rive is None or fond is None:
-            paint("sand")
-            Rectangle(pos=(x0, y0 - prof), size=(w, prof))
-            return
-        # LES MESURES DE rive.bande, pour raccorder au pixel pres.
-        bande = rive.HAUTEUR * h
-        tuile = bande * (float(fond.width) / max(1, fond.height)) \
-            * rive.ETIREMENT
-        cx = x0 + w / 2.0
-        u0, u1 = (x0 - cx) / tuile, (x0 + w - cx) / tuile
-        bas_v = 0.998
-        dv = (bas_v - 0.002) / bande
-        # Les rangees tombent sur chaque demi-tour du miroir : entre deux, v
-        # varie en ligne droite, ce que la carte graphique rend exactement.
-        demi = (bas_v - V_SABLE_SEC) / dv
-        points = [0.0]
-        while points[-1] < prof:
-            points.append(min(prof, points[-1] + demi))
-        self._reset_pbr()
-        Color(1, 1, 1, 1)
-        verts, idx = [], []
-        for j, d in enumerate(points):
-            tour, reste = divmod(d, demi) if demi > 0 else (0, 0.0)
-            if abs(reste) < 1e-6 and d > 0:
-                # Pile sur un demi-tour : on prend l'extremite atteinte.
-                tour, reste = tour - 1, demi
-            part = reste / demi if demi > 0 else 0.0
-            if int(tour) % 2 == 0:
-                v = bas_v - part * (bas_v - V_SABLE_SEC)
-            else:
-                v = V_SABLE_SEC + part * (bas_v - V_SABLE_SEC)
-            y = y0 - d
-            verts += [x0, y, u0, v, x0 + w, y, u1, v]
-            if j:
-                p = (j - 1) * 2
-                idx += [p, p + 1, p + 3, p, p + 3, p + 2]
-        Mesh(vertices=verts, indices=idx, mode="triangles", texture=fond)
-
     def hauteur_horizon(self):
         """Part de la hauteur d'ecran ou le sol rencontre le ciel."""
         return self.CRETE.get(self._zone, self.CRETE_DEFAUT)
@@ -1730,7 +1693,8 @@ class ZoneScenery(Widget):
         fx0, fy, taille = grid_to_screen(2, prof * 4.0,
                                          self.SOL_DE_GRILLE.get(self._zone))
         fx = 0.5 + ecart(azimut - self._direction * FOV) / FOV
-        if self._zone == "Montagne" and self.width > 0 and self.height > 0:
+        if self._zone in ("Montagne", "Lac") and self.width > 0 \
+                and self.height > 0:
             # SUR LE VERSANT : la case est posee sur la nappe, a sa vraie
             # place -- plus haut vers la montagne, plus bas vers la vallee.
             _x, y, _ppd = self.au_sol(azimut, distance * METRES_PAR_CASE)
@@ -1783,7 +1747,12 @@ class ZoneScenery(Widget):
         montagne (le sol y monte), -1 pour le reste (il y descend), 0 hors de
         la carte."""
         self._versant = None
-        if self._zone != "Montagne" or not relief:
+        self._autour = None
+        if self._zone not in ("Montagne", "Lac") or not relief:
+            return
+        self._autour = [(math.atan2(dx, -dy), z)
+                        for (dx, dy), z in zip(HUIT_VOISINS, relief)]
+        if self._zone != "Montagne":
             return
         signes = []
         for (dx, dy), z in zip(HUIT_VOISINS, relief):
@@ -1812,6 +1781,8 @@ class ZoneScenery(Widget):
         """(pente, crete en degres) du sol dans cette direction (radians),
         en montagne (voir sol.altitude) ; None ailleurs. La meme pour les
         quatre quarts du tour et pour la nappe du sol."""
+        if self._zone == "Lac":
+            return self._relief_rive(azimut)
         if self._zone != "Montagne":
             return None
         f = self.versant(azimut)
@@ -1828,6 +1799,105 @@ class ZoneScenery(Widget):
             + 0.35 * math.sin(11 * azimut + p2)
             + 0.18 * math.sin(23 * azimut + p3))
         return VERSANT_PENTE * f, crete
+
+    def _relief_rive(self, azimut):
+        """(pente, crete) de la plage : a plat vers la terre, jusqu'a la
+        berge ; vers l'eau, elle descend au niveau de l'eau au rivage, et
+        passe dessous."""
+        c = self.berge_tour(azimut)
+        r = self.rivage(azimut)
+        if r is None:
+            return 0.0, c
+        e = max(0.0, min(1.0, (nappe.BERGE_LOIN - r)
+                         / (nappe.BERGE_LOIN - RIVE_FERME)))
+        e = e * e * (3.0 - 2.0 * e)
+        crete = c * (1.0 - e) + NAPPE_SOUS_EAU * e
+        if r < 0.95 * nappe.DISTANCE_MAX:
+            return nappe.pente_vers(nappe.NIVEAU_EAU, crete, r), crete
+        return 0.0, crete
+
+    def _autour_connu(self):
+        """Les huit cases autour ; sans elles (scene dessinee seule), le lac
+        au nord."""
+        if self._autour:
+            return self._autour
+        return [(math.atan2(dx, -dy), "Lac" if (dx, dy) == (0, -1) else None)
+                for dx, dy in HUIT_VOISINS]
+
+    def rivage(self, azimut):
+        """La distance (metres) ou l'eau commence dans cette direction
+        (radians), ou None s'il n'y en a pas (vers la terre). Sur la rive
+        seulement."""
+        if self._zone != "Lac":
+            return None
+        num = den = 0.0
+        for az, z in self._autour_connu():
+            k = math.exp(RIVE_FOCALE * math.cos(azimut - az))
+            den += k
+            if z == "Lac":
+                num += k
+        s_ = ((num / den if den else 0.0) - RIVE_SEUIL) \
+            / (RIVE_PLEIN - RIVE_SEUIL)
+        if s_ <= 0.0:
+            return None
+        # Au plus pres, RIVE_MIN, rejoint EN DOUCEUR : une borne nette y
+        # cassait la ligne d'eau d'un angle vif. Et le bord ondule un peu.
+        p = self.phases(4)[3]
+        r = (RIVE_MIN + (RIVE_PLAGE - RIVE_MIN) / s_ ** 1.3)             * (1.0 + 0.07 * math.sin(7 * azimut + p))
+        return r if r < nappe.BERGE_LOIN else None
+
+    def terre_dans(self, azimut):
+        """Le paysage de la terre dans cette direction (radians) : celui des
+        cases voisines qui y pesent le plus, lac et rives mis a part."""
+        poids = {}
+        for az, z in self._autour_connu():
+            if z in (None, "Lac", "Rive"):
+                continue
+            poids[z] = poids.get(z, 0.0) + math.exp(
+                RIVE_FOCALE * math.cos(azimut - az))
+        if not poids:
+            return "Plaine"
+        return max(sorted(poids), key=lambda z: poids[z])
+
+    def berge_tour(self, azimut):
+        """L'angle (degres) du haut de la berge d'en face -- et, vers la
+        terre, du bord du sol : la ligne ou la rive rencontre le ciel."""
+        p1, p2 = self.phases(2)
+        return (0.6 + 0.25 * math.sin(5 * azimut + p1)
+                + 0.15 * math.sin(11 * azimut + p2))
+
+    def reglages_nappe(self):
+        """Les reglages de la nappe du sol pour cette case (voir
+        sol.Nappe.regle), ou None si la zone n'en a pas."""
+        r = NAPPES.get(self._zone)
+        if r is None:
+            return None
+        r = dict(r)
+        r.update(crete=self.crete_tour, horizon=self.hauteur_horizon())
+        if self._zone in ("Montagne", "Lac"):
+            r["relief"] = self.relief_tour
+        if self._zone == "Lac":
+            r.update(rivage=self.rivage, berge=self.berge_tour)
+        return r
+
+    def _nappe_propre(self):
+        """Hors du panorama (ecran de pose, carte...), la scene peint
+        elle-meme la nappe de son sol, vue de son seul cote."""
+        self._nappe = None
+        if self._sans_sol:
+            return
+        reglages = self.reglages_nappe()
+        if reglages is None:
+            return
+        n = nappe.Nappe()
+        n.cadre(self.x, self.y, self.width, self.height)
+        n.regle(**reglages)
+        n.set_camera(self._direction * FOV, 0.0)
+        n.set_teinte(daylight.light_tint(self._seconds))
+        n.set_brume(self._ciel_horizon())
+        self._nappe = n
+        # Sa matiere lointaine a pris l'unite 1, que le decor attend neutre.
+        self._reset_pbr()
 
     def au_sol(self, azimut, d):
         """(x, y, pixels par degre) a l'ecran du sol de montagne dans la
@@ -1846,8 +1916,11 @@ class ZoneScenery(Widget):
         droite) dans cette DIRECTION (radians) : la meme pour les quatre
         quarts du tour et pour la nappe du sol, qui la rejoint (voir sol.py).
         Pour la foret, la plaine et la montagne ; None ailleurs."""
-        if self._zone == "Montagne":
-            _pente, crete = self.relief_tour(azimut)
+        if self._zone in ("Montagne", "Lac"):
+            if self._zone == "Lac":
+                crete = self.berge_tour(azimut)
+            else:
+                _pente, crete = self.relief_tour(azimut)
             ppd = max(1.0, self.width) / FOV
             return self.hauteur_horizon() + crete * ppd / max(1.0,
                                                               self.height)
@@ -3209,6 +3282,7 @@ class ZoneScenery(Widget):
         self._apercu_vu = None
         self._eau = []
         self._rive = None
+        self._nappe = None
         # Les GROS elements et les baies, tels que dessines a l'ecran (voir
         # boite_de / baies_de) : le mode action les fait clignoter.
         self._gros = {}
@@ -3234,7 +3308,7 @@ class ZoneScenery(Widget):
                     "Foret": self._foret,
                     "Plaine": self._plaine,
                     "Montagne": self._montagne,
-                    "Lac": self._lac,
+                    "Lac": self._la_rive,
                 }.get(self._zone, self._foret)(rng)
                 if self.sous_sol > 0.0:
                     self._dessine_sous_sol()
@@ -3432,7 +3506,8 @@ class ZoneScenery(Widget):
         et rien d'autre n'en depend."""
         horizon.draw(self._neighbours, self.x, self.width, crest,
                      self.height, random.Random(self._graine_voisins()),
-                     plein=True, au_ras=self._sans_sol)
+                     plein=True,
+                     au_ras=self._sans_sol or self._nappe is not None)
 
     # -- helpers textures (surface plane texturee, sinon couleur de repli) - #
     def _trect(self, name, x, y, w, h, tile_px=None):
@@ -5537,6 +5612,7 @@ class ZoneScenery(Widget):
 
         En haut, la rocaille nue ; en bas, l'herbe et les sapins, qui ne
         montent pas au-dessus de leur limite."""
+        self._nappe_propre()
         w, h, y0 = self.width, self.height, self.y
         ppd = w / FOV
         a = self.angle
@@ -5708,31 +5784,6 @@ class ZoneScenery(Widget):
         # recolte, un objet pose) ne doit pas faire sauter l'ecume en arriere.
         self._place_ecume()
 
-    def _rive_animee(self, x0, y0, w, h):
-        """La rive proche du lac, ou l'eau vient laper le sable (voir
-        rive.py). Rend False si elle ne peut pas etre posee -- pas de shader,
-        ou pas d'images : la scene garde alors son aplat de sable."""
-        if not self._pbr:
-            return False
-        fond = textures.base_texture(rive.NOM)
-        reflets = textures.ecume_texture(rive.NOM)
-        if fond is None or reflets is None:
-            return False
-        self._reset_pbr()
-        ctx = rive.bande(x0, y0, w, rive.HAUTEUR * h, fond, reflets)
-        # La bande a lie ses reflets sur l'unite 1, que le shader du decor lit
-        # comme carte de RELIEF : on lui rend ses cartes neutres, sans quoi les
-        # galets et les roseaux dessines ensuite s'eclaireraient de travers.
-        self._reset_pbr()
-        if ctx is None:
-            return False
-        self._rive = ctx
-        # Tout de suite a l'heure de l'eau et a la lumiere du moment : une
-        # scene redessinee ne doit pas faire repartir la vague a zero.
-        rive.place(ctx, self._eau_t)
-        rive.teinte(ctx, daylight.light_tint(self._seconds))
-        return True
-
     def _place_ecume(self):
         """Decale l'ecume de ce qu'elle a derive depuis le debut.
 
@@ -5768,128 +5819,175 @@ class ZoneScenery(Widget):
             self._eau_ev.cancel()
             self._eau_ev = None
 
-    def _lac(self, rng):
+    def _la_rive(self, rng):
+        """LA RIVE, sur tout le tour. Une plage de sable autour du joueur ;
+        vers les cases du lac, l'eau, du rivage a la berge d'en face ; vers
+        la terre, le paysage des cases voisines. La nappe du sol peint le
+        sable, l'eau et la berge (sol.py) ; on y pose ici le decor, chaque
+        element a sa place dans le monde (voir au_sol) :
+
+        - sur la berge d'en face, la vegetation de ce qu'il y a par-dela
+          l'eau (voir PLANTES_DE_BERGE) ;
+        - vers la terre, ses arbres (foret, montagne) ;
+        - sur la plage, les galets, et les roseaux au bord de l'eau ; de
+          l'herbe ou le sable rejoint la terre."""
+        self._nappe_propre()
         w, h, x0, y0 = self.width, self.height, self.x, self.y
+        ppd = w / FOV
+        y_h = y0 + self.hauteur_horizon() * h
+        a = self.angle
+        a_eau = nappe.angle_eau(nappe.BERGE_LOIN)
 
-        # COLLINES / BERGE D'EN FACE : c'est de l'HERBE, et c'est la meme que
-        # celle de la plaine -- elle prend donc sa texture. Ces deux bandes
-        # etaient deux ellipses d'un vert plat, et elles etaient devenues la
-        # derniere grande surface unie du jeu.
-        #
-        # Deux plans, comme en plaine : le lointain assombri (grass_far), le
-        # plus proche a pleine couleur. Chacun est dessine par _fill_curve,
-        # qui repete la tuile en perspective -- sur une bande aussi lointaine,
-        # l'herbe doit etre tres fine, et une ellipse texturee l'aurait
-        # simplement etiree d'un bord a l'autre.
-        def colline(cx, demi, bas, haut):
-            """La silhouette d'une colline : l'arc de l'ellipse d'avant."""
-            def f(fx):
-                d = (fx - cx) / demi
-                return y0 + h * (bas + haut * math.sqrt(max(0.0, 1.0 - d * d)))
-            return f
+        def crete(fx):
+            return y0 + self.crete_tour(a(fx)) * h
 
-        # LES DEUX CRETES SONT BOSSELEES, elles ne sont plus des arcs
-        # d'ellipse. Un arc parfait se lit comme un trait de compas : c'est
-        # la premiere chose qui rendait cette berge invraisemblable. On y
-        # ajoute deux ondulations lentes, tirees de la graine des voisins --
-        # donc stables, et differentes d'une case a l'autre.
-        bos = random.Random(self._graine_voisins() ^ 0x51D1)
-        p1, p2 = bos.uniform(0, 6.28), bos.uniform(0, 6.28)
+        def azimut(fx):
+            return (self._direction + fx - 0.5) * FOV
 
-        def bosselee(f, ampleur):
-            def g(fx):
-                return f(fx) + h * ampleur * (
-                    math.sin(fx * 6.28 * 1.7 + p1)
-                    + 0.55 * math.sin(fx * 6.28 * 3.3 + p2))
-            return g
+        def taille(metres, d):
+            return math.degrees(math.atan2(metres, d)) * ppd
 
-        crete_loin = bosselee(colline(0.55, 0.80, 0.58, 0.18), 0.011)
-        crete = bosselee(colline(0.52, 0.85, 0.54, 0.14), 0.008)
+        def rivage(az):
+            return self.rivage(math.radians(az))
 
-        # LA BERGE D'EN FACE, du plus loin au plus proche : le relief qui la
-        # domine, son herbe, sa vegetation, sa greve, et l'air entre tout
-        # cela et nous.
-        #
-        # L'HERBE GARDE SA FRANGE, contrairement a l'eau. Le bord du haut
-        # d'une berge, c'est de l'herbe contre le ciel : elle s'effiloche.
-        # Elle etait coupee au rasoir par habitude -- le lac passe frange=False
-        # pour sa ligne d'eau, ou c'est juste, et les deux collines avaient
-        # herite du reglage sans raison.
-        self._relief_den_face(crete_loin)
-        self._fill_curve(crete_loin, "grass_far")
-        self._fill_curve(crete, "grass")
-        eau_y = y0 + 0.60 * h
-        self._foret_den_face(eau_y, crete, crete_loin)
-        self._greve_den_face(eau_y, crete)
-        # LE VOILE D'AIR, de la ligne d'eau au sommet de la berge. Il ne prend
-        # que ce qui precede : l'eau, dessinee apres, reste nette.
-        self._brume(lambda fx: eau_y, crete_loin)
-        # Grande etendue d'eau (on est au bord), jusqu'a 0.60h.
-        #
-        # SANS FRANGE : l'eau ne s'effiloche pas, elle a un NIVEAU. Une rive
-        # dentelee se lisait comme une cote decoupee vue d'avion, alors qu'on
-        # regarde une surface plane par la tranche.
-        # (Le bas est recouvert par la rive proche, juste apres : remplir
-        # depuis y0 ne change rien a ce qu'on voit.)
-        #
-        # EN PERSPECTIVE, depuis que l'eau a une image : ses cailloux
-        # rapetissent vers la rive d'en face. Et elle recoit son reflet et
-        # son ecume qui derive (voir ECUME_COUCHES). Peu de colonnes
-        # suffisent -- sans frange, u varie en ligne droite d'un bord a
-        # l'autre -- et c'est autant de sommets en moins a deplacer trente fois
-        # par seconde (ECUME_FPS).
-        texturee = textures.base_texture("water") is not None
-        self._fill_curve(lambda fx: eau_y, "water", segs=12,
-                         depth=GROUND_DEPTH if texturee else 1.0,
-                         frange=False, eau=True)
-        # Reflets clairs : des traits, seulement pour l'eau SANS image -- sur
-        # la photo ils faisaient des rayures de dessin anime. Les tirages
-        # restent faits dans les deux cas : les galets et les roseaux tirent
-        # leur place ensuite, et la rive ne doit pas se reorganiser selon
-        # qu'une image est presente ou non.
-        Color(0.32, 0.56, 0.74, 1)
-        for _ in range(11):
-            ly = y0 + rng.uniform(0.13, 0.58) * h
-            lx = x0 + rng.uniform(0, 0.6) * w
-            fin = lx + rng.uniform(0.2, 0.45) * w
-            if not texturee:
-                Line(points=[lx, ly, fin, ly], width=1.4)
-        # Rive proche (premier plan) : l'eau vient y laper le sable (voir
-        # rive.py). Sans shader ou sans ses images, un aplat de sable comme
-        # avant. Les galets recoltables sont remontes a partir des jointures
-        # (rien en bas). [recoltable: Pierre]
-        if not self._rive_animee(x0, y0, w, h):
-            self._trect("sand", x0, y0, w, 0.12 * h)
+        # Le relief au loin : seulement la MONTAGNE (voisine, ou en face par-
+        # dela l'eau). Les silhouettes des autres paysages se lisaient, posees
+        # derriere une berge, comme des boules de coton : la berge porte de
+        # vrais arbres (plus bas).
+        voisins = self._neighbours
+        vus = {}
+        for cote, z in voisins.items():
+            if cote == "face" and z in (None, "Lac"):
+                z = self._berge
+            vus[cote] = z if z == "Montagne" else None
+        self._neighbours = vus
+        try:
+            self._horizon(crete)
+        finally:
+            self._neighbours = voisins
 
-        # Galets, roseaux et objets installes sont tries ENSEMBLE par
-        # profondeur : un feu de camp pose au fond passe derriere les roseaux
-        # du premier plan.
-        items = self._installed_items() + self._edge_items()
-        for _ in range(12):
-            rx = x0 + rng.uniform(0, 1) * w
-            ry = y0 + rng.uniform(_HARVEST_FLOOR, 0.28) * h
-            rr = rng.uniform(0.012, 0.03) * h
-            if not self._take_or_skip("Pierre") and not self._is_blocked(rx, ry):
-                # Leur distance se lit sur l'eau, qui monte jusqu'a 0,60 h.
-                items.append((ry - self.DEBORD_CAILLOU * rr,
-                              lambda rx=rx, ry=ry, rr=rr,
-                              d=(ry - y0) / (0.60 * h):
-                              self._pebble(rx, ry, rr, d)))
-        # Roseaux (remontes a partir des jointures). [recoltable: Roseau]
-        for _ in range(34):
-            gx = x0 + rng.uniform(0, 1) * w
-            gb = y0 + rng.uniform(_HARVEST_FLOOR, 0.30) * h
-            gh = rng.uniform(0.08, 0.22) * h
-            if (not self._take_or_skip("Roseau")
-                    and not self._is_blocked(gx, gb, gb + gh)):
-                items.append((gb, self._touffe(gx, gb, gh,
-                                               (0.18, 0.38, 0.20, 1),
-                                               sprite="reed")))
-        # Pepites de mineraux, sur la GRILLE comme partout ailleurs. C'est le
-        # seul gros element du lac : il n'y pousse ni arbre ni buisson.
+        items = []
+        # LA BERGE D'EN FACE, la ou il y a de l'eau devant elle.
+        lot = self._plantes_de_berge(self._berge)
+        poids = [pl[2] for pl in lot]
+        for fx, r, _n in self.semis(PIEDS_BERGE_TOUR, "berge",
+                                    amas=(3, 0.08, 0.7), marge=0.06):
+            az = azimut(fx)
+            rv = rivage(az)
+            t = r.random() ** 0.65
+            nom, ech, _ = r.choices(lot, weights=poids)[0]
+            grand = r.uniform(*TAILLE_BERGE)
+            if r.random() < EMERGENTS_DE_BERGE:
+                grand *= r.uniform(*EMERGENT_FACTEUR)
+            if rv is None or rv > 0.6 * nappe.BERGE_LOIN:
+                continue
+            haut = self.berge_tour(math.radians(az))
+            sol_y = y_h + (a_eau + (haut - a_eau) * t) * ppd
+            th = ech * h * (1.0 - RETRAIT_BERGE * t) * grand
+            k = TEINTE_BERGE * (1.0 - 0.22 * t)
+            x = x0 + fx * w
+            items.append((sol_y, lambda nom=nom, x=x, y=sol_y, th=th, k=k:
+                          self._sprite(nom, x, y, th, teinte=(k, k, k),
+                                       pick=foliage.variante_droite(
+                                           nom, self._pick(x, y)))))
+        # LA TERRE : les arbres des cases voisines, la ou il n'y a pas d'eau.
+        for fx, r, _n in self.semis(ARBRES_TERRE, "terre",
+                                    amas=(3, 0.10, 0.6), marge=0.12):
+            az = azimut(fx)
+            d = r.uniform(16.0, 85.0)
+            haut_m = r.uniform(8.0, 15.0)
+            pin = r.random() < 0.5
+            garde = r.random()
+            if rivage(az) is not None:
+                continue
+            terre = self.terre_dans(math.radians(az))
+            if terre == "Plaine" or (terre == "Montagne" and garde < 0.4):
+                continue
+            x, y, _p = self.au_sol(az, d)
+            th = taille(haut_m, d)
+            if terre == "Montagne" or pin:
+                items.append((y, lambda x=x, y=y, th=th:
+                              self._pine(x, y, th * 0.40, th,
+                                         (0.07, 0.15, 0.10, 1),
+                                         shadow=False)))
+            else:
+                items.append((y, lambda x=x, y=y, th=th, d=d:
+                              self._forest_tree(x, y, th,
+                                                max(0.35, min(1.0, 12.0 / d)),
+                                                shadow=False)))
+        # L'HERBE, la ou le sable rejoint la terre.
+        for fx, r, _n in self.semis(HERBE_RIVE, "herbe",
+                                    amas=(5, 0.07, 0.6)):
+            az = azimut(fx)
+            d = 3.0 * (45.0 / 3.0) ** r.random()
+            garde = r.random()
+            rv = rivage(az)
+            if rv is not None and d > rv - 1.5:
+                continue
+            if garde > max(0.0, min(1.0, (d - 3.0) / 9.0)):
+                continue                        # sur le sable, rare
+            x, y, _p = self.au_sol(az, d)
+            gh = taille(r.uniform(0.18, 0.32), d)
+            if gh < 2.0 or self._is_blocked(x, y, y + gh):
+                continue
+            items.append((y, self._touffe(x, y, gh, (0.25, 0.40, 0.18, 1),
+                                          max(0.3, min(1.0, 3.0 / d)))))
+        # LES GALETS, sur le sable, a portee de main : jamais sous la
+        # hauteur des mains, tete droite. [recoltable: Pierre]
+        plancher = y0 + _HARVEST_FLOOR * h
+        for _ in range(GALETS_RIVE):
+            fx = rng.uniform(0.04, 0.96)
+            az = azimut(fx)
+            u = rng.random()
+            r_m = rng.uniform(0.05, 0.11)
+            rv = rivage(az)
+            pose = None
+            for d in (1.8 + 3.0 * u, 3.5 + 4.0 * u, 6.0 + 4.0 * u):
+                if rv is not None:
+                    d = min(d, rv - 0.6)
+                x, y, _p = self.au_sol(az, d)
+                if y >= plancher:
+                    pose = (x, y, d)
+                    break
+            if self._take_or_skip("Pierre") or pose is None:
+                continue
+            x, y, d = pose
+            rr = taille(r_m, d)
+            if self._is_blocked(x, y):
+                continue
+            items.append((y - self.DEBORD_CAILLOU * rr,
+                          lambda x=x, y=y, rr=rr, d=d:
+                          self._pebble(x, y, rr, min(1.0, d / 12.0))))
+        # LES ROSEAUX : au bord de l'eau (un peu dedans), ou dans l'herbe
+        # humide vers la terre. [recoltable: Roseau]
+        for _ in range(ROSEAUX_RIVE):
+            fx = rng.uniform(0.02, 0.98)
+            az = azimut(fx)
+            u = rng.random()
+            haut_m = rng.uniform(0.7, 1.4)
+            rv = rivage(az)
+            d = (rv - 0.6 + 2.2 * u) if rv is not None else 10.0 + 7.0 * u
+            x, y, _p = self.au_sol(az, d)
+            if rv is not None and d > rv:
+                # Dans l'eau : le pied est a son niveau, pas sur le fond.
+                y = y_h + nappe.angle_eau(d) * ppd
+            gh = taille(haut_m, d)
+            if self._take_or_skip("Roseau") or y < plancher \
+                    or self._is_blocked(x, y, y + gh):
+                continue
+            items.append((y, self._touffe(x, y, gh, (0.18, 0.38, 0.20, 1),
+                                          sprite="reed")))
+        # Les pepites de la grille, hors de l'eau.
         for kind, rang, depth, px, pb, jit in self._iter_nature_big():
-            if kind == "nugget":
-                items.extend(self._pepite_de_grille(rang, depth, px, pb, jit))
+            if kind != "nugget":
+                continue
+            d = (RAYON_PROCHE + depth * (RAYON_LOIN - RAYON_PROCHE)) \
+                * METRES_PAR_CASE
+            rv = rivage(azimut((px - x0) / w))
+            if rv is not None and d > rv - 0.5:
+                continue
+            items.extend(self._pepite_de_grille(rang, depth, px, pb, jit))
+        items += self._installed_items()
         self._dessine(items)
 
     def _plantes_de_berge(self, zone):
@@ -5904,150 +6002,6 @@ class ZoneScenery(Widget):
         lot = [p for p in lot if foliage.variants(p[0])]
         return lot or [p for p in PLANTES_DE_BERGE_DEFAUT
                        if foliage.variants(p[0])]
-
-    def _zone_de_berge(self, fx):
-        """Quel paysage la berge d'en face montre A CETTE ABSCISSE.
-
-        LA BERGE N'EST PAS D'UN SEUL TENANT, pas plus que l'horizon : ce qu'on
-        voit a gauche de l'ecran est la case de gauche, ce qu'on voit au
-        milieu est ce qu'il y a par-dela l'eau. Une berge uniforme perdrait
-        justement l'information de direction, qui est tout l'interet de
-        regarder au loin.
-
-        Les bornes sont celles de horizon.SPANS, et volontairement : les
-        silhouettes de relief et les arbres se posent aux memes endroits, donc
-        une montagne et ses sapins tombent bien l'un sur l'autre."""
-        gauche = horizon.SPANS["gauche"][1]
-        droite = horizon.SPANS["droite"][0]
-        milieu = self._berge or self._neighbours.get("face")
-        if fx < gauche:
-            return self._neighbours.get("gauche") or milieu
-        if fx > droite:
-            return self._neighbours.get("droite") or milieu
-        return milieu
-
-    def _relief_den_face(self, crete):
-        """Le relief qui domine la berge d'en face, pose sur sa crete.
-
-        SEULEMENT CE QU'AUCUNE IMAGE NE SAIT DONNER, c'est-a-dire la montagne.
-        Les silhouettes de horizon.py servent a reconnaitre un paysage a un
-        kilometre : une ligne d'ellipses pales dit "foret" tres bien de loin,
-        mais posee juste derriere la berge d'un lac elle se lisait pour ce
-        qu'elle est, des boules de coton. La foret d'en face est donc faite de
-        vrais arbres (voir _foret_den_face) ; la montagne, elle, n a pas
-        d'image et sa silhouette est de toute facon ce qui la definit -- une
-        crete.
-
-        SUR LA CRETE, ET NON AU RAS DE L'EAU. Ces silhouettes se posaient a
-        0,70 h alors que la berge monte a 0,76 : elles etaient entierement
-        recouvertes par l'herbe, et le lac n'a jamais rien montre de ses
-        voisins.
-
-        AU MILIEU, C'EST LA BERGE QUI COMMANDE : la case droit devant est
-        presque toujours le lac lui-meme, qui n'a pas de silhouette. On y met
-        ce qu'on a trouve de l'autre cote de l'eau, si bien que le relief du
-        fond et les arbres du bord racontent la meme case."""
-        voisins = dict(self._neighbours)
-        if self._berge:
-            voisins["face"] = self._berge
-        voisins = {c: z for c, z in voisins.items() if z == "Montagne"}
-        if voisins:
-            horizon.draw(voisins, self.x, self.width, crete, self.height,
-                         random.Random(self._graine_voisins()))
-
-    def _abscisses_de_berge(self, brg, n):
-        """Les positions horizontales des pieds, EN BOSQUETS.
-
-        Un tirage uniforme ne fait pas de paquets -- c'est le paradoxe du
-        hasard, et a l'oeil cela se lit comme une plantation reguliere. On
-        tire donc d'abord des centres de bosquet, puis on repartit les
-        arbres autour d'eux, en laissant une part d'isoles pour ne pas
-        creuser de trou net entre deux groupes."""
-        centres = [brg.random() for _ in range(BOSQUETS_DE_BERGE)]
-        out = []
-        for _ in range(n):
-            if brg.random() < ISOLES_DE_BERGE or not centres:
-                out.append(brg.random())
-            else:
-                c = centres[brg.randrange(len(centres))]
-                out.append(min(0.999, max(0.001,
-                                          brg.gauss(c, ETALEMENT_BOSQUET))))
-        return out
-
-    def _foret_den_face(self, eau_y, crete, crete_loin):
-        """La vegetation de la berge d'en face, repartie EN PROFONDEUR.
-
-        Chaque pied tire sa DISTANCE entre le bord de l'eau (0) et la crete
-        du fond (1), et tout en decoule : ou il se pose, de combien il
-        rapetisse, de quelle teinte il s'assombrit, et dans quel ordre on le
-        dessine. C'est la perspective du sol appliquee a des sprites.
-
-        CE QU'ON Y MET EST CE QUI S'Y TROUVE VRAIMENT. `self._berge` porte le
-        type de la premiere case solide droit devant, par-dela l'eau (voir
-        horizon.zone_den_face), et les bords de l'ecran montrent les cases de
-        gauche et de droite (voir _zone_de_berge). Regarder l'autre rive
-        renseigne donc sur ou l'on va, avec les vraies images du jeu.
-
-        RIEN DE TOUT CELA N'EST RECOLTABLE et rien n'entre dans la grille :
-        c'est de l'autre cote de l'eau. Ces plantes ne passent donc ni par
-        _take_or_skip ni par _is_blocked."""
-        w, x0, h = self.width, self.x, self.height
-        # Une graine a part, comme pour l'horizon : la berge depend de ce
-        # qu'il y a en face, et tourner sur place ne doit pas reorganiser le
-        # decor de la case ou l'on se tient.
-        brg = random.Random(self._graine_voisins() ^ 0x8E36)
-        lots = {}
-        pieds = []
-        for fx in self._abscisses_de_berge(brg, PIEDS_DE_BERGE):
-            zone = self._zone_de_berge(fx)
-            if zone not in lots:
-                lot = self._plantes_de_berge(zone)
-                lots[zone] = (lot, [p[2] for p in lot]) if lot else None
-            if lots[zone] is None:
-                continue
-            lot, poids = lots[zone]
-            cx = x0 + fx * w
-            # LA DISTANCE, tiree au carre : il y a plus de place au fond
-            # qu'au bord, et une lisiere est plus dense en s'eloignant.
-            t = brg.random() ** 0.65
-            sol = eau_y + (max(crete(fx), crete_loin(fx)) - eau_y) * t
-            if sol <= eau_y + 2.0:
-                continue
-            nom, ech, _ = brg.choices(lot, weights=poids)[0]
-            # Sa taille : le retrait de la distance, un jeu d'un pied a
-            # l'autre, et pour quelques-uns le coup de pouce qui les fait
-            # PERCER la ligne (voir EMERGENTS_DE_BERGE).
-            taille = (ech * h * (1.0 - RETRAIT_BERGE * t)
-                      * brg.uniform(*TAILLE_BERGE))
-            if brg.random() < EMERGENTS_DE_BERGE:
-                taille *= brg.uniform(*EMERGENT_FACTEUR)
-            pieds.append((sol, cx, nom, taille, t))
-        # Du plus loin au plus proche : un arbre du fond ne doit pas se
-        # dessiner par-dessus celui qui est devant lui.
-        for sol, cx, nom, taille, t in sorted(pieds, reverse=True):
-            k = TEINTE_BERGE * (1.0 - 0.22 * t)
-            # LES IMAGES PENCHEES SE FONT RARES ICI AUSSI. Ces arbres-la ne
-            # peuvent pas etre redresses -- ils sont poses en rectangle, sans
-            # grille a faire tourner -- donc la seule chose a faire est de
-            # les voir moins souvent. Une lisiere ou un sapin sur quatre
-            # penche du meme cote se lit comme un motif repete, ce qui est
-            # exactement le reproche fait a cette berge.
-            self._sprite(nom, cx, sol, taille, teinte=(k, k, k),
-                         pick=foliage.variante_droite(nom,
-                                                      self._pick(cx, sol)))
-
-    def _greve_den_face(self, eau_y, crete):
-        """La plage de la berge d'en face : une bande de sable au ras de
-        l'eau.
-
-        C'EST ELLE QUI FAIT LA RIVE. Sans elle, l'eau touchait l'herbe
-        directement -- une berge de gazon plongeant dans un lac, ce qu'on ne
-        voit nulle part. La bande est coupee par la crete la ou la colline est
-        trop basse pour en porter une : la, c'est la greve qui occupe toute la
-        berge, et c'est juste."""
-        sable = eau_y + SABLE_DEN_FACE * self.height
-        self._fill_curve(lambda fx: min(crete(fx), sable), "sand",
-                         frange=False)
 
     def _pebble(self, rx, ry, rr, depth=0.0):
         # Un galet est une petite pierre comme les autres (voir _stone).
