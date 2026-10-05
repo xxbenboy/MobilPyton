@@ -23,10 +23,11 @@ donc bien plus pres. Elles sont dessinees plus grandes et moins voilees. Sans
 cet ecart, les trois voisins se liraient comme une seule ligne d'horizon
 plate, et l'on perdrait justement l'information de direction.
 
-Tout est dessine EN SILHOUETTE et VOILE de bleu pale : c'est ce que fait
-l'atmosphere sur un kilometre, et c'est aussi ce qui empeche ces formes de
-concurrencer le decor du premier plan. Elles doivent se lire d'un coup d'oeil
-et ne jamais retenir le regard.
+Tout est VOILE de la couleur du ciel : c'est ce que fait l'atmosphere sur un
+kilometre, et c'est aussi ce qui empeche ces formes de concurrencer le decor
+du premier plan. Elles doivent se lire d'un coup d'oeil et ne jamais retenir
+le regard. La foret y est faite des IMAGES d'arbres du jeu (sapins et
+feuillus) ; la montagne, qui n'a pas d'image, reste une silhouette.
 
 CE MODULE NE FAIT QUE L'HORIZON. La case voisine entre AUSSI dans la scene
 par les COTES de l'ecran, et la elle n'est pas une silhouette : ses elements
@@ -95,18 +96,27 @@ def _hazy(color, dist):
 # On ne cherche pas a dessiner la case voisine, seulement ce qui la rend
 # reconnaissable en une fraction de seconde et de tres loin.
 
-def _foret(x0, x1, base, haut, dist, rng, env=None, au_ras=False):
+def _foret(x0, x1, base, haut, dist, rng, env=None, au_ras=False,
+           arbre=None):
     """Une ligne d'arbres : une frange dentelee, jamais des arbres separes.
 
     A un kilometre, on ne distingue plus les troncs : on voit une bande
-    sombre au sommet irregulier. On empile donc beaucoup de petites formes qui
-    se CHEVAUCHENT -- des cimes isolees se liraient comme des buissons poses
-    sur une colline, pas comme une foret."""
+    sombre au sommet irregulier. On empile donc beaucoup de petits arbres
+    qui se CHEVAUCHENT -- des cimes isolees se liraient comme des buissons
+    poses sur une colline, pas comme une foret.
+
+    LES VRAIS ARBRES DU JEU, quand on les a : `arbre(nom, x, pied, hauteur,
+    brume)` pose l'image d'un sapin ("pine_tree") ou d'un feuillu
+    ("forest_tree"), voilee de `brume` (0 a 1), et rend Faux s'il n'y a pas
+    d'image -- l'arbre est alors dessine en forme simple, comme avant. Les
+    tirages sont les memes dans les deux cas."""
     fond = _hazy((0.16, 0.30, 0.19), dist)
     devant = _hazy((0.10, 0.22, 0.14), dist)
     largeur = x1 - x0
     for couche, (col, ech, dy) in enumerate(((fond, 1.0, 0.35),
                                              (devant, 0.78, 0.0))):
+        # La rangee du fond est plus loin : plus voilee.
+        brume = min(1.0, HAZE_FAR * dist + (0.14 if couche == 0 else 0.0))
         Color(*col, 1)
         n = max(8, int(largeur / (haut * 0.42)))
         for i in range(n + 1):
@@ -120,13 +130,24 @@ def _foret(x0, x1, base, haut, dist, rng, env=None, au_ras=False):
             # Le pied plonge sous la crete, que le sol recouvre ; AU RAS
             # (sol en nappe, dessine dessous), il part de la crete meme.
             pied = y if au_ras else y - haut * 0.5
-            if rng.random() < 0.55:            # conifere : cime pointue
+            conifere = rng.random() < 0.55
+            # L'image entiere dans la tranche : au bord d'un panneau du
+            # panorama, la decoupe la trancherait net.
+            demi = (th + (y - pied)) * (0.32 if conifere else 0.50)
+            xi = min(max(fx, x0 + demi), x1 - demi)
+            if arbre is not None and arbre(
+                    "pine_tree" if conifere else "forest_tree", xi, pied,
+                    th + (y - pied), brume):
+                Color(*col, 1)                 # l'image a change la couleur
+                continue
+            if conifere:                       # conifere : cime pointue
                 Triangle(points=[fx - tw, pied, fx + tw, pied, fx, y + th])
             else:                              # feuillu : cime ronde
                 Ellipse(pos=(fx - tw, pied), size=(tw * 2, th + (y - pied)))
 
 
-def _montagne(x0, x1, base, haut, dist, rng, env=None, au_ras=False):
+def _montagne(x0, x1, base, haut, dist, rng, env=None, au_ras=False,
+              arbre=None):
     """Deux ou trois cretes qui se recouvrent.
 
     Une montagne se reconnait a sa SILHOUETTE, pas a sa matiere : des pentes
@@ -165,7 +186,7 @@ _SIGNATURES = {
 
 
 def draw(neighbours, x0, width, base, height, rng, plein=False,
-         au_ras=False):
+         au_ras=False, arbre=None):
     """Dessine les paysages voisins au fond de la scene.
 
     `neighbours` : {"face": type, "gauche": type, "droite": type}, chaque
@@ -179,7 +200,9 @@ def draw(neighbours, x0, width, base, height, rng, plein=False,
     bas -- le sol s'en charge.
 
     Le FOND est dessine en premier, les COTES par-dessus : sur les zones ou
-    ils se chevauchent, c'est le plus proche qui gagne."""
+    ils se chevauchent, c'est le plus proche qui gagne.
+
+    `arbre` : de quoi poser les IMAGES d'arbres du jeu (voir _foret)."""
     if not neighbours:
         return
     for cote in ("face", "gauche", "droite"):
@@ -200,7 +223,8 @@ def draw(neighbours, x0, width, base, height, rng, plein=False,
         env = _enveloppe(xa, xb, FONDU_BORD,
                          neighbours.get("voisin_g") != zone,
                          neighbours.get("voisin_d") != zone) if plein else None
-        signature(xa, xb, au_sol, haut, dist, rng, env=env, au_ras=au_ras)
+        signature(xa, xb, au_sol, haut, dist, rng, env=env, au_ras=au_ras,
+                  arbre=arbre)
 
 
 # Jusqu'ou chercher la terre ferme de l'autre cote de l'eau. Au-dela, le

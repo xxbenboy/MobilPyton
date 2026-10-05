@@ -3536,7 +3536,37 @@ class ZoneScenery(Widget):
         horizon.draw(self._neighbours, self.x, self.width, crest,
                      self.height, random.Random(self._graine_voisins()),
                      plein=True,
-                     au_ras=self._sans_sol or self._nappe is not None)
+                     au_ras=self._sans_sol or self._nappe is not None,
+                     arbre=self._arbre_lointain)
+
+    # Les arbres lointains sont un peu assombris avant d'etre voiles : vus de
+    # loin et de biais, on y voit surtout leurs faces a l'ombre.
+    TEINTE_LOINTAIN = (0.80, 0.84, 0.82)
+
+    def _arbre_lointain(self, nom, x, pied, hauteur, brume):
+        """Un arbre de l'horizon (voir horizon._foret) : l'image du jeu,
+        puis sa silhouette par-dessus, de la couleur du ciel, d'autant plus
+        opaque qu'il est loin. Faux s'il n'y a pas d'image."""
+        if hauteur < 2.0:
+            return True                     # trop petit pour se voir
+        pick = foliage.variante_droite(nom, self._pick(x, pied))
+        if not self._sprite(nom, x, pied, hauteur, pick=pick,
+                            teinte=self.TEINTE_LOINTAIN):
+            return False
+        sil = foliage.silhouette(nom, pick)
+        tex = foliage.sprite(nom, pick)
+        if sil is None or tex is None or brume <= 0.0:
+            return True
+        w, h = foliage.size_for(tex, hauteur)
+        # La couleur suit le ciel, a toute heure et par tout temps (voir
+        # _applique_brume) ; seule son opacite est la notre.
+        voile = Color(1, 1, 1, brume)
+        if self._brume_couleur is None:
+            self._brume_couleur = []
+        self._brume_couleur.append((voile, 0.0))
+        Rectangle(pos=(x - w / 2.0, pied), size=(w, h), texture=sil)
+        self._applique_brume()
+        return True
 
     # -- helpers textures (surface plane texturee, sinon couleur de repli) - #
     def _trect(self, name, x, y, w, h, tile_px=None):
