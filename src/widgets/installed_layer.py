@@ -1,4 +1,5 @@
-"""Le lien entre la GRILLE 5x5 et l'ecran, dans les deux sens.
+"""Le lien entre la GRILLE de proximite (world.GRILLE) et l'ecran, dans les
+deux sens.
 
 En vue 1re personne, `grid_to_screen` projette une case vers l'ecran (voir
 plus bas). Dans la grille de POSE, vue de dessus, c'est l'inverse qu'il faut :
@@ -22,6 +23,8 @@ tries par profondeur avec le reste du decor (un feu de camp pose au fond
 passe derriere un buisson du premier plan), ce qu'une couche posee par-dessus
 la scene ne permettait pas.
 """
+from src.world import GRILLE
+
 
 
 # OU TOMBE LA GRILLE, VERTICALEMENT : la rangee la plus proche, puis ce que
@@ -71,11 +74,12 @@ def anchor_at(x, y, ox, oy, cs, fw, fh):
 
     AU BORD, LE BLOC SE CALE au lieu de deborder : viser le coin de la grille
     doit donner l'emplacement du coin, pas rien du tout."""
-    if not (ox <= x < ox + 5 * cs and oy <= y < oy + 5 * cs):
+    n = GRILLE
+    if not (ox <= x < ox + n * cs and oy <= y < oy + n * cs):
         return None
     # Position CONTINUE du doigt en cases (0.0 = centre de la case 0).
     cgx = (x - ox) / cs - 0.5
     cgy = (y - oy) / cs - 0.5
     gx = int(round(cgx - (fw - 1) / 2.0))
     gy = int(round(cgy - (fh - 1) / 2.0))
-    return max(0, min(5 - fw, gx)), max(0, min(5 - fh, gy))
+    return max(0, min(n - fw, gx)), max(0, min(n - fh, gy))

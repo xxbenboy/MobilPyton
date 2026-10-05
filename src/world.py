@@ -187,10 +187,36 @@ def plus_proche_praticable(grid, x, y):
 # --------------------------------------------------------------------- #
 # Gros elements du decor (arbres, buissons, gros rochers) sur la grille
 # --------------------------------------------------------------------- #
-# Chaque case du monde a une scene avec une grille 5x5 (voir PlaceScreen).
-# Les GROS elements du decor occupent des cellules de cette grille : le
-# decor les dessine A CES POSITIONS, et on ne peut PAS y installer d'objet
-# (feu de camp...). Stable par case (deduit de la graine de scene).
+# Chaque case du monde a une GRILLE de GRILLE x GRILLE cellules, le joueur
+# au CENTRE (voir PlaceScreen et zone_scenery.polaire). Les GROS elements du
+# decor y occupent une EMPRISE : un arbre une cellule, un rocher ou un
+# buisson un carre de deux sur deux. Le decor les dessine A CES POSITIONS, et
+# on ne peut PAS y installer d'objet (feu de camp...). Stable par case
+# (deduit de la graine de scene).
+GRILLE = 11
+CENTRE_GRILLE = GRILLE // 2              # la cellule du joueur : (5, 5)
+EMPRISE_NATURE = {"tree": (1, 1), "rock": (2, 2), "bush": (2, 2),
+                  "nugget": (1, 1)}
+
+
+def emprise_nature(kind, ancre):
+    """Les cellules couvertes par un element `kind` ancre en `ancre` (son
+    coin aux plus petits gx et gy)."""
+    fw, fh = EMPRISE_NATURE.get(kind, (1, 1))
+    return [(ancre[0] + i, ancre[1] + j) for j in range(fh) for i in range(fw)]
+
+
+def centre_element(kind, ancre):
+    """Le milieu de l'emprise d'un element, en cellules (peut tomber entre
+    deux cellules pour une emprise paire)."""
+    fw, fh = EMPRISE_NATURE.get(kind, (1, 1))
+    return ancre[0] + (fw - 1) / 2.0, ancre[1] + (fh - 1) / 2.0
+
+
+def distance_au_joueur(kind, ancre):
+    """La distance (en cellules) du joueur au milieu d'un element."""
+    cx, cy = centre_element(kind, ancre)
+    return ((cx - CENTRE_GRILLE) ** 2 + (cy - CENTRE_GRILLE) ** 2) ** 0.5
 
 # COMBIEN D'ELEMENTS AU PLUS sur la grille d'une case. C'est un plafond pour
 # TOUT ce qui pousse naturellement, pepites comprises : au-dela, la grille se
@@ -258,7 +284,18 @@ def scene_seed(x, y):
 
 
 def nature_blocked_cells(zone_type, cell_seed):
-    """Cellules 5x5 occupees par un element de PROXIMITE pour cette case :
+    """TOUTES les cellules couvertes par un element de PROXIMITE pour cette
+    case (un buisson en couvre quatre) : {(gx, gy): type}."""
+    out = {}
+    for ancre, kind in nature_elements(zone_type, cell_seed).items():
+        for cell in emprise_nature(kind, ancre):
+            out[cell] = kind
+    return out
+
+
+def nature_elements(zone_type, cell_seed):
+    """Les elements de PROXIMITE de cette case, par leur ANCRE (le coin de
+    leur emprise aux plus petits gx et gy) :
     {(gx, gy): "tree" | "bush" | "rock" | "nugget"}.
 
     LES PEPITES SERVENT LES PREMIERES, et le reste remplit ce qui reste sous
@@ -268,12 +305,14 @@ def nature_blocked_cells(zone_type, cell_seed):
     dans ce sens-la que le plafond agit, et non l'inverse -- sinon une case
     "riche" ne se distinguerait plus d'une autre.
 
-    La case du joueur (2, 2), au CENTRE, reste toujours libre : c'est la qu'il
-    se tient (voir zone_scenery.polaire)."""
-    plafond = proximite_max(zone_type)
-    cells = [(gx, gy) for gy in range(5) for gx in range(5)
-             if (gx, gy) != (2, 2)]
-    plafond = min(plafond, len(cells))
+    La cellule du joueur, au CENTRE, reste toujours libre : c'est la qu'il
+    se tient (voir zone_scenery.polaire). Les emprises ne se chevauchent pas
+    et restent dans la grille ; un element qui ne trouve plus de place est
+    simplement omis."""
+    centre = (CENTRE_GRILLE, CENTRE_GRILLE)
+    cells = [(gx, gy) for gy in range(GRILLE) for gx in range(GRILLE)
+             if (gx, gy) != centre]
+    plafond = min(proximite_max(zone_type), len(cells))
 
     pepites = min(nugget_count(cell_seed, zone_type), plafond)
     reste = plafond - pepites
@@ -287,8 +326,19 @@ def nature_blocked_cells(zone_type, cell_seed):
         kinds = ()
 
     rng = random.Random(f"{cell_seed}:{zone_type}:bigcells")
-    tires = rng.sample(cells, pepites + naturels)
-    out = {cell: "nugget" for cell in tires[:pepites]}
-    for cell in tires[pepites:]:
-        out[cell] = rng.choice(kinds)
+    voulus = ["nugget"] * pepites + [rng.choice(kinds)
+                                     for _ in range(naturels)]
+    prises = {centre}
+    out = {}
+    candidats = list(cells)
+    rng.shuffle(candidats)
+    for kind in voulus:
+        for ancre in candidats:
+            emprise = emprise_nature(kind, ancre)
+            if all(0 <= x < GRILLE and 0 <= y < GRILLE
+                   and (x, y) not in prises for x, y in emprise):
+                out[ancre] = kind
+                prises.update(emprise)
+                candidats.remove(ancre)
+                break
     return out

@@ -624,12 +624,19 @@ _RAMPE_EAU = []
 # LA SCENE EST UN QUART DU TOUR (voir panorama.py) : FOV degres sur sa
 # largeur, centres sur la direction qu'elle regarde (0 nord ... 3 ouest).
 FOV = 90.0
-# LA GRILLE 5x5 EST CENTREE SUR LE JOUEUR (case (2, 2)). Un gros element est
-# place par sa DIRECTION et sa DISTANCE (en cases) ; sa profondeur va de 0 a
-# une case de distance a 1 au coin de la grille.
-CASE_JOUEUR = (2, 2)
-RAYON_PROCHE = 1.0
-RAYON_LOIN = 2.0 ** 1.5           # le coin : racine de 8
+# LA GRILLE (11 x 11, voir world.GRILLE) EST CENTREE SUR LE JOUEUR. Un gros
+# element est place par sa DIRECTION et sa DISTANCE (en cases, au milieu de
+# son emprise) ; sa profondeur va de 0 au pied du joueur a 1 au coin de la
+# grille.
+#
+# LA GRILLE COUVRE LE MEME TERRAIN QUE L'ANCIENNE 5x5 : ses cases sont
+# ECHELLE_CASE fois plus petites (environ 1,8 m), le coin reste a une
+# douzaine de metres et le pied du joueur a 4,5 m. Plus pres, un element est
+# a ses pieds.
+CASE_JOUEUR = (world.CENTRE_GRILLE, world.CENTRE_GRILLE)
+RAYON_LOIN = math.hypot(world.CENTRE_GRILLE, world.CENTRE_GRILLE)
+ECHELLE_CASE = RAYON_LOIN / 2.0 ** 1.5      # l'ancien coin : racine de 8
+RAYON_PROCHE = ECHELLE_CASE                  # l'ancienne premiere case
 # Un element est encore dessine s'il deborde d'un panneau voisin de cette
 # part de quart de tour : vu a cheval sur deux panneaux, il l'est dans les
 # deux, au meme endroit de l'ecran.
@@ -678,9 +685,9 @@ VERSANT_PENTE = 0.36
 VERSANT_EPAULE = 3.0
 VERSANT_MONTE = 21.0
 VERSANT_DESCEND = 15.0
-# Une case de la grille 5x5, en metres sur le versant (une case de distance :
-# le pied du joueur ; le coin : une douzaine de metres).
-METRES_PAR_CASE = 4.5
+# Une case de la grille, en metres sur le versant (le pied du joueur a
+# 4,5 m ; le coin : une douzaine de metres).
+METRES_PAR_CASE = 4.5 / ECHELLE_CASE
 # Le decor du versant (voir _montagne) : par quart du tour, et les limites
 # (altitude en metres au-dessus du joueur) des sapins et de l'herbe.
 VERSANT_SAPINS = 24
@@ -761,6 +768,13 @@ def _case_autour(state, dx, dy):
     if 0 <= nx < world.GRID_W and 0 <= ny < world.GRID_H:
         return state.grid[ny][nx]
     return None
+
+
+def profondeur(distance):
+    """La profondeur 0..1 d'un point a `distance` cases du joueur (voir
+    RAYON_PROCHE, RAYON_LOIN)."""
+    return max(0.0, min(1.0, (distance - RAYON_PROCHE)
+                        / (RAYON_LOIN - RAYON_PROCHE)))
 
 
 def polaire(gx, gy):
@@ -1333,7 +1347,7 @@ class ZoneScenery(Widget):
             return []
         _fw, fh = items.footprint(self._apercu_nom)
         out = []
-        for gy in range(0, 5 - fh + 1):
+        for gy in range(0, world.GRILLE - fh + 1):
             objet = self._objet_pose(self._apercu_nom, 0, gy)
             if objet is not None:
                 out.append((objet[0], gy))
@@ -1614,10 +1628,12 @@ class ZoneScenery(Widget):
         direction (degres) et sa distance (cases). fx sort de [0, 1] pour un
         point hors de ce quart du tour. Meme rangees que l'ancienne grille :
         a une case, le pied du joueur ; au coin, le fond du sol."""
-        prof = max(0.0, min(1.0, (distance - RAYON_PROCHE)
-                            / (RAYON_LOIN - RAYON_PROCHE)))
+        prof = profondeur(distance)
         fx0, fy, taille = grid_to_screen(2, prof * 4.0,
                                          self.SOL_DE_GRILLE.get(self._zone))
+        # La taille d'UNE case de la grille : ECHELLE_CASE fois plus petite
+        # que celle de l'ancienne grille, que donne grid_to_screen.
+        taille /= ECHELLE_CASE
         fx = 0.5 + ecart(azimut - self._direction * FOV) / FOV
         if self._zone in ("Montagne", "Lac") and self.width > 0 \
                 and self.height > 0:
@@ -1872,7 +1888,7 @@ class ZoneScenery(Widget):
 
     def _compute_blocked_bboxes(self):
         """Reconstruit les rectangles d'ecran couverts par les objets installes
-        (feu de camp, ...) a partir des cellules 5x5 (_blocked_grid)."""
+        (feu de camp, ...) a partir de leurs cellules (_blocked_grid)."""
         self._blocked_bboxes = []
         if not self._blocked_grid or self.width <= 0 or self.height <= 0:
             return
@@ -1926,26 +1942,33 @@ class ZoneScenery(Widget):
         # le bon ordre de recouvrement. Le RANG se compte sur TOUTE la grille,
         # avant de garder ce que ce quart du tour voit : un element garde
         # ainsi sa variante d'un panneau a l'autre.
+        # UN ELEMENT OCCUPE SON EMPRISE (un arbre une case, un rocher ou un
+        # buisson deux sur deux) : il est dessine une fois, au MILIEU de son
+        # emprise, et l'on s'y refere par son ANCRE (voir world).
+        elements = world.nature_elements(self._zone, self._seed)
         for (ggx, ggy), kind in sorted(
-                world.nature_blocked_cells(self._zone, self._seed).items(),
-                key=lambda kv: (-polaire(*kv[0])[1], kv[0])):
+                elements.items(),
+                key=lambda kv: (-world.distance_au_joueur(kv[1], kv[0]),
+                                kv[0])):
             rang = rangs.get(kind, 0)
             rangs[kind] = rang + 1
-            if ((ggx, ggy) in self._blocked_grid
-                    or (ggx, ggy) in self._removed_grid):
+            if ((ggx, ggy) in self._removed_grid
+                    or any(c in self._blocked_grid
+                           for c in world.emprise_nature(kind, (ggx, ggy)))):
                 continue
-            azimut, distance = polaire(ggx, ggy)
+            mgx, mgy = world.centre_element(kind, (ggx, ggy))
+            azimut, distance = polaire(mgx, mgy)
             if not self.vu(azimut):
                 continue
-            gfx, gfy, _gs = self.grille(ggx, ggy)
+            gfx, gfy, _gs = self.grille(mgx, mgy)
             jit = random.Random(f"{self._seed}:{ggx}:{ggy}:big")
-            depth = max(0.0, min(1.0, (distance - RAYON_PROCHE)
-                                 / (RAYON_LOIN - RAYON_PROCHE)))
-            # La case de l'element en cours, pour qui le dessine (_note_gros).
+            depth = profondeur(distance)
+            # L'ANCRE de l'element en cours, pour qui le dessine (_note_gros).
             self._cellule = (ggx, ggy)
-            # AUCUN decalage : l'element est pose EXACTEMENT au centre de sa
-            # case, comme un objet installe. C'est ce qui permet de retrouver
-            # la meme position dans la grille de placement et dans le jeu.
+            # AUCUN decalage : l'element est pose EXACTEMENT au milieu de son
+            # emprise, comme un objet installe. C'est ce qui permet de
+            # retrouver la meme position dans la grille de placement et dans
+            # le jeu.
             tx = x0 + gfx * w
             tb = y0 + gfy * h
             yield kind, rang, depth, tx, tb, jit
@@ -1985,7 +2008,8 @@ class ZoneScenery(Widget):
             # derriere se dessinerait par-dessus (meme piege que les
             # buissons).
             return (cy - s * _PLAT_PROFONDEUR / 2.0,
-                    lambda: self._fire_pit(cx, cy, s, lit, level, gy / 4.0))
+                    lambda: self._fire_pit(cx, cy, s, lit, level,
+                                           profondeur(polaire(gx, gy)[1])))
         if name == items.BLUEPRINT_T1:
             coins = self._emprise_coins(name, gx, gy)
             base = min(c[1] for c in coins)
@@ -1998,7 +2022,8 @@ class ZoneScenery(Widget):
         if name == items.WORKBENCH_T1:
             coins = self._emprise_coins(name, gx, gy)
             return (min(c[1] for c in coins),
-                    lambda: self._etabli(coins, gy / 4.0))
+                    lambda: self._etabli(coins,
+                                         profondeur(polaire(gx, gy)[1])))
         return None
 
     def _emprise_coins(self, name, gx, gy):
@@ -3286,15 +3311,15 @@ class ZoneScenery(Widget):
     # Une PLAINE voisine n'ajoute rien : de l'herbe a cote de l'herbe ne se
     # verrait pas.
 
-    # Colonne VIRTUELLE de chaque cote. La grille du jeu va de 0 a 4 ; -1 et 5
-    # sont donc les premieres colonnes de la case d'a cote.
-    _EDGE_COL = {"gauche": -1, "droite": 5}
+    # Colonne VIRTUELLE de chaque cote. La grille du jeu va de 0 a GRILLE - 1 ;
+    # -1 et GRILLE sont donc les premieres colonnes de la case d'a cote.
+    _EDGE_COL = {"gauche": -1, "droite": world.GRILLE}
 
     # Rangees utilisees, de la plus proche a la plus lointaine. On s'arrete a
     # la 3e : au-dela, la perspective ramene tout vers le centre de l'ecran, et
     # une colonne VOISINE y arriverait au milieu de l'image -- ce qui ne
     # voudrait plus rien dire.
-    _EDGE_ROWS = (0, 1, 2)
+    _EDGE_ROWS = (1, 3, 5)
 
     # LES ZONES SANS DEBORDEMENT SUR LES BORDS. La montagne et le lac ne
     # recoivent plus les elements de la case d'a cote le long de leurs bords :
@@ -3342,7 +3367,8 @@ class ZoneScenery(Widget):
                 jit = random.Random("%d:%s:%d:bord" % (self._seed, cote, row))
                 gfx, gfy, _gs = self.grille(col, row)
                 pose(out, self.x + gfx * self.width,
-                     self.y + gfy * self.height, row / 4.0, jit)
+                     self.y + gfy * self.height,
+                     profondeur(polaire(col, row)[1]), jit)
         return out
 
     def _edge_side(self, cote):

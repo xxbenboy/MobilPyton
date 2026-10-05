@@ -1,4 +1,4 @@
-"""Ecran PLACEMENT : grille 5x5, vue de dessus, posee sur la SCENE de la case
+"""Ecran PLACEMENT : grille 11x11 (world.GRILLE), vue de dessus, posee sur la SCENE de la case
 courante, pour choisir ou installer un objet (feu de camp, ...).
 
 Le joueur est fixe au CENTRE de la grille (gx=2, gy=2) ; le haut de la grille
@@ -37,7 +37,7 @@ from kivy.graphics import (Color, Rectangle, RoundedRectangle, Line, Ellipse,
 from kivy.metrics import dp
 import math
 
-from src import items
+from src import items, world
 from src.game_state import GameState, CARDINALS
 from src.widgets.animated_background import AnimatedBackground, night_darkness
 from src.widgets import daylight
@@ -475,14 +475,18 @@ class _ActionPanel(BoxLayout):
 
 
 class _GridOverlay(Widget):
-    """Grille 5x5 avec joueur au centre (gx=2, gy=2). Cellules cliquables (sauf
-    la case joueur et les cases deja prises)."""
+    """La grille de proximite (world.GRILLE de cote) avec le joueur au
+    centre. Cellules cliquables (sauf la case joueur et les cases deja
+    prises)."""
 
     def __init__(self, on_cell_pick, **kwargs):
         super().__init__(**kwargs)
         self.on_cell_pick = on_cell_pick
         self.taken = set()               # {(gx, gy), ...} cases occupees
         self.nature = {}                 # {(gx, gy): "tree"|"bush"|"rock"}
+        # Les memes, par ELEMENT : {ancre: type} -- un pictogramme par
+        # buisson, et non un par case de son emprise.
+        self.elements = {}
         self.objects = {}                # {(gx, gy): (nom, allume, niveau)}
         self.anchors = []                # [(nom, gx, gy, allume, niveau)]
         # APERCU DE POSE : les cases que l'objet glisse occuperait, et si
@@ -495,8 +499,9 @@ class _GridOverlay(Widget):
         self.bind(pos=self._redraw, size=self._redraw)
 
     def _grid_geom(self):
-        cs = min(self.width, self.height) / 5.2   # petite marge autour
-        total = 5 * cs
+        n = world.GRILLE
+        cs = min(self.width, self.height) / (n + 0.2)   # petite marge autour
+        total = n * cs
         ox = self.center_x - total / 2
         oy = self.center_y - total / 2
         return ox, oy, cs
@@ -518,14 +523,15 @@ class _GridOverlay(Widget):
         with self.canvas:
             # Fond de la grille (semi-transparent pour laisser voir le decor).
             Color(*CELL_BG)
-            Rectangle(pos=(ox, oy), size=(5 * cs, 5 * cs))
+            n = world.GRILLE
+            Rectangle(pos=(ox, oy), size=(n * cs, n * cs))
             # Lignes blanches translucides.
             Color(*CELL_LINE)
-            for i in range(6):
+            for i in range(n + 1):
                 Line(points=[ox + i * cs, oy,
-                             ox + i * cs, oy + 5 * cs], width=1.2)
+                             ox + i * cs, oy + n * cs], width=1.0)
                 Line(points=[ox, oy + i * cs,
-                             ox + 5 * cs, oy + i * cs], width=1.2)
+                             ox + n * cs, oy + i * cs], width=1.0)
             # Case joueur, AU CENTRE de la grille : surlignee bleu, non
             # cliquable. Le haut de la grille est le NORD.
             pgx, pgy = GameState.PLAYER_CELL
@@ -558,11 +564,15 @@ class _GridOverlay(Widget):
             # surlignees vertes et marquees du pictogramme de l'obstacle,
             # non cliquables.
             for (gx, gy), kind in sorted(self.nature.items()):
-                tx = ox + gx * cs
-                ty = oy + gy * cs
                 Color(*CELL_NATURE)
-                Rectangle(pos=(tx, ty), size=(cs, cs))
-                draw_nature_glyph(kind, tx + cs / 2, ty + cs / 2, cs * 0.72)
+                Rectangle(pos=(ox + gx * cs, oy + gy * cs), size=(cs, cs))
+            # UN pictogramme par element, centre sur son emprise et a sa
+            # taille (un buisson ou un rocher couvre deux cases sur deux).
+            for (gx, gy), kind in sorted(self.elements.items()):
+                fw, fh = world.EMPRISE_NATURE.get(kind, (1, 1))
+                draw_nature_glyph(kind, ox + (gx + fw / 2.0) * cs,
+                                  oy + (gy + fh / 2.0) * cs,
+                                  cs * 0.72 * min(fw, fh))
             # Cases deja prises (installees) : surlignees rouge, avec le
             # pictogramme de l'objet pose (feu de camp...).
             for (gx, gy) in sorted(self.taken):
@@ -601,12 +611,13 @@ class _GridOverlay(Widget):
         if not self.collide_point(*touch.pos):
             return super().on_touch_down(touch)
         ox, oy, cs = self._grid_geom()
-        if not (ox <= touch.x < ox + 5 * cs and oy <= touch.y < oy + 5 * cs):
+        n = world.GRILLE
+        if not (ox <= touch.x < ox + n * cs and oy <= touch.y < oy + n * cs):
             return super().on_touch_down(touch)
         gx = int((touch.x - ox) / cs)
         gy = int((touch.y - oy) / cs)
-        gx = max(0, min(4, gx))
-        gy = max(0, min(4, gy))
+        gx = max(0, min(n - 1, gx))
+        gy = max(0, min(n - 1, gy))
         if self.mode == "use":
             # Seuls les objets poses repondent -- et parmi eux, seuls ceux qui
             # ont quelque chose a offrir. La fenetre qui s'ouvre est celle du
@@ -951,6 +962,7 @@ class PlaceScreen(Screen):
         self.grid_overlay.anchors = list(objs)
         self.grid_overlay.nature = {(int(gx), int(gy)): kind for (gx, gy), kind
                                     in state.nature_cells_here().items()}
+        self.grid_overlay.elements = dict(state.nature_here())
         self.grid_overlay.mode = self.mode
         self.grid_overlay._redraw()
         # La legende ne liste que les obstacles presents sur CETTE case.

@@ -17,7 +17,43 @@ from src import world
 from src import items
 from src import stats as stats_mod
 
-SAVE_VERSION = 2
+SAVE_VERSION = 3          # 3 : la grille de proximite passe de 5x5 a 11x11
+
+
+def _vers_grille_11(data):
+    """Convertit une sauvegarde faite sur la grille 5x5 (joueur en (2, 2))
+    vers la grille 11x11 (joueur en (5, 5)).
+
+    Une cellule d'avant valait DEUX des nouvelles en distance : (gx, gy)
+    devient (5 + 2 (gx - 2), 5 + 2 (gy - 2)). Tout ce qui est rattache a une
+    position suit -- objets poses, chantiers, etablis, foyers. Les arbres
+    abattus et les buissons cueillis sont oublies : le decor est retire sur
+    la nouvelle grille, et ses elements ne sont plus aux memes places."""
+    def neuf(g):
+        return 5 + 2 * (int(g) - 2)
+
+    def cle(k):
+        # "x,y:gx,gy" -> meme case du monde, nouvel ancrage.
+        if ":" not in k:
+            return k
+        case, pos = k.split(":", 1)
+        try:
+            gx, gy = (int(v) for v in pos.split(","))
+        except ValueError:
+            return k
+        return "%s:%d,%d" % (case, neuf(gx), neuf(gy))
+
+    data = dict(data)
+    data["installed"] = {
+        case: [[o[0], neuf(o[1]), neuf(o[2])] + list(o[3:]) for o in lst]
+        for case, lst in (data.get("installed") or {}).items()}
+    for champ in ("built", "build_stages", "stations", "fires"):
+        data[champ] = {cle(k): v for k, v in (data.get(champ) or {}).items()}
+    data["chopped"] = {}
+    data["harvested"] = {
+        case: {k: v for k, v in d.items() if not str(k).startswith("baies:")}
+        for case, d in (data.get("harvested") or {}).items()}
+    return data
 
 SECONDS_PER_DAY = 24 * 60 * 60
 
@@ -1895,7 +1931,7 @@ class GameState:
     # Arbres abattus
     # ------------------------------------------------------------------ #
     def chopped_here(self):
-        """Cellules 5x5 dont le GROS element a ete abattu sur cette case."""
+        """ANCRES des gros elements abattus (ou depouilles) sur cette case."""
         return {(int(c[0]), int(c[1]))
                 for c in self.chopped.get(self._cell_key(), [])}
 
@@ -1905,8 +1941,14 @@ class GameState:
         Ce sont les gros elements du decor de type "tree" que le joueur n'a
         pas encore coupes (nature_cells_here ne compte deja plus les autres) :
         le bouton "Couper du bois" en depend."""
-        return [cell for cell, kind in sorted(self.nature_cells_here().items())
+        return [cell for cell, kind in sorted(self.nature_here().items())
                 if kind == "tree"]
+
+    @staticmethod
+    def _le_plus_proche(ancres, kind):
+        """L'ancre de l'element `kind` le plus proche du joueur."""
+        return min(ancres, key=lambda c: (world.distance_au_joueur(kind, c),
+                                          c[1], c[0]))
 
     def chop_tree(self, cell=None):
         """Abat l'arbre `cell` (le plus PROCHE si None). Renvoie sa cellule,
@@ -1917,9 +1959,8 @@ class GameState:
         trees = self.trees_here()
         if not trees or (cell is not None and tuple(cell) not in trees):
             return None
-        # gy croissant = de plus en plus loin : on coupe le plus proche.
         if cell is None:
-            cell = min(trees, key=lambda c: (c[1], c[0]))
+            cell = self._le_plus_proche(trees, "tree")
         self.chopped.setdefault(self._cell_key(), []).append([cell[0], cell[1]])
         self.gain_xp("couper")
         return cell
@@ -1953,7 +1994,7 @@ class GameState:
                     if random.Random("%s:%d:%d:porte" % (seed, c[0], c[1]))
                     .random() < self.BUISSON_A_BAIES]
         if buissons and not porteurs:
-            porteurs = [min(buissons, key=lambda c: (c[1], c[0]))]
+            porteurs = [self._le_plus_proche(buissons, "bush")]
         taken = self.harvested_here()
         out = {}
         for c in porteurs:
@@ -1973,7 +2014,7 @@ class GameState:
         buisson vide quitte le decor. Rend False s'il n'y en a plus."""
         baies = self.baies_par_buisson()
         if cell is None and baies:
-            cell = min(baies, key=lambda c: (c[1], c[0]))
+            cell = self._le_plus_proche(list(baies), "bush")
         if cell is None or baies.get(tuple(cell), 0) <= 0:
             return False
         cell = tuple(cell)
@@ -2013,7 +2054,7 @@ class GameState:
 
     def bushes_here(self):
         """Buissons encore DEBOUT sur la case : [(gx, gy), ...]."""
-        return [cell for cell, kind in sorted(self.nature_cells_here().items())
+        return [cell for cell, kind in sorted(self.nature_here().items())
                 if kind == "bush"]
 
     def cut_bush(self):
@@ -2024,28 +2065,38 @@ class GameState:
         bushes = self.bushes_here()
         if not bushes:
             return None
-        cell = min(bushes, key=lambda c: (c[1], c[0]))
+        cell = self._le_plus_proche(bushes, "bush")
         self.chopped.setdefault(self._cell_key(), []).append([cell[0], cell[1]])
         self.gain_xp("couper")
         return cell
 
+    def nature_here(self):
+        """Les gros elements ENCORE LA sur la case, par leur ancre (voir
+        world.nature_elements) : {(gx, gy): type}."""
+        gone = self.chopped_here()
+        return {a: kind for a, kind in world.nature_elements(
+            self.current_zone(),
+            world.scene_seed(self.player_x, self.player_y)).items()
+            if a not in gone}
+
     def nature_cells_here(self):
-        """Cellules 5x5 de la case occupees par un element de PROXIMITE
-        (arbre, buisson, gros rocher, pepite) : {(gx, gy): type}. On ne peut
-        pas y installer d'objet.
+        """TOUTES les cellules de la case couvertes par un element de
+        PROXIMITE (arbre, buisson, gros rocher, pepite) : {(gx, gy): type}.
+        On ne peut pas y installer d'objet.
 
         UN ARBRE ABATTU N'Y EST PLUS : il a quitte le decor, sa case est libre.
         La grille de l'ecran Zone le montrait pourtant encore -- un arbre la
         ou la scene n'en dessine plus -- et refusait qu'on pose quoi que ce
         soit a sa place."""
-        gone = self.chopped_here()
-        return {cell: kind for cell, kind in world.nature_blocked_cells(
-            self.current_zone(),
-            world.scene_seed(self.player_x, self.player_y)).items()
-            if cell not in gone}
+        out = {}
+        for ancre, kind in self.nature_here().items():
+            for cell in world.emprise_nature(kind, ancre):
+                out[cell] = kind
+        return out
 
-    # Case ou se tient le joueur dans la grille 5x5 : rien ne s'y pose.
-    PLAYER_CELL = (2, 2)
+    # La cellule ou se tient le joueur, au centre de la grille : rien ne s'y
+    # pose.
+    PLAYER_CELL = (world.CENTRE_GRILLE, world.CENTRE_GRILLE)
 
     def installed_cells_here(self):
         """{case: objet} pour TOUTES les cases occupees par un objet pose.
@@ -2070,7 +2121,8 @@ class GameState:
         occupees = self.installed_cells_here()
         nature = self.nature_cells_here()
         for cell in items.footprint_cells(name, gx, gy):
-            if not (0 <= cell[0] < 5 and 0 <= cell[1] < 5):
+            if not (0 <= cell[0] < world.GRILLE
+                    and 0 <= cell[1] < world.GRILLE):
                 return False          # deborde de la grille
             if cell == self.PLAYER_CELL:
                 return False          # on ne pose rien sous ses propres pieds
@@ -3001,6 +3053,8 @@ class GameState:
         # sont du texte libre : on n'y touche pas.
         data = {k: (v if k in ("name", "log", "seed", "difficulty")
                     else _renomme(v)) for k, v in data.items()}
+        if int(data.get("version", 0) or 0) < 3:
+            data = _vers_grille_11(data)
         # Compat : anciennes sauvegardes stockaient `time_minutes`.
         if "time_seconds" in data:
             time_seconds = data["time_seconds"]

@@ -292,7 +292,8 @@ WORKBENCH_T1 = "Atelier_Tier_1"
 # game_state.installed (pas dans ground) et ne peuvent plus etre ramasses.
 INSTALLABLE_ITEMS = {"Feu_de_camp", BLUEPRINT_T1, WORKBENCH_T1}
 
-# EMPRISE AU SOL, en cases de la grille 5x5 : (largeur, profondeur). Un objet
+# EMPRISE AU SOL, en cases de la grille de proximite (11 x 11, voir
+# world.GRILLE) : (largeur, profondeur). Un objet
 # est ANCRE sur une case -- la plus a gauche de sa rangee la plus proche -- et
 # occupe toutes les cases de son emprise. Tout ce qui n'est pas liste tient sur
 # une seule case.

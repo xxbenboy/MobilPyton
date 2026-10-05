@@ -1123,7 +1123,8 @@ class GameScreen(Screen):
                 # Boite genereuse : le foyer ET ses flammes, qui montent.
                 if (abs(touch.x - cx) <= pw * 0.60
                         and cy - pw * 0.35 <= touch.y <= cy + pw * 0.85):
-                    dist = math.hypot(gx - 2, gy - 2)
+                    pgx, pgy = state.PLAYER_CELL
+                    dist = math.hypot(gx - pgx, gy - pgy)
                     if best is None or dist < best[2]:  # le plus PROCHE
                         best = (gx, gy, dist)
         if best is None:
