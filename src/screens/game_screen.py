@@ -742,6 +742,9 @@ class GameScreen(Screen):
             self.monde.e = 0.0
             self.monde.regle()
             self._recoupe()
+            # Le fondu en cours s'arrete : il finirait sinon de rendre le HUD
+            # invisible apres notre retour a pleine opacite.
+            Animation.cancel_all(self.hud, "opacity")
             self.hud.disabled = False
             self.hud.opacity = 1.0
             self._oublie_decor()
