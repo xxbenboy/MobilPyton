@@ -401,6 +401,7 @@ class GameScreen(Screen):
         self.scenery = scenes[0]
         self._lacet = 0.0
         self._tangage = 0.0
+        self._regard_vu = None
         self._regard = None             # [touch, x0, y0, a bouge]
         # Les panneaux hors de vue se dessinent D'AVANCE, un par image, a
         # l'arrivee sur une case : tourner la tete ne saccade pas.
@@ -2309,9 +2310,17 @@ class GameScreen(Screen):
         # LE REGARD : celui de la partie, qu'un autre ecran (la carte, la
         # zone) a pu tourner, ou qu'un deplacement a tourne vers la case
         # d'arrivee. Jamais remis a une ancienne valeur.
-        if tuple(state.regard) != (self._lacet, self._tangage):
+        # TOUJOURS APPLIQUE A LA PREMIERE MISE A JOUR (_regard_vu) : la
+        # nappe du sol, le ciel et les panneaux n'ont pas de camera tant
+        # qu'on ne leur en a pas donne une -- sans quoi, au nord tete droite
+        # (le regard par defaut), le sol restait vide sous les pieds.
+        # Et de nouveau a chaque changement de case, comme avant.
+        case = (state.player_x, state.player_y)
+        if self._regard_vu != case or \
+                tuple(state.regard) != (self._lacet, self._tangage):
             self._lacet, self._tangage = state.regard
             self._applique_regard()
+            self._regard_vu = case
             if (self._lacet, self._tangage) != tuple(state.regard):
                 # Le tangage a pu etre borne par le panorama.
                 state.tourne_regard(self._lacet, self._tangage)
