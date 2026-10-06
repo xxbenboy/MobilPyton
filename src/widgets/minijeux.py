@@ -35,6 +35,18 @@ LE FEU DE CAMP
     4. les huit places remplies : le feu de camp est fait.
     Annule, les pierres regagnent leurs cases, comme d'habitude.
 
+LA CORDE
+    1. les trois fibres vegetales pendent cote a cote, nouees en haut : une
+       a GAUCHE, une au MILIEU, une a DROITE ;
+    2. on prend un brin du BORD et on le lache au milieu : il passe
+       par-dessus celui du milieu, qui prend sa place au bord. La tresse
+       s'allonge d'un croisement ;
+    3. un bord, puis l'autre, en alternant (le meme deux fois de suite ne
+       tresse rien : le brin retourne a sa place) ; le brin du milieu ne
+       se prend pas ;
+    4. chaque brin doit etre croise CINQ FOIS : quinze croisements, et la
+       corde est tressee.
+
 L'EQUIPEMENT EN FEUILLE (casque, veste, pantalon, gants, souliers)
     la piece est decoupee en TROIS TIERS (gauche, milieu, droite), et
     chaque tiers se fabrique en un tour :
@@ -55,7 +67,7 @@ assemblage.dessine_travail).
 import math
 
 from kivy.clock import Clock
-from kivy.graphics import Color, Rectangle
+from kivy.graphics import Color, Line, Rectangle
 
 from src.widgets.sol_de_craft import dessine_objet, cadre_image
 from src.widgets.assemblage import decalage_morceau, vue_inverse
@@ -722,6 +734,235 @@ class MiniJeuFeu(object):
             self.reussi()
 
 
+# LA CORDE : trois brins, croises chacun CROISEMENTS_PAR_BRIN fois. Les trois
+# places sont cote a cote (ECART_BRINS entre deux, en tailles d'objet), sous
+# le milieu du plan (BAS_BRINS) ; le noeud est au-dessus (HAUT_NOEUD), et la
+# tresse en descend d'un PAS_TRESSE par croisement. Un brin lache a moins de
+# PRISE_MILIEU de la place du milieu y passe.
+FIBRE = "Fibre_Vegetale"
+BRINS_CORDE = 3
+CROISEMENTS_PAR_BRIN = 5
+ECART_BRINS = 0.85
+BAS_BRINS = -0.40
+HAUT_NOEUD = 1.45
+PAS_TRESSE = 0.065
+LARGE_TRESSE = 0.11
+PRISE_MILIEU = 0.45
+DUREE_TRESSER = 1.8
+# Une teinte par brin, pour suivre chacun dans la tresse.
+TEINTES_BRINS = ((0.86, 0.76, 0.50), (0.70, 0.60, 0.34), (0.95, 0.86, 0.62))
+OMBRE_BRIN = (0.22, 0.16, 0.08, 0.85)
+
+
+class MiniJeuCorde(object):
+    """Tresser trois fibres vegetales en corde."""
+
+    def __init__(self, assemblage, reussi, consigne, couche=None,
+                 mains=None, recette=None):
+        self.asm = assemblage
+        self.reussi = reussi
+        self.consigne = consigne
+        self.couche = couche
+        self.mains = mains
+        self.fantome = Fantome(couche, mains,
+                               lambda: assemblage.case_objet() * 3) \
+            if couche is not None and mains is not None else None
+        # Les brins de gauche a droite : ordre[0] a gauche, ordre[1] au
+        # milieu, ordre[2] a droite.
+        brins = [o for o in assemblage.objets if o["nom"] == FIBRE]
+        self.ordre = sorted(brins, key=lambda o: assemblage.a_l_ecran(o)[0])
+        # Chaque croisement : (numero du brin, bord d'ou il vient, 0 ou 2).
+        self.croisements = []
+        self._tenues = [None, None]
+        self._dit = None
+        self.fini = False
+
+    def total(self):
+        return BRINS_CORDE * CROISEMENTS_PAR_BRIN
+
+    def _taille(self):
+        return self.asm.case_objet() * 3
+
+    def place(self, k):
+        """La place `k` (0 gauche, 1 milieu, 2 droite), a l'ecran."""
+        mx, my = self.asm.centre_du_plan()
+        t = self._taille()
+        return mx + (k - 1) * ECART_BRINS * t, my + BAS_BRINS * t
+
+    def dernier_bord(self):
+        return self.croisements[-1][1] if self.croisements else None
+
+    def bord_attendu(self):
+        """Le bord dont on doit croiser le brin (None : l'un ou l'autre)."""
+        d = self.dernier_bord()
+        return None if d is None else 2 - d
+
+    # -- cycle ----------------------------------------------------------- #
+    def demarre(self):
+        asm = self.asm
+        asm.aimant_permis = False
+        asm.liens = []
+        asm.sur_pas = self._pas
+        asm.dessin_jeu = self._dessine
+        for n, o in enumerate(self.ordre):
+            o["brin"] = n
+        self._range()
+        self._annonce()
+        self._montre()
+
+    def arrete(self):
+        asm = self.asm
+        if asm.sur_pas == self._pas:
+            asm.sur_pas = None
+        if asm.dessin_jeu == self._dessine:
+            asm.dessin_jeu = None
+        asm.aimant_permis = True
+        if self.fantome is not None:
+            self.fantome.arrete()
+        for o in self.ordre:
+            o.pop("brin", None)
+            o.pop("verrou", None)
+        asm._redessine()
+
+    def _range(self):
+        """Chaque brin a sa place ; celui du milieu ne se prend pas."""
+        portes = [self.asm.porte(i) for i in (0, 1)]
+        for k, o in enumerate(self.ordre):
+            if k == 1:
+                o["verrou"] = True
+            else:
+                o.pop("verrou", None)
+            if not any(o is p for p in portes):
+                self.asm.place_a_l_ecran(o, *self.place(k))
+        self.asm._redessine()
+
+    # -- la main fantome et les consignes --------------------------------- #
+    def _montre(self, bord=None):
+        """Une main fantome porte un brin du bord jusqu'au milieu."""
+        if self.fantome is None or self.mains is None \
+                or len(self.ordre) < BRINS_CORDE:
+            return
+        if bord is None:
+            bord = self.bord_attendu()
+        if bord is None:
+            bord = 0
+        o = self.ordre[bord]
+        main = 0 if bord == 0 else 1
+        depart = self.place(bord)
+        milieu = self.place(1)
+        self.fantome.joue(main, [self.mains.paume(main), depart, depart,
+                                 milieu, milieu], DUREE_TRESSER, objet=o)
+
+    def _annonce(self):
+        n = len(self.croisements)
+        bord = self.bord_attendu()
+        if bord is None:
+            texte = "Croise un brin du bord sur le milieu (%d/%d)" % (
+                n, self.total())
+        else:
+            texte = "Croise le brin de %s sur le milieu (%d/%d)" % (
+                "gauche" if bord == 0 else "droite", n, self.total())
+        if texte != self._dit:
+            self._dit = texte
+            self.consigne(texte)
+
+    # -- le dessin de la tresse ------------------------------------------- #
+    def _bout_tresse(self):
+        """(x, y) du bas de la tresse : la ou les brins se separent."""
+        mx, my = self.asm.centre_du_plan()
+        t = self._taille()
+        return mx, my + (HAUT_NOEUD - PAS_TRESSE * len(self.croisements)) * t
+
+    def _dessine(self):
+        if len(self.ordre) < BRINS_CORDE:
+            return
+        t = self._taille()
+        mx, my = self.asm.centre_du_plan()
+        haut = my + HAUT_NOEUD * t
+        w = LARGE_TRESSE * t
+        epais = max(2.0, 0.045 * t)
+        # Les brins LIBRES, du bas de la tresse a chaque brin (ou a la main
+        # qui le tient).
+        bx, by = self._bout_tresse()
+        for k, o in enumerate(self.ordre):
+            x, y = self.place(k)
+            for i in (0, 1):
+                if self.asm.porte(i) is o:
+                    x, y = self.asm.ou_est_porte(i)
+            depart = (bx + (k - 1) * w * 0.5, by)
+            fin = (x, y + 0.20 * t)
+            Color(*OMBRE_BRIN)
+            Line(points=[depart[0], depart[1], fin[0], fin[1]],
+                 width=epais * 1.3)
+            Color(*TEINTES_BRINS[o.get("brin", k) % len(TEINTES_BRINS)])
+            Line(points=[depart[0], depart[1], fin[0], fin[1]], width=epais)
+        # LA TRESSE : un chevron par croisement, du noeud vers le bas, le
+        # dernier par-dessus.
+        for j, (brin, bord) in enumerate(self.croisements):
+            s = -1.0 if bord == 0 else 1.0
+            y0 = haut - j * PAS_TRESSE * t
+            y1 = y0 - PAS_TRESSE * t * 1.8
+            pts = [mx + s * w, y0, mx - s * w * 0.35, y1]
+            Color(*OMBRE_BRIN)
+            Line(points=pts, width=epais * 1.45)
+            Color(*TEINTES_BRINS[brin % len(TEINTES_BRINS)])
+            Line(points=pts, width=epais * 1.1)
+        # Le noeud, en haut.
+        Color(*OMBRE_BRIN)
+        Line(circle=(mx, haut + 0.02 * t, w * 0.55), width=epais)
+
+    # -- chaque pas de la vue ---------------------------------------------- #
+    def _pas(self, dt):
+        if self.fini or len(self.ordre) < BRINS_CORDE:
+            return
+        tenues = [self.asm.porte(i) for i in (0, 1)]
+        lachees = [o for o in self._tenues if o is not None
+                   and not any(o is t for t in tenues)]
+        self._tenues = tenues
+        if any(o is not None for o in tenues):
+            self.asm._redessine()       # le brin tenu suit la main
+        for o in lachees:
+            self.lache(o)
+            if self.fini:
+                return
+        self._annonce()
+
+    def lache(self, o):
+        """Le brin `o` vient d'etre lache : au milieu, depuis le bon bord,
+        il croise ; sinon il retourne a sa place."""
+        if not any(o is b for b in self.ordre):
+            return
+        k = next(n for n, b in enumerate(self.ordre) if b is o)
+        ox, oy = self.asm.a_l_ecran(o)
+        px, py = self.place(1)
+        attendu = self.bord_attendu()
+        if k != 1 and math.hypot(ox - px, oy - py) \
+                <= PRISE_MILIEU * self._taille():
+            if attendu is not None and k != attendu:
+                # Le meme bord deux fois : ca ne tresse rien.
+                self._range()
+                if self.fantome is not None and not self.fantome.en_cours():
+                    self._montre(attendu)
+                return
+            self.croise(k)
+            return
+        self._range()
+
+    def croise(self, k):
+        """Le brin du bord `k` passe par-dessus celui du milieu."""
+        o = self.ordre[k]
+        self.ordre[k], self.ordre[1] = self.ordre[1], o
+        self.croisements.append((o.get("brin", 0), k))
+        self._range()
+        self._annonce()
+        if len(self.croisements) >= self.total():
+            self.fini = True
+            self.reussi()
+
+    def croisements_de(self, brin):
+        return sum(1 for b, _k in self.croisements if b == brin)
+
+
 # L'EQUIPEMENT EN FEUILLE. Les cinq feuilles de chaque tiers, en tailles
 # d'objet autour du milieu du plan (releve de HAUSSE_FEUILLES), dans l'ordre
 # ou la main fantome les montre : la forme du morceau qu'on coud.
@@ -1052,9 +1293,11 @@ MINIJEUX = {
     "fibre": MiniJeuFibre,
     "feu": MiniJeuFeu,
     "feuille": MiniJeuFeuille,
+    "corde": MiniJeuCorde,
 }
 
 
 __all__ = ["MiniJeuCouteau", "MiniJeuFibre", "MiniJeuFeu", "MiniJeuFeuille",
+           "MiniJeuCorde",
            "Fantome", "MINIJEUX", "COUCHE",
            "AMINCISSEMENTS"]

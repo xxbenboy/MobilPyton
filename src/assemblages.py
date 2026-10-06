@@ -30,8 +30,8 @@ ASSEMBLAGES = [
     {"result": "Allume_feu", "objets": {"Silex": 1, "Pierre": 1}},
     # Trois brins -- herbes ou feuilles, melangees comme on veut -- effiloches
     # au couteau (voir RECETTES_FIBRE plus bas).
-    # Trois fibres tressees.
-    {"result": "Corde", "objets": {"Fibre_Vegetale": 3}},
+    # Trois fibres tressees (voir minijeux.MiniJeuCorde).
+    {"result": "Corde", "objets": {"Fibre_Vegetale": 3}, "minijeu": "corde"},
     # Huit pierres, posees en cercle par le mini-jeu (voir
     # minijeux.MiniJeuFeu).
     {"result": "Feu_de_camp", "objets": {"Pierre": 8}, "minijeu": "feu"},

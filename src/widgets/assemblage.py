@@ -292,6 +292,9 @@ class Assemblage(Widget):
         self.sur_pas = None
         self.emplacements = []
         self.fils = []
+        # Ce qu'un mini-jeu dessine lui-meme sous les objets (la tresse de
+        # la corde) : dessin_jeu(), appele dans le canvas.
+        self.dessin_jeu = None
         self.bind(pos=self._redessine, size=self._redessine)
 
     # -- ce qu'il y a sur le plan ---------------------------------------- #
@@ -314,6 +317,7 @@ class Assemblage(Widget):
         self.sur_pas = None
         self.emplacements = []
         self.fils = []
+        self.dessin_jeu = None
         self._arrete()
         self._decale = [[0.0, 0.0], [0.0, 0.0]]
         if self.mains is not None:
@@ -367,6 +371,8 @@ class Assemblage(Widget):
                          width=max(1.2, cote * 0.018))
                 dessine_objet(nom, px, py, cote, ombre=False,
                               alpha=ALPHA_EMPLACEMENT)
+            if self.dessin_jeu is not None:
+                self.dessin_jeu()
             # Du plus loin (haut) au plus pres : celui de devant passe devant.
             for o in sorted(self.objets, key=lambda o: -o["y"]):
                 if any(o is p for p in portes) or o.get("cache"):
