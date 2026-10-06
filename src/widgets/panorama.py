@@ -40,6 +40,10 @@ TANGAGE_MAX = 90.0
 # L'horizon par defaut, tant que l'ecran n'a pas donne celui de sa case : le
 # plus haut des zones (le lac), le plus prudent pour la tete baissee.
 HORIZON_DEFAUT = 0.75
+# La nappe ne descend pas tout a fait a la verticale (son premier anneau est
+# a quelques centimetres des pieds) : la tete s'arrete d'autant plus haut,
+# avec un peu de marge, pour qu'aucune bande de ciel ne reste en bas.
+MARGE_PIEDS = 6.0
 # Hauteur du sol prolonge sous un panneau, en hauteurs d'ecran : de quoi
 # baisser la tete jusqu'a regarder ses pieds.
 SOL_PROLONGE = 3.0
@@ -204,7 +208,8 @@ class Panorama(FloatLayout):
         ppd = self.ppd()
         if ppd <= 0 or self.height <= 0:
             return -TANGAGE_MAX
-        return max(-TANGAGE_MAX, self.horizon * self.height / ppd - 90.0)
+        return max(-TANGAGE_MAX, self.horizon * self.height / ppd - 90.0
+                   + MARGE_PIEDS)
 
     def regle(self, lacet=None, tangage=None):
         """Place les panneaux pour ce regard (degres)."""
