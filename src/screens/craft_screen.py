@@ -441,16 +441,25 @@ class CraftScreen(Penche, Screen):
     def recettes_de(state, plan):
         """Les recettes CONNUES que ces objets du plan peuvent donner :
         [(objet, disposition)], montrees sous le carre de droite. Pour
-        l'equipement en feuille, toutes les pieces deja fabriquees, a la
-        suite l'une de l'autre."""
+        l'equipement en feuille, des qu'une piece a ete fabriquee : toutes
+        les pieces, a la suite l'une de l'autre, par leurs seules
+        feuilles."""
         if len(plan) < 2:
             return []
         r = assemblages.selon_objets(plan)
         if r is None:
             return []
         if r.get("famille") == "feuille":
-            objets = [n for n, _pts in assemblages.MODELES_FEUILLE]
-        elif r["result"] is not None:
+            # UNE SEULE PIECE FABRIQUEE SUFFIT : toutes les pieces sont
+            # montrees, connues ou non, chacune par la seule disposition de
+            # ses feuilles (le reste se colle ou l'on veut).
+            if not any(state.connait(n)
+                       for n, _pts in assemblages.MODELES_FEUILLE):
+                return []
+            return [(n, [[assemblages.FEUILLE, 3 * c, 3 * l]
+                         for c, l in pts])
+                    for n, pts in assemblages.MODELES_FEUILLE]
+        if r["result"] is not None:
             objets = [r["result"]]
         else:
             objets = []
