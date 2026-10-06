@@ -231,7 +231,9 @@ class CraftScreen(Penche, Screen):
         root.add_widget(self.couche_demo)
         self._demo = DemoFeuille(self.assemblage, self.couche_demo,
                                  self.hands, annonce=self._annonce_modele)
-        self._famille_feuille = False
+        # La FAMILLE sur le plan (sa recette), ou None : ses modeles en
+        # fantome au milieu de la vue d'assemblage.
+        self._famille = None
         # LE "POUF" DE LA REUSSITE : la fumee, l'objet qui apparait et
         # glisse dans la fenetre de reussite (voir reussite.py). Remis tout
         # en haut quand la fenetre s'ouvre : l'objet passe devant elle.
@@ -441,24 +443,24 @@ class CraftScreen(Penche, Screen):
     def recettes_de(state, plan):
         """Les recettes CONNUES que ces objets du plan peuvent donner :
         [(objet, disposition)], montrees sous le carre de droite. Pour
-        l'equipement en feuille, des qu'une piece a ete fabriquee : toutes
-        les pieces, a la suite l'une de l'autre, par leurs seules
-        feuilles."""
+        une famille (l'equipement en feuille, la pierre taillee), des qu'un
+        de ses objets a ete fabrique : tous, a la suite l'un de l'autre, par
+        la seule disposition de leurs pieces."""
         if len(plan) < 2:
             return []
         r = assemblages.selon_objets(plan)
         if r is None:
             return []
-        if r.get("famille") == "feuille":
-            # UNE SEULE PIECE FABRIQUEE SUFFIT : toutes les pieces sont
-            # montrees, connues ou non, chacune par la seule disposition de
-            # ses feuilles (le reste se colle ou l'on veut).
-            if not any(state.connait(n)
-                       for n, _pts in assemblages.MODELES_FEUILLE):
+        if r.get("famille"):
+            # UNE FAMILLE (equipement en feuille, pierre taillee) : UN SEUL
+            # OBJET FABRIQUE SUFFIT, tous sont montres, connus ou non,
+            # chacun par la seule disposition de ses pieces (le reste se
+            # colle ou l'on veut).
+            if not any(state.connait(n) for n, _pts in r["modeles"]):
                 return []
-            return [(n, [[assemblages.FEUILLE, 3 * c, 3 * l]
-                         for c, l in pts])
-                    for n, pts in assemblages.MODELES_FEUILLE]
+            piece = r.get("piece", assemblages.FEUILLE)
+            return [(n, [[piece, 3 * c, 3 * l] for c, l in pts])
+                    for n, pts in r["modeles"]]
         if r["result"] is not None:
             objets = [r["result"]]
         else:
@@ -805,12 +807,15 @@ class CraftScreen(Penche, Screen):
         self.sol.annule()
         self.sol.actif = False
         self.assemblage.charge(objets)
-        # L'EQUIPEMENT EN FEUILLE : les objets vont sur les cotes de l'ecran,
-        # le milieu montre les modeles en fantome (voir demo_feuille.py).
+        # UNE FAMILLE (l'equipement en feuille, la pierre taillee) : les
+        # objets vont sur les cotes de l'ecran, le milieu montre ses modeles
+        # en fantome (voir demo_feuille.py).
         r = assemblages.selon_objets([o[0] for o in objets])
-        self._famille_feuille = r is not None and r.get("famille") == "feuille"
-        if self._famille_feuille:
-            etale_sur_les_cotes(self.assemblage)
+        self._famille = r if r is not None and r.get("famille") else None
+        if self._famille is not None:
+            etale_sur_les_cotes(self.assemblage,
+                                self._famille.get("piece",
+                                                  assemblages.FEUILLE))
         self.hands.set_items(None, None)
         # Seuls Assembler, a sa place, et Retour devenu Annuler.
         self._garnit(self._rang_bas, self._assembler)
@@ -865,9 +870,9 @@ class CraftScreen(Penche, Screen):
             self._mode = "zoom"
             self.assemblage.actif = True
             self._prepare_flou()
-            if self._famille_feuille:
+            if self._famille is not None:
                 self._garnit(self._rang_titre, self._consigne, 1.0)
-                self._demo.demarre()
+                self._demo.demarre(self._famille)
             # Le voile vient UNE FOIS LE ZOOM TERMINE.
             self._arrete_voile()
             self._voile_horloge = Clock.schedule_interval(
@@ -959,7 +964,7 @@ class CraftScreen(Penche, Screen):
     def _fin_assemblage(self):
         """Retour a la vue normale, tout de suite."""
         self._arrete_demo()
-        self._famille_feuille = False
+        self._famille = None
         self._arrete_zoom()
         self.ferme_alerte(rend_la_main=False)
         self._ferme_appris()

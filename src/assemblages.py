@@ -11,6 +11,7 @@ Une fois fabrique au moins une fois, l'objet est CONNU : l'ecran de craft le
 montre a droite au lieu d'un "?".
 """
 COUTEAU_EN_PIERRE = "Couteau_En_Pierre"
+PIERRE_COUPANTE = "Pierre_Coupante"
 
 # A MAINS NUES, LE PLAN DE TRAVAIL FAIT 2 x 2 : une recette demande QUATRE
 # OBJETS AU PLUS. Les anciennes recettes qui en demandaient davantage
@@ -20,9 +21,10 @@ COUTEAU_EN_PIERRE = "Couteau_En_Pierre"
 # consommes ; ils perdent cette part de leur solidite et retournent a la
 # proximite (ou se brisent, uses jusqu'au bout).
 ASSEMBLAGES = [
-    # Deux pierres collees : l'une taille l'autre en lame.
-    {"result": COUTEAU_EN_PIERRE, "objets": {"Pierre": 2},
-     "minijeu": "couteau"},
+    # LA HACHE : la pierre coupante, emmanchee sur un faisceau de petits
+    # batons, ligaturee a la corde.
+    {"result": "Hache",
+     "objets": {PIERRE_COUPANTE: 1, "Small_Stick": 4, "Corde": 1}},
     # Le couteau emmanche au bout d'un long baton, ligature a la corde.
     {"result": "Lance",
      "objets": {"Long_Stick": 1, COUTEAU_EN_PIERRE: 1, "Corde": 1}},
@@ -118,8 +120,48 @@ EQUIPEMENT_FEUILLE = {
     # La corde y laisse UN METRE (un cinquieme) et revient, plus courte.
     "outils": {COUTEAU_EN_PIERRE: 0.10, "Corde": 0.20},
     "minijeu": "feuille", "formes": FORMES_FEUILLE,
+    "piece": FEUILLE, "modeles": MODELES_FEUILLE,
 }
 ASSEMBLAGES.append(EQUIPEMENT_FEUILLE)
+
+# LA PIERRE TAILLEE : deux pierres collees, l'une taille l'autre. Comme pour
+# l'equipement en feuille, c'est LEUR DISPOSITION qui dit ce qu'on obtient :
+#
+#   Couteau en pierre   X X       cote a cote : une lame
+#
+#   Pierre coupante     X         l'une sur l'autre : un eclat
+#                       X
+#
+# Le mini-jeu est le meme (frotter en alternant les flancs). La pierre
+# coupante ne se trouve plus : elle se fabrique seulement.
+PIERRE = "Pierre"
+FORMES_PIERRE = {
+    COUTEAU_EN_PIERRE: ({(0, 0), (1, 0)},),
+    PIERRE_COUPANTE: ({(0, 0), (0, 1)},),
+}
+MODELES_PIERRE = (
+    (COUTEAU_EN_PIERRE, ((0, 0), (1, 0))),
+    (PIERRE_COUPANTE, ((0, 0), (0, 1))),
+)
+PIERRE_TAILLEE = {
+    "result": None, "famille": "pierre",
+    "objets": {PIERRE: 2},
+    "minijeu": "couteau", "formes": FORMES_PIERRE,
+    "piece": PIERRE, "modeles": MODELES_PIERRE,
+    # Les deux pierres doivent SE TOUCHER : la forme seule arrondit les
+    # ecarts, deux pierres eloignees l'une au-dessus de l'autre auraient
+    # donne une pierre coupante.
+    "colles": True,
+}
+ASSEMBLAGES.insert(0, PIERRE_TAILLEE)
+
+
+def famille_de(objet):
+    """La famille (recette a formes) qui donne `objet`, ou None."""
+    for r in ASSEMBLAGES:
+        if r.get("famille") and objet in r["formes"]:
+            return r
+    return None
 
 # LA FIBRE VEGETALE : un couteau en pierre et trois brins, herbes ou feuilles
 # dans n'importe quelle proportion (3 herbes, 2 herbes et 1 feuille, ...). Le
@@ -211,12 +253,12 @@ def chacun_colle(objets, liens):
     return all(any(a is o or b is o for a, b in liens) for o in objets)
 
 
-def relies_aux_feuilles(objets, liens):
-    """Chaque objet rejoint-il une feuille, de contact en contact ? Les
-    feuilles peuvent former plusieurs groupes (gants, bottes) : un autre
-    objet peut relier ces groupes ou non, il lui suffit de toucher, de pres
-    ou de loin, l'un d'eux."""
-    vus = [o for o in objets if o["nom"] == FEUILLE]
+def relies_aux_feuilles(objets, liens, piece=FEUILLE):
+    """Chaque objet rejoint-il une feuille (la `piece` de la famille), de
+    contact en contact ? Les feuilles peuvent former plusieurs groupes
+    (gants, bottes) : un autre objet peut relier ces groupes ou non, il lui
+    suffit de toucher, de pres ou de loin, l'un d'eux."""
+    vus = [o for o in objets if o["nom"] == piece]
     a_voir = list(vus)
     while a_voir:
         o = a_voir.pop()
@@ -232,15 +274,18 @@ def valide(objets, liens, position=None):
     """La recette realisee par ces objets ({"nom": ...}) et leurs contacts
     dans la vue d'assemblage, ou None si l'un d'eux n'est colle a rien.
 
-    Pour une FAMILLE (l'equipement en feuille), c'est la forme des feuilles
-    qui choisit l'objet : `position(objet)` rend sa place en tailles
+    Pour une FAMILLE (l'equipement en feuille, la pierre taillee), c'est la
+    forme de ses pieces (feuilles, pierres) qui choisit l'objet : `position(objet)` rend sa place en tailles
     d'objet. La recette rendue est alors une copie, son objet renseigne.
     Chaque autre objet doit y rejoindre une feuille (relies_aux_feuilles)."""
     r = selon_objets([o["nom"] for o in objets])
     if r is None:
         return None
+    piece = r.get("piece", FEUILLE)
     if r.get("famille"):
-        if not relies_aux_feuilles(objets, liens):
+        if not relies_aux_feuilles(objets, liens, piece):
+            return None
+        if r.get("colles") and not chacun_colle(objets, liens):
             return None
     elif not chacun_colle(objets, liens):
         return None
@@ -248,12 +293,13 @@ def valide(objets, liens, position=None):
         if position is None:
             return None
         objet = selon_forme(r, [position(o) for o in objets
-                                if o["nom"] == FEUILLE])
+                                if o["nom"] == piece])
         if objet is None:
             return None
         r = dict(r, result=objet)
     return r
 
 
-__all__ = ["ASSEMBLAGES", "COUTEAU_EN_PIERRE", "selon_objets", "valide",
+__all__ = ["ASSEMBLAGES", "COUTEAU_EN_PIERRE", "PIERRE_COUPANTE",
+           "famille_de", "selon_objets", "valide",
            "tous_colles", "chacun_colle", "compte"]

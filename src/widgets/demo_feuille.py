@@ -1,6 +1,11 @@
 """
-LES MODELES D'EQUIPEMENT EN FEUILLE, montres en fantome dans la vue
-d'assemblage.
+LES MODELES D'UNE FAMILLE (l'equipement en feuille, la pierre taillee),
+montres en fantome dans la vue d'assemblage.
+
+Une famille est une recette dont la DISPOSITION de certaines pieces (les
+feuilles, les pierres) dit l'objet obtenu (voir assemblages.EQUIPEMENT_
+FEUILLE et PIERRE_TAILLEE). Ce qui suit vaut pour toutes ; les feuilles en
+sont l'exemple.
 
 Quand le plan de travail porte la recette de l'equipement en feuille, le
 milieu de la vue montre, l'un apres l'autre et sans fin, la forme de chaque
@@ -49,6 +54,8 @@ class DemoFeuille(object):
     chaque nouveau modele."""
 
     def __init__(self, asm, couche, mains, annonce=None):
+        self.modeles = assemblages.MODELES_FEUILLE
+        self.piece = FEUILLE
         self.asm = asm
         self.couche = couche
         self.mains = mains
@@ -59,7 +66,12 @@ class DemoFeuille(object):
         self.pause = False
         self._calme = 0.0
 
-    def demarre(self):
+    def demarre(self, recette=None):
+        """Montre les modeles de la famille `recette` (l'equipement en
+        feuille par defaut)."""
+        if recette is not None and recette.get("modeles"):
+            self.modeles = recette["modeles"]
+            self.piece = recette.get("piece", FEUILLE)
         self.k, self.t = 0, 0.0
         self.pause = False
         self._annonce()
@@ -74,7 +86,7 @@ class DemoFeuille(object):
 
     def _annonce(self):
         if self.annonce is not None:
-            self.annonce(assemblages.MODELES_FEUILLE[self.k][0])
+            self.annonce(self.modeles[self.k][0])
 
     # -- geometrie ---------------------------------------------------------- #
     def _places(self, cases):
@@ -103,7 +115,7 @@ class DemoFeuille(object):
         feuilles posees, sinon au-dessus de la paume gauche."""
         asm = self.asm
         portes = [asm.porte(i) for i in (0, 1)]
-        feuilles = [o for o in asm.objets if o["nom"] == FEUILLE
+        feuilles = [o for o in asm.objets if o["nom"] == self.piece
                     and not any(o is p for p in portes)]
         if feuilles:
             o = max(feuilles, key=lambda o: asm.a_l_ecran(o)[1])
@@ -159,9 +171,9 @@ class DemoFeuille(object):
         self.t += dt
         if self.t >= DUREE_MAIN + DELAI:
             self.t = 0.0
-            self.k = (self.k + 1) % len(assemblages.MODELES_FEUILLE)
+            self.k = (self.k + 1) % len(self.modeles)
             self._annonce()
-        nom, cases = assemblages.MODELES_FEUILLE[self.k]
+        nom, cases = self.modeles[self.k]
         places, cote = self._places(cases)
         total = DUREE_MAIN + DELAI
         fondu = min(1.0, self.t / FONDU, (total - self.t) / FONDU)
@@ -171,11 +183,11 @@ class DemoFeuille(object):
             if self.t >= DUREE_MAIN:
                 self._dessine_resultat(nom, places, cote, total)
             for x, y in places[:-1]:
-                dessine_objet(FEUILLE, x, y, cote, ombre=False,
+                dessine_objet(self.piece, x, y, cote, ombre=False,
                               alpha=a_feuille)
             if self.t >= DUREE_MAIN:
                 x, y = places[-1]
-                dessine_objet(FEUILLE, x, y, cote, ombre=False,
+                dessine_objet(self.piece, x, y, cote, ombre=False,
                               alpha=a_feuille)
                 return
             # La main fantome : de sa place, vers une vraie feuille, puis
@@ -191,7 +203,7 @@ class DemoFeuille(object):
             paume = (a[0] + (b[0] - a[0]) * u, a[1] + (b[1] - a[1]) * u)
             alpha = ALPHA_MAIN * min(1.0, p / 0.12, (1.0 - p) / 0.12 + 0.6)
             if k >= 1:                       # la feuille est prise
-                dessine_objet(FEUILLE, paume[0], paume[1], cote, ombre=False,
+                dessine_objet(self.piece, paume[0], paume[1], cote, ombre=False,
                               alpha=max(alpha, a_feuille))
             image = self.mains.image_main(0)
             if image is not None:
@@ -203,10 +215,11 @@ class DemoFeuille(object):
                           size=(iw, ih))
 
 
-def etale_sur_les_cotes(asm):
+def etale_sur_les_cotes(asm, piece=FEUILLE):
     """Range les objets de la vue d'assemblage SUR LES COTES de l'ecran,
-    pour laisser le milieu au modele fantome : les feuilles a gauche, les
-    autres objets a droite, en blocs de deux colonnes. Seule leur place a
+    pour laisser le milieu au modele fantome : les pieces de la famille (les
+    feuilles) a gauche, les autres objets a droite, en blocs de deux
+    colonnes. Seule leur place a
     l'ecran change : Annuler les rend toujours a leurs cases."""
     # Colonnes BORD A BORD (le modele le plus large, le casque, fait quatre
     # feuilles : il lui faut tout le milieu), rangees separees d'une case.
@@ -215,12 +228,19 @@ def etale_sur_les_cotes(asm):
     pas_y = t + asm.case_objet()
     marge = 0.01 * asm.width + t / 2.0
     haut = asm.y + 0.74 * asm.height
-    gauche = [o for o in asm.objets if o["nom"] == FEUILLE]
-    droite = [o for o in asm.objets if o["nom"] != FEUILLE]
+    gauche = [o for o in asm.objets if o["nom"] == piece]
+    droite = [o for o in asm.objets if o["nom"] != piece]
+    if len(gauche) <= 3 and not droite:
+        # PEU DE PIECES ET RIEN D'AUTRE (les deux pierres) : une de chaque
+        # cote. Chaque main ne prend que de son cote de l'ecran, et cote a
+        # cote, deux pierres feraient deja un couteau.
+        gauche, droite = gauche[0::2], gauche[1::2]
     for objets, x0, sens in ((gauche, asm.x + marge, 1),
                              (droite, asm.x + asm.width - marge, -1)):
+        # Peu d'objets : une seule colonne, chacun separe du suivant.
+        cols = 1 if len(objets) <= 3 else 2
         for n, o in enumerate(objets):
-            col, rang = n % 2, n // 2
+            col, rang = n % cols, n // cols
             px, py = asm.sur_grille(x0 + sens * col * pas_x,
                                     haut - rang * pas_y)
             asm.place_a_l_ecran(o, px, py)

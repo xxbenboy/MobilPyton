@@ -89,6 +89,9 @@ CONTACT_X = (0.30, 1.15)
 CONTACT_Y = 0.75
 
 COTES = ("gauche", "droite")
+# Au debut du mini-jeu, les deux pierres sont posees a cette distance (en
+# tailles d'objet) de part et d'autre du milieu du plan.
+ECART_PIERRES = 0.9
 
 # LA MAIN FANTOME : son opacite au plus fort, et la duree de chaque geste
 # montre (en secondes).
@@ -210,8 +213,26 @@ class MiniJeuCouteau(object):
         self.asm.aimant_permis = False
         self.asm.liens = []
         self.asm.sur_pas = self._pas
+        self._ecarte()
         self._annonce("prendre")
         self._montre_prendre()
+
+    def _ecarte(self):
+        """Les deux pierres de part et d'autre du milieu du plan : chaque
+        main ne prend que de son cote de l'ecran, et la disposition qui a
+        choisi l'objet (cote a cote, l'une sur l'autre) les laissait parfois
+        du meme cote."""
+        asm = self.asm
+        pierres = sorted((o for o in asm.objets if o["nom"] == "Pierre"),
+                         key=lambda o: (asm.a_l_ecran(o)[0],
+                                        -asm.a_l_ecran(o)[1]))
+        if len(pierres) != 2:
+            return
+        mx, my = asm.centre_du_plan()
+        t = asm.case_objet() * 3
+        for sens, o in zip((-1, 1), pierres):
+            asm.place_a_l_ecran(o, *asm.sur_grille(
+                mx + sens * ECART_PIERRES * t, my))
 
     def arrete(self):
         if self.asm.sur_pas == self._pas:
