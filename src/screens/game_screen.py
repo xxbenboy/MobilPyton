@@ -1072,7 +1072,16 @@ class GameScreen(Screen):
             if self._regard is None and not self._moving:
                 self._regard = [touch, touch.x, touch.y, False]
             return True
-        # 0. Le MODE ACTION prend tout (voir _touche_action).
+        # 0. Le MODE ACTION prend tout (voir _touche_action). Au CHOIX, le
+        #    doigt peut aussi glisser pour tourner la tete : la cible n'est
+        #    touchee qu'au lever, s'il n'a pas bouge.
+        if self._mode_action == "choix":
+            r = self._action_retour
+            if r.parent is not None and r.collide_point(*touch.pos):
+                return r.on_touch_down(touch)
+            if self._regard is None:
+                self._regard = [touch, touch.x, touch.y, False]
+            return True
         if self._mode_action is not None:
             return self._touche_action(touch)
         # 1. Panneau lateral ouvert : un appui AILLEURS le referme.
@@ -1265,7 +1274,7 @@ class GameScreen(Screen):
         return True
 
     def on_touch_move(self, touch):
-        if self._mode_action not in (None, "route"):
+        if self._mode_action not in (None, "route", "choix"):
             if self._mode_action == "jeu" and self._jeu is not None:
                 self._jeu.bouge(touch)
             return True
@@ -1280,11 +1289,24 @@ class GameScreen(Screen):
                 ppd = self.panorama.ppd()
                 self._regarde(self._lacet - touch.dx / ppd,
                               self._tangage - touch.dy / ppd)
+                if self._mode_action == "choix":
+                    self._suit_cibles()
+            return True
+        if self._mode_action == "choix":
             return True
         return super().on_touch_move(touch)
 
+    def _suit_cibles(self):
+        """Au CHOIX, la tete tourne : ce qui clignote suit le decor (les
+        boites sont a l'ecran), et ce qui sort de la vue s'eteint."""
+        state = App.get_running_app().game_state
+        if state is None:
+            return
+        cibles, _raison = self._cibles_action(state)
+        self.clignote.cibles = list(cibles)
+
     def on_touch_up(self, touch):
-        if self._mode_action not in (None, "route"):
+        if self._mode_action not in (None, "route", "choix"):
             if self._mode_action == "jeu" and self._jeu is not None:
                 self._jeu.leve(touch)
             return True
@@ -1292,12 +1314,14 @@ class GameScreen(Screen):
         if r is not None and touch is r[0]:
             self._regard = None
             if not r[3]:
-                if self._mode_action == "route":
+                if self._mode_action == "choix":
+                    self._touche_action(touch)
+                elif self._mode_action == "route":
                     self._route_touche(touch)
                 else:
                     self._touch_installed(touch)
             return True
-        if self._mode_action == "route":
+        if self._mode_action in ("route", "choix"):
             return True
         return super().on_touch_up(touch)
 
