@@ -38,9 +38,10 @@ LE FEU DE CAMP
 LA CORDE
     1. les trois fibres vegetales pendent cote a cote, nouees en haut : une
        a GAUCHE, une au MILIEU, une a DROITE ;
-    2. on prend un brin du BORD et on le lache au milieu : il passe
-       par-dessus celui du milieu, qui prend sa place au bord. La tresse
-       s'allonge d'un croisement ;
+    2. on prend un brin du BORD et on le porte AU-DELA DU MILIEU, entre le
+       brin du milieu et celui de l'autre bord (un rond de craie y attend) :
+       il passe par-dessus celui du milieu, prend sa place, et celui-ci
+       passe au bord. La tresse s'allonge d'un croisement ;
     3. un bord, puis l'autre, en alternant (le meme deux fois de suite ne
        tresse rien : le brin retourne a sa place) ; le brin du milieu ne
        se prend pas ;
@@ -70,7 +71,7 @@ from kivy.clock import Clock
 from kivy.graphics import Color, Line, Rectangle
 
 from src.widgets.sol_de_craft import dessine_objet, cadre_image
-from src.widgets.assemblage import decalage_morceau, vue_inverse
+from src.widgets.assemblage import decalage_morceau, vue_inverse, ZOOM
 
 COUTEAU = "Couteau_En_Pierre"
 
@@ -110,10 +111,11 @@ class Fantome(object):
     `chemin` (ou va sa paume, a l'ecran), en tenant `objet` s'il y en a un.
     Les gestes demandes a la suite se jouent l'un apres l'autre."""
 
-    def __init__(self, couche, mains, taille_objet):
+    def __init__(self, couche, mains, taille_objet, alpha=None):
         self.couche = couche
         self.mains = mains
         self.taille_objet = taille_objet
+        self.alpha = FANTOME_ALPHA if alpha is None else alpha
         self._file = []
         self._t = 0.0
         self._horloge = None
@@ -156,7 +158,7 @@ class Fantome(object):
         a, b = chemin[k], chemin[min(n, k + 1)]
         paume = (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t)
         # Elle apparait et s'efface.
-        alpha = FANTOME_ALPHA * min(1.0, p / 0.15, (1.0 - p) / 0.15)
+        alpha = self.alpha * min(1.0, p / 0.15, (1.0 - p) / 0.15)
         self._dessine(main, paume, alpha, objet)
 
     def _dessine(self, main, paume, alpha, objet):
@@ -744,11 +746,23 @@ BRINS_CORDE = 3
 CROISEMENTS_PAR_BRIN = 5
 ECART_BRINS = 0.85
 BAS_BRINS = -0.40
-HAUT_NOEUD = 1.45
-PAS_TRESSE = 0.065
-LARGE_TRESSE = 0.11
-PRISE_MILIEU = 0.45
-DUREE_TRESSER = 1.8
+HAUT_NOEUD = 1.20
+PAS_TRESSE = 0.07
+LARGE_TRESSE = 0.17
+EPAIS_BRIN = 0.06
+# UN CROISEMENT : le brin est lache AU-DELA DU MILIEU, vers l'autre bord --
+# a moins de PRISE_CROISE (tailles d'objet) du point a mi-chemin entre le
+# brin du milieu et celui de l'autre bord.
+# Et il doit avoir DEPASSE le brin du milieu d'au moins cette part de
+# l'ecart entre deux brins : lache dessus, il ne croise pas.
+PRISE_CROISE = 0.45
+DEPASSE = 0.25
+# La main fantome, bien visible, montre le geste ; tant que le premier
+# croisement n'est pas fait, elle le remontre apres REMONTRE secondes sans
+# rien tenir.
+ALPHA_CORDE = 0.80
+DUREE_TRESSER = 2.4
+REMONTRE = 2.5
 # Une teinte par brin, pour suivre chacun dans la tresse.
 TEINTES_BRINS = ((0.86, 0.76, 0.50), (0.70, 0.60, 0.34), (0.95, 0.86, 0.62))
 OMBRE_BRIN = (0.22, 0.16, 0.08, 0.85)
@@ -765,8 +779,10 @@ class MiniJeuCorde(object):
         self.couche = couche
         self.mains = mains
         self.fantome = Fantome(couche, mains,
-                               lambda: assemblage.case_objet() * 3) \
+                               lambda: assemblage.case_objet() * 3,
+                               alpha=ALPHA_CORDE) \
             if couche is not None and mains is not None else None
+        self._attente = 0.0
         # Les brins de gauche a droite : ordre[0] a gauche, ordre[1] au
         # milieu, ordre[2] a droite.
         brins = [o for o in assemblage.objets if o["nom"] == FIBRE]
@@ -788,6 +804,12 @@ class MiniJeuCorde(object):
         mx, my = self.asm.centre_du_plan()
         t = self._taille()
         return mx + (k - 1) * ECART_BRINS * t, my + BAS_BRINS * t
+
+    def cible(self, k):
+        """Ou lacher le brin du bord `k` pour qu'il croise : entre le brin
+        du milieu et celui de l'autre bord, a l'ecran."""
+        (ax, ay), (bx, by) = self.place(1), self.place(2 - k)
+        return (ax + bx) / 2.0, (ay + by) / 2.0
 
     def dernier_bord(self):
         return self.croisements[-1][1] if self.croisements else None
@@ -849,18 +871,18 @@ class MiniJeuCorde(object):
         o = self.ordre[bord]
         main = 0 if bord == 0 else 1
         depart = self.place(bord)
-        milieu = self.place(1)
+        cible = self.cible(bord)
         self.fantome.joue(main, [self.mains.paume(main), depart, depart,
-                                 milieu, milieu], DUREE_TRESSER, objet=o)
+                                 cible, cible], DUREE_TRESSER, objet=o)
 
     def _annonce(self):
         n = len(self.croisements)
         bord = self.bord_attendu()
         if bord is None:
-            texte = "Croise un brin du bord sur le milieu (%d/%d)" % (
+            texte = "Passe un brin du bord au-dela du milieu (%d/%d)" % (
                 n, self.total())
         else:
-            texte = "Croise le brin de %s sur le milieu (%d/%d)" % (
+            texte = "Passe le brin de %s au-dela du milieu (%d/%d)" % (
                 "gauche" if bord == 0 else "droite", n, self.total())
         if texte != self._dit:
             self._dit = texte
@@ -868,48 +890,70 @@ class MiniJeuCorde(object):
 
     # -- le dessin de la tresse ------------------------------------------- #
     def _bout_tresse(self):
-        """(x, y) du bas de la tresse : la ou les brins se separent."""
+        """(x, y) du bas de la tresse, a l'ecran : la ou les brins se
+        separent."""
         mx, my = self.asm.centre_du_plan()
         t = self._taille()
         return mx, my + (HAUT_NOEUD - PAS_TRESSE * len(self.croisements)) * t
 
     def _dessine(self):
+        """La tresse et les brins libres. Dessines DANS la vue d'assemblage,
+        que la loupe grossit : chaque point de l'ecran y est ramene (vue
+        inverse), et chaque longueur divisee par le grossissement. Sans
+        cela, la tresse etait grossie deux fois et sortait par le haut."""
         if len(self.ordre) < BRINS_CORDE:
             return
+        asm = self.asm
+
+        def ici(x, y):
+            return vue_inverse(1.0, x, y, asm.width, asm.height,
+                               asm.x, asm.y)
+
         t = self._taille()
-        mx, my = self.asm.centre_du_plan()
+        mx, my = asm.centre_du_plan()
         haut = my + HAUT_NOEUD * t
         w = LARGE_TRESSE * t
-        epais = max(2.0, 0.045 * t)
+        epais = max(2.0, EPAIS_BRIN * t / ZOOM)
+        # Ou lacher le brin pour croiser : un rond de craie.
+        bords = [self.bord_attendu()] if self.bord_attendu() is not None \
+            else [0, 2]
+        portes = [asm.porte(i) for i in (0, 1)]
+        for k in bords:
+            if any(self.ordre[k] is p for p in portes) or \
+                    not self.croisements:
+                x, y = ici(*self.cible(k))
+                Color(1.0, 1.0, 0.95, 0.55)
+                Line(circle=(x, y, PRISE_CROISE * t * 0.6 / ZOOM),
+                     width=max(1.2, epais * 0.35))
         # Les brins LIBRES, du bas de la tresse a chaque brin (ou a la main
         # qui le tient).
         bx, by = self._bout_tresse()
         for k, o in enumerate(self.ordre):
             x, y = self.place(k)
             for i in (0, 1):
-                if self.asm.porte(i) is o:
-                    x, y = self.asm.ou_est_porte(i)
-            depart = (bx + (k - 1) * w * 0.5, by)
-            fin = (x, y + 0.20 * t)
+                if portes[i] is o:
+                    x, y = asm.ou_est_porte(i)
+            pts = list(ici(bx + (k - 1) * w * 0.45, by)) + \
+                list(ici(x, y + 0.20 * t))
             Color(*OMBRE_BRIN)
-            Line(points=[depart[0], depart[1], fin[0], fin[1]],
-                 width=epais * 1.3)
+            Line(points=pts, width=epais * 1.3)
             Color(*TEINTES_BRINS[o.get("brin", k) % len(TEINTES_BRINS)])
-            Line(points=[depart[0], depart[1], fin[0], fin[1]], width=epais)
+            Line(points=pts, width=epais)
         # LA TRESSE : un chevron par croisement, du noeud vers le bas, le
         # dernier par-dessus.
         for j, (brin, bord) in enumerate(self.croisements):
             s = -1.0 if bord == 0 else 1.0
             y0 = haut - j * PAS_TRESSE * t
-            y1 = y0 - PAS_TRESSE * t * 1.8
-            pts = [mx + s * w, y0, mx - s * w * 0.35, y1]
+            y1 = y0 - PAS_TRESSE * t * 1.9
+            pts = list(ici(mx + s * w, y0)) + list(ici(mx - s * w * 0.45, y1))
             Color(*OMBRE_BRIN)
-            Line(points=pts, width=epais * 1.45)
+            Line(points=pts, width=epais * 1.6)
             Color(*TEINTES_BRINS[brin % len(TEINTES_BRINS)])
-            Line(points=pts, width=epais * 1.1)
+            Line(points=pts, width=epais * 1.2)
         # Le noeud, en haut.
+        x, y = ici(mx, haut + 0.03 * t)
         Color(*OMBRE_BRIN)
-        Line(circle=(mx, haut + 0.02 * t, w * 0.55), width=epais)
+        Line(circle=(x, y, w * 0.6 / ZOOM), width=epais)
 
     # -- chaque pas de la vue ---------------------------------------------- #
     def _pas(self, dt):
@@ -921,6 +965,13 @@ class MiniJeuCorde(object):
         self._tenues = tenues
         if any(o is not None for o in tenues):
             self.asm._redessine()       # le brin tenu suit la main
+            self._attente = 0.0
+        elif not self.croisements and self.fantome is not None \
+                and not self.fantome.en_cours():
+            self._attente += dt
+            if self._attente >= REMONTRE:
+                self._attente = 0.0
+                self._montre()
         for o in lachees:
             self.lache(o)
             if self.fini:
@@ -934,10 +985,12 @@ class MiniJeuCorde(object):
             return
         k = next(n for n, b in enumerate(self.ordre) if b is o)
         ox, oy = self.asm.a_l_ecran(o)
-        px, py = self.place(1)
         attendu = self.bord_attendu()
-        if k != 1 and math.hypot(ox - px, oy - py) \
-                <= PRISE_MILIEU * self._taille():
+        t = self._taille()
+        cote = 1.0 if k == 0 else -1.0
+        passe = cote * (ox - self.place(1)[0]) >= DEPASSE * ECART_BRINS * t
+        if k != 1 and passe and math.hypot(*(a - b for a, b in zip(
+                (ox, oy), self.cible(k)))) <= PRISE_CROISE * t:
             if attendu is not None and k != attendu:
                 # Le meme bord deux fois : ca ne tresse rien.
                 self._range()
