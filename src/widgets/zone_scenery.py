@@ -710,9 +710,8 @@ RIVE_PLAGE = 7.0
 RIVE_MIN = 4.5
 # Plus loin que RIVE_FERME, l'eau n'est plus qu'un filet : la nappe se
 # releve doucement par-dessus, et le rivage se referme sans cassure. Plus
-# pres, la nappe passe SOUS l'eau (NAPPE_SOUS_EAU, degres) des le rivage.
+# pres, la nappe passe SOUS l'eau des le rivage (voir _relief_rive).
 RIVE_FERME = 120.0
-NAPPE_SOUS_EAU = -1.6
 # Le decor de la rive : par panneau (recoltables) ou par quart du tour.
 GALETS_RIVE = 14
 ROSEAUX_RIVE = 30
@@ -1744,19 +1743,32 @@ class ZoneScenery(Widget):
 
     def _relief_rive(self, azimut):
         """(pente, crete) de la plage : a plat vers la terre, jusqu'a la
-        berge ; vers l'eau, elle descend au niveau de l'eau au rivage, et
-        passe dessous."""
+        berge ; vers l'eau, elle DESCEND REGULIEREMENT jusqu'au niveau de
+        l'eau au rivage, et passe dessous.
+
+        La pente etait celle qui faisait passer le versant habituel (voir
+        sol.altitude) par l'eau au rivage. Quand le rivage etait loin, sur
+        les cotes (70 a 85 metres), ce versant MONTAIT de deux metres avant
+        de redescendre a l'eau : une crete barrait le sol de la gauche a la
+        droite du joueur. C'est maintenant une droite, des pieds au rivage
+        ; au-dela du bord de la nappe, elle finit juste sur la ligne du
+        rivage, pour qu'aucun jour ne reste avant l'eau."""
         c = self.berge_tour(azimut)
         r = self.rivage(azimut)
         if r is None:
             return 0.0, c
+        D, oeil = nappe.DISTANCE_MAX, nappe.OEIL
+        pente = nappe.NIVEAU_EAU / r
+        bord = pente * D
+        if r > D:
+            bord += oeil * (1.0 - D / r) + 0.15
+        # Loin du lac, vers la terre : le bord de la berge, en douceur.
         e = max(0.0, min(1.0, (nappe.BERGE_LOIN - r)
                          / (nappe.BERGE_LOIN - RIVE_FERME)))
         e = e * e * (3.0 - 2.0 * e)
-        crete = c * (1.0 - e) + NAPPE_SOUS_EAU * e
-        if r < 0.95 * nappe.DISTANCE_MAX:
-            return nappe.pente_vers(nappe.NIVEAU_EAU, crete, r), crete
-        return 0.0, crete
+        bord_terre = oeil + D * math.tan(math.radians(c))
+        bord = bord * e + bord_terre * (1.0 - e)
+        return pente * e, math.degrees(math.atan2(bord - oeil, D))
 
     def _autour_connu(self):
         """Les huit cases autour ; sans elles (scene dessinee seule), le lac
