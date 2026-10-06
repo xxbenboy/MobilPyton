@@ -77,6 +77,7 @@ from src.widgets.demo_feuille import DemoFeuille, etale_sur_les_cotes
 from src.widgets.panels import panel
 from src.widgets.bois import plaque, BoutonGalet, TEXTE_BOIS, TITRE_BOIS
 from src.widgets.carnet import Carnet
+from src.widgets.reussite import EffetReussite
 from src import assemblages, items
 # LA CAMERA QUI SE PENCHE vit dans penche.py, partagee avec l'inventaire.
 # Ses reglages sont repris ici sous leurs noms : ce qui les lisait sur cet
@@ -231,6 +232,12 @@ class CraftScreen(Penche, Screen):
         self._demo = DemoFeuille(self.assemblage, self.couche_demo,
                                  self.hands, annonce=self._annonce_modele)
         self._famille_feuille = False
+        # LE "POUF" DE LA REUSSITE : la fumee, l'objet qui apparait et
+        # glisse dans la fenetre de reussite (voir reussite.py). Remis tout
+        # en haut quand la fenetre s'ouvre : l'objet passe devant elle.
+        self.couche_reussite = EffetReussite(size_hint=(1, 1),
+                                             pos_hint={"x": 0, "y": 0})
+        root.add_widget(self.couche_reussite)
         # Ou en est le rapprochement : "sol" (vue normale), "entre", "zoom"
         # ou "sort" ; son avancement (0 a 1) et son horloge.
         self._mode = "sol"
@@ -399,7 +406,8 @@ class CraftScreen(Penche, Screen):
         plan = state.objets_du_plan()
         resultat = self.resultat_de(state, plan)
         self.sol.montre(cases, state.hands, resultat,
-                        metres=state.metres_des_piles())
+                        metres=state.metres_des_piles(),
+                        recettes=self.recettes_de(state, plan))
         if self._mode == "sol":
             # Assembler va avec le carre de droite : un ? ou un objet connu.
             self._garnit(self._rang_bas,
@@ -428,6 +436,26 @@ class CraftScreen(Penche, Screen):
         if r["result"] is not None and state.connait(r["result"]):
             return r["result"]
         return "?"
+
+    @staticmethod
+    def recettes_de(state, plan):
+        """Les recettes CONNUES que ces objets du plan peuvent donner :
+        [(objet, disposition)], montrees sous le carre de droite. Pour
+        l'equipement en feuille, toutes les pieces deja fabriquees, a la
+        suite l'une de l'autre."""
+        if len(plan) < 2:
+            return []
+        r = assemblages.selon_objets(plan)
+        if r is None:
+            return []
+        if r.get("famille") == "feuille":
+            objets = [n for n, _pts in assemblages.MODELES_FEUILLE]
+        elif r["result"] is not None:
+            objets = [r["result"]]
+        else:
+            objets = []
+        return [(o, state.dispositions.get(o)) for o in objets
+                if state.connait(o)]
 
     # -- les boutons ---------------------------------------------------- #
     @staticmethod
@@ -572,8 +600,10 @@ class CraftScreen(Penche, Screen):
         self._consigne.text = texte
 
     def _reussit(self, recette):
-        """L'objet est fabrique. La premiere fois, le joueur confirme qu'il a
-        appris le craft ; ensuite la vue revient en fondu."""
+        """L'objet est fabrique : les objets consommes disparaissent dans un
+        pouf de fumee, l'objet apparait a leur place, puis glisse dans la
+        fenetre de reussite -- la recette apprise, la premiere fois (voir
+        reussite.py)."""
         state = App.get_running_app().game_state
         connu = state is not None and state.connait(recette["result"])
         objet = state.assemble(recette) if state is not None else None
@@ -584,31 +614,72 @@ class CraftScreen(Penche, Screen):
         self._arrete_minijeu()
         self.assemblage.actif = False
         self.assemblage.lache_tout()
-        if objet is not None and not connu:
-            self.annonce_appris(objet)
-        else:
+        if objet is None:
             self.retour_en_fondu()
+            return
+        self._mode = "reussite"
+        self._garnit(self._rang_bas, None)
+        self._garnit(self._rang_titre, None)
+        self._garnit(self._rang_retour, None)
+        asm = self.assemblage
+        # LES OUTILS restent (ils retournent a la proximite) : un par outil
+        # de la recette echappe a la fumee.
+        outils = dict.fromkeys(recette.get("outils", {}), 1)
+        consommes = []
+        for o in asm.objets:
+            if o.get("cache"):
+                continue
+            if outils.get(o["nom"]):
+                outils[o["nom"]] -= 1
+                continue
+            consommes.append(o)
+        asm.lache_tout()
 
-    # -- le craft appris ------------------------------------------------ #
-    def annonce_appris(self, objet):
-        """Le message du craft appris, a confirmer."""
+        def cache():
+            for o in consommes:
+                o["cache"] = True
+            asm._redessine()
+
+        self.couche_reussite.demarre(
+            [asm.a_l_ecran(o) for o in consommes], objet,
+            asm.case_objet() * 3, cache=cache,
+            apparu=lambda: self.annonce_appris(objet, appris=not connu))
+
+    # -- la fenetre de reussite ------------------------------------------ #
+    # Sa place et sa taille (parts de l'ecran), et la part de sa hauteur ou
+    # l'objet vient se poser, en haut.
+    FENETRE = (0.5, 0.54, 0.46, 0.56)
+    PART_IMAGE = 0.46
+
+    def annonce_appris(self, objet, appris=True):
+        """La fenetre de reussite : l'objet glisse en haut, et dessous, la
+        recette reussie -- ou apprise, la premiere fois. A confirmer."""
         self._mode = "appris"
         self._garnit(self._rang_retour, None)
         self._garnit(self._rang_titre, None)
-        boite = BoxLayout(orientation="vertical", padding=dp(26),
-                          spacing=dp(10), size_hint=(0.46, 0.44),
-                          pos_hint={"center_x": 0.5, "center_y": 0.56})
+        self._garnit(self._rang_bas, None)
+        cx, cy, fl, fh = self.FENETRE
+        pad = dp(22)
+        boite = BoxLayout(orientation="vertical", padding=pad,
+                          spacing=dp(6), size_hint=(fl, fh),
+                          pos_hint={"center_x": cx, "center_y": cy})
         plaque(boite)
+        # La place de l'objet, qui vient s'y poser.
+        boite.add_widget(Widget(size_hint=(1, self.PART_IMAGE)))
+        titre, texte = (("Nouvelle recette apprise !",
+                         "Tu sais maintenant fabriquer :\n%s")
+                        if appris else
+                        ("Recette reussie !", "Tu as fabrique :\n%s"))
         boite.add_widget(_police(Label(
-            text="Nouveau craft appris !", bold=True, color=TITRE_BOIS,
-            size_hint=(1, 0.28))))
+            text=titre, bold=True, color=TITRE_BOIS,
+            size_hint=(1, 0.16))))
         boite.add_widget(_police(Label(
-            text="Tu sais maintenant fabriquer :\n%s"
-                 % items.display_name(objet), halign="center",
-            valign="middle", color=TEXTE_BOIS, size_hint=(1, 0.42))))
-        rang = BoxLayout(orientation="horizontal", size_hint=(1, 0.30))
+            text=texte % items.display_name(objet), halign="center",
+            valign="middle", color=TEXTE_BOIS, size_hint=(1, 0.22))))
+        rang = BoxLayout(orientation="horizontal", size_hint=(1, 0.16))
         rang.add_widget(Widget(size_hint_x=0.3))
-        ok = BoutonGalet(text="Confirmer", size_hint_x=0.4)
+        ok = BoutonGalet(text="Continuer" if not appris else "Confirmer",
+                         size_hint_x=0.4)
         ok.bind(on_release=lambda *_: self.confirme_appris())
         rang.add_widget(ok)
         rang.add_widget(Widget(size_hint_x=0.3))
@@ -616,6 +687,17 @@ class CraftScreen(Penche, Screen):
         self._appris = boite
         self._appris_ok = ok
         self._racine.add_widget(boite)
+        # L'objet passe DEVANT la fenetre : sa couche revient en haut.
+        couche = self.couche_reussite
+        if couche.parent is self._racine:
+            self._racine.remove_widget(couche)
+            self._racine.add_widget(couche)
+        if couche.en_cours():
+            W, H = self.width, self.height
+            haut = (cy + fh / 2.0) * H - pad
+            interieur = fh * H - 2 * pad
+            place = interieur * self.PART_IMAGE
+            couche.glisse_vers(cx * W, haut - place / 2.0, place * 0.82)
 
     def confirme_appris(self):
         self._ferme_appris()
@@ -625,6 +707,7 @@ class CraftScreen(Penche, Screen):
         if self._appris is not None and self._appris.parent is not None:
             self._appris.parent.remove_widget(self._appris)
         self._appris = None
+        self.couche_reussite.arrete()
 
     # -- le retour en fondu --------------------------------------------- #
     def retour_en_fondu(self):

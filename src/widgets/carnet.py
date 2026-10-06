@@ -9,13 +9,14 @@ comme le joueur les a places la premiere fois, chacun avec sa grille de
 Quatre savoirs par double page ; des galets tournent les pages, un autre
 referme le carnet. Tant qu'il est ouvert, il prend tous les touchers.
 """
-from kivy.graphics import Color, Line, Rectangle
+from kivy.graphics import Color, Rectangle
 from kivy.uix.label import Label
 from kivy.uix.widget import Widget
 
 from src import items
 from src.widgets.bois import BoutonGalet
-from src.widgets.sol_de_craft import dessine_objet, texture_craft
+from src.widgets.sol_de_craft import (dessine_croquis, dessine_objet,
+                                      texture_craft)
 
 # La double page, en part de la largeur de l'ecran (proportions de
 # page.png), sans depasser cette part de la hauteur.
@@ -25,9 +26,7 @@ RAPPORT_PAGE = 1280.0 / 800.0
 PAR_PAGE = 4
 # L'encre : un brun tres sombre, et le charbon des croquis.
 ENCRE = (0.24, 0.16, 0.09, 1)
-CHARBON = (0.12, 0.11, 0.10, 0.65)
 FOND = (0.0, 0.0, 0.0, 0.55)
-CASES = 3
 
 
 class Carnet(Widget):
@@ -159,28 +158,9 @@ class Carnet(Widget):
         if not disposition:
             return
         # Le croquis de l'assemblage, a droite.
-        zx, zy, zl, zh = cx + cl * 0.42, cy + ch * 0.08, cl * 0.56, ch * 0.84
-        cols = [c for _n, c, _r in disposition]
-        rangs = [r for _n, _c, r in disposition]
-        # Chaque objet couvre 3 x 3 cases autour de sa position.
-        x0, x1 = min(cols) - 1.5, max(cols) + 1.5
-        y0, y1 = min(rangs) - 1.5, max(rangs) + 1.5
-        c = min(zl / (x1 - x0), zh / (y1 - y0))
-        ox = zx + (zl - (x1 - x0) * c) / 2.0 - x0 * c
-        oy = zy + (zh - (y1 - y0) * c) / 2.0 - y0 * c
-        largeur = max(1.0, c * 0.06)
         with self.canvas:
-            for nom, col, rang in disposition:
-                px, py = ox + col * c, oy + rang * c
-                dessine_objet(nom, px, py, c * CASES * 0.92, ombre=False,
-                              alpha=0.85)
-                Color(*CHARBON)
-                g, b = px - 1.5 * c, py - 1.5 * c
-                for k in range(CASES + 1):
-                    Line(points=[g + k * c, b, g + k * c, b + CASES * c],
-                         width=largeur)
-                    Line(points=[g, b + k * c, g + CASES * c, b + k * c],
-                         width=largeur)
+            dessine_croquis(disposition, cx + cl * 0.42, cy + ch * 0.08,
+                            cl * 0.56, ch * 0.84)
 
     # -- les touchers : tous pour le carnet -------------------------------- #
     def on_touch_down(self, touch):

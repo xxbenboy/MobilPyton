@@ -47,6 +47,7 @@ coins.
 import os
 import random
 
+from kivy.clock import Clock
 from kivy.core.image import Image as CoreImage
 from kivy.graphics import Color, Ellipse, Line, Mesh, Rectangle
 from kivy.uix.label import Label
@@ -369,6 +370,51 @@ def dessine_objet(nom, cx, cy, cote, ombre=True, coupe=(0.0, 0.0),
     Rectangle(texture=tex, pos=(x0, cy - ih / 2.0), size=(iw, ih))
 
 
+# LE CROQUIS D'UNE RECETTE : les objets places comme dans la vue
+# d'assemblage, chacun dans sa grille de 3 x 3 tracee au charbon (voir
+# GameState.dispositions). Le carnet et le carre du resultat le dessinent.
+CHARBON_CROQUIS = (0.12, 0.11, 0.10, 0.65)
+CASES_CROQUIS = 3
+
+
+def dessine_croquis(disposition, zx, zy, zl, zh, alpha=1.0):
+    """[(nom, colonne, rangee)] dessine au mieux dans le rectangle (zx, zy,
+    zl, zh), dans le canvas ouvert."""
+    if not disposition:
+        return
+    cols = [c for _n, c, _r in disposition]
+    rangs = [r for _n, _c, r in disposition]
+    # Chaque objet couvre 3 x 3 cases autour de sa position.
+    x0, x1 = min(cols) - 1.5, max(cols) + 1.5
+    y0, y1 = min(rangs) - 1.5, max(rangs) + 1.5
+    c = min(zl / (x1 - x0), zh / (y1 - y0))
+    ox = zx + (zl - (x1 - x0) * c) / 2.0 - x0 * c
+    oy = zy + (zh - (y1 - y0) * c) / 2.0 - y0 * c
+    largeur = max(1.0, c * 0.06)
+    n = CASES_CROQUIS
+    for nom, col, rang in disposition:
+        px, py = ox + col * c, oy + rang * c
+        dessine_objet(nom, px, py, c * n * 0.92, ombre=False,
+                      alpha=0.85 * alpha)
+        Color(CHARBON_CROQUIS[0], CHARBON_CROQUIS[1], CHARBON_CROQUIS[2],
+              CHARBON_CROQUIS[3] * alpha)
+        g, b = px - 1.5 * c, py - 1.5 * c
+        for k in range(n + 1):
+            Line(points=[g + k * c, b, g + k * c, b + n * c], width=largeur)
+            Line(points=[g, b + k * c, g + n * c, b + k * c], width=largeur)
+
+
+# Sous le carre du resultat, la recette d'un objet connu : le croquis, sur
+# un morceau d'ecorce, de CROQUIS_HAUT (part de la hauteur, sous le carre)
+# a CROQUIS_BAS, et CROQUIS_LARGE fois la largeur du carre. Plusieurs
+# recettes (l'equipement en feuille) s'y succedent toutes les ALTERNE
+# secondes, sans fin.
+CROQUIS_HAUT = 0.275
+CROQUIS_BAS = 0.035
+CROQUIS_LARGE = 1.25
+ALTERNE = 2.6
+
+
 class _Grille(object):
     """Une grille au sol : ses cases, et la transformation qui les pose."""
 
@@ -496,6 +542,12 @@ class SolDeCraft(Widget):
         self._mains = [None, None]
         # Ce que montre le carre de droite : None, "?" ou un nom d'objet.
         self.resultat = None
+        # Les recettes connues de ce qui est sur le plan : [(objet,
+        # disposition)], montrees sous le carre (voir dessine_croquis), une
+        # a la fois si elles sont plusieurs.
+        self.recettes = []
+        self._recette_vue = 0
+        self._alterne = None
         # La zone ou l'on est : elle choisit le sol de la proximite.
         self.zone = None
         self._glisse = None
@@ -512,16 +564,56 @@ class SolDeCraft(Widget):
         self.bind(pos=self._redessine, size=self._redessine)
 
     # -- ce que montre le sol ------------------------------------------ #
-    def montre(self, cases, mains, resultat=None, metres=None):
+    def montre(self, cases, mains, resultat=None, metres=None,
+               recettes=None):
         """{case: [objet, nombre]} (voir GameState.sol_en_cases), ce que
         tiennent les mains (source possible d'un glisser), et ce que montre
         le carre du resultat (None, "?" ou un nom d'objet). `metres` :
-        {case: metres} des piles de corde, ecrits a la place du nombre."""
+        {case: metres} des piles de corde, ecrits a la place du nombre.
+        `recettes` : [(objet, disposition)] des objets connus que le plan
+        peut donner -- l'objet est montre dans le carre, sa recette dessous,
+        et s'il y en a plusieurs, elles se succedent."""
         self._metres = dict(metres or {})
         self._cases = {k: list(v) for k, v in (cases or {}).items()}
         self._mains = list(mains or [None, None])
         self.resultat = resultat if self.avec_centre else None
+        recettes = [(o, d) for o, d in (recettes or [])] \
+            if self.avec_centre and resultat is not None else []
+        if [o for o, _d in recettes] != [o for o, _d in self.recettes]:
+            self._recette_vue = 0
+        self.recettes = recettes
+        self._regle_alterne()
         self._redessine()
+
+    def _regle_alterne(self):
+        if len(self.recettes) > 1:
+            if self._alterne is None:
+                self._alterne = Clock.schedule_interval(self._suivante,
+                                                        ALTERNE)
+        elif self._alterne is not None:
+            self._alterne.cancel()
+            self._alterne = None
+
+    def _suivante(self, _dt):
+        if len(self.recettes) < 2 or self.resultat is None:
+            self._regle_alterne()
+            return
+        self._recette_vue = (self._recette_vue + 1) % len(self.recettes)
+        self._redessine()
+
+    def recette_montree(self):
+        """(objet, disposition) montre sous le carre, ou None."""
+        if not self.recettes or self.resultat is None:
+            return None
+        return self.recettes[self._recette_vue % len(self.recettes)]
+
+    def rect_croquis(self):
+        """Le rectangle du croquis, sous le carre du resultat : (x, y, l,
+        h)."""
+        x, _y, cote = self.rect_resultat()
+        l = cote * CROQUIS_LARGE
+        return (x + cote / 2.0 - l / 2.0, self.y + CROQUIS_BAS * self.height,
+                l, (CROQUIS_HAUT - CROQUIS_BAS) * self.height)
 
     def rect_resultat(self):
         """Le carre du resultat a l'ecran : (x, y, cote)."""
@@ -612,6 +704,26 @@ class SolDeCraft(Widget):
         self._teinte_cases()
 
     def _dessine_resultat(self):
+        montree = self.recette_montree()
+        if montree is None:
+            self._dessine_carre(self.resultat)
+            return
+        objet, disposition = montree
+        self._dessine_carre(objet)
+        if not disposition:
+            return
+        zx, zy, zl, zh = self.rect_croquis()
+        ecorce = texture_craft("ecorce")
+        if ecorce is not None:
+            Color(1, 1, 1, 1)
+            Rectangle(texture=ecorce, pos=(zx, zy), size=(zl, zh))
+        else:
+            Color(*GRIS_RESULTAT)
+            Rectangle(pos=(zx, zy), size=(zl, zh))
+        m = min(zl, zh) * 0.08
+        dessine_croquis(disposition, zx + m, zy + m, zl - 2 * m, zh - 2 * m)
+
+    def _dessine_carre(self, resultat):
         x, y, cote = self.rect_resultat()
         ecorce = texture_craft("ecorce")
         if ecorce is not None:
@@ -620,13 +732,13 @@ class SolDeCraft(Widget):
             Color(1, 1, 1, 1)
             Rectangle(texture=ecorce, pos=(x, y), size=(cote, cote))
             charbon = texture_craft("charbon_question")
-            if self.resultat == "?" and charbon is not None:
+            if resultat == "?" and charbon is not None:
                 m = cote * 0.12
                 Rectangle(texture=charbon, pos=(x + m, y + m),
                           size=(cote - 2 * m, cote - 2 * m))
                 return
-            if self.resultat != "?":
-                dessine_objet(self.resultat, x + cote / 2.0, y + cote / 2.0,
+            if resultat != "?":
+                dessine_objet(resultat, x + cote / 2.0, y + cote / 2.0,
                               cote * 0.66, ombre=False)
                 return
         Color(*GRIS_RESULTAT)
@@ -634,14 +746,14 @@ class SolDeCraft(Widget):
         Color(*TRAIT_RESULTAT)
         Line(rectangle=(x, y, cote, cote),
              width=max(1.0, self.height * 0.0024))
-        if self.resultat == "?":
+        if resultat == "?":
             lbl = Label(text="?", bold=True, color=TEXTE_RESULTAT,
                         font_size=cote * 0.62, size=(cote, cote),
                         pos=(x, y))
             self.add_widget(lbl)
             self._nombres.append(lbl)
         else:
-            dessine_objet(self.resultat, x + cote / 2.0, y + cote / 2.0,
+            dessine_objet(resultat, x + cote / 2.0, y + cote / 2.0,
                           cote * 0.72, ombre=False)
 
     def _teinte_cases(self):
