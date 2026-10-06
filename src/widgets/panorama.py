@@ -37,6 +37,9 @@ from src.widgets import textures
 
 FOV = 90.0
 TANGAGE_MAX = 90.0
+# L'horizon par defaut, tant que l'ecran n'a pas donne celui de sa case : le
+# plus haut des zones (le lac), le plus prudent pour la tete baissee.
+HORIZON_DEFAUT = 0.75
 # Hauteur du sol prolonge sous un panneau, en hauteurs d'ecran : de quoi
 # baisser la tete jusqu'a regarder ses pieds.
 SOL_PROLONGE = 3.0
@@ -176,6 +179,10 @@ class Panorama(FloatLayout):
         self.bind(size=self._taille, pos=self._taille)
         self.sur_attache = None     # appele quand un panneau entre a l'ecran
         self.vers_ecran = None      # transformation de la camera (mode action)
+        # OU EST L'HORIZON dans la scene (part de sa hauteur, voir
+        # ZoneScenery.hauteur_horizon) : il borne la tete baissee (voir
+        # tangage_min). L'ecran le donne quand il connait la case.
+        self.horizon = HORIZON_DEFAUT
 
     def _taille(self, *_):
         for p in self.plaques:
@@ -186,12 +193,26 @@ class Panorama(FloatLayout):
     def ppd(self):
         return self.width / FOV
 
+    def tangage_min(self):
+        """La tete baissee au plus (degres, negatif).
+
+        Le sol s'arrete au point juste sous les pieds, a 90 degres sous
+        l'horizon. Baisser la tete plus loin faisait monter ce point dans
+        l'ecran, et en dessous il n'y avait plus que le ciel du fond : on
+        voyait du bleu a ses pieds. On s'arrete donc quand ce point atteint
+        le bas de l'ecran."""
+        ppd = self.ppd()
+        if ppd <= 0 or self.height <= 0:
+            return -TANGAGE_MAX
+        return max(-TANGAGE_MAX, self.horizon * self.height / ppd - 90.0)
+
     def regle(self, lacet=None, tangage=None):
         """Place les panneaux pour ce regard (degres)."""
         if lacet is not None:
             self.lacet = lacet % 360.0
         if tangage is not None:
-            self.tangage = max(-TANGAGE_MAX, min(TANGAGE_MAX, tangage))
+            self.tangage = tangage
+        self.tangage = max(self.tangage_min(), min(TANGAGE_MAX, self.tangage))
         if self.width <= 0:
             return
         ppd = self.ppd()

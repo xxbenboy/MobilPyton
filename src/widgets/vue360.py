@@ -72,6 +72,7 @@ class Vue360(FloatLayout):
         case = (state.player_x, state.player_y)
         if case != self._case:
             self._case = case
+            self.regarde(self.lacet)     # l'horizon de la case borne la tete
             reglages = self.scenery.reglages_nappe()
             if reglages is None:
                 self.sol.cache()
@@ -124,6 +125,9 @@ class Vue360(FloatLayout):
         self.lacet = lacet % 360.0
         if tangage is not None:
             self.tangage = tangage
+        # L'horizon de la case borne la tete baissee (Panorama.tangage_min).
+        self.panorama.horizon = self.fond.horizon = \
+            self.scenery.hauteur_horizon()
         self.panorama.regle(self.lacet, self.tangage)
         self.tangage = self.panorama.tangage
         self.fond.regle(self.lacet, self.tangage)

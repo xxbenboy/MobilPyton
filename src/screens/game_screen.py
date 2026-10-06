@@ -1318,6 +1318,9 @@ class GameScreen(Screen):
             state.tourne_regard(self._lacet, self._tangage)
 
     def _applique_regard(self):
+        # L'horizon de la case borne la tete baissee (Panorama.tangage_min).
+        horizon = self.scenery.hauteur_horizon()
+        self.panorama.horizon = self.fond.horizon = horizon
         self.panorama.regle(self._lacet, self._tangage)
         self._tangage = self.panorama.tangage
         self.fond.regle(self._lacet, self._tangage)
@@ -2383,6 +2386,9 @@ class GameScreen(Screen):
         if case != self._case_vue:
             self._case_vue = case
             self._regle_sol(state)
+            # Une autre zone, un autre horizon : la tete baissee se reborne.
+            self._applique_regard()
+            state.tourne_regard(self._lacet, self._tangage)
             self._a_prechauffer = [p for p in self.panorama.plaques
                                    if p.parent is None]
             if self._prechauffe_ev is None and self._a_prechauffer:
