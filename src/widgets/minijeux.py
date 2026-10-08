@@ -48,6 +48,17 @@ LA CORDE
     4. chaque brin doit etre croise CINQ FOIS : quinze croisements, et la
        corde est tressee.
 
+LA HACHE
+    1. les quatre petits batons attendent a gauche, la pierre coupante et
+       la corde a droite ; quatre places, cote a cote, dessinent le manche
+       au milieu : chaque baton lache sur une place s'y VERROUILLE ;
+    2. la corde en main, passer d'un cote a l'autre du BAS DU MANCHE : un
+       tour a chaque passage, quatre tours ;
+    3. poser la pierre coupante EN HAUT du manche, sur sa place ;
+    4. croiser la corde EN X sur la pierre : d'un coin au coin oppose, une
+       diagonale puis l'autre, deux fois -- la hache est solide.
+    La corde lachee retourne toujours a sa place.
+
 L'EQUIPEMENT EN FEUILLE (casque, veste, pantalon, gants, souliers)
     la piece est decoupee en TROIS TIERS (gauche, milieu, droite), et
     chaque tiers se fabrique en un tour :
@@ -1362,16 +1373,397 @@ class MiniJeuFeuille(object):
         self._annonce()
 
 
+# LA HACHE. Le manche est un FAISCEAU de quatre petits batons. Leur image
+# est en biais (du bas gauche au haut droit) : le faisceau suit cet AXE, et
+# les batons s'y collent cote a cote, de PAS_FAISCEAU (tailles d'objet) en
+# PAS_FAISCEAU, perpendiculairement a lui. En tailles d'objet depuis le
+# milieu du faisceau (releve de HAUSSE_HACHE, part de la hauteur) :
+# - le BAS du manche, ou la corde s'enroule, a BAS_MANCHE le long de l'axe ;
+# - la PIERRE, fixee en haut, a HAUT_PIERRE ;
+# - le NOEUD des deux (la ou la corde se croise en X), a NOEUD_X.
+AXE_MANCHE = (0.80, 0.60)               # du bas gauche vers le haut droit
+BATONS_MANCHE = 4
+PAS_FAISCEAU = 0.11
+HAUSSE_HACHE = 0.04
+BAS_MANCHE = -0.30
+HAUT_PIERRE = 0.42
+NOEUD_X = 0.22
+# Un baton lache a moins de PRISE_BATON (tailles d'objet) d'une place libre
+# du faisceau s'y range et s'y VERROUILLE ; la pierre, a moins de
+# PRISE_PIERRE de sa place.
+PRISE_BATON = 0.35
+PRISE_PIERRE = 0.45
+# LA CORDE AUTOUR DU BAS : la main qui tient la corde passe d'un cote du
+# faisceau a l'autre (au-dela de LARGE_MANCHE, de part et d'autre de son
+# axe), a moins de ZONE_BAS du bas du manche le long de l'axe : un tour.
+# TOURS_BAS tours.
+TOURS_BAS = 4
+LARGE_MANCHE = 0.24
+ZONE_BAS = 0.30
+ECART_TOURS = 0.05                      # entre deux tours dessines
+# LA CORDE EN X sur la pierre : la main passe d'un coin du noeud (a
+# COIN_X de son milieu, sur les deux axes de l'ecran, au moins) au coin
+# OPPOSE : un trait de la croix. Les deux diagonales en alternance,
+# TRAITS_X traits (deux X).
+TRAITS_X = 4
+COIN_X = 0.16
+PORTEE_X = 0.65
+DEMI_X = 0.28                           # la croix dessinee
+# Ou attendent les batons (a gauche, en deux colonnes) et la pierre et la
+# corde (a droite), en parts de l'ecran : chaque main prend de son cote.
+PLACES_BATONS = ((0.08, 0.66), (0.18, 0.66), (0.08, 0.40), (0.18, 0.40))
+PLACE_PIERRE = (0.82, 0.64)
+PLACE_CORDE_HACHE = (0.82, 0.38)
+DUREE_ENROULER = 2.6
+DUREE_CROISER = 2.8
+ALPHA_HACHE = 0.65
+PIERRE_COUPANTE = "Pierre_Coupante"
+BATON = "Small_Stick"
+
+
+class MiniJeuHache(object):
+    """Emmancher une pierre coupante sur un faisceau de batons, a la
+    corde."""
+
+    PHASES = ("batons", "bas", "pierre", "croix")
+
+    def __init__(self, assemblage, reussi, consigne, couche=None,
+                 mains=None, recette=None):
+        self.asm = assemblage
+        self.reussi = reussi
+        self.consigne = consigne
+        self.couche = couche
+        self.mains = mains
+        self.fantome = Fantome(couche, mains,
+                               lambda: assemblage.case_objet() * 3,
+                               alpha=ALPHA_HACHE) \
+            if couche is not None and mains is not None else None
+        objets = assemblage.objets
+        self.batons = [o for o in objets if o["nom"] == BATON]
+        self.pierre = next((o for o in objets
+                            if o["nom"] == PIERRE_COUPANTE), None)
+        self.corde = next((o for o in objets if o["nom"] == CORDE), None)
+        self.phase = None
+        self.places = []            # les places du faisceau, a l'ecran
+        self.ranges = {}            # place -> baton
+        self.tours = 0              # autour du bas
+        self.traits = []            # "\\" ou "/", sur la pierre
+        self._cote = None           # de quel cote du manche est la corde
+        self._coin = None           # dans quel coin du noeud elle est
+        self._tenues = [None, None]
+        self._vus = set()
+        self._dit = None
+        self.fini = False
+
+    def _taille(self):
+        return self.asm.case_objet() * 3
+
+    # -- la geometrie du manche (a l'ecran) ------------------------------- #
+    def _axes(self):
+        """(u, v) : l'axe du manche, et sa perpendiculaire (vers le haut
+        gauche)."""
+        ux, uy = AXE_MANCHE
+        n = math.hypot(ux, uy)
+        ux, uy = ux / n, uy / n
+        return (ux, uy), (-uy, ux)
+
+    def centre(self):
+        mx, my = self.asm.centre_du_plan()
+        return mx, my + HAUSSE_HACHE * self.asm.height
+
+    def _le_long(self, a, b=0.0):
+        """Le point a `a` tailles d'objet le long de l'axe du manche, et `b`
+        en travers, depuis son milieu."""
+        (ux, uy), (vx, vy) = self._axes()
+        cx, cy = self.centre()
+        t = self._taille()
+        return cx + (a * ux + b * vx) * t, cy + (a * uy + b * vy) * t
+
+    def bas(self):
+        return self._le_long(BAS_MANCHE)
+
+    def place_pierre(self):
+        return self._le_long(HAUT_PIERRE)
+
+    def noeud(self):
+        return self._le_long(NOEUD_X)
+
+    def _maison(self, o):
+        """La place d'attente de `o`, a l'ecran."""
+        asm = self.asm
+        if o is self.pierre:
+            fx, fy = PLACE_PIERRE
+        elif o is self.corde:
+            fx, fy = PLACE_CORDE_HACHE
+        else:
+            k = next((n for n, b in enumerate(self.batons) if b is o), 0)
+            fx, fy = PLACES_BATONS[k % len(PLACES_BATONS)]
+        return asm.x + fx * asm.width, asm.y + fy * asm.height
+
+    def _ramene(self, o):
+        if o is not None and not o.get("verrou"):
+            self.asm.place_a_l_ecran(o, *self._maison(o))
+
+    # -- cycle ----------------------------------------------------------- #
+    def demarre(self):
+        asm = self.asm
+        asm.aimant_permis = False
+        asm.liens = []
+        asm.sur_pas = self._pas
+        asm.dessin_dessus = self._dessine
+        n = BATONS_MANCHE
+        self.places = [self._le_long(0.0, (k - (n - 1) / 2.0) * PAS_FAISCEAU)
+                       for k in range(n)]
+        for o in self.batons + [self.pierre, self.corde]:
+            self._ramene(o)
+        self._entre("batons")
+
+    def arrete(self):
+        asm = self.asm
+        if asm.sur_pas == self._pas:
+            asm.sur_pas = None
+        if asm.dessin_dessus == self._dessine:
+            asm.dessin_dessus = None
+        asm.aimant_permis = True
+        asm.emplacements = []
+        if self.fantome is not None:
+            self.fantome.arrete()
+        for o in asm.objets:
+            o.pop("verrou", None)
+        asm._redessine()
+
+    def _entre(self, phase):
+        self.phase = phase
+        self._cote = self._coin = None
+        self._places_montrees()
+        self.asm._redessine()
+        self._annonce()
+        self._montre()
+
+    def _places_montrees(self):
+        """Les places qui attendent, en fantome : celles des batons libres,
+        puis celle de la pierre."""
+        asm = self.asm
+        out = []
+        if self.phase == "batons":
+            libres = [p for k, p in enumerate(self.places)
+                      if k not in self.ranges]
+            out = [(BATON, p) for p in libres]
+        elif self.phase == "pierre":
+            out = [(PIERRE_COUPANTE, self.place_pierre())]
+        asm.emplacements = []
+        for nom, (px, py) in out:
+            x, y = vue_inverse(1.0, px, py, asm.width, asm.height,
+                               asm.x, asm.y)
+            asm.emplacements.append((nom, (x - asm.x) / asm.width,
+                                     (y - asm.y) / asm.height, False))
+
+    # -- la main fantome et les consignes --------------------------------- #
+    def _montre(self):
+        if self.phase in self._vus or self.fantome is None \
+                or self.mains is None:
+            return
+        self._vus.add(self.phase)
+        asm = self.asm
+        t = self._taille()
+        if self.phase == "batons":
+            libres = [o for o in self.batons if not o.get("verrou")]
+            k = next((k for k in range(len(self.places))
+                      if k not in self.ranges), None)
+            if not libres or k is None:
+                return
+            o = libres[0]
+            depart = asm.a_l_ecran(o)
+            self.fantome.joue(0, [self.mains.paume(0), depart, depart,
+                                  self.places[k], self.places[k]],
+                              DUREE_RANGER, objet=o)
+        elif self.phase == "pierre" and self.pierre is not None:
+            depart = asm.a_l_ecran(self.pierre)
+            cible = self.place_pierre()
+            self.fantome.joue(1, [self.mains.paume(1), depart, depart,
+                                  cible, cible], DUREE_RANGER,
+                              objet=self.pierre)
+        elif self.phase in ("bas", "croix") and self.corde is not None:
+            depart = asm.a_l_ecran(self.corde)
+            if self.phase == "bas":
+                pts = [self._le_long(BAS_MANCHE, s * (LARGE_MANCHE + 0.12))
+                       for s in (1, -1, 1, -1)]
+                duree = DUREE_ENROULER
+            else:
+                nx, ny = self.noeud()
+                d = (COIN_X + 0.10) * t
+                pts = [(nx - d, ny + d), (nx + d, ny - d),
+                       (nx + d, ny + d), (nx - d, ny - d)]
+                duree = DUREE_CROISER
+            self.fantome.joue(1, [self.mains.paume(1), depart, depart] + pts,
+                              duree, objet=self.corde)
+
+    def _annonce(self):
+        if self.phase == "batons":
+            texte = "Colle les 4 batons cote a cote (%d/%d)" % (
+                len(self.ranges), BATONS_MANCHE)
+        elif self.phase == "bas":
+            texte = "Enroule la corde autour du bas des batons (%d/%d)" % (
+                self.tours, TOURS_BAS)
+        elif self.phase == "pierre":
+            texte = "Fixe la pierre en haut des batons"
+        else:
+            texte = "Croise la corde en X sur la pierre (%d/%d)" % (
+                len(self.traits), TRAITS_X)
+        if texte != self._dit:
+            self._dit = texte
+            self.consigne(texte)
+
+    # -- le dessin de la corde, par-dessus les objets ---------------------- #
+    def _dessine(self):
+        asm = self.asm
+        t = self._taille()
+
+        def ici(x, y):
+            return vue_inverse(1.0, x, y, asm.width, asm.height,
+                               asm.x, asm.y)
+
+        epais = max(2.0, 0.035 * t / ZOOM)
+        traits = []
+        # Les tours du bas, en travers du faisceau, cote a cote.
+        for k in range(self.tours):
+            a = BAS_MANCHE + (k - (TOURS_BAS - 1) / 2.0) * ECART_TOURS
+            traits.append((self._le_long(a, LARGE_MANCHE),
+                           self._le_long(a, -LARGE_MANCHE)))
+        # La croix, sur la pierre.
+        nx, ny = self.noeud()
+        d = DEMI_X * t
+        for sens in self.traits:
+            if sens == "\\":
+                traits.append(((nx - d, ny + d), (nx + d, ny - d)))
+            else:
+                traits.append(((nx + d, ny + d), (nx - d, ny - d)))
+        # La corde qui pend du dernier tour jusqu'a la main qui la tient.
+        main = self._main_corde()
+        if main is not None and (self.tours or self.traits):
+            depart = traits[-1][1]
+            traits.append((depart, asm.ou_est_porte(main)))
+        for (ax, ay), (bx, by) in traits:
+            pts = list(ici(ax, ay)) + list(ici(bx, by))
+            Color(*OMBRE_BRIN)
+            Line(points=pts, width=epais * 1.4)
+            Color(*TEINTES_BRINS[0])
+            Line(points=pts, width=epais)
+
+    # -- chaque pas de la vue ---------------------------------------------- #
+    def _main_corde(self):
+        for i in (1, 0):
+            if self.corde is not None and self.asm.porte(i) is self.corde:
+                return i
+        return None
+
+    def _pas(self, dt):
+        if self.fini:
+            return
+        asm = self.asm
+        tenus = [asm.porte(i) for i in (0, 1)]
+        lachees = [o for o in self._tenues if o is not None
+                   and not any(o is t for t in tenus)]
+        self._tenues = tenus
+        for o in lachees:
+            self.lache(o)
+            if self.fini:
+                return
+        main = self._main_corde()
+        if main is not None:
+            self.suit_corde(*asm.ou_est_porte(main))
+            asm._redessine()        # la corde pend jusqu'a la main
+        self._annonce()
+
+    def lache(self, o):
+        """`o` vient d'etre lache : a sa place, il s'y range ; sinon il
+        retourne attendre a la sienne."""
+        asm = self.asm
+        t = self._taille()
+        ox, oy = asm.a_l_ecran(o)
+        if self.phase == "batons" and any(o is b for b in self.batons):
+            libres = [(math.hypot(ox - px, oy - py), k)
+                      for k, (px, py) in enumerate(self.places)
+                      if k not in self.ranges]
+            if libres:
+                d, k = min(libres)
+                if d <= PRISE_BATON * t:
+                    self.ranges[k] = o
+                    o["verrou"] = True
+                    asm.place_a_l_ecran(o, *self.places[k])
+                    self._places_montrees()
+                    asm._redessine()
+                    if len(self.ranges) >= BATONS_MANCHE:
+                        self._entre("bas")
+                    return
+        elif self.phase == "pierre" and o is self.pierre:
+            px, py = self.place_pierre()
+            if math.hypot(ox - px, oy - py) <= PRISE_PIERRE * t:
+                o["verrou"] = True
+                asm.place_a_l_ecran(o, px, py)
+                self._entre("croix")
+                return
+        self._ramene(o)
+        asm._redessine()
+
+    def suit_corde(self, x, y):
+        """La main qui tient la corde est en (x, y)."""
+        t = self._taille()
+        if self.phase == "bas":
+            (ux, uy), (vx, vy) = self._axes()
+            bx, by = self.bas()
+            a = ((x - bx) * ux + (y - by) * uy) / t
+            b = ((x - bx) * vx + (y - by) * vy) / t
+            if abs(a) > ZONE_BAS:
+                self._cote = None       # partie loin du bas du manche
+                return
+            cote = 1 if b >= LARGE_MANCHE else (-1 if b <= -LARGE_MANCHE
+                                                 else None)
+            if cote is None:
+                return
+            if self._cote is not None and cote != self._cote:
+                self.tours += 1
+                self.asm._redessine()
+                if self.tours >= TOURS_BAS:
+                    self._entre("pierre")
+                    return
+            self._cote = cote
+        elif self.phase == "croix":
+            nx, ny = self.noeud()
+            dx, dy = (x - nx) / t, (y - ny) / t
+            if max(abs(dx), abs(dy)) > PORTEE_X:
+                self._coin = None
+                return
+            if abs(dx) < COIN_X or abs(dy) < COIN_X:
+                return
+            coin = (1 if dx > 0 else -1, 1 if dy > 0 else -1)
+            avant, self._coin = self._coin, coin
+            if avant is None or avant != (-coin[0], -coin[1]):
+                return
+            # D'un coin au coin oppose : un trait. Haut gauche <-> bas
+            # droit, c'est "\\" ; haut droit <-> bas gauche, "/".
+            sens = "\\" if coin[0] != coin[1] else "/"
+            if self.traits and self.traits[-1] == sens:
+                return                  # la meme diagonale : l'autre !
+            self.traits.append(sens)
+            self.asm._redessine()
+            if len(self.traits) >= TRAITS_X:
+                self.fini = True
+                self._annonce()
+                self.reussi()
+
+
 MINIJEUX = {
     "couteau": MiniJeuCouteau,
     "fibre": MiniJeuFibre,
     "feu": MiniJeuFeu,
     "feuille": MiniJeuFeuille,
     "corde": MiniJeuCorde,
+    "hache": MiniJeuHache,
 }
 
 
 __all__ = ["MiniJeuCouteau", "MiniJeuFibre", "MiniJeuFeu", "MiniJeuFeuille",
-           "MiniJeuCorde",
+           "MiniJeuCorde", "MiniJeuHache",
            "Fantome", "MINIJEUX", "COUCHE",
            "AMINCISSEMENTS"]

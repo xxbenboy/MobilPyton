@@ -293,8 +293,10 @@ class Assemblage(Widget):
         self.emplacements = []
         self.fils = []
         # Ce qu'un mini-jeu dessine lui-meme sous les objets (la tresse de
-        # la corde) : dessin_jeu(), appele dans le canvas.
+        # la corde) : dessin_jeu(), appele dans le canvas ; et PAR-DESSUS
+        # (la corde enroulee autour du manche de la hache) : dessin_dessus().
         self.dessin_jeu = None
+        self.dessin_dessus = None
         self.bind(pos=self._redessine, size=self._redessine)
 
     # -- ce qu'il y a sur le plan ---------------------------------------- #
@@ -318,6 +320,7 @@ class Assemblage(Widget):
         self.emplacements = []
         self.fils = []
         self.dessin_jeu = None
+        self.dessin_dessus = None
         self._arrete()
         self._decale = [[0.0, 0.0], [0.0, 0.0]]
         if self.mains is not None:
@@ -388,6 +391,8 @@ class Assemblage(Widget):
                 Line(points=pts, width=max(1.5, cote * 0.030))
                 Color(*COULEUR_FIL)
                 Line(points=pts, width=max(1.2, cote * 0.020))
+            if self.dessin_dessus is not None:
+                self.dessin_dessus()
         self._dessine_portes()
 
     def _dessine_grille_plan(self, case):

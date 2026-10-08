@@ -24,7 +24,8 @@ ASSEMBLAGES = [
     # LA HACHE : la pierre coupante, emmanchee sur un faisceau de petits
     # batons, ligaturee a la corde.
     {"result": "Hache",
-     "objets": {PIERRE_COUPANTE: 1, "Small_Stick": 4, "Corde": 1}},
+     "objets": {PIERRE_COUPANTE: 1, "Small_Stick": 4, "Corde": 1},
+     "minijeu": "hache"},
     # Le couteau emmanche au bout d'un long baton, ligature a la corde.
     {"result": "Lance",
      "objets": {"Long_Stick": 1, COUTEAU_EN_PIERRE: 1, "Corde": 1}},
