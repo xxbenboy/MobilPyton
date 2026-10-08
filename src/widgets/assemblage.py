@@ -377,7 +377,10 @@ class Assemblage(Widget):
             if self.dessin_jeu is not None:
                 self.dessin_jeu()
             # Du plus loin (haut) au plus pres : celui de devant passe devant.
-            for o in sorted(self.objets, key=lambda o: -o["y"]):
+            # Un objet marque "dessus" par un mini-jeu (la pierre fixee sur
+            # le manche de la hache) passe devant tous les autres.
+            for o in sorted(self.objets,
+                            key=lambda o: (bool(o.get("dessus")), -o["y"])):
                 if any(o is p for p in portes) or o.get("cache"):
                     continue
                 dessine_travail(o, self.x + o["x"] * self.width,

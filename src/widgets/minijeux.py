@@ -1402,9 +1402,11 @@ LARGE_MANCHE = 0.24
 ZONE_BAS = 0.30
 ECART_TOURS = 0.05                      # entre deux tours dessines
 # LA CORDE EN X sur la pierre : la main passe d'un coin du noeud (a
-# COIN_X de son milieu, sur les deux axes de l'ecran, au moins) au coin
+# COIN_X de son milieu au moins, le long du manche ET en travers) au coin
 # OPPOSE : un trait de la croix. Les deux diagonales en alternance,
-# TRAITS_X traits (deux X).
+# TRAITS_X traits (deux X). La croix suit le MANCHE, qui est en biais : ses
+# deux bras le croisent chacun a 45 degres. Comptee sur les axes de
+# l'ecran, l'un des bras courait presque le long des batons -- un "+".
 TRAITS_X = 4
 COIN_X = 0.16
 PORTEE_X = 0.65
@@ -1530,6 +1532,7 @@ class MiniJeuHache(object):
             self.fantome.arrete()
         for o in asm.objets:
             o.pop("verrou", None)
+            o.pop("dessus", None)
         asm._redessine()
 
     def _entre(self, phase):
@@ -1590,10 +1593,11 @@ class MiniJeuHache(object):
                        for s in (1, -1, 1, -1)]
                 duree = DUREE_ENROULER
             else:
-                nx, ny = self.noeud()
-                d = (COIN_X + 0.10) * t
-                pts = [(nx - d, ny + d), (nx + d, ny - d),
-                       (nx + d, ny + d), (nx - d, ny - d)]
+                e = COIN_X + 0.10
+                pts = [self._le_long(NOEUD_X - e, e),
+                       self._le_long(NOEUD_X + e, -e),
+                       self._le_long(NOEUD_X + e, e),
+                       self._le_long(NOEUD_X - e, -e)]
                 duree = DUREE_CROISER
             self.fantome.joue(1, [self.mains.paume(1), depart, depart] + pts,
                               duree, objet=self.corde)
@@ -1630,14 +1634,19 @@ class MiniJeuHache(object):
             a = BAS_MANCHE + (k - (TOURS_BAS - 1) / 2.0) * ECART_TOURS
             traits.append((self._le_long(a, LARGE_MANCHE),
                            self._le_long(a, -LARGE_MANCHE)))
-        # La croix, sur la pierre.
-        nx, ny = self.noeud()
-        d = DEMI_X * t
-        for sens in self.traits:
+        # La croix, sur le noeud du manche et de la pierre, a 45 degres du
+        # manche. Le second X se pose a cote du premier, le long du manche :
+        # chaque trait reussi ajoute de la corde a l'ecran.
+        k = DEMI_X
+        paires = (TRAITS_X + 1) // 2
+        for j, sens in enumerate(self.traits):
+            a = NOEUD_X + (j // 2 - (paires - 1) / 2.0) * 2 * ECART_TOURS
             if sens == "\\":
-                traits.append(((nx - d, ny + d), (nx + d, ny - d)))
+                traits.append((self._le_long(a - k, k),
+                               self._le_long(a + k, -k)))
             else:
-                traits.append(((nx + d, ny + d), (nx - d, ny - d)))
+                traits.append((self._le_long(a + k, k),
+                               self._le_long(a - k, -k)))
         # La corde qui pend du dernier tour jusqu'a la main qui la tient.
         main = self._main_corde()
         if main is not None and (self.tours or self.traits):
@@ -1700,6 +1709,9 @@ class MiniJeuHache(object):
             px, py = self.place_pierre()
             if math.hypot(ox - px, oy - py) <= PRISE_PIERRE * t:
                 o["verrou"] = True
+                # Fixee EN HAUT du manche : dessinee par-dessus les batons,
+                # pas derriere eux (voir Assemblage._redessine).
+                o["dessus"] = True
                 asm.place_a_l_ecran(o, px, py)
                 self._entre("croix")
                 return
@@ -1729,8 +1741,11 @@ class MiniJeuHache(object):
                     return
             self._cote = cote
         elif self.phase == "croix":
+            # Sur les axes du MANCHE : dx le long, dy en travers.
+            (ux, uy), (vx, vy) = self._axes()
             nx, ny = self.noeud()
-            dx, dy = (x - nx) / t, (y - ny) / t
+            dx = ((x - nx) * ux + (y - ny) * uy) / t
+            dy = ((x - nx) * vx + (y - ny) * vy) / t
             if max(abs(dx), abs(dy)) > PORTEE_X:
                 self._coin = None
                 return
@@ -1740,8 +1755,8 @@ class MiniJeuHache(object):
             avant, self._coin = self._coin, coin
             if avant is None or avant != (-coin[0], -coin[1]):
                 return
-            # D'un coin au coin oppose : un trait. Haut gauche <-> bas
-            # droit, c'est "\\" ; haut droit <-> bas gauche, "/".
+            # D'un coin au coin oppose : un trait. Bas du manche et dessus
+            # <-> haut du manche et dessous, c'est "\\" ; l'autre, "/".
             sens = "\\" if coin[0] != coin[1] else "/"
             if self.traits and self.traits[-1] == sens:
                 return                  # la meme diagonale : l'autre !
