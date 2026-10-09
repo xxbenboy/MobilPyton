@@ -68,8 +68,8 @@ CELL_FREE = (0, 0, 0, 0)                  # aucune : libre
 
 # Nom lisible de chaque obstacle naturel (cf. world.NATURE_BIG).
 NATURE_LABEL = {"tree": "Arbre", "bush": "Buisson", "rock": "Rocher",
-                "nugget": "Pierre"}
-NATURE_ORDER = ("tree", "bush", "rock", "nugget")
+                "nugget": "Pierre", "souche": "Souche", "tronc": "Tronc"}
+NATURE_ORDER = ("tree", "bush", "rock", "nugget", "souche", "tronc")
 
 # Taille des flammes du pictogramme, selon l'etat du feu (cf. FIRE_LEVELS).
 GLYPH_FLAME = {"grand": 1.00, "moyen": 0.66, "petit": 0.36, "braise": 0.0}
@@ -88,6 +88,21 @@ def draw_nature_glyph(kind, cx, cy, size):
     seraient deux taches grises ; c'est la cassure anguleuse qui dit qu'on a
     affaire a un bloc et non a un galet use."""
     r = size * 0.5
+    if kind in ("souche", "tronc"):
+        # Ce que laisse un arbre abattu, vu d'en haut : le bois coupe, des
+        # cernes clairs dans l'ecorce (la souche entiere ; un tronc couche,
+        # un rond par case qu'il couvre).
+        k = 0.62 if kind == "souche" else 0.42
+        Color(0, 0, 0, 0.24)
+        Ellipse(pos=(cx - r * k, cy - r * k * 1.15), size=(r * k * 2,) * 2)
+        Color(0.34, 0.23, 0.13, 1)                            # ecorce
+        Ellipse(pos=(cx - r * k, cy - r * k), size=(r * k * 2,) * 2)
+        Color(0.80, 0.64, 0.42, 1)                            # bois coupe
+        Ellipse(pos=(cx - r * k * 0.78, cy - r * k * 0.78),
+                size=(r * k * 1.56,) * 2)
+        Color(0.55, 0.40, 0.24, 1)                            # cerne
+        Line(circle=(cx, cy, r * k * 0.45), width=1.2)
+        return
     if kind == "tree":
         Color(0, 0, 0, 0.28)                                  # ombre portee
         Ellipse(pos=(cx - r, cy - r * 1.12), size=(r * 2, r * 2))
@@ -969,7 +984,12 @@ class PlaceScreen(Screen):
         self.grid_overlay.anchors = list(objs)
         self.grid_overlay.nature = {(int(gx), int(gy)): kind for (gx, gy), kind
                                     in state.nature_cells_here().items()}
-        self.grid_overlay.elements = dict(state.nature_here())
+        elements = dict(state.nature_here())
+        # Ce que laissent les arbres abattus : la souche, et un rond par case
+        # du tronc couche.
+        elements.update({c: k for c, k in state.nature_cells_here().items()
+                         if k in ("souche", "tronc")})
+        self.grid_overlay.elements = elements
         self.grid_overlay.mode = self.mode
         self.grid_overlay._redraw()
         # La legende ne liste que les obstacles presents sur CETTE case.

@@ -39,7 +39,8 @@ from src.game_state import CARDINALS
 from src import items
 from src.widgets.player_hands import PlayerHands
 from src.widgets.action_mode import (Approche, Clignote, JeuBaies, JeuEau,
-                                     JeuArbre, DUREE_APPROCHE, doux)
+                                     JeuArbre, JeuSouche, DUREE_APPROCHE,
+                                     doux)
 from src.widgets.insects import InsectLayer, FireflyLayer
 from src.widgets.weather import WeatherLayer, LightningLayer
 from src.widgets.icon_button import IconButton
@@ -90,8 +91,12 @@ EFFECT_FLY_SECONDS = 0.75
 
 # Actions : effets ponctuels (la faim/soif/sommeil derivent en plus avec le
 # temps). "requires_sleep" => possible seulement si on est assez fatigue.
-# Ce que rapporte un arbre abattu, depose AU SOL : (objet, mini, maxi).
-CHOP_YIELD = (("Buche", 3, 3), ("Long_Stick", 3, 5), ("Feuille", 5, 10))
+# Ce que rapporte un arbre abattu, depose AU SOL : (objet, mini, maxi). Des
+# branches et des feuilles seulement : le tronc, lui, reste couche a cote de
+# la souche (voir GameState.chop_tree) -- on n'en fait rien pour l'instant.
+CHOP_YIELD = (("Long_Stick", 3, 5), ("Feuille", 5, 10))
+# Ce que rend une souche arrachee a la hache.
+SOUCHE_YIELD = "Racine"
 # Ce qu'une exploration donne PAR POIGNEE, (mini, maxi) d'un coup (voir
 # _finish_action) : 3 a 5 feuilles, 1 a 3 petites branches, herbes ou
 # pierres. Tout le reste vient a l'unite.
@@ -136,6 +141,11 @@ ACTIONS = [
      "energy": -20, "type": "explore"},
     {"label": "Couper du bois", "icon": "wood", "name": "Couper\ndu bois",
      "minutes": 180, "energy": -75, "need_axe": True, "type": "chop"},
+    # La souche d'un arbre abattu, arrachee a la hache en mode action (pas de
+    # bouton : seul le mode action s'en sert, pour le temps et l'effort).
+    {"label": "Arracher une souche", "icon": "wood",
+     "name": "Arracher\nune souche", "minutes": 45, "energy": -25,
+     "need_axe": True, "type": "stump"},
     # A mains nues : une baie d'un buisson de la case, en main, comme une
     # trouvaille d'exploration (voir GameState.pick_berry). Sans baie a
     # cueillir, le bouton est grise.
@@ -1190,6 +1200,19 @@ class GameScreen(Screen):
                                        "image": gros.get("image")})
             else:
                 raisons.append("Il faut une hache en main\npour couper un arbre.")
+        # LES SOUCHES des arbres abattus : a la hache aussi, pour une racine.
+        souches = state.souches_here()
+        if souches:
+            if items.AXE_ITEM in state.hands:
+                for cell in souches:
+                    gros, _places = self._gros_a_l_ecran(cell)
+                    if gros is not None:
+                        cibles.append({"kind": "souche", "cell": cell,
+                                       "boite": gros["boite"], "gros": gros,
+                                       "image": gros.get("image")})
+            else:
+                raisons.append("Il faut une hache en main\n"
+                               "pour arracher une souche.")
         if not cibles and not raisons:
             raisons.append("Rien a faire ici\npour l'instant.")
         return cibles, (raisons[0] if raisons else None)
@@ -1405,6 +1428,13 @@ class GameScreen(Screen):
             cx = max(0.25 * w, min(0.75 * w, (x0 + x1) / 2.0))
             self.monde.vise((cx, y0 + 0.30 * (y1 - y0)), (0.5 * w, 0.45 * h),
                             1.5)
+        elif kind == "souche":
+            # Une souche est basse : la camera s'en approche plus pres que
+            # d'un arbre, et vise son milieu.
+            x0, y0, x1, y1 = cible["boite"]
+            zoom = max(1.6, min(3.2, 0.35 * h / max(1.0, y1 - y0)))
+            self.monde.vise((cible["gros"]["cx"], (y0 + y1) / 2.0),
+                            (0.5 * w, 0.40 * h), zoom)
         else:
             g = cible["gros"]
             haut = g["boite"][3] - g["boite"][1]
@@ -1453,6 +1483,17 @@ class GameScreen(Screen):
             haut = self.monde.ecran(0, c["boite"][3])[1]
             self._jeu = JeuEau(self, c, self._fin_jeu, self._dit_action,
                                bas, haut)
+        elif c["kind"] == "souche":
+            if items.AXE_ITEM not in state.hands:
+                self._mode_action_quitte()
+                return
+            # Le meme geste que pour l'arbre, a mi-hauteur de la souche ;
+            # le bois a entailler fait la moitie de sa largeur.
+            x0, y0, x1, y1 = c["boite"]
+            tx, ty = self.monde.ecran(c["gros"]["cx"], (y0 + y1) / 2.0)
+            self._jeu = JeuSouche(self, c, self._fin_jeu, self._dit_action,
+                                  state.hands.index(items.AXE_ITEM), tx, ty,
+                                  0.5 * (x1 - x0) * self.monde.echelle())
         else:
             if items.AXE_ITEM not in state.hands:
                 self._mode_action_quitte()
@@ -1491,6 +1532,13 @@ class GameScreen(Screen):
             action = by_label["Chercher a manger"]
         elif "eau" in resultat:
             action = by_label["Boire"]
+        elif "souche" in resultat:
+            action = by_label["Arracher une souche"]
+            if state.arrache_souche(c["cell"]) is not None:
+                state.auto_take(SOUCHE_YIELD)
+                nom = items.display_name(SOUCHE_YIELD).lower()
+                state.add_log("Souche arrachee : 1 %s" % nom)
+                self._show_message("Souche arrachee.\n1 %s" % nom)
         else:
             got = []
             if state.chop_tree(c["cell"]) is not None:
@@ -1503,7 +1551,8 @@ class GameScreen(Screen):
             action = by_label["Couper du bois"]
         self._oublie_decor()
         App.get_running_app().autosave()
-        self._recule(action, items.AXE_ITEM if "arbre" in resultat else None)
+        self._recule(action, items.AXE_ITEM
+                     if "arbre" in resultat or "souche" in resultat else None)
 
     def _recule(self, action=None, outil=None):
         """La camera recule, le HUD revient ; puis le temps de l'action."""

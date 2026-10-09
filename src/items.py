@@ -537,7 +537,8 @@ ITEM_NOTES = {
     "Ecorce": "Une plaque d'ecorce seche. Elle prend feu au moindre eclat.",
     "Branche_Feuillue": "Une branche coupee sur un buisson, encore garnie de "
                         "feuilles.",
-    "Racine": "Une racine deterree au couteau, souple et solide.",
+    "Racine": "Une racine deterree au couteau, ou arrachee a la hache avec "
+              "une souche : souple et solide.",
     "Ver": "Un ver de terre, deterre dans le champ. Petit, mais vivant.",
     "Feuille": "Une large feuille. Seche, elle aide la flamme a prendre.",
     "Herbe": "Une touffe d'herbe. Ses fibres se tressent.",

@@ -546,6 +546,11 @@ class JeuArbre(MiniJeu):
     """Abattre un arbre a la hache, coup par coup."""
 
     COUPS = 6
+    # Ce que dit la consigne, ce qu'elle dit a la fin, et ce que le jeu rend
+    # (voir JeuSouche, qui reprend tout le reste).
+    TEXTE = "Glisse le doigt a travers le tronc (%d/%d)"
+    FIN = "L'arbre tombe !"
+    RESULTAT = "arbre"
     VITESSE = 0.55      # vitesse minimale du doigt, en largeurs d'ecran / s
     BANDE = 0.20        # le doigt passe a moins de cette part de hauteur de
                         # l'entaille
@@ -569,8 +574,7 @@ class JeuArbre(MiniJeu):
         self._dit()
 
     def _dit(self):
-        self.consigne("Glisse le doigt a travers le tronc (%d/%d)"
-                      % (self.coups, self.COUPS))
+        self.consigne(self.TEXTE % (self.coups, self.COUPS))
 
     def touche(self, touch):
         if not self.termine:
@@ -612,8 +616,8 @@ class JeuArbre(MiniJeu):
                                  random.uniform(0.6, 1.0)])
         self._dit()
         if self.coups >= self.COUPS:
-            self.consigne("L'arbre tombe !")
-            self.termine_avec({"arbre": True})
+            self.consigne(self.FIN)
+            self.termine_avec({self.RESULTAT: True})
 
     def pas(self, dt):
         self._t += dt
@@ -666,5 +670,16 @@ class JeuArbre(MiniJeu):
         super().arrete()
 
 
+class JeuSouche(JeuArbre):
+    """Arracher la souche d'un arbre abattu, a la hache : le meme geste,
+    moins de coups -- elle est courte, mais ses racines tiennent."""
+
+    COUPS = 4
+    TEXTE = "Glisse le doigt a travers la souche (%d/%d)"
+    FIN = "La souche cede !"
+    RESULTAT = "souche"
+
+
 __all__ = ["Approche", "Clignote", "JeuBaies", "JeuEau", "JeuArbre",
+           "JeuSouche",
            "DUREE_APPROCHE", "doux"]

@@ -404,3 +404,20 @@ FORMAT
 
 Le decor est gere dans : src/widgets/zone_scenery.py
 Le chargement des images : src/widgets/foliage.py
+
+CE QUE LAISSE UN ARBRE ABATTU
+-----------------------------
+Un arbre coupe a la hache laisse sa SOUCHE a sa place, et son TRONC couche a
+cote. Leurs images ont ete tirees de celles des arbres, AU MEME GRAIN : un
+pixel de souche vaut un pixel d'arbre (l'arbre fait 512 pixels de haut), ce
+qui donne a la souche la taille du pied de son arbre et au tronc son
+epaisseur. Garde ce grain si tu les remplaces.
+
+    souche_feuillu.png  souche_feuillu_2.png  souche_feuillu_3.png
+    souche_sapin.png    souche_sapin_2.png
+        la souche, posee par son bas, le dessus coupe en bois clair a cernes.
+    tronc_feuillu.png   tronc_feuillu_2.png
+    tronc_sapin.png     tronc_sapin_2.png
+        le tronc nu, COUCHE A L'HORIZONTALE, le bout coupe A DROITE (il est
+        mis du cote de la souche) ; le jeu le plie le long du sol.
+

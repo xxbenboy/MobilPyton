@@ -406,6 +406,17 @@ VENT_SAPIN_TRAVERSE = 0.8
 # Il est tire de la POSITION, donc stable : un sapin ne change pas de taille
 # quand on ramasse une pierre a cote.
 HAUTEUR_SAPIN = (0.82, 1.18)
+# CE QUE LAISSE UN ARBRE ABATTU (voir _souches_et_troncs). Les images de la
+# souche et du tronc couche sont tirees de celles des arbres, au meme
+# grain : un pixel de souche vaut un pixel d'arbre, et l'arbre fait
+# PIXELS_ARBRE pixels de haut. La souche garde donc la taille qu'avait le
+# pied de son arbre, et le tronc son epaisseur.
+PIXELS_ARBRE = 512.0
+SOUCHE_IMAGE = {False: "souche_feuillu", True: "souche_sapin"}
+TRONC_IMAGE = {False: "tronc_feuillu", True: "tronc_sapin"}
+# Le tronc couche est decoupe en POINTS_TRONC points le long de lui : la
+# projection en rond autour du joueur courbe les lignes droites.
+POINTS_TRONC = 7
 
 # --- LE BUISSON EN IMAGE --------------------------------------------------- #
 # Un buisson est un feuillu SANS TRONC : ses tiges partent du sol, et c'est
@@ -1163,7 +1174,7 @@ class ZoneScenery(Widget):
     def set_scene(self, zone_type, seed=0, taken=None, blocked_grid=None,
                   installed=None, removed_grid=None, neighbours=None,
                   berge=None, baies=None, direction=0, sans_sol=False,
-                  relief=None):
+                  relief=None, souches=None, troncs=None):
         """Vue a l'horizon (sol en bas + ciel).
 
         `taken` = {nom: nombre deja recolte} pour masquer les objets recoltes.
@@ -1195,7 +1206,10 @@ class ZoneScenery(Widget):
         projette par angle, le relief y est la suite de celui des quarts
         voisins, et le voisin de cette direction occupe tout l'horizon.
         `relief` : en montagne, le type des huit cases autour (dans l'ordre
-        de HUIT_VOISINS, None hors de la carte) : il dessine le versant."""
+        de HUIT_VOISINS, None hors de la carte) : il dessine le versant.
+        `souches` = [(gx, gy), ...] : les souches des arbres abattus, pas
+        encore arrachees ; `troncs` = [((ax, ay), (bx, by)), ...] : leurs
+        troncs, couches a cote (voir GameState.chop_tree)."""
         # Un appel direct ne dit pas de quelle case il s'agit : montre_la_case
         # ne peut plus rien supposer de ce qui est dessine.
         self._cle_case = None
@@ -1225,6 +1239,9 @@ class ZoneScenery(Widget):
         # roseaux, pas une seconde etendue d'eau.
         self._berge = berge
         self._baies = {(int(c[0]), int(c[1])): int(n) for c, n in (baies or ())}
+        self._souches = [(int(c[0]), int(c[1])) for c in (souches or ())]
+        self._troncs = [((float(a[0]), float(a[1])), (float(b[0]), float(b[1])))
+                        for a, b in (troncs or ())]
         self._direction = int(direction) % 4
         self._sans_sol = bool(sans_sol)
         self._regle_versant(relief)
@@ -1295,6 +1312,10 @@ class ZoneScenery(Widget):
             # a une foret pour faire face a une montagne redessine la berge.
             "berge": berge,
             "baies": tuple(sorted(state.baies_par_buisson().items())),
+            # Ce que laissent les arbres abattus : dans la cle, pour qu'une
+            # souche arrachee disparaisse du decor.
+            "souches": tuple(state.souches_here()),
+            "troncs": tuple(state.troncs_here()),
             "direction": direction % 4,
             "sans_sol": bool(sans_sol),
             # Les huit cases autour : le versant, la rive, la foret voisine.
@@ -4385,11 +4406,151 @@ class ZoneScenery(Widget):
                               self._forest_tree(tx, tb, th, 0.4, shadow=False)))
         # (Les insectes sont desormais une couche ANIMEE separee : InsectLayer.)
 
+        items += self._souches_et_troncs()   # ce que laissent les arbres abattus
         items += self._installed_items()     # feu de camp... a leur profondeur
         items += self._edge_items()          # la case d'a cote, qui deborde
         self._dessine(items)
 
-    # -- objets recoltables / insectes (details) ----------------------- #
+    # -- ce que laisse un arbre abattu ---------------------------------- #
+    def _arbre_abattu(self, ancre):
+        """(hauteur, sapin) de l'arbre qui se dressait sur `ancre` : le meme
+        tirage que celui qui le dessinait (voir _foret), rejoue."""
+        gx, gy = ancre
+        jit = random.Random(f"{self._seed}:{gx}:{gy}:big")
+        haut = jit.uniform(0.85, 1.10)
+        return haut, jit.random() < 0.5
+
+    def _souches_et_troncs(self):
+        """LES SOUCHES ET LES TRONCS COUCHES des arbres abattus, prets a etre
+        tries avec le reste du decor.
+
+        La souche se dresse a la place de son arbre, a la taille de son pied,
+        de son espece ; le mode action la retrouve par son ancre (_note_gros,
+        _dessine_gros), comme un arbre. Le tronc est couche a cote, ses
+        bouts la ou GameState.chop_tree les a poses ; on n'en fait rien."""
+        out = []
+        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        for ancre in self._souches:
+            if any(c in self._blocked_grid
+                   for c in world.emprise_nature("tree", ancre)):
+                continue
+            azimut, distance = polaire(*ancre)
+            if not self.vu(azimut):
+                continue
+            gfx, gfy, _gs = self.grille(*ancre)
+            haut, sapin = self._arbre_abattu(ancre)
+            th = (1.00 - 0.58 * profondeur(distance)) * haut * h
+            tx, tb = x0 + gfx * w, y0 + gfy * h
+            self._cellule = ancre
+            self._note_gros("souche", tx, tb, th * 0.30, th * 0.18)
+            out.append((tb, lambda tx=tx, tb=tb, th=th, sapin=sapin,
+                        ancre=ancre:
+                        self._dessine_gros(ancre, self._souche, tx, tb, th,
+                                           sapin)))
+        for (a, b) in self._troncs:
+            # L'arbre dont il vient : son bout coupe part a DEPART_TRONC
+            # case de la souche, dans le sens du tronc.
+            d = max(1e-6, math.hypot(b[0] - a[0], b[1] - a[1]))
+            ancre = (int(round(a[0] - world.DEPART_TRONC * (b[0] - a[0]) / d)),
+                     int(round(a[1] - world.DEPART_TRONC * (b[1] - a[1]) / d)))
+            haut, sapin = self._arbre_abattu(ancre)
+            pts = []
+            for k in range(POINTS_TRONC):
+                t = k / float(POINTS_TRONC - 1)
+                gx = a[0] + (b[0] - a[0]) * t
+                gy = a[1] + (b[1] - a[1]) * t
+                azimut, distance = polaire(gx, gy)
+                fx, fy, _gs = self.grille(gx, gy)
+                th = (1.00 - 0.58 * profondeur(distance)) * haut * h
+                pts.append((x0 + fx * w, y0 + fy * h, th, self.vu(azimut)))
+            if not any(p[3] for p in pts):
+                continue
+            # Le tronc touche le sol tout du long : il passe devant ce qui
+            # est derriere son bout le plus proche.
+            cle = min(p[1] for p in pts)
+            out.append((cle, lambda pts=pts, sapin=sapin, ancre=ancre:
+                        self._tronc_couche(pts, sapin, ancre)))
+        return out
+
+    def _souche(self, cx, base, th, sapin):
+        """La souche d'un arbre de hauteur `th` : l'image du pied de son
+        espece, a la meme echelle que l'arbre ; a defaut, un bout de tronc
+        et son dessus clair."""
+        nom = SOUCHE_IMAGE[sapin]
+        pick = self._pick(cx, base)
+        tex = foliage.sprite(nom, pick)
+        if tex is not None:
+            if sapin:
+                # Le sapin dessine recevait son propre facteur de hauteur
+                # (voir _pine) : sa souche aussi.
+                lo, hi = HAUTEUR_SAPIN
+                p = foliage.variante_droite("pine_tree", pick)
+                if foliage.sprite("pine_tree", p) is not None:
+                    th = th * (lo + (hi - lo) * ((p * 0.6180339887) % 1.0))
+            hs = th * tex.height / PIXELS_ARBRE
+            self._shadow(cx, base, foliage.size_for(tex, hs)[0] * 0.55)
+            self._sprite(nom, cx, base, hs, pick=pick)
+            return
+        tw = th * 0.09
+        hs = th * 0.12
+        self._shadow(cx, base, tw * 2.0)
+        self._bind_pbr("bark")
+        Quad(points=[cx - tw, base, cx + tw, base, cx + tw * 0.9, base + hs,
+                     cx - tw * 0.9, base + hs],
+             texture=paint_color("bark", (0.30, 0.20, 0.12, 1)))
+        self._reset_pbr()
+        Color(0.80, 0.64, 0.42, 1)
+        Ellipse(pos=(cx - tw * 0.9, base + hs - tw * 0.3),
+                size=(tw * 1.8, tw * 0.6))
+        Color(1, 1, 1, 1)
+
+    def _tronc_couche(self, pts, sapin, ancre):
+        """Le tronc couche, en ruban le long de ses points a l'ecran
+        [(x, y, hauteur de l'arbre, vu)] : epais comme le tronc de son arbre
+        a chaque profondeur, le bout coupe (a droite de son image) du cote
+        de la souche."""
+        gx, gy = ancre
+        pick = int(random.Random("%s:%d:%d:tronc" % (self._seed, gx, gy))
+                   .randrange(1 << 20))
+        tex = foliage.sprite(TRONC_IMAGE[sapin], pick)
+        if tex is not None:
+            epais = tex.height / PIXELS_ARBRE
+        else:
+            epais = 0.09
+            tex = paint_color("bark", (0.30, 0.20, 0.12, 1))
+        n = len(pts)
+        # Du bout LOIN (a gauche de l'image) au bout coupe (a droite).
+        pts = list(reversed(pts))
+        bords = []
+        for k, (x, y, th, _vu) in enumerate(pts):
+            xa, ya = pts[max(0, k - 1)][:2]
+            xb, yb = pts[min(n - 1, k + 1)][:2]
+            dx, dy = xb - xa, yb - ya
+            d = math.hypot(dx, dy) or 1.0
+            nx, ny = -dy / d, dx / d
+            e = th * epais / 2.0
+            bords.append((x, y, nx, ny, e))
+        # Un saut d'un bord a l'autre du tour (derriere ce quart) : on coupe.
+        if any(abs(bords[k][0] - bords[k + 1][0]) > self.width
+               for k in range(n - 1)):
+            return
+        def ruban(dy_ombre):
+            verts, idx = [], []
+            for k, (x, y, nx, ny, e) in enumerate(bords):
+                u = k / float(n - 1)
+                verts += [x - nx * e, y - ny * e + dy_ombre, u, 1.0,
+                          x + nx * e, y + ny * e + dy_ombre, u, 0.0]
+            for k in range(n - 1):
+                p = 2 * k
+                idx += [p, p + 1, p + 3, p, p + 3, p + 2]
+            return verts, idx
+        # Son ombre, collee dessous : il repose sur le sol.
+        v, i = ruban(-bords[0][4] * 0.35)
+        Color(0, 0, 0, 0.28)
+        Mesh(vertices=v, indices=i, mode="triangles")
+        Color(1, 1, 1, 1)
+        v, i = ruban(0.0)
+        Mesh(vertices=v, indices=i, mode="triangles", texture=tex)
     def _mushroom(self, cx, base, size, cap, sprite=None):
         self._shadow(cx, base + size * 0.10, size * 1.4)  # ombre au sol
         if self._sprite(sprite, cx, base, size * 1.45):

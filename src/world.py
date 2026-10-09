@@ -20,6 +20,7 @@ ce qui cree des REGIONS coherentes (forets, massifs, lacs) plutot qu'un
 bruit ; enfin les rives. Une case ne depend que de ses voisines a quatre pas :
 elle se calcule seule, sans connaitre le reste du monde.
 """
+import math
 import random
 
 # LA FENETRE DE LA CARTE : combien de cases elle montre de cote, le joueur
@@ -240,6 +241,54 @@ GRILLE = 11
 CENTRE_GRILLE = GRILLE // 2              # la cellule du joueur : (5, 5)
 EMPRISE_NATURE = {"tree": (1, 1), "rock": (2, 2), "bush": (2, 2),
                   "nugget": (2, 2)}
+
+
+# LE TRONC ABATTU : l'arbre coupe tombe A COTE DE SA SOUCHE, couche sur
+# LONG_TRONC cases, a partir de DEPART_TRONC case de son ancre, dans l'une
+# des huit directions -- tiree au hasard de l'arbre, mais toujours la meme
+# pour lui. Il ne tombe ni hors de la grille, ni sur la case du joueur, ni
+# sur une case deja prise (`prises`) ; s'il ne trouve pas la place, il tombe
+# plus court (LONG_TRONC_COURT), et sinon nulle part.
+LONG_TRONC = 2.2
+LONG_TRONC_COURT = 1.4
+DEPART_TRONC = 0.75
+DIRECTIONS_TRONC = ((1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1),
+                    (0, -1), (1, -1))
+
+
+def cases_du_tronc(a, b):
+    """Les cases que couvre un tronc couche de a a b (en cases, flottants)."""
+    (ax, ay), (bx, by) = a, b
+    n = max(2, int(math.hypot(bx - ax, by - ay) / 0.25) + 1)
+    out = set()
+    for k in range(n + 1):
+        t = k / float(n)
+        out.add((int(round(ax + (bx - ax) * t)),
+                 int(round(ay + (by - ay) * t))))
+    return out
+
+
+def place_du_tronc(cell_seed, ancre, prises):
+    """((ax, ay), (bx, by)) : les deux bouts du tronc de l'arbre `ancre`
+    (le bout coupe pres de la souche), ou None s'il n'a pas la place."""
+    gx, gy = ancre
+    hasard = random.Random("%s:%d:%d:tronc" % (cell_seed, gx, gy))
+    directions = list(DIRECTIONS_TRONC)
+    hasard.shuffle(directions)
+    prises = set(prises) | {(gx, gy), (CENTRE_GRILLE, CENTRE_GRILLE)}
+    for longueur in (LONG_TRONC, LONG_TRONC_COURT):
+        for dx, dy in directions:
+            n = math.hypot(dx, dy)
+            ux, uy = dx / n, dy / n
+            a = (gx + ux * DEPART_TRONC, gy + uy * DEPART_TRONC)
+            b = (gx + ux * (DEPART_TRONC + longueur),
+                 gy + uy * (DEPART_TRONC + longueur))
+            cases = cases_du_tronc(a, b) - {(gx, gy)}
+            if all(0 <= x < GRILLE and 0 <= y < GRILLE
+                   and (x, y) not in prises for x, y in cases):
+                return (round(a[0], 3), round(a[1], 3)), \
+                    (round(b[0], 3), round(b[1], 3))
+    return None
 
 
 def emprise_nature(kind, ancre):

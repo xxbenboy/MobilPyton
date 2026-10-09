@@ -291,7 +291,7 @@ class GameState:
                  penalty_steps=None, bag_wear=None, bag_stash=None,
                  stats=None, stat_xp=None, food_bonus_points=0,
                  food_until=0, ground_layout=None, crafts_connus=None,
-                 dispositions=None):
+                 dispositions=None, souches=None, troncs=None):
         self.seed = seed
         # LES ASSEMBLAGES CONNUS : ceux deja fabriques au moins une fois
         # (voir src/assemblages.py).
@@ -422,6 +422,18 @@ class GameState:
         self.chopped = {}
         for cell, lst in (chopped or {}).items():
             self.chopped[cell] = [[int(c[0]), int(c[1])] for c in lst]
+        # Ce que laisse un arbre abattu : sa SOUCHE, a sa place, tant qu'on ne
+        # l'a pas arrachee -- {"x,y": [[gx, gy], ...]} -- et son TRONC,
+        # couche a cote pour toujours (on n'en fait rien pour l'instant) :
+        # {"x,y": [[ax, ay, bx, by], ...]}, ses deux bouts en cases (voir
+        # world.place_du_tronc).
+        self.souches = {}
+        for cell, lst in (souches or {}).items():
+            self.souches[cell] = [[int(c[0]), int(c[1])] for c in lst]
+        self.troncs = {}
+        for cell, lst in (troncs or {}).items():
+            self.troncs[cell] = [[float(v) for v in t[:4]] for t in lst
+                                 if len(t) >= 4]
         # Etat de chaque FOYER installe : {"x,y:gx,gy": {...}}. Voir fire_at().
         # Un foyer ne brule que s'il a du COMBUSTIBLE et du COMBURANT ; il
         # faut de plus l'ALLUMER (allume-feu en main).
@@ -1979,7 +1991,45 @@ class GameState:
             return None
         if cell is None:
             cell = self._le_plus_proche(trees, "tree")
-        self.chopped.setdefault(self._cell_key(), []).append([cell[0], cell[1]])
+        cle = self._cell_key()
+        # Ou tombe le tronc : a cote de la souche, sur des cases libres --
+        # calcule AVANT de marquer l'arbre abattu, tant que les autres
+        # elements, les souches et les objets poses comptent encore.
+        prises = set(self.nature_cells_here()) | set(
+            self.installed_cells_here())
+        tronc = world.place_du_tronc(
+            world.scene_seed(self.player_x, self.player_y), cell, prises)
+        self.chopped.setdefault(cle, []).append([cell[0], cell[1]])
+        self.souches.setdefault(cle, []).append([cell[0], cell[1]])
+        if tronc is not None:
+            (ax, ay), (bx, by) = tronc
+            self.troncs.setdefault(cle, []).append([ax, ay, bx, by])
+        self.gain_xp("couper")
+        return cell
+
+    def souches_here(self):
+        """Les SOUCHES des arbres abattus sur cette case, pas encore
+        arrachees : [(gx, gy), ...]."""
+        return sorted((int(c[0]), int(c[1]))
+                      for c in self.souches.get(self._cell_key(), []))
+
+    def troncs_here(self):
+        """Les TRONCS couches sur cette case : [((ax, ay), (bx, by)), ...],
+        le bout coupe d'abord."""
+        return [((t[0], t[1]), (t[2], t[3]))
+                for t in self.troncs.get(self._cell_key(), [])]
+
+    def arrache_souche(self, cell):
+        """Arrache la souche `cell` (a la hache). Renvoie sa cellule, ou None
+        s'il n'y en a pas."""
+        cle = self._cell_key()
+        lst = self.souches.get(cle, [])
+        cell = (int(cell[0]), int(cell[1]))
+        if [cell[0], cell[1]] not in lst:
+            return None
+        lst.remove([cell[0], cell[1]])
+        if not lst:
+            self.souches.pop(cle, None)
         self.gain_xp("couper")
         return cell
 
@@ -2110,6 +2160,13 @@ class GameState:
         for ancre, kind in self.nature_here().items():
             for cell in world.emprise_nature(kind, ancre):
                 out[cell] = kind
+        # Ce que laisse un arbre abattu prend aussi sa place : sa souche, et
+        # son tronc couche.
+        for a, b in self.troncs_here():
+            for cell in world.cases_du_tronc(a, b):
+                out.setdefault(cell, "tronc")
+        for cell in self.souches_here():
+            out[cell] = "souche"
         return out
 
     # La cellule ou se tient le joueur, au centre de la grille : rien ne s'y
@@ -3047,6 +3104,8 @@ class GameState:
             "hand_wear": self.hand_wear,
             "ground_wear": self.ground_wear,
             "chopped": self.chopped,
+            "souches": self.souches,
+            "troncs": self.troncs,
             "equipment": self.equipment,
             "bag": self.bag,
             "bag_wear": self.bag_wear,
@@ -3113,6 +3172,8 @@ class GameState:
             hand_wear=data.get("hand_wear"),
             ground_wear=data.get("ground_wear"),
             chopped=data.get("chopped"),
+            souches=data.get("souches"),
+            troncs=data.get("troncs"),
             equipment=data.get("equipment"),
             bag=data.get("bag"),
             bag_wear=data.get("bag_wear"),
