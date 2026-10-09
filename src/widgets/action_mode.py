@@ -556,8 +556,11 @@ class JeuArbre(MiniJeu):
                         # l'entaille
 
     def __init__(self, ecran, cible, fini, consigne, main, tronc, entaille,
-                 largeur_tronc):
+                 largeur_tronc, hauteur=None):
         super().__init__(ecran, cible, fini, consigne)
+        # La hauteur de bois qu'il y a a entailler (une souche est basse :
+        # l'encoche ne la depasse pas) ; None, sans limite.
+        self.hauteur = hauteur
         self.main = main                # la main qui tient la hache
         self.tronc_x = tronc
         self.entaille_y = entaille
@@ -640,6 +643,8 @@ class JeuArbre(MiniJeu):
                 p = self.coups / float(self.COUPS)
                 prof = self.larg * (0.20 + 0.65 * p)
                 hh = self.larg * (0.45 + 0.45 * p)
+                if self.hauteur is not None:
+                    hh = min(hh, 0.6 * self.hauteur)
                 x = self.tronc_x - self.larg / 2.0 + app.secousse[0]
                 y = self.entaille_y + app.secousse[1]
                 Color(0.16, 0.09, 0.04, 0.95)

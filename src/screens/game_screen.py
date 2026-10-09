@@ -125,6 +125,9 @@ SOL_CONTINU = {"Foret", "Plaine", "Montagne", "Rive"}
 EAU_BAS = 0.14
 ENTAILLE = 0.10
 LARGEUR_TRONC = 0.035
+# Le bois d'une souche, a mi-hauteur : cette part de la largeur de son image
+# (racines comprises).
+LARGEUR_SOUCHE = 0.25
 
 # Les actions ou les mains FOUILLENT (elles montent et descendent l'une apres
 # l'autre, voir searching.py). Les baies, elles, se cueillent a la main
@@ -1487,13 +1490,16 @@ class GameScreen(Screen):
             if items.AXE_ITEM not in state.hands:
                 self._mode_action_quitte()
                 return
-            # Le meme geste que pour l'arbre, a mi-hauteur de la souche ;
-            # le bois a entailler fait la moitie de sa largeur.
+            # Le meme geste que pour l'arbre, a mi-hauteur de la souche. Sa
+            # boite est celle de toute son image, racines comprises : a
+            # mi-hauteur, le bois a entailler n'en fait que le quart.
             x0, y0, x1, y1 = c["boite"]
             tx, ty = self.monde.ecran(c["gros"]["cx"], (y0 + y1) / 2.0)
             self._jeu = JeuSouche(self, c, self._fin_jeu, self._dit_action,
                                   state.hands.index(items.AXE_ITEM), tx, ty,
-                                  0.5 * (x1 - x0) * self.monde.echelle())
+                                  LARGEUR_SOUCHE * (x1 - x0)
+                                  * self.monde.echelle(),
+                                  hauteur=(y1 - y0) * self.monde.echelle())
         else:
             if items.AXE_ITEM not in state.hands:
                 self._mode_action_quitte()

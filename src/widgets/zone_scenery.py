@@ -4335,7 +4335,16 @@ class ZoneScenery(Widget):
         # Arbres + buissons PROCHES : GROS elements positionnes sur la GRILLE
         # 5x5 (les memes cases sont interdites a l'installation d'un objet :
         # impossible de mettre un feu de camp sous un arbre).
+        # CE QUE LAISSENT LES ARBRES ABATTUS, glisse PARMI les arbres, du
+        # plus loin au plus pres. Tout ce qui est a moins de RAYON_PROCHE du
+        # joueur touche le sol au meme bas d'ecran : seul l'ordre d'ajout dit
+        # alors qui passe devant. Ajoutes apres tous les arbres, une souche
+        # ou un tronc recouvraient l'arbre debout entre eux et le joueur.
+        abattus = sorted(self._souches_et_troncs(), key=lambda e: -e[0])
         for kind, rang, depth, tx, tb, jit in self._iter_nature_big():
+            loin = polaire(*world.centre_element(kind, self._cellule))[1]
+            while abattus and abattus[0][0] > loin:
+                items.append(abattus.pop(0)[1:])
             if kind == "nugget":
                 items.extend(self._pepite_de_grille(rang, depth, tx, tb, jit))
                 continue
@@ -4406,7 +4415,7 @@ class ZoneScenery(Widget):
                               self._forest_tree(tx, tb, th, 0.4, shadow=False)))
         # (Les insectes sont desormais une couche ANIMEE separee : InsectLayer.)
 
-        items += self._souches_et_troncs()   # ce que laissent les arbres abattus
+        items += [e[1:] for e in abattus]   # les plus proches, devant tout
         items += self._installed_items()     # feu de camp... a leur profondeur
         items += self._edge_items()          # la case d'a cote, qui deborde
         self._dessine(items)
@@ -4422,7 +4431,8 @@ class ZoneScenery(Widget):
 
     def _souches_et_troncs(self):
         """LES SOUCHES ET LES TRONCS COUCHES des arbres abattus, prets a etre
-        tries avec le reste du decor.
+        tries avec le reste du decor : [(distance au joueur, cle, dessin)]
+        (voir _foret, qui les glisse parmi les arbres par leur distance).
 
         La souche se dresse a la place de son arbre, a la taille de son pied,
         de son espece ; le mode action la retrouve par son ancre (_note_gros,
@@ -4443,7 +4453,7 @@ class ZoneScenery(Widget):
             tx, tb = x0 + gfx * w, y0 + gfy * h
             self._cellule = ancre
             self._note_gros("souche", tx, tb, th * 0.30, th * 0.18)
-            out.append((tb, lambda tx=tx, tb=tb, th=th, sapin=sapin,
+            out.append((distance, tb, lambda tx=tx, tb=tb, th=th, sapin=sapin,
                         ancre=ancre:
                         self._dessine_gros(ancre, self._souche, tx, tb, th,
                                            sapin)))
@@ -4462,13 +4472,15 @@ class ZoneScenery(Widget):
                 azimut, distance = polaire(gx, gy)
                 fx, fy, _gs = self.grille(gx, gy)
                 th = (1.00 - 0.58 * profondeur(distance)) * haut * h
-                pts.append((x0 + fx * w, y0 + fy * h, th, self.vu(azimut)))
+                pts.append((x0 + fx * w, y0 + fy * h, th, self.vu(azimut),
+                            distance))
             if not any(p[3] for p in pts):
                 continue
             # Le tronc touche le sol tout du long : il passe devant ce qui
             # est derriere son bout le plus proche.
             cle = min(p[1] for p in pts)
-            out.append((cle, lambda pts=pts, sapin=sapin, ancre=ancre:
+            out.append((min(p[4] for p in pts), cle,
+                        lambda pts=pts, sapin=sapin, ancre=ancre:
                         self._tronc_couche(pts, sapin, ancre)))
         return out
 
@@ -4522,7 +4534,7 @@ class ZoneScenery(Widget):
         # Du bout LOIN (a gauche de l'image) au bout coupe (a droite).
         pts = list(reversed(pts))
         bords = []
-        for k, (x, y, th, _vu) in enumerate(pts):
+        for k, (x, y, th, _vu, _d) in enumerate(pts):
             xa, ya = pts[max(0, k - 1)][:2]
             xb, yb = pts[min(n - 1, k + 1)][:2]
             dx, dy = xb - xa, yb - ya

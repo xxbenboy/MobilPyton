@@ -248,9 +248,12 @@ EMPRISE_NATURE = {"tree": (1, 1), "rock": (2, 2), "bush": (2, 2),
 # des huit directions -- tiree au hasard de l'arbre, mais toujours la meme
 # pour lui. Il ne tombe ni hors de la grille, ni sur la case du joueur, ni
 # sur une case deja prise (`prises`) ; s'il ne trouve pas la place, il tombe
-# plus court (LONG_TRONC_COURT), et sinon nulle part.
+# plus court (LONG_TRONC_COURT, puis LONG_TRONC_MINI : une seule case). Et
+# si l'arbre est cerne de toutes parts, il tombe quand meme, par-dessus ce
+# qui l'entoure : un arbre abattu laisse TOUJOURS son tronc.
 LONG_TRONC = 2.2
 LONG_TRONC_COURT = 1.4
+LONG_TRONC_MINI = 0.65
 DEPART_TRONC = 0.75
 DIRECTIONS_TRONC = ((1, 0), (1, 1), (0, 1), (-1, 1), (-1, 0), (-1, -1),
                     (0, -1), (1, -1))
@@ -276,18 +279,20 @@ def place_du_tronc(cell_seed, ancre, prises):
     directions = list(DIRECTIONS_TRONC)
     hasard.shuffle(directions)
     prises = set(prises) | {(gx, gy), (CENTRE_GRILLE, CENTRE_GRILLE)}
-    for longueur in (LONG_TRONC, LONG_TRONC_COURT):
-        for dx, dy in directions:
-            n = math.hypot(dx, dy)
-            ux, uy = dx / n, dy / n
-            a = (gx + ux * DEPART_TRONC, gy + uy * DEPART_TRONC)
-            b = (gx + ux * (DEPART_TRONC + longueur),
-                 gy + uy * (DEPART_TRONC + longueur))
-            cases = cases_du_tronc(a, b) - {(gx, gy)}
-            if all(0 <= x < GRILLE and 0 <= y < GRILLE
-                   and (x, y) not in prises for x, y in cases):
-                return (round(a[0], 3), round(a[1], 3)), \
-                    (round(b[0], 3), round(b[1], 3))
+    interdites = {(gx, gy), (CENTRE_GRILLE, CENTRE_GRILLE)}
+    for evite in (prises, interdites):
+        for longueur in (LONG_TRONC, LONG_TRONC_COURT, LONG_TRONC_MINI):
+            for dx, dy in directions:
+                n = math.hypot(dx, dy)
+                ux, uy = dx / n, dy / n
+                a = (gx + ux * DEPART_TRONC, gy + uy * DEPART_TRONC)
+                b = (gx + ux * (DEPART_TRONC + longueur),
+                     gy + uy * (DEPART_TRONC + longueur))
+                cases = cases_du_tronc(a, b) - {(gx, gy)}
+                if all(0 <= x < GRILLE and 0 <= y < GRILLE
+                       and (x, y) not in evite for x, y in cases):
+                    return (round(a[0], 3), round(a[1], 3)), \
+                        (round(b[0], 3), round(b[1], 3))
     return None
 
 
