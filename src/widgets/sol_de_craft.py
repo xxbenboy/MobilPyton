@@ -49,7 +49,8 @@ import random
 
 from kivy.clock import Clock
 from kivy.core.image import Image as CoreImage
-from kivy.graphics import Color, Ellipse, Line, Mesh, Rectangle
+from kivy.graphics import (Color, Ellipse, Line, Mesh, PopMatrix,
+                           PushMatrix, Rectangle, Rotate)
 from kivy.uix.label import Label
 from kivy.uix.widget import Widget
 from kivy.metrics import dp
@@ -333,12 +334,21 @@ def cadre_image(nom, cote):
 
 
 def dessine_objet(nom, cx, cy, cote, ombre=True, coupe=(0.0, 0.0),
-                  alpha=1.0):
+                  alpha=1.0, angle=0.0):
     """Un objet centre en (cx, cy), son image entiere dans un carre de
     `cote`, avec son ombre a plat dessous. Dessine dans le canvas ouvert.
 
     `coupe` = (gauche, droite) : la part de la largeur de l'image retiree de
-    chaque cote (une pierre qu'on taille). Ce qui reste ne bouge pas."""
+    chaque cote (une pierre qu'on taille). Ce qui reste ne bouge pas.
+    `angle` (degres, sens inverse des aiguilles d'une montre) : l'objet
+    tourne autour de son centre (un baton couche le long d'un manche)."""
+    if angle:
+        PushMatrix()
+        Rotate(angle=angle, origin=(cx, cy))
+        dessine_objet(nom, cx, cy, cote, ombre=ombre, coupe=coupe,
+                      alpha=alpha)
+        PopMatrix()
+        return
     tex, couverture, _masse = _item_infos(nom)
     g, d = coupe
     reste = max(0.0, 1.0 - g - d)

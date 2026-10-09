@@ -174,8 +174,13 @@ def dessine_travail(o, cx, cy, cote, ombre=True):
     """
     coupe = tuple(o.get("coupe", (0.0, 0.0)))
     traits = sorted(o.get("morceaux", ()))
+    # Un mini-jeu peut tourner un objet ("angle", en degres) et changer sa
+    # taille ("echelle") : les batons couches le long du manche de la hache,
+    # la pierre fixee a sa taille sur le manche.
+    cote = cote * o.get("echelle", 1.0)
     if not traits:
-        dessine_objet(o["nom"], cx, cy, cote, ombre=ombre, coupe=coupe)
+        dessine_objet(o["nom"], cx, cy, cote, ombre=ombre, coupe=coupe,
+                      angle=o.get("angle", 0.0))
     else:
         bords = [0.0] + traits + [1.0]
         for j in range(len(bords) - 1):
@@ -377,10 +382,7 @@ class Assemblage(Widget):
             if self.dessin_jeu is not None:
                 self.dessin_jeu()
             # Du plus loin (haut) au plus pres : celui de devant passe devant.
-            # Un objet marque "dessus" par un mini-jeu (la pierre fixee sur
-            # le manche de la hache) passe devant tous les autres.
-            for o in sorted(self.objets,
-                            key=lambda o: (bool(o.get("dessus")), -o["y"])):
+            for o in sorted(self.objets, key=lambda o: -o["y"]):
                 if any(o is p for p in portes) or o.get("cache"):
                     continue
                 dessine_travail(o, self.x + o["x"] * self.width,

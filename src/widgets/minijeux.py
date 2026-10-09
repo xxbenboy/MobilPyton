@@ -81,8 +81,9 @@ import math
 from kivy.clock import Clock
 from kivy.graphics import Color, Line, Rectangle
 
-from src.widgets.sol_de_craft import dessine_objet, cadre_image
-from src.widgets.assemblage import decalage_morceau, vue_inverse, ZOOM
+from src.widgets.sol_de_craft import dessine_objet, cadre_image, TAILLE_OBJET
+from src.widgets.assemblage import (decalage_morceau, vue_inverse, ZOOM,
+                                    ALPHA_EMPLACEMENT)
 
 COUTEAU = "Couteau_En_Pierre"
 
@@ -1373,21 +1374,32 @@ class MiniJeuFeuille(object):
         self._annonce()
 
 
-# LA HACHE. Le manche est un FAISCEAU de quatre petits batons. Leur image
-# est en biais (du bas gauche au haut droit) : le faisceau suit cet AXE, et
-# les batons s'y collent cote a cote, de PAS_FAISCEAU (tailles d'objet) en
-# PAS_FAISCEAU, perpendiculairement a lui. En tailles d'objet depuis le
-# milieu du faisceau (releve de HAUSSE_HACHE, part de la hauteur) :
-# - le BAS du manche, ou la corde s'enroule, a BAS_MANCHE le long de l'axe ;
-# - la PIERRE, fixee en haut, a HAUT_PIERRE ;
-# - le NOEUD des deux (la ou la corde se croise en X), a NOEUD_X.
-AXE_MANCHE = (0.80, 0.60)               # du bas gauche vers le haut droit
+# LA HACHE, disposee comme sur son image (assets/items/Hache.png). Le manche
+# est un FAISCEAU de quatre petits batons cote a cote, dresse a ANGLE_MANCHE
+# degres ; l'image d'un baton est en biais a ANGLE_BATON degres : un baton
+# range sur le manche est donc TOURNE de la difference. Les batons s'y
+# collent de PAS_FAISCEAU (tailles d'objet) en PAS_FAISCEAU, en travers.
+# Mesures sur l'image, en tailles d'objet depuis le milieu du manche (releve
+# de HAUSSE_HACHE, part de la hauteur), le long du manche puis en travers :
+# - le BAS du manche, ou la corde s'enroule, a BAS_MANCHE ;
+# - la PIERRE, couchee en travers du haut du manche, en (A_PIERRE,
+#   B_PIERRE), a ECHELLE_PIERRE de sa taille : moitie moins longue que le
+#   manche ;
+# - le COLLIER de corde, juste sous la pierre, a COLLIER ;
+# - le NOEUD (la ou la corde se croise en X sur la pierre), a NOEUD_X.
+ANGLE_MANCHE = 61.8
+ANGLE_BATON = 36.5
+AXE_MANCHE = (math.cos(math.radians(ANGLE_MANCHE)),
+              math.sin(math.radians(ANGLE_MANCHE)))
 BATONS_MANCHE = 4
-PAS_FAISCEAU = 0.11
-HAUSSE_HACHE = 0.04
-BAS_MANCHE = -0.30
-HAUT_PIERRE = 0.42
-NOEUD_X = 0.22
+PAS_FAISCEAU = 0.075
+HAUSSE_HACHE = 0.03
+BAS_MANCHE = -0.66
+A_PIERRE = 0.61
+B_PIERRE = -0.07
+ECHELLE_PIERRE = 0.80
+COLLIER = 0.41
+NOEUD_X = 0.62
 # Un baton lache a moins de PRISE_BATON (tailles d'objet) d'une place libre
 # du faisceau s'y range et s'y VERROUILLE ; la pierre, a moins de
 # PRISE_PIERRE de sa place.
@@ -1396,21 +1408,25 @@ PRISE_PIERRE = 0.45
 # LA CORDE AUTOUR DU BAS : la main qui tient la corde passe d'un cote du
 # faisceau a l'autre (au-dela de LARGE_MANCHE, de part et d'autre de son
 # axe), a moins de ZONE_BAS du bas du manche le long de l'axe : un tour.
-# TOURS_BAS tours.
+# TOURS_BAS tours, dessines serres (ECART_TOURS) en travers du faisceau, sur
+# DEMI_TOUR de chaque cote.
 TOURS_BAS = 4
-LARGE_MANCHE = 0.24
-ZONE_BAS = 0.30
-ECART_TOURS = 0.05                      # entre deux tours dessines
+LARGE_MANCHE = 0.22
+ZONE_BAS = 0.24
+ECART_TOURS = 0.045
+DEMI_TOUR = 0.15
 # LA CORDE EN X sur la pierre : la main passe d'un coin du noeud (a
 # COIN_X de son milieu au moins, le long du manche ET en travers) au coin
 # OPPOSE : un trait de la croix. Les deux diagonales en alternance,
 # TRAITS_X traits (deux X). La croix suit le MANCHE, qui est en biais : ses
 # deux bras le croisent chacun a 45 degres. Comptee sur les axes de
 # l'ecran, l'un des bras courait presque le long des batons -- un "+".
+# Comme sur l'image, chaque trait fait aussi un tour du COLLIER, sous la
+# pierre.
 TRAITS_X = 4
-COIN_X = 0.16
-PORTEE_X = 0.65
-DEMI_X = 0.28                           # la croix dessinee
+COIN_X = 0.12
+PORTEE_X = 0.50
+DEMI_X = 0.11                           # la croix dessinee
 # Ou attendent les batons (a gauche, en deux colonnes) et la pierre et la
 # corde (a droite), en parts de l'ecran : chaque main prend de son cote.
 PLACES_BATONS = ((0.08, 0.66), (0.18, 0.66), (0.08, 0.40), (0.18, 0.40))
@@ -1446,6 +1462,7 @@ class MiniJeuHache(object):
                             if o["nom"] == PIERRE_COUPANTE), None)
         self.corde = next((o for o in objets if o["nom"] == CORDE), None)
         self.phase = None
+        self.fantomes = []          # les places montrees en fantome
         self.places = []            # les places du faisceau, a l'ecran
         self.ranges = {}            # place -> baton
         self.tours = 0              # autour du bas
@@ -1485,7 +1502,7 @@ class MiniJeuHache(object):
         return self._le_long(BAS_MANCHE)
 
     def place_pierre(self):
-        return self._le_long(HAUT_PIERRE)
+        return self._le_long(A_PIERRE, B_PIERRE)
 
     def noeud(self):
         return self._le_long(NOEUD_X)
@@ -1512,6 +1529,7 @@ class MiniJeuHache(object):
         asm.aimant_permis = False
         asm.liens = []
         asm.sur_pas = self._pas
+        asm.dessin_jeu = self._dessine_places
         asm.dessin_dessus = self._dessine
         n = BATONS_MANCHE
         self.places = [self._le_long(0.0, (k - (n - 1) / 2.0) * PAS_FAISCEAU)
@@ -1526,13 +1544,15 @@ class MiniJeuHache(object):
             asm.sur_pas = None
         if asm.dessin_dessus == self._dessine:
             asm.dessin_dessus = None
+        if asm.dessin_jeu == self._dessine_places:
+            asm.dessin_jeu = None
         asm.aimant_permis = True
         asm.emplacements = []
         if self.fantome is not None:
             self.fantome.arrete()
         for o in asm.objets:
-            o.pop("verrou", None)
-            o.pop("dessus", None)
+            for cle in ("verrou", "angle", "echelle"):
+                o.pop(cle, None)
         asm._redessine()
 
     def _entre(self, phase):
@@ -1544,22 +1564,31 @@ class MiniJeuHache(object):
         self._montre()
 
     def _places_montrees(self):
-        """Les places qui attendent, en fantome : celles des batons libres,
-        puis celle de la pierre."""
-        asm = self.asm
-        out = []
+        """Les places qui attendent, en fantome (voir _dessine_places) :
+        celles des batons libres, couches le long du manche, puis celle de
+        la pierre, a sa taille sur le manche."""
         if self.phase == "batons":
-            libres = [p for k, p in enumerate(self.places)
-                      if k not in self.ranges]
-            out = [(BATON, p) for p in libres]
+            self.fantomes = [(BATON, p, ANGLE_MANCHE - ANGLE_BATON, 1.0)
+                             for k, p in enumerate(self.places)
+                             if k not in self.ranges]
         elif self.phase == "pierre":
-            out = [(PIERRE_COUPANTE, self.place_pierre())]
-        asm.emplacements = []
-        for nom, (px, py) in out:
+            self.fantomes = [(PIERRE_COUPANTE, self.place_pierre(), 0.0,
+                              ECHELLE_PIERRE)]
+        else:
+            self.fantomes = []
+        self.asm.emplacements = []
+
+    def _dessine_places(self):
+        """Les places en fantome, SOUS les objets : tournees et a la taille
+        ou les objets s'y poseront (les emplacements de la vue ne savent
+        pas tourner)."""
+        asm = self.asm
+        cote = TAILLE_OBJET * asm.height
+        for nom, (px, py), angle, echelle in self.fantomes:
             x, y = vue_inverse(1.0, px, py, asm.width, asm.height,
                                asm.x, asm.y)
-            asm.emplacements.append((nom, (x - asm.x) / asm.width,
-                                     (y - asm.y) / asm.height, False))
+            dessine_objet(nom, x, y, cote * echelle, ombre=False,
+                          alpha=ALPHA_EMPLACEMENT, angle=angle)
 
     # -- la main fantome et les consignes --------------------------------- #
     def _montre(self):
@@ -1627,13 +1656,18 @@ class MiniJeuHache(object):
             return vue_inverse(1.0, x, y, asm.width, asm.height,
                                asm.x, asm.y)
 
-        epais = max(2.0, 0.035 * t / ZOOM)
+        epais = max(1.5, 0.022 * t / ZOOM)
         traits = []
         # Les tours du bas, en travers du faisceau, cote a cote.
         for k in range(self.tours):
             a = BAS_MANCHE + (k - (TOURS_BAS - 1) / 2.0) * ECART_TOURS
-            traits.append((self._le_long(a, LARGE_MANCHE),
-                           self._le_long(a, -LARGE_MANCHE)))
+            traits.append((self._le_long(a, DEMI_TOUR),
+                           self._le_long(a, -DEMI_TOUR)))
+        # Le collier sous la pierre : un tour par trait de la croix.
+        for k in range(len(self.traits)):
+            a = COLLIER + (k - (TRAITS_X - 1) / 2.0) * ECART_TOURS
+            traits.append((self._le_long(a, DEMI_TOUR),
+                           self._le_long(a, -DEMI_TOUR)))
         # La croix, sur le noeud du manche et de la pierre, a 45 degres du
         # manche. Le second X se pose a cote du premier, le long du manche :
         # chaque trait reussi ajoute de la corde a l'ecran.
@@ -1699,6 +1733,7 @@ class MiniJeuHache(object):
                 if d <= PRISE_BATON * t:
                     self.ranges[k] = o
                     o["verrou"] = True
+                    o["angle"] = ANGLE_MANCHE - ANGLE_BATON
                     asm.place_a_l_ecran(o, *self.places[k])
                     self._places_montrees()
                     asm._redessine()
@@ -1709,9 +1744,9 @@ class MiniJeuHache(object):
             px, py = self.place_pierre()
             if math.hypot(ox - px, oy - py) <= PRISE_PIERRE * t:
                 o["verrou"] = True
-                # Fixee EN HAUT du manche : dessinee par-dessus les batons,
-                # pas derriere eux (voir Assemblage._redessine).
-                o["dessus"] = True
+                # Comme sur l'image : moitie moins longue que le manche, et
+                # le haut des batons passe devant elle.
+                o["echelle"] = ECHELLE_PIERRE
                 asm.place_a_l_ecran(o, px, py)
                 self._entre("croix")
                 return
