@@ -1542,16 +1542,21 @@ class MiniJeuHache(object):
         asm = self.asm
         if asm.sur_pas == self._pas:
             asm.sur_pas = None
-        if asm.dessin_dessus == self._dessine:
-            asm.dessin_dessus = None
         if asm.dessin_jeu == self._dessine_places:
             asm.dessin_jeu = None
         asm.aimant_permis = True
         asm.emplacements = []
         if self.fantome is not None:
             self.fantome.arrete()
+        # REUSSI : la hache reste telle quelle (batons tournes, pierre a sa
+        # taille, corde) jusqu'a ce que la fumee de la reussite la cache --
+        # defaite tout de suite, elle se demontait sous les yeux du joueur
+        # (voir _dessine et reussite.py). ANNULE : tout redevient normal.
+        cles = ("verrou",) if self.fini else ("verrou", "angle", "echelle")
+        if not self.fini and asm.dessin_dessus == self._dessine:
+            asm.dessin_dessus = None
         for o in asm.objets:
-            for cle in ("verrou", "angle", "echelle"):
+            for cle in cles:
                 o.pop(cle, None)
         asm._redessine()
 
@@ -1650,6 +1655,8 @@ class MiniJeuHache(object):
     # -- le dessin de la corde, par-dessus les objets ---------------------- #
     def _dessine(self):
         asm = self.asm
+        if self.pierre is not None and self.pierre.get("cache"):
+            return                  # la hache a disparu dans la fumee
         t = self._taille()
 
         def ici(x, y):
