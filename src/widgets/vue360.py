@@ -13,6 +13,7 @@ from src.widgets import daylight
 from src.widgets.animated_background import AnimatedBackground
 from src.widgets.panorama import Panorama, FondHorizon
 from src.widgets.sol import SolPanorama
+from src.widgets.lointain import Lointain
 from src.widgets.zone_scenery import ZoneScenery, NAPPES, SCENE_DE_ZONE
 
 # Comme dans le jeu : la part de l'ecran que chaque panneau dessine sous son
@@ -30,6 +31,9 @@ class Vue360(FloatLayout):
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         self.add_widget(self.background)
+        # Les paysages tres lointains (voir lointain.py), devant le ciel.
+        self.lointain = Lointain(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        self.add_widget(self.lointain)
         # Les silhouettes de l'horizon, derriere le terrain (voir
         # panorama.FondHorizon).
         fonds = [FondHorizon(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
@@ -72,6 +76,7 @@ class Vue360(FloatLayout):
         case = (state.player_x, state.player_y)
         if case != self._case:
             self._case = case
+            self.lointain.regle(state.seed, state.player_x, state.player_y)
             self.regarde(self.lacet)     # l'horizon de la case borne la tete
             reglages = self.scenery.reglages_nappe()
             if reglages is None:
@@ -86,6 +91,8 @@ class Vue360(FloatLayout):
         ciel = self.background.couleur_ciel(self.scenery.hauteur_horizon())
         self.sol.set_teinte(daylight.light_tint(secondes))
         self.sol.set_brume(ciel)
+        self.lointain.set_teinte(daylight.light_tint(secondes))
+        self.lointain.set_brume(ciel, brouillard=state.fog)
         for plaque in self.panorama.visibles():
             self._eclaire(plaque.scene)
 
@@ -128,9 +135,11 @@ class Vue360(FloatLayout):
         # L'horizon de la case borne la tete baissee (Panorama.tangage_min).
         self.panorama.horizon = self.fond.horizon = \
             self.scenery.hauteur_horizon()
+        self.lointain.horizon = self.scenery.hauteur_horizon()
         self.panorama.regle(self.lacet, self.tangage)
         self.tangage = self.panorama.tangage
         self.fond.regle(self.lacet, self.tangage)
+        self.lointain.set_camera(self.lacet, self.tangage)
         self.background.set_camera(self.lacet, self.tangage)
         self.sol.set_camera(self.lacet, self.tangage)
 

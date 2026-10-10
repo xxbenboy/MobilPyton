@@ -1910,8 +1910,11 @@ class ZoneScenery(Widget):
             return (0.42 + 0.05 + 0.03 * math.sin(5 * azimut + p1)
                     + 0.015 * math.sin(11 * azimut + p2))
         if self._zone == "Plaine":
-            return (0.55 - 0.06 + 0.035 * math.sin(6 * azimut + p1)
-                    + 0.018 * math.sin(12 * azimut + p2))
+            # Une plaine est presque plate : son bord passe un peu SOUS
+            # l'horizon de l'oeil (a 90 m, le sol est a un degre dessous),
+            # et l'on voit le lointain dans ses creux (voir lointain.py).
+            return (0.475 + 0.028 * math.sin(6 * azimut + p1)
+                    + 0.014 * math.sin(12 * azimut + p2))
         return None
 
     def phases(self, n):

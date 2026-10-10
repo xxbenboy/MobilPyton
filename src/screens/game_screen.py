@@ -33,6 +33,7 @@ from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.panorama import Panorama, FondHorizon
 from src.widgets.sol import SolPanorama
+from src.widgets.lointain import Lointain
 from src.widgets.route import ZonesVoisines
 from src.game_state import CARDINALS
 
@@ -385,6 +386,10 @@ class GameScreen(Screen):
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         self.monde.add_widget(self.background)
+        # LE LOINTAIN : montagnes, collines, lacs et forets a des kilometres,
+        # sur tout le tour, juste devant le ciel (voir widgets/lointain.py).
+        self.lointain = Lointain(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        self.monde.add_widget(self.lointain)
         # LE FOND DU TOUR : les silhouettes de l'horizon, ENTRE LE CIEL ET LE
         # SOL, que le terrain recouvre (voir panorama.FondHorizon). Chaque
         # panneau du decor y dessine les siennes.
@@ -1371,9 +1376,11 @@ class GameScreen(Screen):
         # L'horizon de la case borne la tete baissee (Panorama.tangage_min).
         horizon = self.scenery.hauteur_horizon()
         self.panorama.horizon = self.fond.horizon = horizon
+        self.lointain.horizon = horizon
         self.panorama.regle(self._lacet, self._tangage)
         self._tangage = self.panorama.tangage
         self.fond.regle(self._lacet, self._tangage)
+        self.lointain.set_camera(self._lacet, self._tangage)
         self.background.set_camera(self._lacet, self._tangage)
         self.sol.set_camera(self._lacet, self._tangage)
         self.route.set_camera(self._lacet, self._tangage)
@@ -2419,6 +2426,9 @@ class GameScreen(Screen):
         self.sol.set_teinte(daylight.light_tint(state.time_seconds))
         self.sol.set_brume(self.background.couleur_ciel(
             self.scenery.hauteur_horizon()))
+        self.lointain.set_teinte(daylight.light_tint(state.time_seconds))
+        self.lointain.set_brume(self.background.couleur_ciel(
+            self.scenery.hauteur_horizon()), brouillard=state.fog)
         self._night_color.a = night_darkness(state.time_seconds)
         # Le decor suit le soleil : couleur de la lumiere et ombres portees.
         # Et son lointain se fond dans le ciel TEL QU'IL EST AFFICHE -- meteo
@@ -2465,6 +2475,7 @@ class GameScreen(Screen):
         if case != self._case_vue:
             self._case_vue = case
             self._regle_sol(state)
+            self.lointain.regle(state.seed, state.player_x, state.player_y)
             # Une autre zone, un autre horizon : la tete baissee se reborne.
             self._applique_regard()
             state.tourne_regard(self._lacet, self._tangage)
