@@ -979,6 +979,12 @@ class ZoneScenery(Widget):
         self._berge = None
         # Baies des buissons, gros elements dessines (mode action).
         self._baies = {}
+        # Ce que laissent les arbres abattus (voir set_scene). Des maintenant :
+        # la scene se redessine des qu'elle recoit sa taille, avant meme
+        # qu'on lui ait montre une case -- sans eux, le jeu plantait au
+        # lancement.
+        self._souches = []
+        self._troncs = []
         self._versant = None
         # LE FOND (voir panorama.FondHorizon) : la ou ce panneau pose ses
         # silhouettes d'horizon, derriere le terrain. None : dans son propre
