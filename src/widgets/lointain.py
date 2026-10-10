@@ -38,9 +38,12 @@ OEIL = 1.6
 # Le lointain est construit de AZ_MIN a AZ_MAX degres : de quoi couvrir
 # l'ecran pour tout regard entre 0 et 360 degres, sans couture.
 AZ_MIN, AZ_MAX = -60.0, 420.0
-# Le bas de toutes les bandes, sous l'horizon : la crete d'une plaine
-# descend jusqu'a deux degres sous l'oeil ; elle recouvre le reste.
+# Le bas de la TERRE LOINTAINE, sous l'horizon : la crete d'une plaine
+# descend jusqu'a deux degres sous l'oeil ; elle recouvre le reste. Les
+# reliefs, eux, s'arretent a PIED, un rien sous l'horizon (sans jour avec la
+# terre) : on ne voit pas le corps d'une montagne a 40 km sous un lac a 5.
 BAS = -3.0
+PIED = -0.05
 # LA BRUME : une couleur a D metres se fond dans le ciel pour la part
 # 1 - exp(-D / PORTEE_BRUME).
 PORTEE_BRUME = 50000.0
@@ -91,6 +94,8 @@ COUCHES = (
 TERRE = {"couleur": (0.30, 0.36, 0.22), "brume": 0.45}
 # L'eau d'un lac lointain renvoie le ciel, un peu eclairci.
 ECLAT_LAC = 1.10
+# Dans une brume epaisse (fog_level 1), le lointain s'efface de cette part.
+EFFACE_BROUILLARD = 0.88
 
 
 def ecart(a):
@@ -155,58 +160,70 @@ def profil(couche, lst):
     """La silhouette d'une couche : [(az, haut, bas, sommet, neige, ombre)]
     tous les `pas` degres de AZ_MIN a AZ_MAX -- le haut et le bas de la
     bande (degres), le sommet de l'element qui la domine, s'il est enneige,
-    et si l'on est sur son flanc a l'ombre (a droite du sommet)."""
-    pas = couche["pas"]
-    n = int((AZ_MAX - AZ_MIN) / pas) + 1
-    hauts = [None] * n
-    sommets = [0.0] * n
-    neiges = [False] * n
-    flancs = [False] * n
+    et si l'on est sur son flanc a l'ombre (a droite du sommet).
+
+    LE MEME A UN TOUR PRES : la silhouette est calculee sur un seul tour et
+    repetee, et ses ressauts se comptent depuis le sommet de chaque element.
+    Calculee directement de AZ_MIN a AZ_MAX, elle differait d'un tour a
+    l'autre, et les sommets sautaient quand le regard passait le nord."""
+    n0 = max(1, int(round(360.0 / couche["pas"])))
+    pas = 360.0 / n0
+    hauts = [None] * n0
+    sommets = [0.0] * n0
+    dominant = [None] * n0
+    flancs = [False] * n0
     forme = couche["forme"]
-    for e in lst:
+    for i, e in enumerate(lst):
         p = angle_vu(e["haut"], e["d"]) if forme != "lac" else 0.0
         w = max(0.05, e["w"])
-        # Chaque element se voit pour tout regard : on le repete aux angles
-        # qui lui correspondent sur la bande (elle deborde du tour).
-        for centre in (e["az"] - 360.0, e["az"], e["az"] + 360.0):
-            k0 = max(0, int((centre - w - AZ_MIN) / pas))
-            k1 = min(n - 1, int((centre + w - AZ_MIN) / pas) + 1)
-            for k in range(k0, k1 + 1):
-                az = AZ_MIN + k * pas
-                t = abs(ecart(az - centre)) / w
-                if t >= 1.0:
-                    continue
-                if forme == "pic":
-                    v = p * (1.0 - t) ** 1.25
-                    # Des aretes : le relief se casse en ressauts, d'apres
-                    # l'angle ABSOLU (un raccord d'ecran ne le change pas).
-                    v *= 1.0 + 0.07 * math.sin(az * 0.9 + e["phase"]) \
-                        + 0.04 * math.sin(az * 2.3 + 2 * e["phase"])
-                elif forme == "dos":
-                    v = p * math.cos(t * math.pi / 2.0) ** 2
-                elif forme == "lisiere":
-                    bord = min(1.0, (1.0 - t) / 0.12)
-                    v = p * bord * (0.82 + 0.10 * math.sin(az * 14.0
-                                                         + e["phase"])
-                                    + 0.08 * math.sin(az * 31.0))
-                else:                                   # un lac : une lame
-                    v = 0.0
-                if hauts[k] is None or v > hauts[k]:
-                    hauts[k] = v
-                    sommets[k] = p
-                    neiges[k] = e["neige"]
-                    flancs[k] = ecart(az - centre) > 0.0
+        k0 = int(math.floor((e["az"] - w) / pas))
+        k1 = int(math.ceil((e["az"] + w) / pas))
+        for kk in range(k0, k1 + 1):
+            k = kk % n0
+            s = ecart(kk * pas - e["az"])      # depuis le sommet
+            t = abs(s) / w
+            if t >= 1.0:
+                continue
+            if forme == "pic":
+                v = p * (1.0 - t) ** 1.25
+                # Des aretes : le relief se casse en ressauts.
+                v *= 1.0 + 0.07 * math.sin(s * 0.9 + e["phase"]) \
+                    + 0.04 * math.sin(s * 2.3 + 2 * e["phase"])
+            elif forme == "dos":
+                v = p * math.cos(t * math.pi / 2.0) ** 2
+            elif forme == "lisiere":
+                bord = min(1.0, (1.0 - t) / 0.12)
+                v = p * bord * (0.82 + 0.10 * math.sin(s * 14.0 + e["phase"])
+                                + 0.08 * math.sin(s * 31.0))
+            else:                                   # un lac : une lame
+                v = 0.0
+            if hauts[k] is None or v > hauts[k]:
+                hauts[k] = v
+                sommets[k] = p
+                dominant[k] = i
+                flancs[k] = s > 0.0
+    # UN SOMMET CACHE (derriere un plus haut du meme massif) n'a ni neige ni
+    # flanc a l'ombre : on ne voit pas son sommet, il ne gagnait que quelques
+    # points dans un col, et y laissait des carres de neige flottants.
+    visibles = {dominant[int(round(e["az"] / pas)) % n0]
+                for e in lst} - {None}
     out = []
-    for k in range(n):
-        az = AZ_MIN + k * pas
+    for kk in range(int(math.floor(AZ_MIN / pas)),
+                    int(math.ceil(AZ_MAX / pas)) + 1):
+        k = kk % n0
+        az = kk * pas
         if hauts[k] is None:
             out.append((az, BAS, BAS, 0.0, False, False))
         elif forme == "lac":
             # La lame d'eau, a peine sous l'horizon de l'oeil.
             out.append((az, 0.0, -0.22, 0.0, False, False))
         else:
-            out.append((az, max(0.0, hauts[k]), BAS, sommets[k], neiges[k],
-                        flancs[k] and forme == "pic"))
+            vu = dominant[k] in visibles
+            # Le relief s'arrete a l'horizon de l'oeil (PIED) : sous lui,
+            # c'est la terre lointaine et les lacs, plus pres, qu'on voit.
+            out.append((az, max(0.0, hauts[k]), PIED, sommets[k],
+                        vu and lst[dominant[k]]["neige"],
+                        vu and flancs[k] and forme == "pic"))
     return out
 
 
@@ -223,7 +240,7 @@ class Lointain(Widget):
         self._profils = []          # [(couche, profil, distance type)]
         self._jour = (1.0, 1.0, 1.0)
         self._ciel = (0.70, 0.80, 0.90)
-        self._brouillard = False
+        self._brouillard = 0.0
         self._cle = None
         self._couleurs = []         # [(Color, couleur propre, brume, eau)]
         with self.canvas:
@@ -266,15 +283,15 @@ class Lointain(Widget):
                 c = Color(1, 1, 1, 1, group="lointain")
                 self._couleurs.append((c, couche["couleur"], _brume(dist),
                                        eau))
-                self._bande([(az, haut, bas) for az, haut, bas, _s, _n, _o
-                             in prof], ppd)
+                self._bande([(az, haut, bas) if haut > bas else None
+                             for az, haut, bas, _s, _n, _o in prof], ppd)
                 if any(o for *_r, o in prof):
                     # Le flanc a l'ombre de chaque sommet, par-dessus.
                     c = Color(1, 1, 1, 1, group="lointain")
                     self._couleurs.append((c, tuple(
                         v * OMBRE_FLANC for v in couche["couleur"]),
                         _brume(dist), False))
-                    self._bande([(az, haut, bas) if o else None
+                    self._bande([(az, haut, bas) if o and haut > bas else None
                                  for az, haut, bas, _s, _n, o in prof], ppd)
                 if any(n for *_r, n, _o in prof):
                     c = Color(1, 1, 1, 1, group="lointain")
@@ -336,21 +353,25 @@ class Lointain(Widget):
         self._jour = tuple(float(v) for v in rgb[:3])
         self._applique()
 
-    def set_brume(self, rgb, brouillard=False):
-        """La couleur du ciel a l'horizon, ou le lointain se fond. Dans le
-        brouillard, il disparait presque."""
+    def set_brume(self, rgb, brouillard=0.0):
+        """La couleur du ciel a l'horizon, ou le lointain se fond.
+        `brouillard` : l'epaisseur de la brume VUE ici et maintenant (0 a 1,
+        voir GameState.fog_level) ; le lointain s'y efface d'autant."""
         self._ciel = tuple(float(v) for v in rgb[:3])
-        self._brouillard = bool(brouillard)
+        self._brouillard = max(0.0, min(1.0, float(brouillard)))
         self._applique()
 
     def _applique(self):
+        f = EFFACE_BROUILLARD * self._brouillard
         for c, propre, k, eau in self._couleurs:
-            if self._brouillard:
-                k = 1.0 - (1.0 - k) * 0.12
+            k = k + (1.0 - k) * f
             if eau:
-                # L'eau renvoie le ciel, eclairci : elle brille au loin.
+                # L'eau renvoie le ciel, eclairci : elle brille au loin --
+                # et s'efface comme le reste dans la brume.
                 vu = tuple(min(1.0, v * ECLAT_LAC + 0.03) for v in self._ciel)
-                c.rgb = tuple(a * 0.75 + b * 0.25 for a, b in zip(vu, propre))
+                col = tuple(a * 0.75 + b * 0.25 for a, b in zip(vu, propre))
+                c.rgb = tuple(a * (1.0 - f) + b * f
+                              for a, b in zip(col, self._ciel))
                 continue
             vu = tuple(p * j for p, j in zip(propre, self._jour))
             c.rgb = tuple(a * (1.0 - k) + b * k for a, b in zip(vu, self._ciel))

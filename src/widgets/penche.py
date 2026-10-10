@@ -28,6 +28,7 @@ from kivy.graphics import PushMatrix, PopMatrix, Translate
 from src.widgets import daylight
 from src.widgets.animated_background import AnimatedBackground, night_darkness
 from src.widgets.zone_scenery import ZoneScenery
+from src.widgets.lointain import Lointain
 
 # Ou le regard amene l'horizon, en part de la hauteur d'ecran. La scene de
 # jeu le pose entre 0,47 (foret) et 0,75 (lac) : baisser les yeux le fait
@@ -112,6 +113,10 @@ class Penche(object):
         self.background = AnimatedBackground(time_scale=0, size_hint=(1, 1),
                                              pos_hint={"x": 0, "y": 0})
         self.monde.add_widget(self.background)
+        # Les paysages lointains, comme dans l'ecran de jeu (voir
+        # lointain.py) : sans eux, ils s'effacaient en entrant ici.
+        self.lointain = Lointain(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
+        self.monde.add_widget(self.lointain)
         # La VRAIE scene de la case, avec du sol prepare sous le bas de
         # l'ecran : c'est celui que la camera decouvre en se penchant.
         self.scenery = ZoneScenery(size_hint=(1, 1), pos_hint={"x": 0, "y": 0})
@@ -166,6 +171,13 @@ class Penche(object):
             self.background.set_horizon(self.scenery.hauteur_horizon())
             self.scenery.set_brume(self.background.couleur_ciel(
                 self.scenery.hauteur_horizon()))
+            # Le lointain de la case, vu dans la direction de la scene.
+            self.lointain.regle(state.seed, state.player_x, state.player_y)
+            self.lointain.horizon = self.scenery.hauteur_horizon()
+            self.lointain.set_camera(state.facing * 90.0, 0.0)
+            self.lointain.set_teinte(daylight.light_tint(state.time_seconds))
+            self.lointain.set_brume(self.background.couleur_ciel(
+                self.scenery.hauteur_horizon()), brouillard=state.fog_level())
             self._glisse = glissement(self.scenery.hauteur_horizon(),
                                       self.scenery._zone)
             # Le sol en cases prend le sol de la zone (voir sol_de_craft).

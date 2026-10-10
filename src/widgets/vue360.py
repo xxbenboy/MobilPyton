@@ -76,7 +76,6 @@ class Vue360(FloatLayout):
         case = (state.player_x, state.player_y)
         if case != self._case:
             self._case = case
-            self.lointain.regle(state.seed, state.player_x, state.player_y)
             self.regarde(self.lacet)     # l'horizon de la case borne la tete
             reglages = self.scenery.reglages_nappe()
             if reglages is None:
@@ -92,7 +91,8 @@ class Vue360(FloatLayout):
         self.sol.set_teinte(daylight.light_tint(secondes))
         self.sol.set_brume(ciel)
         self.lointain.set_teinte(daylight.light_tint(secondes))
-        self.lointain.set_brume(ciel, brouillard=state.fog)
+        self.lointain.set_brume(ciel, brouillard=state.fog_level())
+        self.lointain.regle(state.seed, state.player_x, state.player_y)
         for plaque in self.panorama.visibles():
             self._eclaire(plaque.scene)
 

@@ -2428,7 +2428,10 @@ class GameScreen(Screen):
             self.scenery.hauteur_horizon()))
         self.lointain.set_teinte(daylight.light_tint(state.time_seconds))
         self.lointain.set_brume(self.background.couleur_ciel(
-            self.scenery.hauteur_horizon()), brouillard=state.fog)
+            self.scenery.hauteur_horizon()), brouillard=state.fog_level())
+        # La case ET le monde : une autre partie, chargee sur la meme case,
+        # a d'autres lointains (regle ne refait rien s'ils n'ont pas change).
+        self.lointain.regle(state.seed, state.player_x, state.player_y)
         self._night_color.a = night_darkness(state.time_seconds)
         # Le decor suit le soleil : couleur de la lumiere et ombres portees.
         # Et son lointain se fond dans le ciel TEL QU'IL EST AFFICHE -- meteo
@@ -2475,7 +2478,6 @@ class GameScreen(Screen):
         if case != self._case_vue:
             self._case_vue = case
             self._regle_sol(state)
-            self.lointain.regle(state.seed, state.player_x, state.player_y)
             # Une autre zone, un autre horizon : la tete baissee se reborne.
             self._applique_regard()
             state.tourne_regard(self._lacet, self._tangage)
