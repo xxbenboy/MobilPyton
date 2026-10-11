@@ -28,7 +28,7 @@ from kivy.graphics import PushMatrix, PopMatrix, Translate
 from src.widgets import daylight
 from src.widgets.animated_background import AnimatedBackground, night_darkness
 from src.widgets.zone_scenery import ZoneScenery
-from src.widgets.lointain import Lointain
+from src.widgets.lointain import Lointain, oeil_de_la_case
 
 # Ou le regard amene l'horizon, en part de la hauteur d'ecran. La scene de
 # jeu le pose entre 0,47 (foret) et 0,75 (lac) : baisser les yeux le fait
@@ -172,7 +172,8 @@ class Penche(object):
             self.scenery.set_brume(self.background.couleur_ciel(
                 self.scenery.hauteur_horizon()))
             # Le lointain de la case, vu dans la direction de la scene.
-            self.lointain.regle(state.seed, state.player_x, state.player_y)
+            self.lointain.regle(state.seed, state.player_x, state.player_y,
+                                oeil_de_la_case(state.current_zone()))
             self.lointain.horizon = self.scenery.hauteur_horizon()
             self.lointain.set_camera(state.facing * 90.0, 0.0)
             self.lointain.set_teinte(daylight.light_tint(state.time_seconds))

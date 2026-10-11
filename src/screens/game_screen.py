@@ -33,7 +33,7 @@ from src.widgets import daylight
 from src.widgets.zone_scenery import ZoneScenery
 from src.widgets.panorama import Panorama, FondHorizon
 from src.widgets.sol import SolPanorama
-from src.widgets.lointain import Lointain
+from src.widgets.lointain import Lointain, oeil_de_la_case
 from src.widgets.route import ZonesVoisines
 from src.game_state import CARDINALS
 
@@ -2431,7 +2431,8 @@ class GameScreen(Screen):
             self.scenery.hauteur_horizon()), brouillard=state.fog_level())
         # La case ET le monde : une autre partie, chargee sur la meme case,
         # a d'autres lointains (regle ne refait rien s'ils n'ont pas change).
-        self.lointain.regle(state.seed, state.player_x, state.player_y)
+        self.lointain.regle(state.seed, state.player_x, state.player_y,
+                            oeil_de_la_case(state.current_zone()))
         self._night_color.a = night_darkness(state.time_seconds)
         # Le decor suit le soleil : couleur de la lumiere et ombres portees.
         # Et son lointain se fond dans le ciel TEL QU'IL EST AFFICHE -- meteo

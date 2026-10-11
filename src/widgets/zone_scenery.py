@@ -661,9 +661,14 @@ FORET_VOISINE = 120
 FORET_VOISINE_PRES = 95.0
 FORET_VOISINE_LOIN = 320.0
 FORET_VOISINE_TAILLE = (13.0, 24.0)
-FORET_VALLEE = 360
-FORET_VALLEE_PRES = 260.0
-FORET_VALLEE_LOIN = 1100.0
+# LA FORET DE LA VALLEE, vue d'un versant : une etendue de cimes, serree,
+# jusqu'a plus de deux kilometres ; sous ses arbres, le sous-bois sombre
+# (SOUS_BOIS_VALLEE) ou se voyait l'herbe claire entre des arbres epars.
+FORET_VALLEE = 1500
+FORET_VALLEE_PRES = 200.0
+FORET_VALLEE_LOIN = 2600.0
+SOUS_BOIS_VALLEE = (0.15, 0.24, 0.13)
+SOUS_BOIS_LOIN = (0.30, 0.38, 0.36)
 FORET_VOISINE_TEINTE = (0.92, 0.94, 0.92)
 FORET_VOISINE_FROID = (0.80, 0.86, 0.90)
 # CE QUI N'EST TIRE QUE POUR UN PANNEAU (les objets a ramasser, la litiere,
@@ -3636,6 +3641,11 @@ class ZoneScenery(Widget):
                 if th >= 3.0:
                     arbres.append((d, x0 + fx * w, y_h + a * ppd, th, 0.0,
                                    pin, v))
+        # LE SOUS-BOIS de la foret de la vallee, sous ses arbres : sombre,
+        # de plus en plus bleui vers le loin. Sans lui, l'herbe claire de la
+        # vallee se voyait entre les cimes.
+        if vallees:
+            self._sous_bois_vallee(densite, crete_de, en_vallee, y_h, ppd)
         # Du plus loin au plus proche.
         for d, x, pied, th, coupe, pin, v in sorted(arbres, reverse=True):
             loin = min(1.0, d / FORET_VALLEE_LOIN)
@@ -3648,6 +3658,48 @@ class ZoneScenery(Widget):
                 Color(*(teinte + (1,)))
                 Triangle(points=[x - th * 0.3, pied, x + th * 0.3, pied,
                                  x, pied + th * (1.0 - coupe)])
+
+    def _sous_bois_vallee(self, densite, crete_de, en_vallee, y_h, ppd):
+        """Le sol sombre de la foret de la vallee, de FORET_VALLEE_PRES a
+        FORET_VALLEE_LOIN metres, la ou la foret pousse et ou la vallee se
+        voit (sous le versant, au-dessus de rien)."""
+        w, x0 = self.width, self.x
+        a_loin = -math.degrees(math.atan2(nappe.PROFONDEUR_VALLEE,
+                                          FORET_VALLEE_LOIN))
+        a_pres = -math.degrees(math.atan2(nappe.PROFONDEUR_VALLEE,
+                                          FORET_VALLEE_PRES))
+        n = 120
+        colonnes = []
+        for k in range(n + 1):
+            fx = -0.06 + 1.12 * k / float(n)
+            az = math.radians((self._direction + fx - 0.5) * FOV)
+            crete = crete_de(az)
+            haut = a_loin
+            bas = max(a_pres, crete + 0.2)
+            if densite(az) < 0.35 or not en_vallee(crete) or bas >= haut:
+                colonnes.append(None)
+                continue
+            colonnes.append((x0 + fx * w, y_h + bas * ppd, y_h + haut * ppd))
+        # En deux bandes : le pied (proche, sombre) et le fond (bleui).
+        for teinte, f0, f1 in ((SOUS_BOIS_LOIN, 0.55, 1.0),
+                               (SOUS_BOIS_VALLEE, 0.0, 0.62)):
+            verts, idx, prec = [], [], None
+            for c in colonnes:
+                if c is None:
+                    prec = None
+                    continue
+                x, yb, yt = c
+                y0 = yb + (yt - yb) * f0
+                y1 = yb + (yt - yb) * f1
+                m = len(verts) // 4
+                verts += [x, y0, 0.0, 0.0, x, y1, 0.0, 0.0]
+                if prec is not None:
+                    idx += [prec, prec + 1, m + 1, prec, m + 1, m]
+                prec = m
+            if idx:
+                Color(*(teinte + (1.0,)))
+                Mesh(vertices=verts, indices=idx, mode="triangles")
+        Color(1, 1, 1, 1)
 
     # -- helpers textures (surface plane texturee, sinon couleur de repli) - #
     def _trect(self, name, x, y, w, h, tile_px=None):
@@ -5889,9 +5941,13 @@ class ZoneScenery(Widget):
         # Les paysages voisins, au fond de la vallee qu'ils peuplent. PAS LA
         # MONTAGNE VOISINE : vers elle, c'est le versant lui-meme qui monte
         # et fait la montagne, sa crete dentelee contre le ciel. Une
-        # silhouette posee dessus flottait au-dessus de ses creux.
+        # silhouette posee dessus flottait au-dessus de ses creux. PAS LA
+        # FORET VOISINE NON PLUS : vue d'en haut, elle est dans la vallee, en
+        # vrais arbres (voir _foret_voisine) ; sa frange de triangles et de
+        # ronds, a l'horizon, en faisait un decor plaque. Au-dela, c'est le
+        # lointain (voir lointain.py).
         voisins = self._neighbours
-        self._neighbours = {c: (None if z == "Montagne" else z)
+        self._neighbours = {c: (None if z in ("Montagne", "Foret") else z)
                             for c, z in voisins.items()}
         try:
             self._horizon(lambda fx: max(crete(fx), y_vallee))

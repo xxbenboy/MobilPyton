@@ -13,7 +13,7 @@ from src.widgets import daylight
 from src.widgets.animated_background import AnimatedBackground
 from src.widgets.panorama import Panorama, FondHorizon
 from src.widgets.sol import SolPanorama
-from src.widgets.lointain import Lointain
+from src.widgets.lointain import Lointain, oeil_de_la_case
 from src.widgets.zone_scenery import ZoneScenery, NAPPES, SCENE_DE_ZONE
 
 # Comme dans le jeu : la part de l'ecran que chaque panneau dessine sous son
@@ -92,7 +92,8 @@ class Vue360(FloatLayout):
         self.sol.set_brume(ciel)
         self.lointain.set_teinte(daylight.light_tint(secondes))
         self.lointain.set_brume(ciel, brouillard=state.fog_level())
-        self.lointain.regle(state.seed, state.player_x, state.player_y)
+        self.lointain.regle(state.seed, state.player_x, state.player_y,
+                            oeil_de_la_case(state.current_zone()))
         for plaque in self.panorama.visibles():
             self._eclaire(plaque.scene)
 

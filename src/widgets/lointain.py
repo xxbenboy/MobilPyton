@@ -92,8 +92,10 @@ COUCHES = (
 # LA TERRE LOINTAINE, sous tous les reliefs : la plaine qui s'etend jusqu'a
 # l'horizon, a mi-brume.
 TERRE = {"couleur": (0.30, 0.36, 0.22), "brume": 0.45}
-# L'eau d'un lac lointain renvoie le ciel, un peu eclairci.
+# L'eau d'un lac lointain renvoie le ciel, un peu eclairci. Sa lame fait au
+# moins EPAIS_LAC degres : plus mince, elle ne se verrait plus.
 ECLAT_LAC = 1.10
+EPAIS_LAC = 0.12
 # Dans une brume epaisse (fog_level 1), le lointain s'efface de cette part.
 EFFACE_BROUILLARD = 0.88
 
@@ -103,11 +105,20 @@ def ecart(a):
     return (a + 180.0) % 360.0 - 180.0
 
 
-def angle_vu(hauteur, distance):
-    """L'angle (degres) sous lequel l'oeil voit le haut d'un relief de
-    `hauteur` metres a `distance` metres, courbure de la Terre comprise."""
+def angle_vu(hauteur, distance, oeil=OEIL):
+    """L'angle (degres) sous lequel l'oeil, a `oeil` metres au-dessus de la
+    plaine lointaine, voit le haut d'un relief de `hauteur` metres a
+    `distance` metres, courbure de la Terre comprise."""
     chute = distance * distance / (2.0 * RAYON_TERRE)
-    return math.degrees(math.atan2(hauteur - OEIL - chute, distance))
+    return math.degrees(math.atan2(hauteur - oeil - chute, distance))
+
+
+def bord_de_la_terre(oeil=OEIL):
+    """L'angle (degres, negatif) de l'horizon VRAI, la ou la terre lointaine
+    rejoint le ciel : un peu sous l'horizon de l'oeil, d'autant plus qu'on
+    est haut (sur un versant de montagne, a des dizaines de metres au-dessus
+    de la vallee)."""
+    return -math.degrees(math.sqrt(2.0 * max(0.0, oeil) / RAYON_TERRE))
 
 
 def _brume(distance):
@@ -148,7 +159,7 @@ def elements(graine, x, y):
                         # Le nord est vers les y decroissants (comme les
                         # cases voisines, voir horizon.voisin_dans).
                         "az": math.degrees(math.atan2(dx, -dy)) % 360.0,
-                        "d": d, "haut": haut,
+                        "d": d, "haut": haut, "large": large,
                         "w": math.degrees(math.atan2(large, d)),
                         "phase": h.uniform(0.0, 6.283),
                         "neige": c["forme"] == "pic" and haut >= NEIGE_M})
@@ -156,7 +167,7 @@ def elements(graine, x, y):
     return out
 
 
-def profil(couche, lst):
+def profil(couche, lst, oeil=OEIL):
     """La silhouette d'une couche : [(az, haut, bas, sommet, neige, ombre)]
     tous les `pas` degres de AZ_MIN a AZ_MAX -- le haut et le bas de la
     bande (degres), le sommet de l'element qui la domine, s'il est enneige,
@@ -172,9 +183,20 @@ def profil(couche, lst):
     sommets = [0.0] * n0
     dominant = [None] * n0
     flancs = [False] * n0
+    lames = [None] * n0                     # le haut et le bas d'un lac
     forme = couche["forme"]
+    pied = bord_de_la_terre(oeil) + PIED
     for i, e in enumerate(lst):
-        p = angle_vu(e["haut"], e["d"]) if forme != "lac" else 0.0
+        p = angle_vu(e["haut"], e["d"], oeil) if forme != "lac" else 0.0
+        if forme == "lac":
+            # LA LAME D'EAU, vue d'en haut : de sa rive proche a sa rive
+            # lointaine, SOUS l'horizon de l'oeil -- d'autant plus bas qu'on
+            # est haut. Au ras d'une plaine, une lame mince a l'horizon ;
+            # depuis un versant, elle descend dans la vallee (qui la cache).
+            demi = 0.5 * e["large"]
+            loin = max(pied - 0.02, angle_vu(0.0, e["d"] + demi, oeil))
+            pres = angle_vu(0.0, max(50.0, e["d"] - demi), oeil)
+            lame = (loin, min(pres, loin - EPAIS_LAC))
         w = max(0.05, e["w"])
         k0 = int(math.floor((e["az"] - w) / pas))
         k1 = int(math.ceil((e["az"] + w) / pas))
@@ -202,6 +224,8 @@ def profil(couche, lst):
                 sommets[k] = p
                 dominant[k] = i
                 flancs[k] = s > 0.0
+                if forme == "lac":
+                    lames[k] = lame
     # UN SOMMET CACHE (derriere un plus haut du meme massif) n'a ni neige ni
     # flanc a l'ombre : on ne voit pas son sommet, il ne gagnait que quelques
     # points dans un col, et y laissait des carres de neige flottants.
@@ -215,16 +239,26 @@ def profil(couche, lst):
         if hauts[k] is None:
             out.append((az, BAS, BAS, 0.0, False, False))
         elif forme == "lac":
-            # La lame d'eau, a peine sous l'horizon de l'oeil.
-            out.append((az, 0.0, -0.22, 0.0, False, False))
+            out.append((az, lames[k][0], lames[k][1], 0.0, False, False))
         else:
             vu = dominant[k] in visibles
-            # Le relief s'arrete a l'horizon de l'oeil (PIED) : sous lui,
-            # c'est la terre lointaine et les lacs, plus pres, qu'on voit.
-            out.append((az, max(0.0, hauts[k]), PIED, sommets[k],
+            # Le relief s'arrete a l'horizon vrai (pied) : sous lui, c'est la
+            # terre lointaine et les lacs, plus pres, qu'on voit.
+            out.append((az, max(pied, hauts[k]), pied, sommets[k],
                         vu and lst[dominant[k]]["neige"],
                         vu and flancs[k] and forme == "pic"))
     return out
+
+
+def oeil_de_la_case(zone):
+    """A quelle hauteur (metres) au-dessus de la plaine lointaine est l'oeil
+    sur une case de cette zone : sur un versant de montagne, a la hauteur
+    d'ou l'on voit la vallee (voir sol.PROFONDEUR_VALLEE) ; ailleurs, au ras
+    du sol."""
+    if zone == "Montagne":
+        from src.widgets.sol import PROFONDEUR_VALLEE
+        return PROFONDEUR_VALLEE
+    return OEIL
 
 
 class Lointain(Widget):
@@ -241,6 +275,7 @@ class Lointain(Widget):
         self._jour = (1.0, 1.0, 1.0)
         self._ciel = (0.70, 0.80, 0.90)
         self._brouillard = 0.0
+        self._oeil = OEIL
         self._cle = None
         self._couleurs = []         # [(Color, couleur propre, brume, eau)]
         with self.canvas:
@@ -251,18 +286,22 @@ class Lointain(Widget):
         self.bind(size=self._construit, pos=self._place)
 
     # -- la case ------------------------------------------------------------ #
-    def regle(self, graine, x, y):
-        cle = (graine, int(x), int(y))
+    def regle(self, graine, x, y, oeil=OEIL):
+        """Le lointain vu de la case (x, y) du monde `graine`, l'oeil a
+        `oeil` metres au-dessus de la plaine lointaine (bien plus haut sur
+        un versant de montagne : voir sol.PROFONDEUR_VALLEE)."""
+        cle = (graine, int(x), int(y), round(float(oeil), 2))
         if cle == self._cle:
             return
         self._cle = cle
+        self._oeil = float(oeil)
         tout = elements(graine, x, y)
         self._profils = []
         for c in COUCHES:
             lst = tout.get(c["cle"], [])
             dist = (sum(e["d"] for e in lst) / len(lst)) if lst else \
                 sum(c["portee"]) * 500.0
-            self._profils.append((c, profil(c, lst), dist))
+            self._profils.append((c, profil(c, lst, oeil), dist))
         self._construit()
 
     # -- le dessin (une fois par case, ou si la taille change) -------------- #
@@ -277,7 +316,8 @@ class Lointain(Widget):
             # La terre lointaine, sous tout le reste.
             c = Color(1, 1, 1, 1, group="lointain")
             self._couleurs.append((c, TERRE["couleur"], TERRE["brume"], False))
-            self._bande([(AZ_MIN, 0.0, BAS), (AZ_MAX, 0.0, BAS)], ppd)
+            bord = bord_de_la_terre(self._oeil)
+            self._bande([(AZ_MIN, bord, BAS), (AZ_MAX, bord, BAS)], ppd)
             for couche, prof, dist in self._profils:
                 eau = couche["forme"] == "lac"
                 c = Color(1, 1, 1, 1, group="lointain")
@@ -377,4 +417,5 @@ class Lointain(Widget):
             c.rgb = tuple(a * (1.0 - k) + b * k for a, b in zip(vu, self._ciel))
 
 
-__all__ = ["Lointain", "elements", "profil", "angle_vu", "COUCHES"]
+__all__ = ["Lointain", "elements", "profil", "angle_vu", "bord_de_la_terre",
+           "COUCHES", "oeil_de_la_case"]
