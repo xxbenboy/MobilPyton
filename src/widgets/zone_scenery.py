@@ -668,7 +668,9 @@ FORET_VALLEE = 1500
 FORET_VALLEE_PRES = 200.0
 FORET_VALLEE_LOIN = 2600.0
 SOUS_BOIS_VALLEE = (0.15, 0.24, 0.13)
-SOUS_BOIS_LOIN = (0.30, 0.38, 0.36)
+SOUS_BOIS_LOIN = (0.18, 0.27, 0.16)
+SOUS_BOIS_PAS = 0.75                # degres entre deux colonnes
+SOUS_BOIS_PALIERS = 5               # paliers d'opacite
 FORET_VOISINE_TEINTE = (0.92, 0.94, 0.92)
 FORET_VOISINE_FROID = (0.80, 0.86, 0.90)
 # CE QUI N'EST TIRE QUE POUR UN PANNEAU (les objets a ramasser, la litiere,
@@ -3623,14 +3625,20 @@ class ZoneScenery(Widget):
                 arbres.append((d, x0 + fx * w, pied, th, coupe, pin, v))
         # AU FOND DE LA VALLEE, vue d'un versant : posee sur le sol de la
         # vallee (voir sol.PROFONDEUR_VALLEE), plus serree -- de si haut, une
-        # foret est une etendue de cimes.
+        # foret est une etendue de cimes. Pas de foret autour : rien a semer
+        # (ce semis-ci est gros, il ne coute rien quand il n'a pas lieu).
+        if vallees and not any(densite(math.radians(a)) > 0.0
+                               for a in range(0, 360, 10)):
+            vallees = False
         if vallees:
             for fx, r, _n in self.semis(FORET_VALLEE, "foret-vallee",
                                         marge=0.06):
                 az = math.radians((self._direction + fx - 0.5) * FOV)
                 garde, u, v, haut_m, pin, cache = tirage(r)
+                if garde >= densite(az):
+                    continue
                 crete = crete_de(az)
-                if garde >= densite(az) or not en_vallee(crete):
+                if not en_vallee(crete):
                     continue
                 d = FORET_VALLEE_PRES * (FORET_VALLEE_LOIN
                                          / FORET_VALLEE_PRES) ** u
@@ -3662,42 +3670,57 @@ class ZoneScenery(Widget):
     def _sous_bois_vallee(self, densite, crete_de, en_vallee, y_h, ppd):
         """Le sol sombre de la foret de la vallee, de FORET_VALLEE_PRES a
         FORET_VALLEE_LOIN metres, la ou la foret pousse et ou la vallee se
-        voit (sous le versant, au-dessus de rien)."""
+        voit (sous le versant).
+
+        IL SE FOND dans le fond de vallee, sans bord net : d'autant plus
+        opaque que la foret est dense (une forme pleine a bords droits se
+        lisait comme un lac, surtout la nuit), et son haut, le plus loin,
+        a demi transparent. Echantillonne par l'angle ABSOLU : deux panneaux
+        voisins posent son bord au meme endroit."""
         w, x0 = self.width, self.x
         a_loin = -math.degrees(math.atan2(nappe.PROFONDEUR_VALLEE,
                                           FORET_VALLEE_LOIN))
         a_pres = -math.degrees(math.atan2(nappe.PROFONDEUR_VALLEE,
                                           FORET_VALLEE_PRES))
-        n = 120
+        pas = SOUS_BOIS_PAS
+        centre = self._direction * FOV
+        k0 = int(math.floor((centre - FOV * 0.56) / pas))
+        k1 = int(math.ceil((centre + FOV * 0.56) / pas))
         colonnes = []
-        for k in range(n + 1):
-            fx = -0.06 + 1.12 * k / float(n)
-            az = math.radians((self._direction + fx - 0.5) * FOV)
-            crete = crete_de(az)
-            haut = a_loin
-            bas = max(a_pres, crete + 0.2)
-            if densite(az) < 0.35 or not en_vallee(crete) or bas >= haut:
+        for k in range(k0, k1 + 1):
+            az_deg = k * pas
+            az = math.radians(az_deg)
+            fx = 0.5 + (az_deg - centre) / FOV
+            dens = densite(az)
+            crete = crete_de(az) if dens > 0.0 else 0.0
+            haut, bas = a_loin, max(a_pres, crete + 0.2)
+            if dens <= 0.0 or not en_vallee(crete) or bas >= haut:
                 colonnes.append(None)
                 continue
-            colonnes.append((x0 + fx * w, y_h + bas * ppd, y_h + haut * ppd))
-        # En deux bandes : le pied (proche, sombre) et le fond (bleui).
-        for teinte, f0, f1 in ((SOUS_BOIS_LOIN, 0.55, 1.0),
-                               (SOUS_BOIS_VALLEE, 0.0, 0.62)):
-            verts, idx, prec = [], [], None
-            for c in colonnes:
-                if c is None:
-                    prec = None
+            # Opacite : 0 ou la foret s'arrete, pleine des qu'elle est dense.
+            t = min(1.0, dens / 0.6)
+            colonnes.append((x0 + fx * w, y_h + bas * ppd, y_h + haut * ppd,
+                             t * t * (3.0 - 2.0 * t)))
+        # Deux bandes : le pied, plein ; le fond, plus loin, a demi fondu.
+        for teinte, f0, f1, alpha in ((SOUS_BOIS_LOIN, 0.55, 1.0, 0.55),
+                                      (SOUS_BOIS_VALLEE, 0.0, 0.62, 1.0)):
+            # Par paliers d'opacite : un Mesh par palier, ses colonnes
+            # voisines reliees.
+            paliers = {}
+            for g, d in zip(colonnes, colonnes[1:]):
+                if g is None or d is None:
                     continue
-                x, yb, yt = c
-                y0 = yb + (yt - yb) * f0
-                y1 = yb + (yt - yb) * f1
+                n = int(round(0.5 * (g[3] + d[3]) * SOUS_BOIS_PALIERS))
+                if n <= 0:
+                    continue
+                verts, idx = paliers.setdefault(n, ([], []))
                 m = len(verts) // 4
-                verts += [x, y0, 0.0, 0.0, x, y1, 0.0, 0.0]
-                if prec is not None:
-                    idx += [prec, prec + 1, m + 1, prec, m + 1, m]
-                prec = m
-            if idx:
-                Color(*(teinte + (1.0,)))
+                for x, yb, yt, _o in (g, d):
+                    verts += [x, yb + (yt - yb) * f0, 0.0, 0.0,
+                              x, yb + (yt - yb) * f1, 0.0, 0.0]
+                idx += [m, m + 1, m + 3, m, m + 3, m + 2]
+            for n, (verts, idx) in sorted(paliers.items()):
+                Color(*(teinte + (alpha * n / float(SOUS_BOIS_PALIERS),)))
                 Mesh(vertices=verts, indices=idx, mode="triangles")
         Color(1, 1, 1, 1)
 

@@ -188,13 +188,18 @@ def profil(couche, lst, oeil=OEIL):
     pied = bord_de_la_terre(oeil) + PIED
     for i, e in enumerate(lst):
         p = angle_vu(e["haut"], e["d"], oeil) if forme != "lac" else 0.0
+        if forme != "lac" and p <= pied:
+            # Tout entier sous l'horizon vrai (une lisiere vue d'un versant) :
+            # rien a dessiner -- ses bords remontaient sinon vers l'horizon
+            # de l'oeil, en coins sombres poses sur le lointain.
+            continue
         if forme == "lac":
             # LA LAME D'EAU, vue d'en haut : de sa rive proche a sa rive
             # lointaine, SOUS l'horizon de l'oeil -- d'autant plus bas qu'on
             # est haut. Au ras d'une plaine, une lame mince a l'horizon ;
             # depuis un versant, elle descend dans la vallee (qui la cache).
             demi = 0.5 * e["large"]
-            loin = max(pied - 0.02, angle_vu(0.0, e["d"] + demi, oeil))
+            loin = angle_vu(0.0, e["d"] + demi, oeil)
             pres = angle_vu(0.0, max(50.0, e["d"] - demi), oeil)
             lame = (loin, min(pres, loin - EPAIS_LAC))
         w = max(0.05, e["w"])
@@ -206,17 +211,21 @@ def profil(couche, lst, oeil=OEIL):
             t = abs(s) / w
             if t >= 1.0:
                 continue
+            # Les formes montent du PIED du relief (l'horizon vrai) a son
+            # sommet : jamais au-dessus de lui.
             if forme == "pic":
-                v = p * (1.0 - t) ** 1.25
+                f = (1.0 - t) ** 1.25
                 # Des aretes : le relief se casse en ressauts.
-                v *= 1.0 + 0.07 * math.sin(s * 0.9 + e["phase"]) \
+                f *= 1.0 + 0.07 * math.sin(s * 0.9 + e["phase"]) \
                     + 0.04 * math.sin(s * 2.3 + 2 * e["phase"])
+                v = pied + (p - pied) * f
             elif forme == "dos":
-                v = p * math.cos(t * math.pi / 2.0) ** 2
+                v = pied + (p - pied) * math.cos(t * math.pi / 2.0) ** 2
             elif forme == "lisiere":
                 bord = min(1.0, (1.0 - t) / 0.12)
-                v = p * bord * (0.82 + 0.10 * math.sin(s * 14.0 + e["phase"])
-                                + 0.08 * math.sin(s * 31.0))
+                v = pied + (p - pied) * bord * (
+                    0.82 + 0.10 * math.sin(s * 14.0 + e["phase"])
+                    + 0.08 * math.sin(s * 31.0))
             else:                                   # un lac : une lame
                 v = 0.0
             if hauts[k] is None or v > hauts[k]:
