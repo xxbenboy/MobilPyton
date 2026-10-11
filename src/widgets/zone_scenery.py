@@ -986,6 +986,9 @@ class ZoneScenery(Widget):
         self._berge = None
         # Baies des buissons, gros elements dessines (mode action).
         self._baies = {}
+        # Gros elements qu'un mini-jeu dessine lui-meme (l'arbre qui tombe) :
+        # la scene ne les dessine plus (voir cache_gros).
+        self._gros_caches = set()
         # Ce que laissent les arbres abattus (voir set_scene). Des maintenant :
         # la scene se redessine des qu'elle recoit sa taille, avant meme
         # qu'on lui ait montre une case -- sans eux, le jeu plantait au
@@ -1252,6 +1255,7 @@ class ZoneScenery(Widget):
         # roseaux, pas une seconde etendue d'eau.
         self._berge = berge
         self._baies = {(int(c[0]), int(c[1])): int(n) for c, n in (baies or ())}
+        self._gros_caches = set()
         self._souches = [(int(c[0]), int(c[1])) for c in (souches or ())]
         self._troncs = [((float(a[0]), float(a[1])), (float(b[0]), float(b[1])))
                         for a, b in (troncs or ())]
@@ -2002,6 +2006,7 @@ class ZoneScenery(Widget):
             rang = rangs.get(kind, 0)
             rangs[kind] = rang + 1
             if ((ggx, ggy) in self._removed_grid
+                    or (ggx, ggy) in self._gros_caches
                     or any(c in self._blocked_grid
                            for c in world.emprise_nature(kind, (ggx, ggy)))):
                 continue
@@ -4159,10 +4164,19 @@ class ZoneScenery(Widget):
         if self._baies.pop(tuple(cell), None) is not None:
             self._redraw()
 
+    def cache_gros(self, cell):
+        """Le gros element `cell` ne se dessine plus : un mini-jeu le montre
+        lui-meme (l'arbre qui tombe, voir action_mode.JeuArbre)."""
+        c = (int(cell[0]), int(cell[1]))
+        if c not in self._gros_caches:
+            self._gros_caches.add(c)
+            self._redraw()
+
     def oublie(self):
         """Le prochain montre_la_case redessine la case, meme si rien n'a
         change dans la partie (des baies cachees reviennent ainsi)."""
         self._cle_case = None
+        self._gros_caches = set()
 
     def places_baies(self, cell, cx, cy, r, n):
         """La place de `n` grappes de baies sur un buisson : toujours les

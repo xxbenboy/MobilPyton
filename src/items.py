@@ -519,6 +519,57 @@ RECIPES = []
 
 
 # --------------------------------------------------------------------- #
+# LA TAILLE REELLE D'UN OBJET, EN MAIN
+# --------------------------------------------------------------------- #
+# La longueur de son PLUS GRAND COTE, en metres. Toutes les images tenaient
+# dans la meme boite : une baie faisait la taille d'une hache. On les pose
+# maintenant les unes par rapport aux autres (voir player_hands).
+#
+# Les ecarts sont ENORMES -- d'une baie de deux centimetres a une lance de
+# deux metres, un contre cent -- et les montrer tels quels rendrait la baie
+# invisible et la lance ingerable. La main les RAPPROCHE donc (voir
+# player_hands.COMPRESSION) : il reste l'essentiel, qu'une hache est bien
+# plus grande qu'un caillou.
+TAILLE_DEFAUT = 0.12
+TAILLE_EN_MAIN = {
+    # Outils et armes
+    "Hache": 0.65, "Marteau": 0.38, "Lance": 1.90,
+    "Couteau_En_Pierre": 0.17, "Pierre_Coupante": 0.14, "Allume_feu": 0.09,
+    # Bois
+    "Small_Stick": 0.35, "Long_Stick": 1.20, "Loafy_Long_Stick": 1.20,
+    "Branche_Feuillue": 0.80, "Buche": 0.40, "Ecorce": 0.22, "Racine": 0.28,
+    # Matieres et petites trouvailles
+    "Pierre": 0.10, "Silex": 0.07, "Feuille": 0.16, "Herbe": 0.28,
+    "Fibre_Vegetale": 0.32, "Corde": 0.20, "Roseau": 0.95, "Fleur": 0.22,
+    "Plume": 0.16, "Coquillage": 0.08, "Os": 0.24, "Ver": 0.07,
+    "Baie": 0.02, "Brown_Mushroom": 0.07, "Red_Mushroom": 0.07,
+    "Poisson": 0.30, "Carcasse": 0.70, "Pepite": 0.09,
+    # Equipement : la piece depliee
+    "Casque_De_Feuille": 0.26, "Veste_De_Feuille": 0.58,
+    "Pantalon_De_Feuille": 0.62, "Gant_De_Feuille": 0.24,
+    "Soulier_De_Feuille": 0.28, "Sac_De_Feuille": 0.45,
+    "Chandail_Rescape": 0.58, "Pantalon_Rescape": 0.62,
+    "Chaussures_Rescape": 0.28,
+    # Instruments
+    MAP_ITEM: 0.30, COMPASS_ITEM: 0.07, "Gourde": 0.24,
+    # Installations qu'on porte avant de les poser
+    "Feu_de_camp": 0.80,
+}
+
+
+def taille_en_main(name):
+    """La longueur reelle (metres) du plus grand cote de l'objet. Un objet
+    inconnu prend TAILLE_DEFAUT : il garde la taille d'avant."""
+    return TAILLE_EN_MAIN.get(name, TAILLE_DEFAUT)
+
+
+def taille_connue(name):
+    """La taille de cet objet est-elle VOULUE (table ci-dessus) ou juste la
+    valeur par defaut ?"""
+    return name in TAILLE_EN_MAIN
+
+
+# --------------------------------------------------------------------- #
 # FICHES D'OBJET
 # --------------------------------------------------------------------- #
 # Une phrase par objet. Tout le RESTE de la fiche (recette, zones, solidite,

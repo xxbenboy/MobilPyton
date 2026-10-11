@@ -22,7 +22,7 @@ import random
 
 from kivy.clock import Clock
 from kivy.graphics import (Color, Ellipse, Line, Rectangle, PushMatrix,
-                           PopMatrix, Translate, Scale, Triangle)
+                           PopMatrix, Translate, Scale, Triangle, Rotate)
 from kivy.graphics.texture import Texture
 from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
@@ -546,6 +546,14 @@ class JeuArbre(MiniJeu):
     """Abattre un arbre a la hache, coup par coup."""
 
     COUPS = 6
+    # L'ARBRE TOMBE (voir _chute) : il se rompt a l'entaille et bascule du
+    # cote ou on l'a entaille, de plus en plus vite, puis rebondit une fois
+    # sur le sol. Sous la rupture, le pied reste debout : c'est la souche.
+    # Une souche, elle, ne tombe pas (JeuSouche : CHUTE a None).
+    CHUTE = 1.45
+    REBOND = 0.35
+    CHUTE_ANGLE = 86.0
+    PART_SOUCHE = 0.055         # part basse de l'image qui reste debout
     # Ce que dit la consigne, ce qu'elle dit a la fin, et ce que le jeu rend
     # (voir JeuSouche, qui reprend tout le reste).
     TEXTE = "Glisse le doigt a travers le tronc (%d/%d)"
@@ -571,6 +579,10 @@ class JeuArbre(MiniJeu):
         self.copeaux = []
         self.secoue = 0.0
         self._t = 0.0
+        # La chute : depuis combien de temps, et ou dessiner l'arbre (voir
+        # _commence_chute). None tant qu'il tient debout.
+        self.chute = None
+        self._arbre = None
 
     def demarre(self):
         super().demarre()
@@ -587,7 +599,7 @@ class JeuArbre(MiniJeu):
         return True
 
     def bouge(self, touch):
-        if touch is not self.doigt or self.termine:
+        if touch is not self.doigt or self.termine or self.chute is not None:
             return True
         self.mains.vers_paume(self.main, touch.x, touch.y)
         x0, t0 = self.dernier
@@ -620,10 +632,68 @@ class JeuArbre(MiniJeu):
         self._dit()
         if self.coups >= self.COUPS:
             self.consigne(self.FIN)
+            if self.CHUTE and self._commence_chute():
+                return
             self.termine_avec({self.RESULTAT: True})
+
+    # -- la chute ---------------------------------------------------------- #
+    def _commence_chute(self):
+        """L'arbre quitte le decor et bascule : la scene ne le dessine plus,
+        c'est le mini-jeu qui le montre (voir pas). Faux s'il n'y a pas
+        d'image a faire tomber (formes geometriques de repli)."""
+        gros = (self.cible or {}).get("gros") or {}
+        image = gros.get("image")
+        cell = (self.cible or {}).get("cell")
+        if image is None or cell is None:
+            return False
+        tex, x, y, w, h, teinte = image
+        monde = self.ecran.monde
+        s = monde.echelle()
+        x0, y0 = monde.ecran(x, y)
+        cx = monde.ecran(gros.get("cx", x + w / 2.0), y)[0]
+        self._arbre = {"tex": tex, "x": x0, "y": y0, "w": w * s, "h": h * s,
+                       "cx": cx, "teinte": tuple(teinte)}
+        for plaque in self.ecran.panorama.visibles():
+            plaque.scene.cache_gros(cell)
+        self.chute = 0.0
+        self.secoue = 0.22
+        return True
+
+    def _angle_chute(self):
+        """L'angle (degres) dont l'arbre a bascule : lentement d'abord, de
+        plus en plus vite, puis un rebond amorti au sol."""
+        t = self.chute / self.CHUTE
+        if t < 1.0:
+            return self.CHUTE_ANGLE * t * t
+        u = min(1.0, (self.chute - self.CHUTE) / self.REBOND)
+        return self.CHUTE_ANGLE - 5.0 * (1.0 - u) * math.sin(u * 3.0 * math.pi)
+
+    def _dessine_chute(self):
+        """Le pied reste debout (la souche) ; tout ce qui est au-dessus de
+        l'entaille bascule autour d'elle."""
+        a = self._arbre
+        f = self.PART_SOUCHE
+        x, y, w, h = a["x"], a["y"], a["w"], a["h"]
+        Color(*(a["teinte"] + (1.0,)))
+        # Le pied : le bas de l'image, lu de sa derniere ligne a 1 - f.
+        Rectangle(pos=(x, y), size=(w, h * f), texture=a["tex"],
+                  tex_coords=(0, 1, 1, 1, 1, 1 - f, 0, 1 - f))
+        PushMatrix()
+        Rotate(angle=self._angle_chute(), origin=(a["cx"], y + h * f))
+        Rectangle(pos=(x, y + h * f), size=(w, h * (1.0 - f)),
+                  texture=a["tex"],
+                  tex_coords=(0, 1 - f, 1, 1 - f, 1, 0, 0, 0))
+        PopMatrix()
 
     def pas(self, dt):
         self._t += dt
+        if self.chute is not None:
+            avant = self.chute
+            self.chute += dt
+            if avant < self.CHUTE <= self.chute:
+                self.secoue = 0.30          # il touche le sol
+            if self.chute >= self.CHUTE + self.REBOND and not self.termine:
+                self.termine_avec({self.RESULTAT: True})
         app = self.ecran.monde
         if self.secoue > 0:
             self.secoue = max(0.0, self.secoue - dt)
@@ -637,7 +707,9 @@ class JeuArbre(MiniJeu):
         # L'ENTAILLE grandit a chaque coup, sous les mains.
         self.sous.canvas.clear()
         with self.sous.canvas:
-            if self.coups:
+            if self._arbre is not None:
+                self._dessine_chute()
+            if self.coups and self.chute is None:
                 # Une encoche en V, du bord du tronc vers son coeur : le bois
                 # clair a l'interieur, cerne d'ecorce arrachee.
                 p = self.coups / float(self.COUPS)
@@ -680,6 +752,7 @@ class JeuSouche(JeuArbre):
     moins de coups -- elle est courte, mais ses racines tiennent."""
 
     COUPS = 4
+    CHUTE = 0.0                 # une souche ne bascule pas : on l'arrache
     TEXTE = "Glisse le doigt a travers la souche (%d/%d)"
     FIN = "La souche cede !"
     RESULTAT = "souche"

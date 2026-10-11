@@ -26,7 +26,8 @@ import os
 from kivy.clock import Clock
 from kivy.uix.widget import Widget
 from kivy.core.image import Image as CoreImage
-from kivy.graphics import Color, Rectangle, PushMatrix, PopMatrix, Translate
+from kivy.graphics import (Color, Rectangle, PushMatrix, PopMatrix,
+                           Translate, Rotate)
 
 from src import items
 from src.widgets import breathing, searching
@@ -151,63 +152,165 @@ GROSSISSEMENT_MAX = 1.30
 _ECHANTILLONS = 4000
 
 
+# PAR OU PREND-ON UN OBJET ? Un objet COURT tient dans la paume ; un objet
+# LONG se prend par son manche (une hache, une lance, un baton). On le
+# reconnait a son ALLONGEMENT, et son manche est son bout le PLUS MINCE --
+# le fer d'une hache est large, son manche etroit. Deux bouts aussi minces
+# l'un que l'autre (un baton, un os) : on prend celui du bas, ce qui garde
+# le sens de l'image.
+ELONG_OUTIL = 2.4
+_MANCHE_PLUS_MINCE = 0.75
+# Ou tombe la main sur le manche, en parts de la longueur depuis son bout.
+_PART_PRISE = 0.16
+# L'outil tenu penche de cet angle sur la verticale, la tete vers le haut
+# et vers l'EXTERIEUR : c'est le geste de qui tient un outil sans s'en
+# servir.
+ANGLE_OUTIL = 24.0
+# La taille reelle qui remplit la boite de reference, et de combien on
+# RAPPROCHE les tailles les unes des autres (voir items.TAILLE_EN_MAIN) :
+# 1 les montrerait telles quelles (une baie invisible), 0 les egaliserait
+# comme avant. La racine carree tient le milieu.
+TAILLE_REF = 0.12
+COMPRESSION = 0.5
+ECHELLE_MIN, ECHELLE_MAX = 0.5, 3.4
+
+
 def _mesure_objet(brut):
-    """(couverture, centre de masse y) d'une image, ou (1.0, 0.5) si illisible.
+    """Ce que l'image dit de l'objet : sa part de pixels vus, son centre de
+    masse, son allongement et PAR OU ON LE PREND.
 
-    `y` est compte DEPUIS LE HAUT du PNG, comme les lignes de l'image.
+    `masse_y` et la prise sont comptes DEPUIS LE HAUT du PNG, comme les
+    lignes de l'image ; `tete` est la direction (degres, a l'ecran, qui
+    monte) du manche vers le bout libre.
 
-    La valeur de repli dit "image pleine et centree" : un objet qu'on ne
-    sait pas mesurer est pose comme avant, sans correction."""
+    Les valeurs de repli disent "image pleine, centree, sans manche" : un
+    objet qu'on ne sait pas mesurer est pose comme avant."""
+    defaut = {"couverture": 1.0, "masse_y": 0.5, "elong": 1.0,
+              "prise": (0.5, 0.5), "tete": 90.0}
     try:
         octets = brut.data
         w, h = int(brut.width), int(brut.height)
         if (brut.fmt or "rgba") != "rgba" or not octets:
-            return 1.0, 0.5
+            return defaut
         if w < 4 or h < 4 or len(octets) < w * h * 4:
-            return 1.0, 0.5
+            return defaut
         # La couverture compte les pixels VUS (alpha > 8) ; le centre de
         # masse les pondere par leur opacite, parce qu'un bord a moitie
         # transparent pese moitie moins dans ce qu'on voit.
-        poids = somme = 0.0
-        vus = n = 0
         pas = max(1, int(math.sqrt(w * h / float(_ECHANTILLONS))))
+        pts = []
+        poids = sx = sy = 0.0
+        vus = n = 0
         for y in range(0, h, pas):
             ligne = y * w * 4
+            yv = h - 1 - y               # l'image descend, l'ecran monte
             for x in range(0, w, pas):
                 a = octets[ligne + x * 4 + 3]
                 n += 1
                 if a > 8:
                     vus += 1
                     poids += a
-                    somme += a * y
-        if not n or poids <= 0.0:
-            return 1.0, 0.5
-        return vus / float(n), (somme / poids) / float(h)
+                    sx += a * x
+                    sy += a * yv
+                    pts.append((x, yv, a))
+        if not n or poids <= 0.0 or len(pts) < 8:
+            return defaut
+        cx, cy = sx / poids, sy / poids
+        out = dict(defaut)
+        out["couverture"] = vus / float(n)
+        out["masse_y"] = 1.0 - cy / float(h)
+        # LE GRAND AXE : la direction ou l'objet s'etale le plus, et de
+        # combien il s'y etale plus qu'en travers (moments d'ordre deux).
+        sxx = syy = sxy = 0.0
+        for x, yv, a in pts:
+            dx, dy = x - cx, yv - cy
+            sxx += a * dx * dx
+            syy += a * dy * dy
+            sxy += a * dx * dy
+        sxx /= poids
+        syy /= poids
+        sxy /= poids
+        axe = 0.5 * math.atan2(2.0 * sxy, sxx - syy)
+        demi = 0.5 * math.hypot(sxx - syy, 2.0 * sxy)
+        moy = 0.5 * (sxx + syy)
+        out["elong"] = math.sqrt((moy + demi) / max(1e-9, moy - demi))
+        # LES DEUX BOUTS, le long de cet axe : leur largeur (en travers) et
+        # leur hauteur a l'ecran disent lequel est le manche.
+        co, si = math.cos(axe), math.sin(axe)
+        proj = [((x - cx) * co + (yv - cy) * si,
+                 abs(-(x - cx) * si + (yv - cy) * co), yv) for x, yv, a in pts]
+        umin = min(p[0] for p in proj)
+        umax = max(p[0] for p in proj)
+        long_ = max(1e-6, umax - umin)
+        bas = [p for p in proj if p[0] < umin + 0.25 * long_]
+        haut = [p for p in proj if p[0] > umax - 0.25 * long_]
+        if len(bas) < 3 or len(haut) < 3:
+            return out
+        lb = sum(p[1] for p in bas) / len(bas)
+        lh = sum(p[1] for p in haut) / len(haut)
+        if min(lb, lh) < _MANCHE_PLUS_MINCE * max(lb, lh):
+            manche_bas = lb < lh
+        else:
+            manche_bas = (sum(p[2] for p in bas) / len(bas)
+                          < sum(p[2] for p in haut) / len(haut))
+        sens = 1.0 if manche_bas else -1.0
+        u = (umin if manche_bas else umax) + sens * _PART_PRISE * long_
+        out["prise"] = ((cx + u * co) / float(w),
+                        1.0 - (cy + u * si) / float(h))
+        out["tete"] = math.degrees(axe if manche_bas
+                                   else axe + math.pi) % 360.0
+        return out
     except Exception:
-        return 1.0, 0.5
+        return defaut
 
 
-def _item_infos(name):
-    """(texture, couverture, centre de masse y) de l'image d'un objet.
+def _item_mesure(name):
+    """(texture, mesures) de l'image d'un objet -- voir _mesure_objet.
 
-    UNE SEULE LECTURE DU FICHIER pour les trois : `keep_data=True` garde les
+    UNE SEULE LECTURE DU FICHIER pour tout : `keep_data=True` garde les
     pixels que Kivy relache d'ordinaire des qu'il les a televerses vers la
     carte graphique (voir foliage, ou l'oubli de ce drapeau avait tue trois
     versions du jeu). On paie donc le decodage une fois, et seulement pour
     les objets qu'on prend VRAIMENT en main."""
+    vide = {"couverture": 1.0, "masse_y": 0.5, "elong": 1.0,
+            "prise": (0.5, 0.5), "tete": 90.0}
     if not name:
-        return None, 1.0, 0.5
+        return None, vide
     path = items.image_path(name)
     if not path:
-        return None, 1.0, 0.5
+        return None, vide
     if path not in _ITEM_INFOS:
         try:
             img = CoreImage(path, keep_data=True)
-            _ITEM_INFOS[path] = (img.texture,) + _mesure_objet(
-                img.image._data[0])
+            _ITEM_INFOS[path] = (img.texture, _mesure_objet(img.image._data[0]))
         except Exception:
-            _ITEM_INFOS[path] = (None, 1.0, 0.5)
+            _ITEM_INFOS[path] = (None, dict(vide))
     return _ITEM_INFOS[path]
+
+
+def _item_infos(name):
+    """(texture, couverture, centre de masse y) : ce qu'attendent les vues
+    qui dessinent un objet a plat (voir sol_de_craft.dessine_objet)."""
+    tex, m = _item_mesure(name)
+    return tex, m["couverture"], m["masse_y"]
+
+
+def _echelle_objet(nom, couverture):
+    """De combien agrandir la boite de reference pour cet objet.
+
+    SA TAILLE REELLE d'abord (items.taille_en_main), rapprochee des autres
+    et bornee : une baie reste visible, une lance tient a l'ecran. Un objet
+    dont la taille n'est pas declaree garde l'ancienne regle -- on egalise
+    la MATIERE VISIBLE, pour qu'une image ajouree ne disparaisse pas (la
+    racine carree parce que la couverture est une surface et l'echelle une
+    longueur)."""
+    if items.taille_connue(nom):
+        k = (items.taille_en_main(nom) / TAILLE_REF) ** COMPRESSION
+        return max(ECHELLE_MIN, min(ECHELLE_MAX, k))
+    if 0.0 < couverture < COUVERTURE_PLEINE:
+        return min(GROSSISSEMENT_MAX,
+                   math.sqrt(COUVERTURE_PLEINE / couverture))
+    return 1.0
 
 
 # --------------------------------------------------------------------- #
@@ -519,37 +622,42 @@ class PlayerHands(Widget):
             self._shift_items = Translate(0, 0, 0)
         box = self.BOITE_OBJET * min(self.width, self.height)
         for i, name in enumerate(self._items):
-            tex, couverture, masse_y = _item_infos(name)
+            tex, m = _item_mesure(name)
             if tex is None:
                 continue
             tw, th = tex.size
-            # UNE IMAGE AJOUREE EST GROSSIE, jusqu'au plafond. On egalise la
-            # MATIERE VISIBLE, pas le cadre : la racine carree parce que la
-            # couverture est une surface et l'echelle une longueur.
-            if couverture > 0.0 and couverture < COUVERTURE_PLEINE:
-                box_i = box * min(GROSSISSEMENT_MAX,
-                                  math.sqrt(COUVERTURE_PLEINE / couverture))
-            else:
-                box_i = box
+            boite = box * _echelle_objet(name, m["couverture"])
             if tw >= th:
-                iw, ih = box_i, box_i * th / max(1, tw)
+                iw, ih = boite, boite * th / max(1, tw)
             else:
-                iw, ih = box_i * tw / max(1, th), box_i
-            cx = self.x + self.HAND_FX[i] * self.width
-            cy = self.y + self.height * self.ITEM_FY
-            # ON POSE LE CENTRE DE MASSE DANS LA PAUME, pas le centre du
-            # cadre. `masse_y` est compte depuis le HAUT du PNG et l'ecran
-            # monte, d'ou le retournement : une image lourde du bas
-            # (masse_y > 0,5) doit MONTER pour que sa masse tombe au creux
-            # de la main. Pour les objets deja equilibres cela ne deplace
-            # rien -- deux pixels sur la pierre, un sur la baie.
-            bas = cy - ih * (1.0 - masse_y)
+                iw, ih = boite * tw / max(1, th), boite
+            # Le creux de la paume : c'est la que l'objet se tient.
+            px = self.x + self.HAND_FX[i] * self.width
+            py = self.y + self.height * self.ITEM_FY
+            if m["elong"] >= ELONG_OUTIL:
+                # UN OUTIL SE PREND PAR SON MANCHE (voir _mesure_objet) :
+                # la main se ferme la, pas au milieu de l'objet, et la tete
+                # -- le fer, la pointe -- monte vers l'exterieur.
+                gx, gy = m["prise"]
+                gauche, bas = px - gx * iw, py - (1.0 - gy) * ih
+                vise = (90.0 - ANGLE_OUTIL) if i else (90.0 + ANGLE_OUTIL)
+                angle = (vise - m["tete"] + 180.0) % 360.0 - 180.0
+            else:
+                # ON POSE LE CENTRE DE MASSE DANS LA PAUME, pas le centre du
+                # cadre. `masse_y` est compte depuis le HAUT du PNG et
+                # l'ecran monte, d'ou le retournement : une image lourde du
+                # bas (masse_y > 0,5) doit MONTER pour que sa masse tombe au
+                # creux de la main.
+                gauche, bas = px - iw / 2.0, py - ih * (1.0 - m["masse_y"])
+                angle = 0.0
             with self.canvas.after:
                 # L'objet suit le geste de SA main (voir geste).
                 PushMatrix()
                 self._geste_tr[i].append(Translate(0, 0, 0))
+                if angle:
+                    Rotate(angle=angle, origin=(px, py))
                 Color(1, 1, 1, 1)
-                Rectangle(texture=tex, pos=(cx - iw / 2, bas), size=(iw, ih))
+                Rectangle(texture=tex, pos=(gauche, bas), size=(iw, ih))
                 PopMatrix()
         with self.canvas.after:
             PopMatrix()
