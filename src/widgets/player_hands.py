@@ -6,9 +6,10 @@ mains sont deja positionnees au bon endroit (en bas). Le HUD est dessine
 sur toute la surface du widget (== plein ecran).
 
 AU REPOS, chaque main a sa propre pose, et les deux sont TOUJOURS visibles :
-- une main VIDE prend la pose de repos ('idle') ;
-- une main qui TIENT quelque chose garde la paume ouverte ('haut'), car
-  c'est dans ce creux que l'objet est pose.
+- une main VIDE prend la pose de repos ('idle'), main refermee ;
+- une main qui POSE un objet dans sa paume ouvre la main ('haut') ;
+- une main qui SERRE un manche (une hache, une lance, un baton) garde la
+  pose refermee, et l'objet passe DERRIERE elle (voir _dessine_tenu).
 Une main vide n'etait auparavant pas dessinee du tout : on ne voyait ses
 mains qu'en portant quelque chose. Comme chaque image contient les deux
 mains, on n'en prend que la moitie utile (voir _draw_half).
@@ -160,33 +161,66 @@ _ECHANTILLONS = 4000
 # le sens de l'image.
 ELONG_OUTIL = 2.4
 _MANCHE_PLUS_MINCE = 0.75
-# Ou tombe la main sur le manche, en parts de la longueur depuis son bout.
-_PART_PRISE = 0.16
+# DE COMBIEN LE BOUT DU MANCHE DEPASSE DU POING, par le bas. C'est lui qui
+# fait lire la prise : un manche qui s'arrete net au bord de la main a l'air
+# de passer DERRIERE elle, pas d'etre tenu. On le veut donc assez long pour
+# ressortir a cote de l'avant-bras -- une part de la hauteur des mains --,
+# sans jamais depasser une part de l'objet lui-meme : un couteau court ne
+# peut pas se tenir au quart de sa lame.
+DEPASSE_MAIN = 0.115
+DEPASSE_MIN, DEPASSE_MAX = 0.14, 0.28
+# LONGUEUR MINIMALE D'UN OBJET SERRE, en parts de la hauteur des mains. Le
+# poing fait un septieme de cette hauteur : un objet guere plus long que lui
+# disparait DERRIERE, et on ne voit plus qu'un bout depasser. Un couteau de
+# pierre de dix-sept centimetres fait deja deux poings de long dans la vraie
+# vie -- c'est ce rapport-la qu'on garde, au lieu de celui, trop ecrase, que
+# donne la table des tailles pour les petits objets.
+PRISE_MIN = 0.30
 # L'outil tenu penche de cet angle sur la verticale, la tete vers le haut
 # et vers l'EXTERIEUR : c'est le geste de qui tient un outil sans s'en
 # servir.
 ANGLE_OUTIL = 24.0
+# LA MAIN QUI SERRE EST CELLE DU REPOS, et l'objet passe DERRIERE elle.
+#
+# C'est la seule facon de faire une vraie prise avec les images qu'on a. La
+# pose 'haut' est une paume grande ouverte, doigts tendus : un outil pose
+# dessus FLOTTE, quoi qu'on fasse, parce qu'une main ouverte ne serre rien.
+# La pose de repos, elle, est une main DEJA REFERMEE, vue de dessus ; il
+# suffit de faire passer le manche derriere elle pour qu'il ressorte au-
+# dessus des phalanges et au-dessous de l'auriculaire -- c'est exactement
+# ce qu'on voit de ses propres mains quand on tient une hache.
+#
+# Ou passe le manche, mesure sur HandIdle.png : au milieu du poing (en
+# parts de la largeur de l'image) et a mi-hauteur de la main, entre le haut
+# des doigts replies (0,274) et le poignet (0,13), en parts de la hauteur
+# de l'IMAGE des mains depuis son bas.
+PRISE_FX = (0.397, 0.601)
+PRISE_FY = 0.202
 # La taille reelle qui remplit la boite de reference, et de combien on
 # RAPPROCHE les tailles les unes des autres (voir items.TAILLE_EN_MAIN) :
 # 1 les montrerait telles quelles (une baie invisible), 0 les egaliserait
 # comme avant. La racine carree tient le milieu.
 TAILLE_REF = 0.12
 COMPRESSION = 0.5
-ECHELLE_MIN, ECHELLE_MAX = 0.5, 3.4
+# On n'a RIEN A RAPETISSER : les petits objets (baie, pierre, silex)
+# etaient deja a la bonne taille dans la main. C'est la hache qui etait
+# trop petite. L'echelle ne descend donc jamais sous 1.
+ECHELLE_MIN, ECHELLE_MAX = 1.0, 3.4
 
 
 def _mesure_objet(brut):
     """Ce que l'image dit de l'objet : sa part de pixels vus, son centre de
     masse, son allongement et PAR OU ON LE PREND.
 
-    `masse_y` et la prise sont comptes DEPUIS LE HAUT du PNG, comme les
+    `masse_y` et `bout` sont comptes DEPUIS LE HAUT du PNG, comme les
     lignes de l'image ; `tete` est la direction (degres, a l'ecran, qui
-    monte) du manche vers le bout libre.
+    monte) du manche vers le bout libre, et `long` la longueur de l'objet
+    le long de cet axe, en parts de la HAUTEUR de l'image.
 
     Les valeurs de repli disent "image pleine, centree, sans manche" : un
     objet qu'on ne sait pas mesurer est pose comme avant."""
     defaut = {"couverture": 1.0, "masse_y": 0.5, "elong": 1.0,
-              "prise": (0.5, 0.5), "tete": 90.0}
+              "bout": (0.5, 0.5), "tete": 90.0, "long": 1.0}
     try:
         octets = brut.data
         w, h = int(brut.width), int(brut.height)
@@ -253,10 +287,10 @@ def _mesure_objet(brut):
         else:
             manche_bas = (sum(p[2] for p in bas) / len(bas)
                           < sum(p[2] for p in haut) / len(haut))
-        sens = 1.0 if manche_bas else -1.0
-        u = (umin if manche_bas else umax) + sens * _PART_PRISE * long_
-        out["prise"] = ((cx + u * co) / float(w),
-                        1.0 - (cy + u * si) / float(h))
+        u = umin if manche_bas else umax
+        out["bout"] = ((cx + u * co) / float(w),
+                       1.0 - (cy + u * si) / float(h))
+        out["long"] = long_ / float(h)
         out["tete"] = math.degrees(axe if manche_bas
                                    else axe + math.pi) % 360.0
         return out
@@ -273,7 +307,7 @@ def _item_mesure(name):
     versions du jeu). On paie donc le decodage une fois, et seulement pour
     les objets qu'on prend VRAIMENT en main."""
     vide = {"couverture": 1.0, "masse_y": 0.5, "elong": 1.0,
-            "prise": (0.5, 0.5), "tete": 90.0}
+            "bout": (0.5, 0.5), "tete": 90.0, "long": 1.0}
     if not name:
         return None, vide
     path = items.image_path(name)
@@ -570,15 +604,20 @@ class PlayerHands(Widget):
         with self.canvas:
             PushMatrix()
             self._shift = Translate(0, 0, 0)
-        # CHAQUE MAIN EST DESSINEE A PART : les deux n'ont pas la meme pose
-        # (celle qui tient garde la paume ouverte, l'autre se referme).
+        # CHAQUE MAIN EST DESSINEE A PART : les trois cas n'ont pas la meme
+        # pose, et celle qui SERRE un manche a son objet dessine DERRIERE
+        # elle, dans le meme groupe -- il suit donc son geste tout seul.
         self._geste_tr = [[], []]
         for i in (0, 1):
             with self.canvas:
                 PushMatrix()
                 self._geste_tr[i].append(Translate(0, 0, 0))
-            self._draw_half(i, REST_STATE if self._items[i] is not None
-                            else IDLE_STATE)
+            if self._serre(i):
+                self._dessine_tenu(i)
+                self._draw_half(i, IDLE_STATE)
+            else:
+                self._draw_half(i, REST_STATE if self._items[i] is not None
+                                else IDLE_STATE)
             with self.canvas:
                 PopMatrix()
         with self.canvas:
@@ -586,6 +625,94 @@ class PlayerHands(Widget):
         self._draw_items()
         self._apply_motion()
         self._place_gestes()
+
+    def _serre(self, index):
+        """La main `index` SERRE-t-elle ce qu'elle tient ?
+
+        Oui pour ce qui a un MANCHE (allonge : une hache, une lance, un
+        baton, un os) et pour les outils, qu'on empoigne meme courts (un
+        couteau de pierre). Non pour ce qui se POSE dans la paume : une
+        baie, une pierre, une feuille, une corde roulee."""
+        nom = self._items[index]
+        if not nom:
+            return False
+        tex, m = _item_mesure(nom)
+        if tex is None:
+            return False
+        return m["elong"] >= ELONG_OUTIL or items.is_tool(nom)
+
+    def _hauteur_mains(self):
+        """Hauteur a l'ecran de l'image des mains (voir _draw_half) : elle
+        est posee au bas du widget et mise a sa LARGEUR, donc sa hauteur ne
+        suit pas celle de l'ecran."""
+        tex = _hud_texture(IDLE_STATE, self._glove) \
+            or _hud_texture(REST_STATE, self._glove)
+        if tex is None:
+            return self.height
+        return self.width * max(1, tex.height) / max(1, tex.width)
+
+    def _taille_objet(self, nom, tex, m, serre=False):
+        """(largeur, hauteur) a l'ecran de l'image d'un objet tenu.
+
+        POSE DANS LA PAUME, c'est le CADRE de l'image qui recoit la taille
+        voulue. SERRE, c'est l'objet LUI-MEME : un os pose en diagonale au
+        milieu d'une image carree n'occupe que la moitie de son cadre, et
+        un manche mis a la taille du cadre ressortait deux fois trop court.
+        On ne change que ce cas : les objets poses gardent la taille qu'ils
+        avaient."""
+        cote = self.BOITE_OBJET * min(self.width, self.height) \
+            * _echelle_objet(nom, m["couverture"])
+        tw, th = tex.size
+        if serre:
+            cote = max(cote, PRISE_MIN * self._hauteur_mains())
+            ih = cote / max(0.2, m["long"])
+            return ih * tw / max(1, th), ih
+        if tw >= th:
+            return cote, cote * th / max(1, tw)
+        return cote * tw / max(1, th), cote
+
+    def _dessine_tenu(self, index):
+        """Dessine DERRIERE la main `index` l'objet qu'elle serre.
+
+        Le point de prise de l'image (voir _mesure_objet) est amene au
+        milieu du poing, et l'objet tourne pour que sa tete -- le fer, la
+        pointe -- monte vers l'EXTERIEUR. Le poing couvre alors le milieu
+        du manche, qui ressort au-dessus des phalanges et au-dessous de la
+        main : la prise se lit sans qu'on ait eu a redessiner un doigt."""
+        nom = self._items[index]
+        tex, m = _item_mesure(nom)
+        if tex is None:
+            return
+        iw, ih = self._taille_objet(nom, tex, m, serre=True)
+        haut = self._hauteur_mains()
+        px = self.x + PRISE_FX[index] * self.width
+        py = self.y + PRISE_FY * haut
+        vise = (90.0 - ANGLE_OUTIL) if index else (90.0 + ANGLE_OUTIL)
+        angle = (vise - m["tete"] + 180.0) % 360.0 - 180.0
+        # ON POSE LE BOUT DU MANCHE, pas la main : il doit ressortir SOUS le
+        # poing de `depasse` pixels, et la prise tombe alors d'elle-meme au
+        # milieu de la main. Tourner autour du bout le laisse en place, et
+        # l'objet part de la dans la direction voulue.
+        longueur = m["long"] * ih
+        if m["elong"] >= ELONG_OUTIL:
+            depasse = max(DEPASSE_MIN * longueur,
+                          min(DEPASSE_MAIN * haut, DEPASSE_MAX * longueur))
+        else:
+            # PAS DE MANCHE (un couteau de pierre, un eclat) : le poing se
+            # ferme au milieu de l'objet, et non pres d'un bout.
+            depasse = 0.5 * longueur
+        rad = math.radians(vise)
+        bx = px - depasse * math.cos(rad)
+        by = py - depasse * math.sin(rad)
+        fx, fy = m["bout"]
+        with self.canvas:
+            PushMatrix()
+            Rotate(angle=angle, origin=(bx, by))
+            Color(1, 1, 1, 1)
+            Rectangle(texture=tex,
+                      pos=(bx - fx * iw, by - (1.0 - fy) * ih),
+                      size=(iw, ih))
+            PopMatrix()
 
     def _draw_half(self, index, state):
         """Dessine UNE main (0 = gauche, 1 = droite) dans la pose demandee.
@@ -608,7 +735,10 @@ class PlayerHands(Widget):
                       size=(total_w / 2, total_h))
 
     def _draw_items(self):
-        """Dessine les objets tenus au-dessus du HUD."""
+        """Dessine au-dessus du HUD les objets POSES dans la paume.
+
+        Ceux qu'on SERRE n'y sont pas : ils passent derriere la main, et
+        sont donc dessines avec elle (voir _dessine_tenu)."""
         self.canvas.after.clear()
         self._shift_items = None
         if self.width <= 0 or self.height <= 0:
@@ -620,44 +750,29 @@ class PlayerHands(Widget):
         with self.canvas.after:
             PushMatrix()
             self._shift_items = Translate(0, 0, 0)
-        box = self.BOITE_OBJET * min(self.width, self.height)
         for i, name in enumerate(self._items):
+            if self._serre(i):
+                continue
             tex, m = _item_mesure(name)
             if tex is None:
                 continue
-            tw, th = tex.size
-            boite = box * _echelle_objet(name, m["couverture"])
-            if tw >= th:
-                iw, ih = boite, boite * th / max(1, tw)
-            else:
-                iw, ih = boite * tw / max(1, th), boite
-            # Le creux de la paume : c'est la que l'objet se tient.
+            iw, ih = self._taille_objet(name, tex, m)
+            # Le creux de la paume : c'est la que l'objet se pose. ON Y MET
+            # LE CENTRE DE MASSE, pas le centre du cadre. `masse_y` est
+            # compte depuis le HAUT du PNG et l'ecran monte, d'ou le
+            # retournement : une image lourde du bas (masse_y > 0,5) doit
+            # MONTER pour que sa masse tombe au creux de la main.
             px = self.x + self.HAND_FX[i] * self.width
             py = self.y + self.height * self.ITEM_FY
-            if m["elong"] >= ELONG_OUTIL:
-                # UN OUTIL SE PREND PAR SON MANCHE (voir _mesure_objet) :
-                # la main se ferme la, pas au milieu de l'objet, et la tete
-                # -- le fer, la pointe -- monte vers l'exterieur.
-                gx, gy = m["prise"]
-                gauche, bas = px - gx * iw, py - (1.0 - gy) * ih
-                vise = (90.0 - ANGLE_OUTIL) if i else (90.0 + ANGLE_OUTIL)
-                angle = (vise - m["tete"] + 180.0) % 360.0 - 180.0
-            else:
-                # ON POSE LE CENTRE DE MASSE DANS LA PAUME, pas le centre du
-                # cadre. `masse_y` est compte depuis le HAUT du PNG et
-                # l'ecran monte, d'ou le retournement : une image lourde du
-                # bas (masse_y > 0,5) doit MONTER pour que sa masse tombe au
-                # creux de la main.
-                gauche, bas = px - iw / 2.0, py - ih * (1.0 - m["masse_y"])
-                angle = 0.0
             with self.canvas.after:
                 # L'objet suit le geste de SA main (voir geste).
                 PushMatrix()
                 self._geste_tr[i].append(Translate(0, 0, 0))
-                if angle:
-                    Rotate(angle=angle, origin=(px, py))
                 Color(1, 1, 1, 1)
-                Rectangle(texture=tex, pos=(gauche, bas), size=(iw, ih))
+                Rectangle(texture=tex,
+                          pos=(px - iw / 2.0,
+                               py - ih * (1.0 - m["masse_y"])),
+                          size=(iw, ih))
                 PopMatrix()
         with self.canvas.after:
             PopMatrix()
