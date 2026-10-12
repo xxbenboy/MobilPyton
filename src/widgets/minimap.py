@@ -82,6 +82,25 @@ class MiniMap(Widget):
                         Rectangle(pos=(ox + i * cell, draw_y),
                                   size=(cell - 1, cell - 1))
 
+            # LE GIBIER PISTE : la case ou la bete a ete retrouvee, marquee
+            # d'une croix rouge le temps d'aller la rejoindre (voir
+            # GameState.suit_les_traces). Elle s'efface d'elle-meme ; sans
+            # cela, lire des traces ne servirait qu'a entendre une phrase.
+            gibier = state.gibier_sur_la_carte()
+            if gibier is not None:
+                gx, gy = gibier
+                i, j = gx - rx0, gy - ry0
+                if 0 <= i < n_w and 0 <= j < n_h:
+                    tx = ox + i * cell
+                    ty = oy + (n_h - 1 - j) * cell
+                    m = cell * 0.22
+                    Color(0.92, 0.18, 0.14, 0.95)
+                    Line(points=[tx + m, ty + m, tx + cell - m,
+                                 ty + cell - m], width=1.8)
+                    Line(points=[tx + m, ty + cell - m, tx + cell - m,
+                                 ty + m], width=1.8)
+                    Line(rectangle=(tx, ty, cell - 1, cell - 1), width=1.4)
+
             # Marqueur du joueur (carre dore), TOUJOURS au milieu.
             mx = ox + (n_w // 2) * cell
             my = oy + (n_h - 1 - n_h // 2) * cell

@@ -38,10 +38,11 @@ from src.widgets.route import ZonesVoisines
 from src.game_state import CARDINALS
 
 from src import items
+from src import animaux
 from src.widgets.player_hands import PlayerHands
 from src.widgets.action_mode import (Approche, Clignote, JeuBaies, JeuEau,
-                                     JeuArbre, JeuSouche, DUREE_APPROCHE,
-                                     doux)
+                                     JeuArbre, JeuSouche, JeuChasse,
+                                     JeuPiste, DUREE_APPROCHE, doux)
 from src.widgets.insects import InsectLayer, FireflyLayer
 from src.widgets.weather import WeatherLayer, LightningLayer
 from src.widgets.icon_button import IconButton
@@ -150,6 +151,13 @@ ACTIONS = [
     {"label": "Arracher une souche", "icon": "wood",
      "name": "Arracher\nune souche", "minutes": 45, "energy": -25,
      "need_axe": True, "type": "stump"},
+    # LA CHASSE et le PISTAGE : comme la souche, ils n'ont pas de bouton --
+    # seul le mode action s'en sert, pour le temps et l'effort qu'ils
+    # coutent. On ne chasse pas depuis un menu, on chasse ce qu'on voit.
+    {"label": "Chasser", "icon": "food", "name": "Chasser",
+     "minutes": 20, "energy": -18, "type": "hunt"},
+    {"label": "Pister", "icon": "explore", "name": "Pister",
+     "minutes": 25, "energy": -12, "type": "track"},
     # A mains nues : une baie d'un buisson de la case, en main, comme une
     # trouvaille d'exploration (voir GameState.pick_berry). Sans baie a
     # cueillir, le bouton est grise.
@@ -1221,6 +1229,33 @@ class GameScreen(Screen):
             else:
                 raisons.append("Il faut une hache en main\n"
                                "pour arracher une souche.")
+        # LE GIBIER : il faut une arme de jet en main (voir
+        # items.ARMES_DE_CHASSE). Sans arme, on le voit et on le regarde
+        # partir -- c'est aussi une facon d'apprendre qu'il en faut une.
+        betes = state.betes_here()
+        if betes:
+            arme = next((n for n in state.hands
+                         if items.arme_de_chasse(n)), None)
+            if arme is None:
+                raisons.append("Il faut une lance en main\npour chasser.")
+            else:
+                for bete in betes:
+                    cell = (bete["gx"], bete["gy"])
+                    gros, _places = self._gros_a_l_ecran(cell)
+                    if gros is None or gros.get("kind") != "bete":
+                        continue
+                    cibles.append({"kind": "bete", "cell": cell,
+                                   "boite": gros["boite"], "gros": gros,
+                                   "bete": bete, "arme": arme})
+        # LES TRACES d'une bete en fuite : on les lit a mains nues.
+        for piste in state.pistes_here():
+            cell = ("piste", int(piste.get("gx", 0)), int(piste.get("gy", 0)))
+            gros, _places = self._gros_a_l_ecran(cell)
+            if gros is None:
+                continue
+            cibles.append({"kind": "piste", "cell": cell,
+                           "boite": gros["boite"], "gros": gros,
+                           "piste": piste})
         if not cibles and not raisons:
             raisons.append("Rien a faire ici\npour l'instant.")
         return cibles, (raisons[0] if raisons else None)
@@ -1407,12 +1442,22 @@ class GameScreen(Screen):
         scene.set_brume(self.background.couleur_ciel(scene.hauteur_horizon()))
         scene.set_wind(state.effective_weather())
 
+    def _oublie_une_bete(self, cell):
+        """Les panneaux deja dessines oublient la bete `cell` tout de
+        suite (voir ZoneScenery.cache_gros) ; ceux qui se redessineront
+        ensuite la sautent d'eux-memes (GameState.bete_cachee)."""
+        for plaque in self.panorama.plaques:
+            plaque.scene.cache_gros(cell)
+
     def _oublie_decor(self):
         """Tous les panneaux se redessineront depuis la partie (des baies
         cachees par un mini-jeu reviennent), ceux hors de vue d'avance."""
         for plaque in self.panorama.plaques:
             plaque.scene.oublie()
         self._case_vue = None
+        state = App.get_running_app().game_state
+        if state is not None:
+            state.bete_cachee = None
 
     def _approche(self, cible):
         """La camera avance vers la cible touchee ; son mini-jeu suit."""
@@ -1438,6 +1483,27 @@ class GameScreen(Screen):
             cx = max(0.25 * w, min(0.75 * w, (x0 + x1) / 2.0))
             self.monde.vise((cx, y0 + 0.30 * (y1 - y0)), (0.5 * w, 0.45 * h),
                             1.5)
+        elif kind == "bete":
+            # ON NE COLLE PAS AU GIBIER : la camera s'avance juste assez
+            # pour qu'on le voie bien, et on garde la distance du jet -- une
+            # bete grossie jusqu'a remplir l'ecran se tirerait toute seule.
+            x0, y0, x1, y1 = cible["boite"]
+            # LE DECOR CESSE DE LA DESSINER : c'est le mini-jeu qui la
+            # montre, et qui l'anime. On le dit a la PARTIE et non aux
+            # panneaux : un panneau qui revient a l'ecran se redessine
+            # depuis elle, et la bete y reparaissait en double.
+            state = App.get_running_app().game_state
+            if state is not None:
+                state.bete_cachee = cible["bete"].get("id")
+            self._oublie_une_bete(cible["cell"])
+            zoom = max(1.3, min(2.4, 0.42 * h / max(1.0, y1 - y0)))
+            self.monde.vise(((x0 + x1) / 2.0, (y0 + y1) / 2.0),
+                            (0.5 * w, 0.52 * h), zoom)
+        elif kind == "piste":
+            # On s'accroupit sur les traces : elles sont au sol, tout pres.
+            x0, y0, x1, y1 = cible["boite"]
+            self.monde.vise(((x0 + x1) / 2.0, (y0 + y1) / 2.0),
+                            (0.5 * w, 0.40 * h), 2.2)
         elif kind == "souche":
             # Une souche est basse : la camera s'en approche plus pres que
             # d'un arbre, et vise son milieu.
@@ -1493,6 +1559,16 @@ class GameScreen(Screen):
             haut = self.monde.ecran(0, c["boite"][3])[1]
             self._jeu = JeuEau(self, c, self._fin_jeu, self._dit_action,
                                bas, haut)
+        elif kind == "bete":
+            arme = c["arme"]
+            reglages = items.arme_de_chasse(arme)
+            main = state.hands.index(arme)
+            d = animaux.distance_au_joueur(c["bete"])
+            self._jeu = JeuChasse(self, c, self._fin_jeu, self._dit_action,
+                                  main, arme, d, reglages["portee"],
+                                  reglages["charge"], reglages["fenetre"])
+        elif kind == "piste":
+            self._jeu = JeuPiste(self, c, self._fin_jeu, self._dit_action)
         elif c["kind"] == "souche":
             if items.AXE_ITEM not in state.hands:
                 self._mode_action_quitte()
@@ -1545,6 +1621,12 @@ class GameScreen(Screen):
             action = by_label["Chercher a manger"]
         elif "eau" in resultat:
             action = by_label["Boire"]
+        elif "chasse" in resultat:
+            action = by_label["Chasser"]
+            self._applique_chasse(state, c, resultat)
+        elif "piste" in resultat:
+            action = by_label["Pister"]
+            self._show_message(state.suit_les_traces(c["piste"]))
         elif "souche" in resultat:
             action = by_label["Arracher une souche"]
             if state.arrache_souche(c["cell"]) is not None:
@@ -1564,8 +1646,39 @@ class GameScreen(Screen):
             action = by_label["Couper du bois"]
         self._oublie_decor()
         App.get_running_app().autosave()
-        self._recule(action, items.AXE_ITEM
-                     if "arbre" in resultat or "souche" in resultat else None)
+        outil = None
+        if "arbre" in resultat or "souche" in resultat:
+            outil = items.AXE_ITEM
+        elif "chasse" in resultat:
+            outil = c.get("arme")
+        self._recule(action, outil)
+
+    def _applique_chasse(self, state, cible, resultat):
+        """Le jet est parti : la bete tombe, saigne, ou detale.
+
+        L'ARME S'USE d'un jet. On ne la fait pas tomber au sol pour la
+        ramasser ensuite : le joueur va la rechercher, cela fait partie du
+        temps de l'action -- lui imposer en plus un detour par le tas
+        d'objets n'ajouterait que des allers-retours."""
+        bete = cible["bete"]
+        arme = cible.get("arme")
+        main = state.hands.index(arme) if arme in state.hands else None
+        if main is not None:
+            state.use_tool(main)
+        if resultat.get("touche"):
+            morte, butin = state.touche_bete(bete)
+            nom = animaux.nom_de(bete)
+            if morte:
+                pris = ", ".join("%d %s" % (n, items.display_name(k).lower())
+                                 for k, n in sorted(butin.items()))
+                self._show_message("Un %s abattu !\n%s" % (nom, pris))
+            else:
+                self._show_message("Le %s est touche, mais il fuit.\n"
+                                   "Suis le sang." % nom)
+        else:
+            state.rate_la_bete(bete)
+            self._show_message("Manque. Le %s a file."
+                               % animaux.nom_de(bete))
 
     def _recule(self, action=None, outil=None):
         """La camera recule, le HUD revient ; puis le temps de l'action."""

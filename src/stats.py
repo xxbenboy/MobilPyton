@@ -60,6 +60,10 @@ ACTION_XP = {
     "nuit": ("discretion", 3),
     "explorer": ("vitesse", 2),
     "ramasser": ("agilite", 1),
+    # LA CHASSE : abattre une bete est rare et difficile, la pister demande
+    # de passer inapercu -- c'est enfin a quoi sert la discretion.
+    "chasser": ("force", 8),
+    "pister": ("discretion", 4),
 }
 
 

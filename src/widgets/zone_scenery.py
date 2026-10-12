@@ -28,7 +28,7 @@ from kivy.graphics import (Color, Ellipse, Rectangle, Triangle, Line, Quad,
                            Mesh, RenderContext, PushMatrix, PopMatrix, Rotate,
                            Canvas)
 
-from src import world, items
+from src import world, items, animaux
 from src.widgets import textures, pbr, foliage, daylight
 from src.widgets import horizon
 from src.widgets import animated_background
@@ -39,6 +39,7 @@ from src.widgets.textures import paint, paint_color, tiled_coords
 from src.widgets.installed_layer import grid_to_screen
 from src.widgets import build_grid
 from src.widgets import log_skin
+from src.widgets import bete_dessin
 
 _ZONE_SEED = {"Foret": 1, "Plaine": 2, "Montagne": 3, "Lac": 4}
 
@@ -774,6 +775,12 @@ MARGE_SEMIS = 0.08
 PASSAGE_SOUS_SOL = 0.5
 
 
+# DES TRACES VUES EN ENFILADE : le sol fuit vers l'horizon, une
+# empreinte ronde y serait un trou. On les ecrase donc en hauteur
+# (voir bete_dessin.glyphe_piste).
+APLATI_PISTE = 0.42
+
+
 def ecart(a):
     """Un angle ramene entre -180 et 180 degres."""
     return (a + 180.0) % 360.0 - 180.0
@@ -995,6 +1002,11 @@ class ZoneScenery(Widget):
         # lancement.
         self._souches = []
         self._troncs = []
+        # LES BETES de la case et les TRACES qu'elles ont laissees
+        # (voir src/animaux.py). Initialisees ici et pas seulement
+        # dans set_scene : _redraw part des la premiere mise en page.
+        self._betes = []
+        self._pistes = []
         self._versant = None
         # LE FOND (voir panorama.FondHorizon) : la ou ce panneau pose ses
         # silhouettes d'horizon, derriere le terrain. None : dans son propre
@@ -1190,7 +1202,8 @@ class ZoneScenery(Widget):
     def set_scene(self, zone_type, seed=0, taken=None, blocked_grid=None,
                   installed=None, removed_grid=None, neighbours=None,
                   berge=None, baies=None, direction=0, sans_sol=False,
-                  relief=None, souches=None, troncs=None):
+                  relief=None, souches=None, troncs=None,
+                  betes=None, pistes=None):
         """Vue a l'horizon (sol en bas + ciel).
 
         `taken` = {nom: nombre deja recolte} pour masquer les objets recoltes.
@@ -1225,7 +1238,10 @@ class ZoneScenery(Widget):
         de HUIT_VOISINS, None hors de la carte) : il dessine le versant.
         `souches` = [(gx, gy), ...] : les souches des arbres abattus, pas
         encore arrachees ; `troncs` = [((ax, ay), (bx, by)), ...] : leurs
-        troncs, couches a cote (voir GameState.chop_tree)."""
+        troncs, couches a cote (voir GameState.chop_tree).
+        `betes` = [(espece, gx, gy, cap), ...] : le gibier present sur la
+        case ; `pistes` = [(espece, gx, gy, dx, dy, sang), ...] : les traces
+        de celui qui s'est enfui (voir GameState.betes_here)."""
         # Un appel direct ne dit pas de quelle case il s'agit : montre_la_case
         # ne peut plus rien supposer de ce qui est dessine.
         self._cle_case = None
@@ -1259,6 +1275,10 @@ class ZoneScenery(Widget):
         self._souches = [(int(c[0]), int(c[1])) for c in (souches or ())]
         self._troncs = [((float(a[0]), float(a[1])), (float(b[0]), float(b[1])))
                         for a, b in (troncs or ())]
+        self._betes = [(e, int(gx), int(gy), float(cap))
+                       for e, gx, gy, cap in (betes or ())]
+        self._pistes = [(e, int(gx), int(gy), int(dx), int(dy), bool(sg))
+                        for e, gx, gy, dx, dy, sg in (pistes or ())]
         self._direction = int(direction) % 4
         self._sans_sol = bool(sans_sol)
         self._regle_versant(relief)
@@ -1333,6 +1353,16 @@ class ZoneScenery(Widget):
             # souche arrachee disparaisse du decor.
             "souches": tuple(state.souches_here()),
             "troncs": tuple(state.troncs_here()),
+            # LE GIBIER : dans la cle, donc la scene se refait des qu'une
+            # bete fait un pas -- c'est elle qui la montre.
+            "betes": tuple((b["espece"], b["gx"], b["gy"],
+                            round(b.get("cap", 0.0), 1))
+                           for b in state.betes_here()),
+            "pistes": tuple((p["espece"], p.get("gx", world.CENTRE_GRILLE),
+                             p.get("gy", world.CENTRE_GRILLE),
+                             p.get("dx", 0), p.get("dy", 0),
+                             bool(p.get("sang")))
+                            for p in state.pistes_here()),
             "direction": direction % 4,
             "sans_sol": bool(sans_sol),
             # Les huit cases autour : le versant, la rive, la foret voisine.
@@ -4515,6 +4545,7 @@ class ZoneScenery(Widget):
 
         items += [e[1:] for e in abattus]   # les plus proches, devant tout
         items += self._installed_items()     # feu de camp... a leur profondeur
+        items += self._betes_items()         # le gibier, a sa distance
         items += self._edge_items()          # la case d'a cote, qui deborde
         self._dessine(items)
 
@@ -4526,6 +4557,78 @@ class ZoneScenery(Widget):
         jit = random.Random(f"{self._seed}:{gx}:{gy}:big")
         haut = jit.uniform(0.85, 1.10)
         return haut, jit.random() < 0.5
+
+    # UNE BETE A LA TAILLE QU'ELLE A. Les arbres de la scene mesurent
+    # environ HAUTEUR_ARBRE metres et occupent toute la hauteur de l'ecran
+    # au plus pres ; un chevreuil de 78 cm en occupe donc moins d'un
+    # dixieme. Le recul est le meme que pour eux (le 0,58 de _foret) : si
+    # une bete retrecissait autrement qu'un arbre, elle flotterait.
+    HAUTEUR_ARBRE = 9.0
+    RECUL_BETE = 0.58
+
+    def _betes_items(self):
+        """LE GIBIER de la case, pret a etre trie avec le reste du decor :
+        [(cle de tri, dessin), ...].
+
+        Chaque bete est posee sur SA cellule de la grille, comme un arbre :
+        meme projection, meme recul, meme ordre de recouvrement -- elle
+        passe donc derriere ce qui est devant elle, et c'est ce qui fait
+        qu'elle est DANS le paysage et non dessus.
+
+        Sa boite est notee comme celle d'un gros element (_note_gros) : le
+        mode action la retrouve par sa cellule et la fait clignoter."""
+        out = []
+        w, h, x0, y0 = self.width, self.height, self.x, self.y
+        if w <= 0 or h <= 0:
+            return out
+        for espece, gx, gy, cap in self._betes:
+            azimut, distance = polaire(gx, gy)
+            if not self.vu(azimut) or (gx, gy) in self._gros_caches:
+                continue
+            fx, fy, _gs = self.grille(gx, gy)
+            fiche = animaux.ESPECES.get(espece)
+            if fiche is None:
+                continue
+            haut = (fiche["hauteur"] / self.HAUTEUR_ARBRE) * h * (
+                1.0 - self.RECUL_BETE * profondeur(distance))
+            bx, bb = x0 + fx * w, y0 + fy * h
+            # DE QUEL COTE ELLE REGARDE : son cap, vu depuis le joueur. Une
+            # bete qui s'eloigne de nous est de profil fuyant, celle qui
+            # traverse montre son flanc.
+            sens = 1.0 if math.sin(math.radians(cap - azimut)) >= 0 else -1.0
+            self._cellule = (gx, gy)
+            b = bete_dessin.boite(espece, bx, bb, haut, sens)
+            self._note_gros("bete", (b[0] + b[2]) / 2.0, bb,
+                            b[2] - b[0], b[3] - b[1])
+            # SA HAUTEUR AU GARROT, et pas celle de sa boite : c'est elle
+            # qui dessine la bete (voir bete_dessin.dessine), et une boite
+            # porte en plus les bois, les oreilles et les pattes.
+            self._gros[(gx, gy)]["espece"] = espece
+            self._gros[(gx, gy)]["haut"] = haut
+            out.append((bb, lambda espece=espece, bx=bx, bb=bb, haut=haut,
+                        sens=sens: bete_dessin.dessine(espece, bx, bb, haut,
+                                                       sens)))
+        # LES TRACES, a plat sur le sol : elles passent sous tout le reste.
+        for espece, gx, gy, dx, dy, sang in self._pistes:
+            azimut, distance = polaire(gx, gy)
+            if not self.vu(azimut):
+                continue
+            fx, fy, gs = self.grille(gx, gy)
+            px, py = x0 + fx * w, y0 + fy * h
+            cote = gs * w * 2.2
+            # Le nord du monde descend quand gy monte (voir
+            # animaux.direction_lisible) : les foulees montrent le bon cap.
+            cap = math.degrees(math.atan2(dx, -dy)) if (dx or dy) else 0.0
+            self._cellule = ("piste", gx, gy)
+            self._gros[("piste", gx, gy)] = {
+                "kind": "piste", "cx": px, "base": py, "espece": espece,
+                "boite": (px - cote / 2.0, py - cote / 3.0,
+                          px + cote / 2.0, py + cote / 3.0)}
+            out.append((py + cote * 0.34,
+                        lambda px=px, py=py, cote=cote, sang=sang, cap=cap:
+                        bete_dessin.glyphe_piste(px, py, cote, sang, cap,
+                                                 aplati=APLATI_PISTE)))
+        return out
 
     def _souches_et_troncs(self):
         """LES SOUCHES ET LES TRONCS COUCHES des arbres abattus, prets a etre
@@ -5942,6 +6045,7 @@ class ZoneScenery(Widget):
 
         # Rendu trie : plus loin (base haute) d'abord, plus proche par-dessus.
         items += self._installed_items()     # feu de camp... a leur profondeur
+        items += self._betes_items()         # le gibier, a sa distance
         items += self._edge_items()          # la case d'a cote, qui deborde
         self._dessine(items)
 
@@ -6070,6 +6174,7 @@ class ZoneScenery(Widget):
                           lambda rx=rx, ry=ry, rr=rr, d=d:
                           self._bloc(rx, ry, rr, d)))
         items += self._installed_items()
+        items += self._betes_items()
         self._dessine(items)
 
     def _pierre_versant(self, sx, sy, rr, d, s_):
@@ -6342,6 +6447,7 @@ class ZoneScenery(Widget):
                 continue
             items.extend(self._pepite_de_grille(rang, depth, px, pb, jit))
         items += self._installed_items()
+        items += self._betes_items()
         self._dessine(items)
 
     def _plantes_de_berge(self, zone):

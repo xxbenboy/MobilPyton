@@ -28,6 +28,7 @@ from kivy.uix.floatlayout import FloatLayout
 from kivy.uix.widget import Widget
 
 from src.widgets.zone_scenery import dessine_grappe
+from src.widgets import bete_dessin
 
 FPS = 60.0
 DUREE_APPROCHE = 0.5        # la camera avance (et recule), en secondes
@@ -758,6 +759,348 @@ class JeuSouche(JeuArbre):
     RESULTAT = "souche"
 
 
+class JeuChasse(MiniJeu):
+    """LA CHASSE A L'ARME DE JET (la lance ; l'arc le jour ou il existera).
+
+    LE DOIGT FAIT DEUX CHOSES A LA FOIS, et c'est tout le jeu :
+
+      - il VISE -- un reticule le suit, et la bete, elle, ne tient pas en
+        place : elle broute, releve la tete, fait un pas de cote ;
+      - il CHARGE -- tant qu'il appuie, une jauge monte le long du bord.
+        Une bande verte y marque la force qu'il faut POUR CETTE DISTANCE :
+        trop mou, le fer pique le sol devant la bete ; trop fort, il passe
+        au-dessus.
+
+    On lache au bon moment, le reticule sur elle. C'est exactement le geste
+    -- on ne lance pas un epieu en regardant sa main.
+
+    La bete est RETIREE DU DECOR le temps du jeu (ZoneScenery.cache_gros) et
+    redessinee ici : c'est la seule facon de l'animer sans refaire la scene
+    soixante fois par seconde (meme procede que l'arbre qui tombe).
+    """
+
+    TEXTE = "Vise la bete, charge ton jet, lache au bon moment"
+    RATE_COURT = "Trop mou : le fer pique devant elle."
+    RATE_LONG = "Trop fort : il passe au-dessus."
+    RATE_COTE = "A cote."
+    TOUCHE = "Touchee !"
+    # La jauge, en parts de l'ecran : sa place et sa taille.
+    JAUGE_X, JAUGE_BAS, JAUGE_HAUT, JAUGE_LARGE = 0.085, 0.26, 0.78, 0.030
+    # Le jet part quand on lache, et met ce temps a arriver.
+    VOL = 0.42
+    # Le temps que la bete met a detaler, une fois le coup manque.
+    FUITE = 0.55
+    # L'ecart de visee tolere, en parts de la largeur de la bete : on ne
+    # demande pas le pixel, on demande la bete.
+    LARGE_VISEE = 0.62
+
+    def __init__(self, ecran, cible, fini, consigne, main, arme, distance,
+                 portee, charge, fenetre):
+        super().__init__(ecran, cible, fini, consigne)
+        self.main = main                 # la main qui tient l'arme
+        self.arme = arme
+        self.charge_duree = max(0.3, float(charge))
+        self.fenetre = max(0.04, float(fenetre))
+        # LA FORCE QU'IL FAUT : la distance rapportee a la portee de l'arme.
+        # Bornee : meme a bout portant il faut armer son bras, et au-dela de
+        # la portee on ne peut pas faire mieux que tout donner.
+        self.visee = max(0.22, min(0.94, float(distance) / max(1e-6, portee)))
+        g = cible["gros"]
+        x0, y0, x1, y1 = cible["boite"]
+        self.espece = g.get("espece", "Chevreuil")
+        self.bx = (x0 + x1) / 2.0
+        self.bb = g["base"]
+        self.bhaut = max(4.0, y1 - y0)       # toute la bete, bois compris
+        self.blarge = max(4.0, x1 - x0)
+        # LA HAUTEUR AU GARROT, celle qui dessine la bete : sa boite, elle,
+        # porte en plus les bois, les oreilles et les pattes.
+        self.garrot = max(3.0, float(g.get("haut", self.bhaut * 0.63)))
+        self.sens = 1.0 if self.bx < ecran.width / 2.0 else -1.0
+        self._t = 0.0
+        self.force = None                # None tant que le doigt n'appuie pas
+        self.doigt = None
+        self.phase = "vise"              # vise -> vol -> fin
+        self.vol = 0.0
+        self.impact = None
+        self.touche_au_but = False
+        self.fuite = 0.0
+
+    def demarre(self):
+        super().demarre()
+        self.consigne(self.TEXTE)
+
+    # -- ou est la bete a cet instant ----------------------------------- #
+    def _ecart_bete(self):
+        """Le va-et-vient de la bete : elle broute, puis releve la tete.
+
+        Deux sinus de periodes differentes, comme le vol des lucioles : le
+        mouvement ne se repete pas assez vite pour qu'on l'anticipe."""
+        t = self._t
+        dx = (0.26 * math.sin(t * 0.9) + 0.10 * math.sin(t * 2.3 + 1.1)) \
+            * self.blarge
+        dy = 0.04 * self.bhaut * math.sin(t * 1.7 + 0.6)
+        return dx, dy
+
+    def _place_bete(self):
+        app = self.ecran.monde
+        dx, dy = self._ecart_bete()
+        return app.ecran(self.bx + dx, self.bb + dy)
+
+    # -- le doigt -------------------------------------------------------- #
+    def touche(self, touch):
+        if self.phase != "vise":
+            return True
+        self.doigt = (touch.x, touch.y)
+        self.force = 0.0
+        return True
+
+    def bouge(self, touch):
+        if self.phase == "vise" and self.doigt is not None:
+            self.doigt = (touch.x, touch.y)
+        return True
+
+    def leve(self, touch):
+        if self.phase != "vise" or self.force is None:
+            return True
+        self.doigt = (touch.x, touch.y)
+        self._lance()
+        return True
+
+    def _lance(self):
+        """Le jet part : on sait deja s'il portera."""
+        bx, by = self._place_bete()
+        ech = self.ecran.monde.echelle()
+        larg = self.blarge * ech * self.LARGE_VISEE
+        haut = self.bhaut * ech
+        fx, fy = self.doigt
+        dedans = (abs(fx - bx) <= larg / 2.0 and by <= fy <= by + haut)
+        ecart = abs(self.force - self.visee) / self.fenetre
+        self.touche_au_but = bool(dedans and ecart <= 1.0)
+        # Ou le fer tombe : sur la bete si c'est bon, sinon court ou long.
+        if self.touche_au_but:
+            self.impact = (bx, by + haut * 0.55)
+        elif not dedans:
+            self.impact = (fx, max(self.ecran.y, fy))
+        elif self.force < self.visee:
+            self.impact = (bx, by - haut * 0.35)
+        else:
+            self.impact = (bx, by + haut * 1.5)
+        self.phase = "vol"
+        self.vol = 0.0
+        self.consigne("")
+
+    def _fin_du_vol(self):
+        if self.touche_au_but:
+            self.consigne(self.TOUCHE)
+        else:
+            bx, by = self._place_bete()
+            ech = self.ecran.monde.echelle()
+            if abs(self.impact[0] - bx) > self.blarge * ech * 0.5:
+                self.consigne(self.RATE_COTE)
+            elif self.force < self.visee:
+                self.consigne(self.RATE_COURT)
+            else:
+                self.consigne(self.RATE_LONG)
+        self.phase = "fin"
+        self.fuite = 0.0
+
+    # -- chaque image ---------------------------------------------------- #
+    def pas(self, dt):
+        self._t += dt
+        if self.phase == "vise" and self.force is not None:
+            # La jauge monte et BUTE EN HAUT : garder le doigt plus
+            # longtemps ne donne pas plus de force. Pour la bete la plus
+            # lointaine, il faut donc tenir jusqu'au bout.
+            self.force = min(1.0, self.force + dt / self.charge_duree)
+        elif self.phase == "vol":
+            self.vol += dt
+            if self.vol >= self.VOL:
+                self._fin_du_vol()
+        elif self.phase == "fin":
+            self.fuite += dt
+            if self.fuite >= self.FUITE and not self.termine:
+                self.termine_avec({"chasse": True,
+                                   "touche": self.touche_au_but})
+        self._dessine()
+
+    def _dessine(self):
+        app = self.ecran.monde
+        ech = app.echelle()
+        bx, by = self._place_bete()
+        haut = self.garrot * ech
+        self.sous.canvas.clear()
+        with self.sous.canvas:
+            if self.phase == "fin" and not self.touche_au_but:
+                # ELLE DETALE : un bond de cote, et elle sort du cadre.
+                p = doux(min(1.0, self.fuite / self.FUITE))
+                bx += self.sens * p * self.ecran.width * 0.55
+                by += math.sin(p * math.pi) * haut * 0.22
+            if self.phase == "fin" and self.touche_au_but:
+                # ELLE TOMBE : elle bascule sur le flanc, a sa place.
+                p = doux(min(1.0, self.fuite / self.FUITE))
+                PushMatrix()
+                Rotate(angle=-self.sens * 82.0 * p, origin=(bx, by))
+                bete_dessin.dessine(self.espece, bx, by, haut, self.sens)
+                PopMatrix()
+            else:
+                bete_dessin.dessine(self.espece, bx, by, haut, self.sens)
+        self.sur.canvas.clear()
+        with self.sur.canvas:
+            if self.phase == "vise":
+                self._viseur()
+                self._jauge()
+            elif self.phase == "vol":
+                self._trait_de_jet()
+
+    def _viseur(self):
+        if self.doigt is None:
+            return
+        x, y = self.doigt
+        r = 0.035 * self.ecran.height
+        Color(1.0, 0.95, 0.40, 0.95)
+        Line(circle=(x, y, r), width=1.8)
+        Line(points=[x - r * 1.5, y, x - r * 0.4, y], width=1.6)
+        Line(points=[x + r * 0.4, y, x + r * 1.5, y], width=1.6)
+        Line(points=[x, y - r * 1.5, x, y - r * 0.4], width=1.6)
+        Line(points=[x, y + r * 0.4, x, y + r * 1.5], width=1.6)
+
+    def _jauge(self):
+        """La force du jet, et la bande verte qu'il faut atteindre."""
+        h, w = self.ecran.height, self.ecran.width
+        x = self.ecran.x + self.JAUGE_X * w
+        y0 = self.ecran.y + self.JAUGE_BAS * h
+        y1 = self.ecran.y + self.JAUGE_HAUT * h
+        lg = self.JAUGE_LARGE * w
+        Color(0, 0, 0, 0.45)
+        Rectangle(pos=(x - lg / 2.0, y0), size=(lg, y1 - y0))
+        if self.force is not None:
+            Color(0.98, 0.84, 0.25, 0.95)
+            Rectangle(pos=(x - lg / 2.0, y0),
+                      size=(lg, (y1 - y0) * self.force))
+        # LA BANDE VERTE : la force qu'il faut pour cette distance-la. Elle
+        # se dessine PAR-DESSUS la jauge : sous elle, une jauge pleine la
+        # recouvrait, et l'on ne savait plus ou viser.
+        va = y0 + (y1 - y0) * max(0.0, self.visee - self.fenetre)
+        vb = y0 + (y1 - y0) * min(1.0, self.visee + self.fenetre)
+        Color(0.35, 0.95, 0.42, 0.45)
+        Rectangle(pos=(x - lg / 2.0, va), size=(lg, vb - va))
+        Color(0.25, 0.80, 0.32, 0.95)
+        Line(rectangle=(x - lg / 2.0, va, lg, vb - va), width=2.0)
+        if self.force is not None:
+            yy = y0 + (y1 - y0) * self.force
+            Color(1, 1, 1, 0.95)
+            Line(points=[x - lg, yy, x + lg, yy], width=2.2)
+        Color(1, 1, 1, 0.55)
+        Line(rectangle=(x - lg / 2.0, y0, lg, y1 - y0), width=1.4)
+
+    def _trait_de_jet(self):
+        """Le fer qui vole : il part de la main et file vers son point de
+        chute, en se raccourcissant -- il s'eloigne."""
+        if self.impact is None:
+            return
+        px, py = self.mains.paume(self.main)
+        ix, iy = self.impact
+        p = doux(min(1.0, self.vol / self.VOL))
+        x = px + (ix - px) * p
+        y = py + (iy - py) * p
+        n = math.hypot(ix - px, iy - py)
+        if n < 1e-6:
+            return
+        ln = (0.11 - 0.07 * p) * self.ecran.height
+        ux, uy = (ix - px) / n, (iy - py) / n
+        Color(0.42, 0.29, 0.17, 1)
+        Line(points=[x - ux * ln, y - uy * ln, x, y],
+             width=max(1.2, 0.004 * self.ecran.height))
+        Color(0.72, 0.72, 0.76, 1)
+        Line(points=[x - ux * ln * 0.22, y - uy * ln * 0.22, x, y],
+             width=max(1.2, 0.006 * self.ecran.height))
+
+
+class JeuPiste(MiniJeu):
+    """SUIVRE DES TRACES : on s'accroupit et on lit le sol.
+
+    Pas de geste d'adresse ici -- pister, c'est regarder. Le doigt passe sur
+    les foulees une a une ; quand toutes ont ete lues, on sait par ou la
+    bete est partie."""
+
+    TEXTE = "Passe le doigt sur les traces (%d/%d)"
+    FOULEES = 4
+
+    def __init__(self, ecran, cible, fini, consigne):
+        super().__init__(ecran, cible, fini, consigne)
+        x0, y0, x1, y1 = cible["boite"]
+        self.cx, self.cy = (x0 + x1) / 2.0, (y0 + y1) / 2.0
+        self.cote = max(8.0, x1 - x0)
+        self.sang = bool((cible.get("piste") or {}).get("sang"))
+        self.lues = 0
+        self._t = 0.0
+
+    def demarre(self):
+        super().demarre()
+        self._dit()
+
+    def _dit(self):
+        self.consigne(self.TEXTE % (self.lues, self.FOULEES))
+
+    def _places(self):
+        app = self.ecran.monde
+        ech = app.echelle()
+        out = []
+        for i in range(self.FOULEES):
+            d = (i - 1.5) * self.cote * 0.26
+            t = (self.cote * 0.11) * (1 if i % 2 else -1)
+            x, y = app.ecran(self.cx + d, self.cy + t)
+            out.append((x, y, self.cote * 0.10 * ech))
+        return out
+
+    def touche(self, touch):
+        return self.bouge(touch)
+
+    def bouge(self, touch):
+        if self.termine or self.lues >= self.FOULEES:
+            return True
+        places = self._places()
+        x, y, r = places[self.lues]
+        if math.hypot(touch.x - x, touch.y - y) <= max(r * 2.6, 26.0):
+            self.lues += 1
+            self._dit()
+            if self.lues >= self.FOULEES:
+                self.consigne("Tu tiens la piste.")
+                self.termine_avec({"piste": True})
+        return True
+
+    def pas(self, dt):
+        self._t += dt
+        # LES FOULEES SONT REDESSINEES ICI, par-dessus les mains : celles du
+        # decor sont au sol, donc a ses pieds, donc cachees derriere elles.
+        # On ne peut pas demander de lire des traces qu'on ne voit pas.
+        self.sur.canvas.clear()
+        with self.sur.canvas:
+            for i, (x, y, r) in enumerate(self._places()):
+                Color(0.47, 0.39, 0.27, 0.70)
+                Ellipse(pos=(x - r * 1.3, y - r * 0.62),
+                        size=(r * 2.6, r * 1.24))
+                for s in (-1, 1):
+                    Color(0.15, 0.11, 0.06, 0.95)
+                    Ellipse(pos=(x + s * r * 0.42 - r * 0.40, y - r * 0.30),
+                            size=(r * 0.80, r * 0.60))
+                if self.sang and i % 2 == 0:
+                    Color(0.62, 0.06, 0.07, 0.95)
+                    Ellipse(pos=(x + r * 1.0, y + r * 0.2),
+                            size=(r * 0.5, r * 0.3))
+                if i < self.lues:
+                    Color(0.45, 0.85, 0.45, 0.8)
+                    Line(circle=(x, y, r * 2.0), width=2.2)
+                elif i == self.lues:
+                    # La prochaine foulee pulse : c'est elle qu'on cherche.
+                    a = 0.50 + 0.40 * abs(math.sin(self._t * 3.0))
+                    Color(1.0, 0.95, 0.45, a)
+                    Line(circle=(x, y, r * 2.4), width=2.6)
+                else:
+                    Color(1, 1, 1, 0.30)
+                    Line(circle=(x, y, r * 1.8), width=1.6)
+
+
 __all__ = ["Approche", "Clignote", "JeuBaies", "JeuEau", "JeuArbre",
-           "JeuSouche",
+           "JeuSouche", "JeuChasse", "JeuPiste",
            "DUREE_APPROCHE", "doux"]

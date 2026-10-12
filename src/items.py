@@ -102,6 +102,31 @@ AXE_ITEM = "Hache"
 KNIFE_ITEM = "Couteau_En_Pierre"
 KNIFE_ITEMS = {KNIFE_ITEM}
 
+# LES ARMES DE CHASSE : ce avec quoi l'on peut abattre une bete, et ce que
+# chacune demande (voir action_mode.JeuChasse).
+#
+# "portee"  : la distance, en cellules de la grille de proximite, qu'un jet
+#             a pleine force couvre. C'est elle qui dit quelle force il faut
+#             pour la bete qu'on vise ;
+# "charge"  : le temps (secondes) pour armer le bras a fond ;
+# "fenetre" : la marge de force toleree -- plus elle est etroite, plus
+#             l'arme demande de justesse.
+#
+# L'ARC N'EST PAS ENCORE FABRICABLE : sa recette et ses matieres restent a
+# ecrire, et son image attend dans assets/items/futur/Arc.png. Sa ligne est
+# ici pour que le jour ou il existe, il n'y ait rien d'autre a faire.
+BOW_ITEM = "Arc"
+SPEAR_ITEM = "Lance"
+ARMES_DE_CHASSE = {
+    SPEAR_ITEM: {"portee": 4.6, "charge": 1.05, "fenetre": 0.15},
+    BOW_ITEM: {"portee": 9.0, "charge": 1.55, "fenetre": 0.10},
+}
+
+
+def arme_de_chasse(name):
+    """Les reglages de chasse de cette arme, ou None."""
+    return ARMES_DE_CHASSE.get(name)
+
 # EXPLORER AU COUTEAU : en plus de ce qu'on trouve a mains nues, le couteau
 # donne ces objets, tant que la case en a : {zone: {objet: (mini, maxi)}}.
 # La BRANCHE FEUILLUE se coupe sur un buisson de la case, qui disparait : il

@@ -16,6 +16,7 @@ import random
 from src import world
 from src import items
 from src import stats as stats_mod
+from src import animaux
 
 SAVE_VERSION = 3          # 3 : la grille de proximite passe de 5x5 a 11x11
 
@@ -291,7 +292,8 @@ class GameState:
                  penalty_steps=None, bag_wear=None, bag_stash=None,
                  stats=None, stat_xp=None, food_bonus_points=0,
                  food_until=0, ground_layout=None, crafts_connus=None,
-                 dispositions=None, souches=None, troncs=None):
+                 dispositions=None, souches=None, troncs=None,
+                 betes=None, pistes=None, gibier=None, bete_id=0):
         self.seed = seed
         # LES ASSEMBLAGES CONNUS : ceux deja fabriques au moins une fois
         # (voir src/assemblages.py).
@@ -506,6 +508,61 @@ class GameState:
         self.weather_until = int(weather_until)
         self.update_weather()
 
+        # LES BETES SAUVAGES (voir src/animaux.py). Elles sont la SEULE
+        # chose du paysage qui ne se recalcule pas depuis la graine : une
+        # bete bouge, donc elle se retient. Une partie d'AVANT la chasse
+        # recoit sa harde maintenant -- il n'y a aucune raison de priver de
+        # gibier une partie deja commencee.
+        self.betes = []
+        for b in (betes or []):
+            if b.get("espece") in animaux.ESPECES:
+                self.betes.append({
+                    "id": int(b.get("id", 0)),
+                    "espece": b["espece"],
+                    "x": int(b.get("x", self.player_x)),
+                    "y": int(b.get("y", self.player_y)),
+                    "gx": int(b.get("gx", 0)), "gy": int(b.get("gy", 0)),
+                    "cap": float(b.get("cap", 0.0)),
+                    "t": int(b.get("t", self.time_seconds)),
+                    "sang": int(b.get("sang", 0)),
+                    "farouche": int(b.get("farouche", 0))})
+        self.bete_id = int(bete_id or 0)
+        if not self.betes:
+            self.betes = animaux.peuple(self.seed, self.player_x,
+                                        self.player_y, self.grid,
+                                        self.time_seconds)
+        for b in self.betes:
+            if not b.get("id"):
+                self.bete_id += 1
+                b["id"] = self.bete_id
+        self.bete_id = max([self.bete_id] + [b["id"] for b in self.betes])
+        # LES TRACES laissees par une bete qui a fui : {"x,y": [trace...]}.
+        # C'est tout ce qui reste d'elle -- et de quoi la retrouver.
+        self.pistes = {}
+        for cle, lst in (pistes or {}).items():
+            gardees = []
+            for p in (lst or []):
+                if p.get("espece") in animaux.ESPECES:
+                    gardees.append({"id": int(p.get("id", 0)),
+                                    "espece": p["espece"],
+                                    "gx": int(p.get("gx",
+                                                    world.CENTRE_GRILLE)),
+                                    "gy": int(p.get("gy",
+                                                    world.CENTRE_GRILLE)),
+                                    "dx": int(p.get("dx", 0)),
+                                    "dy": int(p.get("dy", 0)),
+                                    "t": int(p.get("t", 0)),
+                                    "sang": int(p.get("sang", 0))})
+            if gardees:
+                self.pistes[cle] = gardees
+        # LE GIBIER PISTE, signale sur la carte le temps d'aller le
+        # rejoindre : {"x", "y", "espece", "jusqu_a"} ou None.
+        self.gibier = dict(gibier) if gibier else None
+        # LA BETE QUE LE MINI-JEU DE CHASSE MONTRE LUI-MEME : le decor ne la
+        # dessine plus tant qu'il la tient (voir action_mode.JeuChasse).
+        # PAS SAUVEGARDEE : c'est un etat d'ecran, le temps d'un jet.
+        self.bete_cachee = None
+
     # ------------------------------------------------------------------ #
     # Creation
     # ------------------------------------------------------------------ #
@@ -523,6 +580,11 @@ class GameState:
         state = cls(seed=seed, name=name, difficulty=difficulty, debug=debug,
                     stats=stats, stat_xp=stat_xp)
         state.time_seconds = START_HOUR * 3600        # debut a 6h
+        # La harde a ete posee a l'heure zero, avant que l'horloge ne soit
+        # mise a six heures : on la remet a l'heure, sinon les betes
+        # rattraperaient leur retard d'un bond des le premier regard.
+        for bete in state.betes:
+            bete["t"] = state.time_seconds
         # On commence en pleine forme : le maximum depend de la tenue de
         # depart, il ne vaut donc pas forcement 100 pile.
         state.energy = state.endurance_max()
@@ -565,6 +627,10 @@ class GameState:
         self.player_x += dx
         self.player_y += dy
         self.gain_xp("marcher")
+        # ARRIVER QUELQUE PART FAIT DU BRUIT. Une bete assez proche s'en va
+        # avant meme qu'on l'ait vue -- c'est ce qui fait qu'une rencontre
+        # n'est jamais acquise, et que la discretion compte.
+        self.alerte("pas")
         return True
 
     # -- Orientation (le joueur "regarde" dans une direction) ----------- #
@@ -2005,6 +2071,9 @@ class GameState:
             (ax, ay), (bx, by) = tronc
             self.troncs.setdefault(cle, []).append([ax, ay, bx, by])
         self.gain_xp("couper")
+        # UN ARBRE QUI TOMBE S'ENTEND DE LOIN : tout le gibier de la case
+        # part (voir alerte).
+        self.alerte("coupe")
         return cell
 
     def souches_here(self):
@@ -2031,7 +2100,219 @@ class GameState:
         if not lst:
             self.souches.pop(cle, None)
         self.gain_xp("couper")
+        self.alerte("coupe")
         return cell
+
+    # ------------------------------------------------------------------ #
+    # LES BETES SAUVAGES (voir src/animaux.py)
+    # ------------------------------------------------------------------ #
+    def _rng_bete(self, *parts):
+        """Un hasard STABLE pour un evenement de chasse : meme partie, meme
+        instant, meme bete -> meme resultat. Sans cela, quitter et reprendre
+        l'ecran retirerait sa chance au joueur (ou la lui rendrait)."""
+        return random.Random("%s:%s:bete" % (
+            self.seed, ":".join(str(p) for p in parts)))
+
+    def maj_betes(self):
+        """Fait vivre la harde jusqu'a maintenant.
+
+        Appelee partout ou l'on regarde les betes : elle ne coute rien tant
+        qu'aucune n'a de pas a faire."""
+        bouge = False
+        for bete in self.betes:
+            rng = self._rng_bete("vie", bete.get("id", 0), bete.get("t", 0))
+            if animaux.avance(bete, self.grid, self.time_seconds, rng):
+                bouge = True
+            if animaux.recentre(bete, self.player_x, self.player_y,
+                                self.grid, rng):
+                bouge = True
+        self._efface_vieilles_pistes()
+        return bouge
+
+    def betes_here(self):
+        """Les betes qui sont sur la case du joueur ET qui se montrent.
+
+        Une bete FAROUCHE -- celle qu'on vient de faire fuir -- se tient a
+        l'ecart meme si ses allees et venues la ramenent par ici : c'est ce
+        qui fait qu'on ne la revoit pas sans la pister."""
+        self.maj_betes()
+        ici = (self.player_x, self.player_y)
+        return [b for b in self.betes
+                if (b["x"], b["y"]) == ici
+                and b.get("id") != self.bete_cachee
+                and b.get("farouche", 0) <= self.time_seconds]
+
+    def bete_par_id(self, ident):
+        for b in self.betes:
+            if b.get("id") == ident:
+                return b
+        return None
+
+    def bruit_du_joueur(self, evenement):
+        """Le bruit que fait le joueur, attenue par sa DISCRETION.
+
+        L'aptitude promettait de "passer inapercu" et ne servait a rien
+        encore : c'est devant une bete qu'elle sert."""
+        base = animaux.BRUIT.get(evenement, 0.5)
+        q = stats_mod.quantity(self.effective_stat("discretion"))
+        return base * (100.0 / max(50.0, float(q)))
+
+    def alerte(self, evenement):
+        """Le joueur a fait du bruit : les betes de la case qui l'ont
+        entendu s'en vont. Renvoie les especes qui viennent de partir."""
+        if not self.betes:
+            return []
+        # ON LES REMET A L'HEURE D'ABORD : le bruit atteint les betes la ou
+        # elles sont, pas la ou on les avait laissees.
+        self.maj_betes()
+        bruit = self.bruit_du_joueur(evenement)
+        ici = (self.player_x, self.player_y)
+        partis = []
+        for bete in list(self.betes):
+            if (bete["x"], bete["y"]) != ici:
+                continue
+            if bete.get("farouche", 0) > self.time_seconds:
+                continue
+            d = animaux.distance_au_joueur(bete)
+            rng = self._rng_bete("peur", bete.get("id", 0), evenement,
+                                 self.time_seconds)
+            if rng.random() >= animaux.proba_fuite(bete, bruit, d):
+                continue
+            self._fait_fuir(bete, rng, blessee=bool(bete.get("sang")))
+            partis.append(bete["espece"])
+        return partis
+
+    def _fait_fuir(self, bete, rng, blessee=False):
+        """La bete quitte la case et y laisse ses traces."""
+        depart = (bete["x"], bete["y"])
+        ou = (int(bete["gx"]), int(bete["gy"]))     # la cellule d'ou elle part
+        vers = animaux.fuit(bete, self.grid, rng, self.time_seconds,
+                            blessee=blessee)
+        if vers is None:
+            return
+        self.pistes.setdefault("%d,%d" % depart, []).append({
+            "id": int(bete.get("id", 0)), "espece": bete["espece"],
+            "gx": ou[0], "gy": ou[1],
+            "dx": int(vers[0]), "dy": int(vers[1]),
+            "t": int(self.time_seconds), "sang": int(bete.get("sang", 0))})
+
+    def _efface_vieilles_pistes(self):
+        """Les traces s'effacent. Le SANG tient plus longtemps que les
+        foulees : une bete blessee reste rattrapable un bon moment."""
+        t = self.time_seconds
+        for cle in list(self.pistes):
+            gardees = [p for p in self.pistes[cle]
+                       if t - p.get("t", 0) <=
+                       (animaux.PISTE_SANG_HEURES if p.get("sang")
+                        else animaux.PISTE_HEURES) * animaux.HEURE]
+            if gardees:
+                self.pistes[cle] = gardees
+            else:
+                self.pistes.pop(cle, None)
+
+    def pistes_here(self):
+        """Les traces encore lisibles sur la case du joueur."""
+        self._efface_vieilles_pistes()
+        return list(self.pistes.get(self._cell_key(), []))
+
+    def suit_les_traces(self, piste):
+        """PISTER : lire des traces et retrouver la bete qui les a laissees.
+
+        Renvoie le texte a montrer. La bete cesse d'etre farouche -- on l'a
+        rejointe -- et sa case est signalee sur la carte le temps d'y
+        aller."""
+        nom = animaux.NOMS.get(piste.get("espece"), "animal")
+        ou = animaux.direction_lisible(piste.get("dx", 0), piste.get("dy", 0))
+        self.gain_xp("pister")
+        # DES TRACES LUES NE SE RELISENT PAS : elles ont dit ce qu'elles
+        # avaient a dire, et les laisser la rendrait le pistage gratuit.
+        cle = self._cell_key()
+        reste = [p for p in self.pistes.get(cle, []) if p is not piste]
+        if reste:
+            self.pistes[cle] = reste
+        else:
+            self.pistes.pop(cle, None)
+        bete = self.bete_par_id(piste.get("id"))
+        if bete is None:
+            return "Les traces d'un %s filent %s, puis se perdent." % (nom, ou)
+        bete["farouche"] = 0
+        self.gibier = {"x": int(bete["x"]), "y": int(bete["y"]),
+                       "espece": bete["espece"],
+                       "jusqu_a": int(self.time_seconds
+                                      + animaux.GIBIER_HEURES * animaux.HEURE)}
+        d = max(abs(bete["x"] - self.player_x), abs(bete["y"] - self.player_y))
+        sang = " Du sang sur les feuilles." if piste.get("sang") else ""
+        loin = "tout pres" if d <= 1 else ("a %d cases" % d)
+        return ("Les traces d'un %s filent %s.%s Il est %s : sa case est "
+                "marquee sur la carte." % (nom, ou, sang, loin))
+
+    def gibier_sur_la_carte(self):
+        """La case du gibier piste, tant que la piste est chaude, ou None."""
+        g = self.gibier
+        if not g or g.get("jusqu_a", 0) <= self.time_seconds:
+            self.gibier = None
+            return None
+        bete = None
+        for b in self.betes:
+            if b["espece"] == g.get("espece"):
+                if (b["x"], b["y"]) == (g.get("x"), g.get("y")):
+                    bete = b
+                    break
+        # La bete a pu bouger depuis : la marque la suit, c'est le propre
+        # d'une piste qu'on tient.
+        if bete is not None:
+            g["x"], g["y"] = int(bete["x"]), int(bete["y"])
+        return (int(g["x"]), int(g["y"]))
+
+    def touche_bete(self, bete):
+        """Une arme atteint la bete. Renvoie (morte, butin).
+
+        Une seule blessure suffit pour un chevreuil, trois pour un orignal :
+        on ne met pas un orignal a terre d'un coup de lance. Blessee, elle
+        part -- mais pas loin, et elle saigne."""
+        bete["sang"] = int(bete.get("sang", 0)) + 1
+        if bete["sang"] >= animaux.espece_de(bete)["sang"]:
+            return True, self.tue_bete(bete)
+        rng = self._rng_bete("blessee", bete.get("id", 0), self.time_seconds)
+        self._fait_fuir(bete, rng, blessee=True)
+        return False, {}
+
+    def tue_bete(self, bete):
+        """La bete meurt : son butin tombe au sol, et une autre de son
+        espece parait ailleurs -- la harde garde son compte, le joueur ne
+        peut pas vider le monde de son gibier."""
+        butin = dict(animaux.espece_de(bete)["butin"])
+        for nom, n in butin.items():
+            for _ in range(int(n)):
+                self.add_ground(nom)
+        espece = bete["espece"]
+        if bete in self.betes:
+            self.betes.remove(bete)
+        # SES TRACES MEURENT AVEC ELLE. Les laisser enverrait le joueur
+        # pister une bete qui est deja dans son sac.
+        mort = int(bete.get("id", 0))
+        for cle in list(self.pistes):
+            reste = [p for p in self.pistes[cle] if p.get("id") != mort]
+            if reste:
+                self.pistes[cle] = reste
+            else:
+                self.pistes.pop(cle, None)
+        rng = self._rng_bete("repeuple", espece, self.time_seconds)
+        neuve = animaux.nait_loin(espece, self.player_x, self.player_y,
+                                  self.grid, rng, self.time_seconds)
+        if neuve is not None:
+            self.bete_id += 1
+            neuve["id"] = self.bete_id
+            self.betes.append(neuve)
+        self.gain_xp("chasser")
+        self.add_log("%s abattu" % animaux.NOMS.get(espece, "Animal").
+                     capitalize())
+        return butin
+
+    def rate_la_bete(self, bete):
+        """Le coup manque : la bete detale, et laisse ses traces."""
+        rng = self._rng_bete("rate", bete.get("id", 0), self.time_seconds)
+        self._fait_fuir(bete, rng, blessee=bool(bete.get("sang")))
 
     # ------------------------------------------------------------------ #
     # Baies des buissons et trouvailles au couteau
@@ -3106,6 +3387,10 @@ class GameState:
             "chopped": self.chopped,
             "souches": self.souches,
             "troncs": self.troncs,
+            "betes": self.betes,
+            "pistes": self.pistes,
+            "gibier": self.gibier,
+            "bete_id": self.bete_id,
             "equipment": self.equipment,
             "bag": self.bag,
             "bag_wear": self.bag_wear,
@@ -3174,6 +3459,10 @@ class GameState:
             chopped=data.get("chopped"),
             souches=data.get("souches"),
             troncs=data.get("troncs"),
+            betes=data.get("betes"),
+            pistes=data.get("pistes"),
+            gibier=data.get("gibier"),
+            bete_id=data.get("bete_id", 0),
             equipment=data.get("equipment"),
             bag=data.get("bag"),
             bag_wear=data.get("bag_wear"),

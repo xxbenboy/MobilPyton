@@ -48,6 +48,7 @@ from src.widgets.lieu_toggle import lieu_toggle
 from src.widgets.installed_layer import anchor_at
 from src.widgets.item_icon import ItemIcon
 from src.widgets.panels import panel
+from src.widgets import bete_dessin
 
 # Couleurs de la grille. Definies ICI une seule fois : la grille ET la legende
 # les utilisent, elles ne peuvent donc jamais se contredire.
@@ -89,9 +90,9 @@ def draw_nature_glyph(kind, cx, cy, size):
     affaire a un bloc et non a un galet use."""
     r = size * 0.5
     if kind in ("souche", "tronc"):
-        # Ce que laisse un arbre abattu, vu d'en haut : le bois coupe, des
-        # cernes clairs dans l'ecorce (la souche entiere ; un tronc couche,
-        # un rond par case qu'il couvre).
+        # LA SOUCHE vue d'en haut : le bois coupe, des cernes clairs dans
+        # l'ecorce. (Le TRONC couche, lui, se dessine d'un bout a l'autre --
+        # voir draw_tronc_glyph ; ce rond-la ne sert qu'a la legende.)
         k = 0.62 if kind == "souche" else 0.42
         Color(0, 0, 0, 0.24)
         Ellipse(pos=(cx - r * k, cy - r * k * 1.15), size=(r * k * 2,) * 2)
@@ -157,6 +158,59 @@ def draw_nature_glyph(kind, cx, cy, size):
             Line(points=[cx + 0.05 * r, cy - 0.25 * r,
                          cx + ax * r, cy + ay * r],
                  width=max(1.0, r * 0.06))
+
+
+def draw_tronc_glyph(ax, ay, bx, by, cs):
+    """UN TRONC COUCHE vu de dessus, du bout coupe (ax, ay) au bout libre
+    (bx, by), en pixels d'ecran ; `cs` est le cote d'une case.
+
+    Un arbre abattu ne laisse pas une file de rondins : c'est UNE piece de
+    bois posee en travers de deux ou trois cases, selon sa longueur (voir
+    world.place_du_tronc). On la dessine donc d'un bout a l'autre, et les
+    cases qu'elle couvre se lisent comme ce qu'elles sont -- la meme chose,
+    qui continue. Elle est plus epaisse au pied qu'a la cime, et sa COUPE
+    claire est du cote de la souche : on voit d'un coup d'oeil d'ou l'arbre
+    est tombe."""
+    dx, dy = bx - ax, by - ay
+    n = math.hypot(dx, dy)
+    if n < 1e-6:
+        return
+    ux, uy = dx / n, dy / n
+    nx, ny = -uy, ux
+    ra, rb = cs * 0.30, cs * 0.20        # demi-largeur au pied, a la cime
+
+    def fuseau(x0, y0, x1, y1, r0, r1):
+        Quad(points=[x0 + nx * r0, y0 + ny * r0, x1 + nx * r1, y1 + ny * r1,
+                     x1 - nx * r1, y1 - ny * r1, x0 - nx * r0, y0 - ny * r0])
+
+    def bout(x, y, r):
+        Ellipse(pos=(x - r, y - r), size=(r * 2, r * 2))
+
+    oy = -cs * 0.10                      # l'ombre portee, un peu dessous
+    Color(0, 0, 0, 0.24)
+    fuseau(ax, ay + oy, bx, by + oy, ra, rb)
+    bout(ax, ay + oy, ra)
+    bout(bx, by + oy, rb)
+    Color(0.34, 0.23, 0.13, 1)                               # ecorce
+    fuseau(ax, ay, bx, by, ra, rb)
+    bout(ax, ay, ra)
+    bout(bx, by, rb)
+    Color(0.47, 0.33, 0.19, 1)                               # dessus eclaire
+    fuseau(ax + nx * ra * 0.34, ay + ny * ra * 0.34,
+           bx + nx * rb * 0.34, by + ny * rb * 0.34,
+           ra * 0.42, rb * 0.42)
+    Color(0.22, 0.14, 0.08, 0.85)                            # fentes d'ecorce
+    k = max(2, int(n / (cs * 0.55)))
+    for i in range(1, k):
+        t = i / float(k)
+        r = (ra + (rb - ra) * t) * 0.82
+        mx, my = ax + dx * t, ay + dy * t
+        Line(points=[mx + nx * r, my + ny * r, mx - nx * r, my - ny * r],
+             width=max(1.0, cs * 0.018))
+    Color(0.80, 0.64, 0.42, 1)                               # la coupe
+    bout(ax, ay, ra * 0.82)
+    Color(0.55, 0.40, 0.24, 1)                               # son cerne
+    Line(circle=(ax, ay, ra * 0.48), width=1.2)
 
 
 def draw_object_glyph(name, cx, cy, size, lit=False, level="grand"):
@@ -502,6 +556,16 @@ class _GridOverlay(Widget):
         # Les memes, par ELEMENT : {ancre: type} -- un pictogramme par
         # buisson, et non un par case de son emprise.
         self.elements = {}
+        # Les TRONCS couches : [((ax, ay), (bx, by))] en cases (flottants).
+        # A part des autres elements : un tronc n'est pas une case, c'est une
+        # piece de bois posee EN TRAVERS de deux ou trois (voir
+        # draw_tronc_glyph).
+        self.troncs = []
+        # LE GIBIER et ses TRACES (voir src/animaux.py). Une bete n'occupe
+        # pas sa case : elle y passe. On la montre, mais on peut poser
+        # dessous -- elle sera ailleurs dans un quart d'heure.
+        self.betes = []
+        self.pistes = []
         self.objects = {}                # {(gx, gy): (nom, allume, niveau)}
         self.anchors = []                # [(nom, gx, gy, allume, niveau)]
         # APERCU DE POSE : les cases que l'objet glisse occuperait, et si
@@ -581,6 +645,12 @@ class _GridOverlay(Widget):
             for (gx, gy), kind in sorted(self.nature.items()):
                 Color(*CELL_NATURE)
                 Rectangle(pos=(ox + gx * cs, oy + gy * cs), size=(cs, cs))
+            # LES TRONCS COUCHES, avant les pictogrammes : la souche du bout
+            # coupe se pose ainsi par-dessus, comme sur le terrain.
+            for (tax, tay), (tbx, tby) in self.troncs:
+                draw_tronc_glyph(ox + (tax + 0.5) * cs, oy + (tay + 0.5) * cs,
+                                 ox + (tbx + 0.5) * cs, oy + (tby + 0.5) * cs,
+                                 cs)
             # UN pictogramme par element, centre sur son emprise et a sa
             # taille (un buisson ou un rocher couvre deux cases sur deux).
             for (gx, gy), kind in sorted(self.elements.items()):
@@ -588,6 +658,16 @@ class _GridOverlay(Widget):
                 draw_nature_glyph(kind, ox + (gx + fw / 2.0) * cs,
                                   oy + (gy + fh / 2.0) * cs,
                                   cs * 0.72 * min(fw, fh))
+            # LES TRACES puis LE GIBIER : a plat sur le sol d'abord, la
+            # bete par-dessus.
+            for espece, gx, gy, dx, dy, sang in self.pistes:
+                cap = math.degrees(math.atan2(dx, -dy)) if (dx or dy) else 0.0
+                bete_dessin.glyphe_piste(ox + (gx + 0.5) * cs,
+                                         oy + (gy + 0.5) * cs,
+                                         cs * 0.92, sang, cap)
+            for espece, gx, gy, cap in self.betes:
+                bete_dessin.glyphe(espece, ox + (gx + 0.5) * cs,
+                                   oy + (gy + 0.5) * cs, cs * 1.15, cap)
             # Cases deja prises (installees) : surlignees rouge, avec le
             # pictogramme de l'objet pose (feu de camp...).
             for (gx, gy) in sorted(self.taken):
@@ -985,11 +1065,20 @@ class PlaceScreen(Screen):
         self.grid_overlay.nature = {(int(gx), int(gy)): kind for (gx, gy), kind
                                     in state.nature_cells_here().items()}
         elements = dict(state.nature_here())
-        # Ce que laissent les arbres abattus : la souche, et un rond par case
-        # du tronc couche.
+        # Ce que laisse un arbre abattu : sa souche, un pictogramme par
+        # cellule ; son tronc, lui, est dessine d'un bout a l'autre.
         elements.update({c: k for c, k in state.nature_cells_here().items()
-                         if k in ("souche", "tronc")})
+                         if k == "souche"})
         self.grid_overlay.elements = elements
+        self.grid_overlay.troncs = state.troncs_here()
+        self.grid_overlay.betes = [
+            (b["espece"], b["gx"], b["gy"], b.get("cap", 0.0))
+            for b in state.betes_here()]
+        self.grid_overlay.pistes = [
+            (p["espece"], p.get("gx", world.CENTRE_GRILLE),
+             p.get("gy", world.CENTRE_GRILLE), p.get("dx", 0),
+             p.get("dy", 0), bool(p.get("sang")))
+            for p in state.pistes_here()]
         self.grid_overlay.mode = self.mode
         self.grid_overlay._redraw()
         # La legende ne liste que les obstacles presents sur CETTE case.
