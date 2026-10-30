@@ -77,9 +77,10 @@ a retirer de la pierre, les traits a couper du brin (voir
 assemblage.dessine_travail).
 """
 import math
+import random
 
 from kivy.clock import Clock
-from kivy.graphics import Color, Line, Rectangle
+from kivy.graphics import Color, Ellipse, Line, Rectangle
 
 from src.widgets.sol_de_craft import dessine_objet, cadre_image, TAILLE_OBJET
 from src.widgets.assemblage import (decalage_morceau, vue_inverse, ZOOM,
@@ -1810,6 +1811,490 @@ class MiniJeuHache(object):
                 self.reussi()
 
 
+# LA GUITARE, debout sur le plan : la caisse en bas, le manche dresse.
+# Mesures en tailles d'objet depuis son milieu (releve de HAUSSE_GUITARE,
+# part de la hauteur de l'ecran), EN TRAVERS d'abord, puis LE LONG.
+#
+# QUATRE TEMPS, et quatre gestes qui ne se ressemblent pas :
+#   1. LA CAISSE : les deux pierres l'une sur l'autre, la grosse en bas --
+#      c'est deja la taille d'une guitare ;
+#   2. LA ROSACE : le couteau TOURNE autour du milieu de la caisse et
+#      l'evide ; le trou s'ouvre a mesure, et c'est lui qui dit ce qu'il
+#      reste a faire ;
+#   3. LE MANCHE : les deux branches, cote a cote, dressees sur la caisse ;
+#   4. LES CORDES : la corde se detoronne en quatre cordes, tendues du
+#      chevalet a une cheville.
+#
+# L'ORDRE DES CHEVILLES EST TIRE AU HASARD a chaque fabrication. C'est ce
+# qui empeche d'apprendre le geste par coeur : on ne peut pas enchainer de
+# memoire, il faut regarder laquelle clignote. Une guitare se corde dans
+# l'ordre ou on l'accorde, et ce n'est jamais tout a fait le meme.
+HAUSSE_GUITARE = -0.03
+# Les deux pierres de la caisse : (en travers, le long, echelle).
+CAISSE_PLACES = ((0.0, -0.58, 1.20), (0.0, 0.10, 0.88))
+ROSACE = (0.0, -0.20)
+RAYON_ROSACE = 0.30
+# CREUSER : la main doit rester dans la couronne autour de la rosace (entre
+# ces deux rayons) et y tourner TOURS_ROSACE tours en tout, dans un sens ou
+# dans l'autre.
+COURONNE = (0.10, 0.90)
+TOURS_ROSACE = 2.0
+# Le manche : deux branches dressees cote a cote. L'image d'une brindille
+# est en biais (ANGLE_BATON) : dressee, elle tourne de la difference.
+MANCHE_PLACES = ((-0.09, 0.62), (0.09, 0.62))
+ANGLE_MANCHE_GUITARE = 90.0
+ECHELLE_BRANCHE = 1.15
+# Le CHEVALET (d'ou partent les cordes) et les quatre CHEVILLES de la tete.
+CHEVALET = (0.0, -0.46)
+CHEVILLES = ((-0.17, 0.96), (0.17, 0.96), (-0.17, 1.22), (0.17, 1.22))
+CORDES_GUITARE = 4
+# Une corde est tendue quand la main part d'a moins de PRISE_CHEVALET du
+# chevalet et arrive a moins de PRISE_CHEVILLE d'une cheville -- ET QUE LA
+# PLUS PROCHE EST CELLE QUI CLIGNOTE. On ne demande pas au doigt d'etre
+# precis au pixel (une cheville fait quelques pixels de large) : on lui
+# demande de viser la bonne. Un rayon plus large que l'ecart entre deux
+# chevilles rendrait d'ailleurs l'ordre tire au hasard sans effet -- on ne
+# pourrait plus se tromper.
+PRISE_CHEVALET = 0.50
+PRISE_CHEVILLE = 0.45
+PRISE_CAISSE = 0.52
+PRISE_BRANCHE = 0.34
+# Ou attendent les pierres (a gauche), la corde et le couteau (a droite),
+# et les branches (en bas a gauche) : chaque main prend de son cote.
+PLACES_PIERRES_G = ((0.08, 0.64), (0.08, 0.40))
+PLACES_BRANCHES_G = ((0.19, 0.64), (0.19, 0.40))
+PLACE_COUTEAU_G = (0.84, 0.62)
+PLACE_CORDE_G = (0.84, 0.36)
+DUREE_CREUSER = 2.8
+DUREE_TENDRE = 1.9
+ALPHA_GUITARE = 0.65
+BRANCHE_GUITARE = "Small_Stick"
+PIERRE_GUITARE = "Pierre"
+BOIS_GUITARE = (0.76, 0.56, 0.31)
+TROU_GUITARE = (0.09, 0.06, 0.04)
+CORDE_TENDUE = (0.95, 0.91, 0.74)
+CHEVILLE_VIDE = (1.0, 1.0, 1.0, 0.35)
+CHEVILLE_VISEE = (1.0, 0.93, 0.35)
+
+
+class MiniJeuGuitare(object):
+    """Creuser une caisse, dresser un manche, et tendre les cordes."""
+
+    PHASES = ("caisse", "rosace", "manche", "cordes")
+
+    def __init__(self, assemblage, reussi, consigne, couche=None,
+                 mains=None, recette=None):
+        self.asm = assemblage
+        self.reussi = reussi
+        self.consigne = consigne
+        self.couche = couche
+        self.mains = mains
+        self.fantome = Fantome(couche, mains,
+                               lambda: assemblage.case_objet() * 3,
+                               alpha=ALPHA_GUITARE) \
+            if couche is not None and mains is not None else None
+        objets = assemblage.objets
+        self.pierres = [o for o in objets if o["nom"] == PIERRE_GUITARE]
+        self.branches = [o for o in objets if o["nom"] == BRANCHE_GUITARE]
+        self.corde = next((o for o in objets if o["nom"] == CORDE), None)
+        self.couteau = next((o for o in objets if o["nom"] == COUTEAU), None)
+        self.phase = None
+        self.caisse = {}            # place -> pierre
+        self.manche = {}            # place -> branche
+        self.creuse = 0.0           # tours de couteau accomplis
+        self.cordes = []            # les chevilles deja cordees, dans l'ordre
+        # L'ORDRE EST TIRE AU HASARD : voir le commentaire plus haut.
+        self.ordre = list(range(CORDES_GUITARE))
+        random.shuffle(self.ordre)
+        self._angle = None          # ou en est la main autour de la rosace
+        self._au_chevalet = False   # la corde est partie du chevalet
+        self._t = 0.0               # pour le clignotement de la cheville
+        self.fantomes = []
+        self._tenues = [None, None]
+        self._vus = set()
+        self._dit = None
+        self.fini = False
+
+    def _taille(self):
+        return self.asm.case_objet() * 3
+
+    # -- la geometrie de la guitare (a l'ecran) --------------------------- #
+    def centre(self):
+        mx, my = self.asm.centre_du_plan()
+        return mx, my + HAUSSE_GUITARE * self.asm.height
+
+    def _pt(self, a, b):
+        """Le point a `a` tailles d'objet en travers et `b` le long, depuis
+        le milieu de la guitare."""
+        cx, cy = self.centre()
+        t = self._taille()
+        return cx + a * t, cy + b * t
+
+    def place_caisse(self, k):
+        return self._pt(CAISSE_PLACES[k][0], CAISSE_PLACES[k][1])
+
+    def place_manche(self, k):
+        return self._pt(*MANCHE_PLACES[k])
+
+    def rosace(self):
+        return self._pt(*ROSACE)
+
+    def chevalet(self):
+        return self._pt(*CHEVALET)
+
+    def cheville(self, k):
+        return self._pt(*CHEVILLES[k])
+
+    def visee(self):
+        """La cheville qu'il faut corder maintenant, ou None."""
+        if len(self.cordes) >= CORDES_GUITARE:
+            return None
+        return self.ordre[len(self.cordes)]
+
+    def _maison(self, o):
+        """La place d'attente de `o`, a l'ecran."""
+        asm = self.asm
+        if o is self.couteau:
+            fx, fy = PLACE_COUTEAU_G
+        elif o is self.corde:
+            fx, fy = PLACE_CORDE_G
+        elif any(o is p for p in self.pierres):
+            k = next(n for n, p in enumerate(self.pierres) if p is o)
+            fx, fy = PLACES_PIERRES_G[k % len(PLACES_PIERRES_G)]
+        else:
+            k = next((n for n, b in enumerate(self.branches) if b is o), 0)
+            fx, fy = PLACES_BRANCHES_G[k % len(PLACES_BRANCHES_G)]
+        return asm.x + fx * asm.width, asm.y + fy * asm.height
+
+    def _ramene(self, o):
+        if o is not None and not o.get("verrou"):
+            self.asm.place_a_l_ecran(o, *self._maison(o))
+
+    # -- cycle ------------------------------------------------------------ #
+    def demarre(self):
+        asm = self.asm
+        asm.aimant_permis = False
+        asm.liens = []
+        asm.sur_pas = self._pas
+        asm.dessin_jeu = self._dessine_places
+        asm.dessin_dessus = self._dessine
+        for o in self.pierres + self.branches + [self.corde, self.couteau]:
+            self._ramene(o)
+        self._entre("caisse")
+
+    def arrete(self):
+        asm = self.asm
+        if asm.sur_pas == self._pas:
+            asm.sur_pas = None
+        if asm.dessin_jeu == self._dessine_places:
+            asm.dessin_jeu = None
+        asm.aimant_permis = True
+        asm.emplacements = []
+        if self.fantome is not None:
+            self.fantome.arrete()
+        # REUSSI : la guitare reste montee jusqu'a ce que la fumee de la
+        # reussite la cache (voir reussite.py) ; ANNULE, tout se defait.
+        cles = ("verrou",) if self.fini else ("verrou", "angle", "echelle")
+        if not self.fini and asm.dessin_dessus == self._dessine:
+            asm.dessin_dessus = None
+        for o in asm.objets:
+            for cle in cles:
+                o.pop(cle, None)
+        asm._redessine()
+
+    def _entre(self, phase):
+        self.phase = phase
+        self._angle = None
+        self._au_chevalet = False
+        self._places_montrees()
+        self.asm._redessine()
+        self._annonce()
+        self._montre()
+
+    def _places_montrees(self):
+        """Les places qui attendent, en fantome sous les objets."""
+        if self.phase == "caisse":
+            self.fantomes = [(PIERRE_GUITARE, self.place_caisse(k), 0.0,
+                              CAISSE_PLACES[k][2])
+                             for k in range(len(CAISSE_PLACES))
+                             if k not in self.caisse]
+        elif self.phase == "manche":
+            self.fantomes = [(BRANCHE_GUITARE, self.place_manche(k),
+                              ANGLE_MANCHE_GUITARE - ANGLE_BATON,
+                              ECHELLE_BRANCHE)
+                             for k in range(len(MANCHE_PLACES))
+                             if k not in self.manche]
+        else:
+            self.fantomes = []
+        self.asm.emplacements = []
+
+    def _dessine_places(self):
+        """Les places en fantome, SOUS les objets, tournees et a la taille
+        ou ils s'y poseront."""
+        asm = self.asm
+        cote = TAILLE_OBJET * asm.height
+        for nom, (px, py), angle, echelle in self.fantomes:
+            x, y = vue_inverse(1.0, px, py, asm.width, asm.height,
+                               asm.x, asm.y)
+            dessine_objet(nom, x, y, cote * echelle, ombre=False,
+                          alpha=ALPHA_EMPLACEMENT, angle=angle)
+
+    # -- la main fantome et les consignes --------------------------------- #
+    def _montre(self):
+        """UNE FOIS par temps, une main a demi transparente fait le geste."""
+        if self.phase in self._vus or self.fantome is None \
+                or self.mains is None:
+            return
+        self._vus.add(self.phase)
+        asm = self.asm
+        if self.phase in ("caisse", "manche"):
+            if self.phase == "caisse":
+                libres = [o for o in self.pierres if not o.get("verrou")]
+                k = next((k for k in range(len(CAISSE_PLACES))
+                          if k not in self.caisse), None)
+                cible = self.place_caisse(k) if k is not None else None
+            else:
+                libres = [o for o in self.branches if not o.get("verrou")]
+                k = next((k for k in range(len(MANCHE_PLACES))
+                          if k not in self.manche), None)
+                cible = self.place_manche(k) if k is not None else None
+            if not libres or cible is None:
+                return
+            o = libres[0]
+            depart = asm.a_l_ecran(o)
+            main = 0 if depart[0] < asm.center_x else 1
+            self.fantome.joue(main, [self.mains.paume(main), depart, depart,
+                                     cible, cible], DUREE_RANGER, objet=o)
+        elif self.phase == "rosace" and self.couteau is not None:
+            depart = asm.a_l_ecran(self.couteau)
+            rx, ry = self.rosace()
+            r = 0.46 * self._taille()
+            tour = [(rx + r * math.sin(2 * math.pi * k / 8.0),
+                     ry + r * math.cos(2 * math.pi * k / 8.0))
+                    for k in range(9)]
+            self.fantome.joue(1, [self.mains.paume(1), depart, depart]
+                              + tour, DUREE_CREUSER, objet=self.couteau)
+        elif self.phase == "cordes" and self.corde is not None:
+            k = self.visee()
+            if k is None:
+                return
+            depart = asm.a_l_ecran(self.corde)
+            self.fantome.joue(1, [self.mains.paume(1), depart, depart,
+                                  self.chevalet(), self.cheville(k),
+                                  self.cheville(k)], DUREE_TENDRE,
+                              objet=self.corde)
+
+    def _annonce(self):
+        if self.phase == "caisse":
+            texte = "Pose les deux pierres en caisse (%d/%d)" % (
+                len(self.caisse), len(CAISSE_PLACES))
+        elif self.phase == "rosace":
+            texte = "Creuse la rosace au couteau (%d/%d)" % (
+                int(self.creuse), int(TOURS_ROSACE))
+        elif self.phase == "manche":
+            texte = "Dresse les deux branches en manche (%d/%d)" % (
+                len(self.manche), len(MANCHE_PLACES))
+        else:
+            texte = "Tends la corde du chevalet a la cheville (%d/%d)" % (
+                len(self.cordes), CORDES_GUITARE)
+        if texte != self._dit:
+            self._dit = texte
+            self.consigne(texte)
+
+    # -- le dessin, par-dessus les objets --------------------------------- #
+    def _dessine(self):
+        asm = self.asm
+        if self.pierres and self.pierres[0].get("cache"):
+            return                  # la guitare a disparu dans la fumee
+        t = self._taille()
+
+        def ici(x, y):
+            return vue_inverse(1.0, x, y, asm.width, asm.height,
+                               asm.x, asm.y)
+
+        # LA ROSACE : elle s'ouvre a mesure qu'on creuse, et c'est elle qui
+        # dit ou l'on en est -- pas le texte.
+        if self.caisse:
+            p = min(1.0, self.creuse / TOURS_ROSACE)
+            r = RAYON_ROSACE * t * (0.25 + 0.75 * p)
+            rx, ry = self.rosace()
+            x, y = ici(rx, ry)
+            d = 2.0 * r / ZOOM
+            Color(*BOIS_GUITARE, 0.55 + 0.35 * p)
+            Line(circle=(x, y, r * 1.14 / ZOOM),
+                 width=max(1.2, 0.03 * t / ZOOM))
+            Color(*TROU_GUITARE, 0.35 + 0.60 * p)
+            Ellipse(pos=(x - d / 2.0, y - d / 2.0), size=(d, d))
+        # LES CORDES TENDUES, du chevalet a leur cheville.
+        epais = max(1.2, 0.016 * t / ZOOM)
+        for k in self.cordes:
+            a = ici(*self.chevalet())
+            b = ici(*self.cheville(k))
+            Color(*OMBRE_BRIN)
+            Line(points=[a[0], a[1], b[0], b[1]], width=epais * 1.5)
+            Color(*CORDE_TENDUE)
+            Line(points=[a[0], a[1], b[0], b[1]], width=epais)
+        # LES CHEVILLES : celles qui restent, et CELLE QU'IL FAUT, qui
+        # clignote. L'ordre change a chaque fabrication : sans ce
+        # clignotement, le joueur n'aurait aucun moyen de le deviner.
+        if self.phase == "cordes":
+            vise = self.visee()
+            for k in range(CORDES_GUITARE):
+                if k in self.cordes:
+                    continue
+                x, y = ici(*self.cheville(k))
+                r = 0.10 * t / ZOOM
+                if k == vise:
+                    a = 0.45 + 0.45 * abs(math.sin(self._t * 3.2))
+                    Color(*CHEVILLE_VISEE, a)
+                    Line(circle=(x, y, r * 1.8), width=epais * 2.0)
+                Color(*CHEVILLE_VIDE)
+                Line(circle=(x, y, r), width=epais * 1.3)
+            # La corde pend de la main qui la tient jusqu'au chevalet.
+            main = self._main_corde()
+            if main is not None and self._au_chevalet:
+                a = ici(*self.chevalet())
+                b = asm.ou_est_porte(main)
+                Color(*OMBRE_BRIN)
+                Line(points=[a[0], a[1], b[0], b[1]], width=epais * 1.5)
+                Color(*CORDE_TENDUE)
+                Line(points=[a[0], a[1], b[0], b[1]], width=epais)
+
+    # -- chaque pas de la vue --------------------------------------------- #
+    def _main_de(self, objet):
+        for i in (1, 0):
+            if objet is not None and self.asm.porte(i) is objet:
+                return i
+        return None
+
+    def _main_corde(self):
+        return self._main_de(self.corde)
+
+    def _pas(self, dt):
+        if self.fini:
+            return
+        self._t += dt
+        asm = self.asm
+        tenus = [asm.porte(i) for i in (0, 1)]
+        lachees = [o for o in self._tenues if o is not None
+                   and not any(o is t for t in tenus)]
+        self._tenues = tenus
+        for o in lachees:
+            self.lache(o)
+            if self.fini:
+                return
+        if self.phase == "rosace":
+            main = self._main_de(self.couteau)
+            if main is not None:
+                self.creuse_a(*asm.ou_est_porte(main))
+        elif self.phase == "cordes":
+            main = self._main_corde()
+            if main is not None:
+                self.tend_a(*asm.ou_est_porte(main))
+            asm._redessine()        # la corde pend jusqu'a la main
+        self._annonce()
+
+    def lache(self, o):
+        """`o` vient d'etre lache : a sa place il s'y range et s'y
+        VERROUILLE, sinon il retourne attendre a la sienne."""
+        asm = self.asm
+        t = self._taille()
+        ox, oy = asm.a_l_ecran(o)
+        if self.phase == "caisse" and any(o is p for p in self.pierres):
+            libres = [(math.hypot(ox - px, oy - py), k)
+                      for k, (px, py) in ((k, self.place_caisse(k))
+                                          for k in range(len(CAISSE_PLACES)))
+                      if k not in self.caisse]
+            if libres:
+                d, k = min(libres)
+                if d <= PRISE_CAISSE * t:
+                    self.caisse[k] = o
+                    o["verrou"] = True
+                    o["echelle"] = CAISSE_PLACES[k][2]
+                    asm.place_a_l_ecran(o, *self.place_caisse(k))
+                    self._places_montrees()
+                    asm._redessine()
+                    if len(self.caisse) >= len(CAISSE_PLACES):
+                        self._entre("rosace")
+                    return
+        elif self.phase == "manche" and any(o is b for b in self.branches):
+            libres = [(math.hypot(ox - px, oy - py), k)
+                      for k, (px, py) in ((k, self.place_manche(k))
+                                          for k in range(len(MANCHE_PLACES)))
+                      if k not in self.manche]
+            if libres:
+                d, k = min(libres)
+                if d <= PRISE_BRANCHE * t:
+                    self.manche[k] = o
+                    o["verrou"] = True
+                    o["angle"] = ANGLE_MANCHE_GUITARE - ANGLE_BATON
+                    o["echelle"] = ECHELLE_BRANCHE
+                    asm.place_a_l_ecran(o, *self.place_manche(k))
+                    self._places_montrees()
+                    asm._redessine()
+                    if len(self.manche) >= len(MANCHE_PLACES):
+                        self._entre("cordes")
+                    return
+        self._ramene(o)
+        asm._redessine()
+
+    def creuse_a(self, x, y):
+        """Le couteau est en (x, y) : s'il tourne dans la couronne autour de
+        la rosace, il l'evide."""
+        t = self._taille()
+        rx, ry = self.rosace()
+        d = math.hypot(x - rx, y - ry) / t
+        if not (COURONNE[0] <= d <= COURONNE[1]):
+            self._angle = None          # parti de la caisse
+            return
+        a = math.atan2(y - ry, x - rx)
+        if self._angle is not None:
+            da = (a - self._angle + math.pi) % (2.0 * math.pi) - math.pi
+            # UN DEMI-TOUR D'UN COUP NE COMPTE PAS : c'est un doigt qui a
+            # saute d'un bord a l'autre, pas un couteau qui a tourne.
+            if abs(da) < math.pi / 2.0:
+                self.creuse += abs(da) / (2.0 * math.pi)
+                self.asm._redessine()
+                if self.creuse >= TOURS_ROSACE:
+                    self._entre("manche")
+                    return
+        self._angle = a
+
+    def tend_a(self, x, y):
+        """La corde est en (x, y) : partie du chevalet et arrivee sur LA
+        cheville qui clignote, une corde de plus est tendue."""
+        t = self._taille()
+        cx, cy = self.chevalet()
+        if math.hypot(x - cx, y - cy) <= PRISE_CHEVALET * t:
+            self._au_chevalet = True
+            return
+        if not self._au_chevalet:
+            return
+        k = self.visee()
+        if k is None:
+            return
+        restantes = [j for j in range(CORDES_GUITARE) if j not in self.cordes]
+        d, proche = min((math.hypot(x - self.cheville(j)[0],
+                                    y - self.cheville(j)[1]), j)
+                        for j in restantes)
+        if d > PRISE_CHEVILLE * t:
+            return
+        if proche != k:
+            # LA MAUVAISE CHEVILLE : la corde retombe, il faut repartir du
+            # chevalet. Sans cela, on pourrait balayer la tete jusqu'a
+            # tomber sur la bonne.
+            self._au_chevalet = False
+            self.asm._redessine()
+            return
+        self.cordes.append(k)
+        self._au_chevalet = False
+        self.asm._redessine()
+        if len(self.cordes) >= CORDES_GUITARE:
+            self.fini = True
+            self._annonce()
+            self.reussi()
+
+
 MINIJEUX = {
     "couteau": MiniJeuCouteau,
     "fibre": MiniJeuFibre,
@@ -1817,10 +2302,11 @@ MINIJEUX = {
     "feuille": MiniJeuFeuille,
     "corde": MiniJeuCorde,
     "hache": MiniJeuHache,
+    "guitare": MiniJeuGuitare,
 }
 
 
 __all__ = ["MiniJeuCouteau", "MiniJeuFibre", "MiniJeuFeu", "MiniJeuFeuille",
-           "MiniJeuCorde", "MiniJeuHache",
+           "MiniJeuCorde", "MiniJeuHache", "MiniJeuGuitare",
            "Fantome", "MINIJEUX", "COUCHE",
            "AMINCISSEMENTS"]

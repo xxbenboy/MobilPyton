@@ -38,6 +38,19 @@ ASSEMBLAGES = [
     # Huit pierres, posees en cercle par le mini-jeu (voir
     # minijeux.MiniJeuFeu).
     {"result": "Feu_de_camp", "objets": {"Pierre": 8}, "minijeu": "feu"},
+    # LA GUITARE : deux pierres creusees en caisse, deux branches pour le
+    # manche, et la corde detoronnee en cordes. Le COUTEAU n'est pas
+    # consomme -- c'est lui qui creuse la rosace, il y laisse un dixieme de
+    # sa solidite comme dans tout mini-jeu.
+    #
+    # QUATRE CASES PILE sur le plan a mains nues : les pierres et les
+    # branches s'empilent chacune dans la sienne (items.EMPILABLES_PLAN),
+    # la corde et le couteau prennent les deux dernieres.
+    {"result": "Guitare",
+     "objets": {"Small_Stick": 2, "Pierre": 2, "Corde": 1,
+                COUTEAU_EN_PIERRE: 1},
+     "outils": {COUTEAU_EN_PIERRE: 0.10},
+     "minijeu": "guitare"},
 ]
 
 # L'EQUIPEMENT EN FEUILLE : une seule liste d'objets pour les cinq pieces --

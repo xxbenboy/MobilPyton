@@ -144,7 +144,9 @@ GOURDE_ITEMS = {"Gourde"}
 # Les autres objets qui ne s'empilent pas (voir pile_max) : outils sans usure
 # et instruments. Les outils qui s'usent (TOOL_USES) et l'equipement
 # (EQUIP_ITEM_SLOT) s'y ajoutent d'eux-memes.
-NON_EMPILABLES = {"Allume_feu", MAP_ITEM, COMPASS_ITEM} | GOURDE_ITEMS
+GUITARE_ITEM = "Guitare"
+NON_EMPILABLES = {"Allume_feu", GUITARE_ITEM, MAP_ITEM,
+                  COMPASS_ITEM} | GOURDE_ITEMS
 
 # OUTILS A USAGE MULTIPLE : nombre d'utilisations avant de casser. Une hache
 # de pierre abat cinq arbres, un couteau taille plus longtemps qu'il ne coupe
@@ -560,6 +562,9 @@ TAILLE_EN_MAIN = {
     # Outils et armes
     "Hache": 0.65, "Marteau": 0.38, "Lance": 1.90,
     "Couteau_En_Pierre": 0.17, "Pierre_Coupante": 0.14, "Allume_feu": 0.09,
+    # Elle se tient par le MANCHE, comme un outil : son image est assez
+    # allongee pour que la main le trouve toute seule (voir player_hands).
+    GUITARE_ITEM: 1.00,
     # Bois
     "Small_Stick": 0.35, "Long_Stick": 1.20, "Loafy_Long_Stick": 1.20,
     "Branche_Feuillue": 0.80, "Buche": 0.40, "Ecorce": 0.22, "Racine": 0.28,
@@ -643,6 +648,8 @@ ITEM_NOTES = {
     "Hache": "Une tete de pierre liee a un manche. De quoi abattre un arbre.",
     "Lance": "Une pointe de pierre au bout d'une longue branche.",
     "Allume_feu": "Un silex prepare. Le meilleur moyen de partir un feu.",
+    GUITARE_ITEM: "Une caisse creusee, un manche de branches, des cordes "
+                  "tendues. Elle ne nourrit personne, et pourtant.",
     # Installations
     "Feu_de_camp": "Un cercle de pierres. Chaleur, lumiere, et de quoi cuire.",
     BLUEPRINT_T1: "Quatre piquets et une corde. De quoi marquer au sol "
