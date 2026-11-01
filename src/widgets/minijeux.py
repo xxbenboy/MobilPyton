@@ -1822,12 +1822,14 @@ class MiniJeuHache(object):
 #      l'evide ; le trou s'ouvre a mesure, et c'est lui qui dit ce qu'il
 #      reste a faire ;
 #   3. LE MANCHE : les deux branches, cote a cote, dressees sur la caisse ;
-#   4. LES CORDES : la corde se detoronne en quatre cordes, tendues du
-#      chevalet a une cheville.
+#   4. LES CORDES : la corde se detoronne en quatre cordes. On porte son
+#      bout dans l'anneau qui clignote et ON LACHE -- rien d'autre. Elle
+#      part du chevalet toute seule : le joueur n'a qu'un geste a faire, et
+#      c'est celui qu'il voit.
 #
-# L'ORDRE DES CHEVILLES EST TIRE AU HASARD a chaque fabrication. C'est ce
+# L'ORDRE DES ANNEAUX EST TIRE AU HASARD a chaque fabrication. C'est ce
 # qui empeche d'apprendre le geste par coeur : on ne peut pas enchainer de
-# memoire, il faut regarder laquelle clignote. Une guitare se corde dans
+# memoire, il faut regarder lequel clignote. Une guitare se corde dans
 # l'ordre ou on l'accorde, et ce n'est jamais tout a fait le meme.
 HAUSSE_GUITARE = -0.03
 # Les deux pierres de la caisse : (en travers, le long, echelle).
@@ -1844,19 +1846,27 @@ TOURS_ROSACE = 2.0
 MANCHE_PLACES = ((-0.09, 0.62), (0.09, 0.62))
 ANGLE_MANCHE_GUITARE = 90.0
 ECHELLE_BRANCHE = 1.15
-# Le CHEVALET (d'ou partent les cordes) et les quatre CHEVILLES de la tete.
+# Le CHEVALET (d'ou partent les cordes, dessine sur la caisse) et les
+# quatre ANNEAUX de la tete, bien ecartes.
 CHEVALET = (0.0, -0.46)
-CHEVILLES = ((-0.17, 0.96), (0.17, 0.96), (-0.17, 1.22), (0.17, 1.22))
+CHEVILLES = ((-0.22, 0.92), (0.22, 0.92), (-0.22, 1.30), (0.22, 1.30))
 CORDES_GUITARE = 4
-# Une corde est tendue quand la main part d'a moins de PRISE_CHEVALET du
-# chevalet et arrive a moins de PRISE_CHEVILLE d'une cheville -- ET QUE LA
-# PLUS PROCHE EST CELLE QUI CLIGNOTE. On ne demande pas au doigt d'etre
-# precis au pixel (une cheville fait quelques pixels de large) : on lui
-# demande de viser la bonne. Un rayon plus large que l'ecart entre deux
-# chevilles rendrait d'ailleurs l'ordre tire au hasard sans effet -- on ne
-# pourrait plus se tromper.
-PRISE_CHEVALET = 0.50
-PRISE_CHEVILLE = 0.45
+# UNE CORDE SE POSE EN LACHANT SON BOUT DANS L'ANNEAU, et c'est tout. Pas
+# de passage oblige par le chevalet : la corde y est deja attachee, on la
+# voit pendre de la main. Demander les deux -- partir d'un point invisible
+# ET arriver sur un petit anneau -- rendait ce temps-la presque
+# infaisable.
+#
+# LE RAYON EST LARGE, et ce n'est pas lui qui decide : c'est L'ANNEAU LE
+# PLUS PROCHE qui prend la corde, et il faut que ce soit celui qui
+# clignote. On ne demande donc pas au doigt d'etre precis au pixel, on lui
+# demande de viser le bon -- l'ordre tire au hasard garde tout son sens, et
+# rater devient une erreur de lecture, pas de doigte.
+PRISE_CHEVILLE = 0.75
+# L'anneau dessine : ce qu'on voit est ce qu'on peut viser (un peu moins
+# que la moitie de l'ecart entre deux anneaux, pour qu'ils ne se touchent
+# pas).
+RAYON_ANNEAU = 0.17
 PRISE_CAISSE = 0.52
 PRISE_BRANCHE = 0.34
 # Ou attendent les pierres (a gauche), la corde et le couteau (a droite),
@@ -1907,7 +1917,7 @@ class MiniJeuGuitare(object):
         self.ordre = list(range(CORDES_GUITARE))
         random.shuffle(self.ordre)
         self._angle = None          # ou en est la main autour de la rosace
-        self._au_chevalet = False   # la corde est partie du chevalet
+        self._rate = 0.0            # le temps qu'il reste a dire "pas celui-la"
         self._t = 0.0               # pour le clignotement de la cheville
         self.fantomes = []
         self._tenues = [None, None]
@@ -2005,7 +2015,7 @@ class MiniJeuGuitare(object):
     def _entre(self, phase):
         self.phase = phase
         self._angle = None
-        self._au_chevalet = False
+        self._rate = 0.0
         self._places_montrees()
         self.asm._redessine()
         self._annonce()
@@ -2079,10 +2089,11 @@ class MiniJeuGuitare(object):
             if k is None:
                 return
             depart = asm.a_l_ecran(self.corde)
+            # Droit de la corde a l'anneau : le geste est celui-la, et rien
+            # d'autre -- on ne passe plus par le chevalet.
             self.fantome.joue(1, [self.mains.paume(1), depart, depart,
-                                  self.chevalet(), self.cheville(k),
-                                  self.cheville(k)], DUREE_TENDRE,
-                              objet=self.corde)
+                                  self.cheville(k), self.cheville(k)],
+                              DUREE_TENDRE, objet=self.corde)
 
     def _annonce(self):
         if self.phase == "caisse":
@@ -2094,8 +2105,10 @@ class MiniJeuGuitare(object):
         elif self.phase == "manche":
             texte = "Dresse les deux branches en manche (%d/%d)" % (
                 len(self.manche), len(MANCHE_PLACES))
+        elif self._rate > 0.0:
+            texte = "Pas celui-la : l'anneau qui clignote"
         else:
-            texte = "Tends la corde du chevalet a la cheville (%d/%d)" % (
+            texte = "Lache le bout de la corde dans l'anneau (%d/%d)" % (
                 len(self.cordes), CORDES_GUITARE)
         if texte != self._dit:
             self._dit = texte
@@ -2139,20 +2152,34 @@ class MiniJeuGuitare(object):
         # clignotement, le joueur n'aurait aucun moyen de le deviner.
         if self.phase == "cordes":
             vise = self.visee()
+            r = RAYON_ANNEAU * t / ZOOM
             for k in range(CORDES_GUITARE):
                 if k in self.cordes:
                     continue
                 x, y = ici(*self.cheville(k))
-                r = 0.10 * t / ZOOM
                 if k == vise:
-                    a = 0.45 + 0.45 * abs(math.sin(self._t * 3.2))
+                    # CELUI QU'IL FAUT se remplit et bat : de loin, on ne
+                    # voit que lui. Un simple cercle un peu plus clair se
+                    # perdait sur le bois.
+                    a = 0.30 + 0.30 * abs(math.sin(self._t * 3.2))
                     Color(*CHEVILLE_VISEE, a)
-                    Line(circle=(x, y, r * 1.8), width=epais * 2.0)
-                Color(*CHEVILLE_VIDE)
-                Line(circle=(x, y, r), width=epais * 1.3)
-            # La corde pend de la main qui la tient jusqu'au chevalet.
+                    Ellipse(pos=(x - r, y - r), size=(r * 2, r * 2))
+                    Color(*CHEVILLE_VISEE, 0.95)
+                    Line(circle=(x, y, r), width=epais * 2.4)
+                else:
+                    Color(*CHEVILLE_VIDE)
+                    Line(circle=(x, y, r), width=epais * 1.3)
+            # LE CHEVALET, d'ou partent les cordes : sans lui, on ne
+            # comprend pas d'ou vient le fil qu'on tient.
+            bx, by = ici(*self.chevalet())
+            lg = 0.26 * t / ZOOM
+            Color(0.26, 0.17, 0.09, 0.95)
+            Line(points=[bx - lg, by, bx + lg, by], width=epais * 3.0)
+            # LA CORDE PEND DU CHEVALET JUSQU'A LA MAIN, des qu'on la
+            # tient : c'est ce fil-la qu'on voit, et il dit tout seul ce
+            # qu'il y a a faire -- porter son bout dans l'anneau.
             main = self._main_corde()
-            if main is not None and self._au_chevalet:
+            if main is not None:
                 a = ici(*self.chevalet())
                 b = asm.ou_est_porte(main)
                 Color(*OMBRE_BRIN)
@@ -2188,6 +2215,8 @@ class MiniJeuGuitare(object):
             if main is not None:
                 self.creuse_a(*asm.ou_est_porte(main))
         elif self.phase == "cordes":
+            if self._rate > 0.0:
+                self._rate = max(0.0, self._rate - dt)
             main = self._main_corde()
             if main is not None:
                 self.tend_a(*asm.ou_est_porte(main))
@@ -2200,6 +2229,14 @@ class MiniJeuGuitare(object):
         asm = self.asm
         t = self._taille()
         ox, oy = asm.a_l_ecran(o)
+        if self.phase == "cordes" and o is self.corde:
+            # LACHEE DANS L'ANNEAU : c'est LE geste du quatrieme temps.
+            self.tend_a(ox, oy, lache=True)
+            if self.fini:
+                return
+            self._ramene(o)
+            asm._redessine()
+            return
         if self.phase == "caisse" and any(o is p for p in self.pierres):
             libres = [(math.hypot(ox - px, oy - py), k)
                       for k, (px, py) in ((k, self.place_caisse(k))
@@ -2260,34 +2297,42 @@ class MiniJeuGuitare(object):
                     return
         self._angle = a
 
-    def tend_a(self, x, y):
-        """La corde est en (x, y) : partie du chevalet et arrivee sur LA
-        cheville qui clignote, une corde de plus est tendue."""
-        t = self._taille()
-        cx, cy = self.chevalet()
-        if math.hypot(x - cx, y - cy) <= PRISE_CHEVALET * t:
-            self._au_chevalet = True
-            return
-        if not self._au_chevalet:
-            return
-        k = self.visee()
-        if k is None:
-            return
+    def anneau_sous(self, x, y):
+        """L'anneau libre le plus proche de (x, y), s'il est a portee.
+
+        LE PLUS PROCHE, et non "celui dans lequel on est tombe" : les
+        anneaux se partagent la tete, et viser le bon suffit."""
         restantes = [j for j in range(CORDES_GUITARE) if j not in self.cordes]
+        if not restantes:
+            return None
         d, proche = min((math.hypot(x - self.cheville(j)[0],
                                     y - self.cheville(j)[1]), j)
                         for j in restantes)
-        if d > PRISE_CHEVILLE * t:
+        return proche if d <= PRISE_CHEVILLE * self._taille() else None
+
+    def tend_a(self, x, y, lache=False):
+        """Le bout de la corde est en (x, y). Dans l'anneau qui clignote,
+        une corde de plus est tendue.
+
+        Compte PENDANT le geste ET AU LACHER : le joueur lache son bout
+        dans l'anneau, et c'est la derniere position connue qui doit
+        compter -- entre deux images, la main a pu en sortir."""
+        k = self.visee()
+        if k is None:
+            return
+        proche = self.anneau_sous(x, y)
+        if proche is None:
+            if lache:
+                self._rate = 0.0
             return
         if proche != k:
-            # LA MAUVAISE CHEVILLE : la corde retombe, il faut repartir du
-            # chevalet. Sans cela, on pourrait balayer la tete jusqu'a
-            # tomber sur la bonne.
-            self._au_chevalet = False
-            self.asm._redessine()
+            # LE MAUVAIS ANNEAU : on le dit, sinon le joueur croit que le
+            # jeu ne repond pas.
+            self._rate = 1.6
+            self._annonce()
             return
         self.cordes.append(k)
-        self._au_chevalet = False
+        self._rate = 0.0
         self.asm._redessine()
         if len(self.cordes) >= CORDES_GUITARE:
             self.fini = True
